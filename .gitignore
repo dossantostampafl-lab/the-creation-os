@@ -1,0 +1,31 @@
+# Environment
+.env
+.env.*
+!.env.example
+
+# Python
+**pycache**/
+__pycache__/
+*.pyc
+
+# Testes
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Build
+backend/the_creation_os.egg-info/
+
+# Backups
+backup_*.sql
+
+# Logs
+*.log
+
+# Coverage
+.coverage
+coverage.xml
+
+# IDEs
+.vscode/
+.idea/

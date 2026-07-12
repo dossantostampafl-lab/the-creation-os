@@ -1,0 +1,57 @@
+[project]
+name = "the-creation-os"
+version = "0.1.0"
+description = "THE CREATION OS v0.3 Living Core backend"
+requires-python = ">=3.12,<3.15"
+dependencies = [
+  "fastapi>=0.100.0",
+  "uvicorn[standard]>=0.24.0",
+  "sqlalchemy[asyncio]>=2.0",
+  "asyncpg>=0.27.0",
+  "alembic>=1.11.0",
+  "python-jose[cryptography]>=3.1.0",
+  "passlib[bcrypt]>=1.7.0",
+  "python-dotenv>=1.0.0",
+  "pydantic>=2.6.0",
+  "redis>=5.4.0",
+  "httpx>=0.26.0",
+  "loguru>=0.7.0",
+  "psycopg[binary]>=3.2.0",
+  "pytest>=8.0.0",
+  "pytest-asyncio>=0.22.0"
+  ,"pytest-cov>=5.0.0"
+  ,"ruff>=0.6.0"
+  ,"mypy>=1.10.0"
+]
+
+[project.scripts]
+create-db = "app.db.initial:create_database"
+restore-creator = "app.admin.creator:main"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-q"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = ["integration: requires a real PostgreSQL database"]
+
+[tool.ruff]
+line-length = 140
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+check_untyped_defs = false
+warn_unused_ignores = false
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
