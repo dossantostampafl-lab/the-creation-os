@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_sovereign_creator
 from app.db.session import get_session
+from app.models.consolidation import MissionConsolidation
 from app.models.entities import Agent, Capability
+from app.repositories.consolidation import ConsolidationRepository
 from app.repositories.tree_core import TreeCoreRepository
+from app.schemas.consolidation import MissionConsolidationResponse
 from app.schemas.tree_core import (
     AgentCapabilityRequest,
     AgentCreateRequest,
@@ -19,6 +22,7 @@ from app.schemas.tree_core import (
     TreeCoreMatchRequest,
     TreeCoreMatchResponse,
 )
+from app.services.consolidation import ConsolidationService
 from app.services.tree_core import TreeCoreService
 
 router = APIRouter(tags=["tree-core"], dependencies=[Depends(get_sovereign_creator)])
@@ -26,6 +30,10 @@ router = APIRouter(tags=["tree-core"], dependencies=[Depends(get_sovereign_creat
 
 def service(session: AsyncSession = Depends(get_session)) -> TreeCoreService:
     return TreeCoreService(TreeCoreRepository(session))
+
+
+def consolidation_service(session: AsyncSession = Depends(get_session)) -> ConsolidationService:
+    return ConsolidationService(ConsolidationRepository(session))
 
 
 def capability_response(item: Capability) -> CapabilityResponse:
@@ -46,6 +54,20 @@ def agent_response(item: Agent) -> AgentResponse:
         created_at=item.created_at,
         updated_at=item.updated_at,
         enabled=item.enabled,
+    )
+
+
+def consolidation_response(item: MissionConsolidation) -> MissionConsolidationResponse:
+    return MissionConsolidationResponse(
+        id=item.id,
+        mission_id=item.mission_id,
+        status=item.status,
+        payload=item.payload_json,
+        inconsistencies=item.inconsistencies_json,
+        completeness=item.completeness_json,
+        fingerprint=item.fingerprint,
+        created_at=item.created_at,
+        updated_at=item.updated_at,
     )
 
 
@@ -108,3 +130,29 @@ async def remove_capability(agent_id: uuid.UUID, capability_id: uuid.UUID, s: Tr
 async def match_agents(body: TreeCoreMatchRequest, s: TreeCoreService = Depends(service)):
     mission, agents = await s.match(str(body.mission_id), body.required_capabilities)
     return TreeCoreMatchResponse(mission_id=mission.id, agents=[agent_response(agent) for agent in agents])
+
+
+@router.post(
+    "/tree-core/missions/{mission_id}/consolidate",
+    response_model=MissionConsolidationResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def consolidate_mission(
+    mission_id: uuid.UUID,
+    response: Response,
+    s: ConsolidationService = Depends(consolidation_service),
+):
+    item, created = await s.consolidate(str(mission_id))
+    response.status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
+    return consolidation_response(item)
+
+
+@router.get(
+    "/tree-core/missions/{mission_id}/consolidation",
+    response_model=MissionConsolidationResponse,
+)
+async def get_mission_consolidation(
+    mission_id: uuid.UUID,
+    s: ConsolidationService = Depends(consolidation_service),
+):
+    return consolidation_response(await s.get(str(mission_id)))
