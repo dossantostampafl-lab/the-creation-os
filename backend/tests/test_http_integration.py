@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-import os
 import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from db_safety import create_isolated_test_engine
 from httpx import ASGITransport, AsyncClient
 from jose import jwt
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
 from app.db.session import get_session
@@ -26,7 +26,7 @@ def token(subject: str, kind: str = "access") -> str:
 
 @pytest.fixture
 async def http_database():
-    engine = create_async_engine(os.environ["DATABASE_URL"])
+    engine = create_isolated_test_engine()
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with engine.begin() as connection:
         await connection.execute(text("TRUNCATE chronicles, mission_plans, missions, inceptions, messages, conversations, creator RESTART IDENTITY CASCADE"))

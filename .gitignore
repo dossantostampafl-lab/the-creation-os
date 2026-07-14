@@ -24,6 +24,8 @@ backup_*.sql
 
 # Coverage
 .coverage
+.coverage.*
+.covpart*
 coverage.xml
 
 # IDEs

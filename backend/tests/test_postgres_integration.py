@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import uuid
 
 import pytest
+from db_safety import create_isolated_test_engine
 from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.core.domain import Actor, InceptionStatus, InvalidOrigin, InvalidStateTransition, MissionStatus
 from app.models.entities import Chronicle, Conversation, Creator, Inception, Message, Mission
@@ -15,12 +15,11 @@ from app.repositories.domain import DomainRepository
 from app.services.domain import LivingCoreService
 
 pytestmark = pytest.mark.integration
-DATABASE_URL = os.environ["DATABASE_URL"]
 
 
 @pytest.fixture
 async def database():
-    engine = create_async_engine(DATABASE_URL)
+    engine = create_isolated_test_engine()
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with engine.begin() as connection:
         await connection.execute(text("TRUNCATE chronicles, mission_plans, missions, inceptions, messages, conversations, creator RESTART IDENTITY CASCADE"))

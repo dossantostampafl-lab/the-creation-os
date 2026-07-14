@@ -68,3 +68,45 @@ curl -X POST http://localhost:8000/api/v1/auth/login \
 cd backend
 pytest
 ```
+
+## v0.4.1 - Tree Core Foundation
+
+O Tree Core possui agora um Agent Registry persistente e um Capability Engine.
+Capabilities sao entidades normalizadas e relacionadas a agentes por uma tabela
+N:N. O mecanismo de match aceita somente Missions autorizadas e retorna agentes
+idle, habilitados, com heartbeat valido e todas as capabilities solicitadas,
+ordenados por prioridade.
+
+Esta versao nao implementa Dispatch, Execution, Aggregation nem Malkuth. O Tree
+Core seleciona agentes, mas nunca inicia ou manifesta uma Mission.
+
+## v0.4.2 - Mission Planner e Task Graph
+
+Mission e o objetivo estrategico. O planner deterministico produz Tasks, e o
+Dependency Graph valida um DAG com ordenacao topologica. Dispatch, execucao,
+Result Aggregator, Pulse e Malkuth continuam fora do escopo.
+
+## v0.4.3 - Dispatch Queue Foundation
+
+A fila persistente oferece enqueue estrutural, lease transacional, renovacao,
+acknowledge logico, release, retry exponencial, dead-letter e cancelamento. Ela
+nao executa agentes, Tasks ou Missions.
+
+## v0.4.4 - Agent Dispatcher Protocol
+
+**STATUS: FROZEN**
+
+A v0.4.4 foi encerrada após auditoria final. Nenhuma alteração funcional deve
+ser incorporada a esta versão. Consulte `docs/V044_FINAL_AUDIT.md`.
+
+O protocolo adiciona Worker Registry persistente, capabilities normalizadas,
+heartbeat, autenticação por credencial opaca, claim com Execution Envelope e as
+operações acknowledge, release, fail e shutdown. Nenhum Agent, Task ou Mission
+é executado por esta camada.
+
+## v0.4.5 - Agents: Controlled Task Execution
+
+Agents execute only authorized Tasks through deterministic, internally registered
+handlers. Results are persisted and returned to Tree Core. Agents do not create
+or authorize Missions and never manifest results. No new architectural layer was
+introduced.
