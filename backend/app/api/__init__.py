@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 
+from app.api.central_core import router as central_core_router
 from app.api.dispatch import router as dispatch_router
 from app.api.execution import router as execution_router
 from app.api.health import router as health_router
@@ -16,3 +17,4 @@ router.include_router(dispatch_router)
 router.include_router(planner_router)
 router.include_router(workers_router)
 router.include_router(execution_router)
+router.include_router(central_core_router)
