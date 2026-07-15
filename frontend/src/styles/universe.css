@@ -121,8 +121,8 @@ input {
 }
 
 .brand-geometry {
-  width: 72px;
-  height: 72px;
+  width: 52px;
+  height: 52px;
   color: #d99a25;
 }
 
@@ -130,9 +130,9 @@ input {
   position: absolute;
   z-index: 9;
   left: 50%;
-  top: 39%;
-  width: 260px;
-  height: 300px;
+  top: 38%;
+  width: 220px;
+  height: 252px;
   transform: translate(-50%, -50%);
   display: grid;
   justify-items: center;
@@ -142,27 +142,27 @@ input {
 
 .god-title {
   display: grid;
-  gap: 4px;
-  margin-bottom: 6px;
-  letter-spacing: 0.4em;
+  gap: 3px;
+  margin-bottom: 4px;
+  letter-spacing: 0.34em;
 }
 
 .god-title strong {
   color: #ffd166;
-  font-size: 28px;
+  font-size: 24px;
   font-weight: 500;
 }
 
 .god-title span {
   color: #ffc454;
-  font-size: 14px;
-  letter-spacing: 0.32em;
+  font-size: 12px;
+  letter-spacing: 0.28em;
 }
 
 .god-sphere {
   position: relative;
-  width: 180px;
-  height: 180px;
+  width: 150px;
+  height: 150px;
   display: grid;
   place-items: center;
   border-radius: 50%;
@@ -176,8 +176,8 @@ input {
 
 .god-geometry {
   position: absolute;
-  width: 172px;
-  height: 172px;
+  width: 144px;
+  height: 144px;
   color: rgba(255, 235, 176, 0.92);
   filter: drop-shadow(0 0 8px rgba(255, 196, 84, 0.72));
 }
@@ -193,7 +193,7 @@ input {
 
 .god-rays {
   position: absolute;
-  inset: -36px;
+  inset: -30px;
   border-radius: 50%;
   background:
     linear-gradient(90deg, transparent 47%, rgba(255, 196, 84, 0.7) 50%, transparent 53%),
@@ -203,9 +203,9 @@ input {
 .god-caption {
   display: grid;
   gap: 4px;
-  margin-top: 8px;
+  margin-top: 6px;
   color: #f1e5d0;
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .god-caption em {
@@ -225,13 +225,13 @@ input {
 }
 
 .sophia-node {
-  left: 30.4%;
-  top: 28%;
+  left: 31.5%;
+  top: 29%;
 }
 
 .rockmam-node {
-  left: 62.8%;
-  top: 29%;
+  left: 63.2%;
+  top: 30%;
 }
 
 .node-symbol {
@@ -284,8 +284,8 @@ input {
 .universe-galaxy {
   position: absolute;
   z-index: 6;
-  width: 280px;
-  min-height: 180px;
+  width: 300px;
+  min-height: 166px;
   transform: translate(-50%, -50%);
   color: var(--galaxy-soft);
   text-shadow: 0 2px 14px #000;
@@ -296,14 +296,16 @@ input {
 .universe-galaxy.community,
 .universe-galaxy.infrastructure {
   display: grid;
-  grid-template-columns: 128px 1fr;
+  grid-template-columns: 126px 1fr;
+  column-gap: 28px;
   align-items: center;
 }
 
 .universe-galaxy.knowledge,
 .universe-galaxy.evolution {
   display: grid;
-  grid-template-columns: 1fr 142px;
+  grid-template-columns: 1fr 136px;
+  column-gap: 30px;
   align-items: center;
 }
 
@@ -336,7 +338,7 @@ input {
 
 .knowledge .galaxy-icon,
 .evolution .galaxy-icon {
-  left: -18px;
+  left: -58px;
   top: 56px;
 }
 
@@ -344,14 +346,14 @@ input {
 .security .galaxy-icon,
 .community .galaxy-icon,
 .infrastructure .galaxy-icon {
-  right: 8px;
+  right: -28px;
   top: 58px;
 }
 
 .spiral-disk {
   position: relative;
-  width: 150px;
-  height: 105px;
+  width: 136px;
+  height: 96px;
   border-radius: 50%;
   background:
     repeating-radial-gradient(ellipse at center, transparent 0 8px, color-mix(in srgb, var(--galaxy-color), transparent 62%) 9px 10px),
@@ -386,8 +388,8 @@ input {
   position: absolute;
   z-index: 8;
   left: 50%;
-  bottom: 102px;
-  width: 240px;
+  bottom: 78px;
+  width: 220px;
   transform: translateX(-50%);
   text-align: center;
   color: #ffd166;
@@ -396,8 +398,8 @@ input {
 
 .malkuth-galaxy {
   position: relative;
-  width: 172px;
-  height: 48px;
+  width: 150px;
+  height: 40px;
   margin: 0 auto 4px;
   border-radius: 50%;
   background:

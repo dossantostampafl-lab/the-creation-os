@@ -112,11 +112,17 @@
   }
 
   .universe-galaxy {
+    transform: translate(-50%, -50%) scale(0.84);
+  }
+
+  .god-core {
+    top: 34.5%;
     transform: translate(-50%, -50%) scale(0.9);
   }
 
   .operational-flow {
-    transform: translateX(-50%) scale(0.45);
+    top: 47.5%;
+    transform: translateX(-50%) scale(0.52);
     transform-origin: top center;
   }
 
@@ -124,18 +130,22 @@
     top: 66% !important;
   }
 
+  .universe-galaxy.security {
+    top: 41% !important;
+  }
+
   .god-chat {
-    width: 360px;
-    bottom: 102px;
+    width: 330px;
+    bottom: 82px;
   }
 
   .exact-chronicle {
-    height: 78px;
-    grid-template-columns: 200px 110px 1fr 90px;
+    height: 58px;
+    grid-template-columns: 190px 104px 1fr 82px;
   }
 
   .chronicle-events article {
-    min-width: 148px;
+    min-width: 132px;
   }
 }
 
