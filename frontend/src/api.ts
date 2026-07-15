@@ -1,4 +1,15 @@
-import type { Agent, Conversation, GodResponse, Inception, Mission, TokenResponse, TrinityResponse } from "./types";
+import type {
+  Agent,
+  ChronicleEntry,
+  Conversation,
+  GodResponse,
+  Inception,
+  Mission,
+  Pulse,
+  TokenResponse,
+  TrinityResponse,
+  Universe,
+} from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000/api/v1";
 
@@ -82,7 +93,15 @@ export const api = {
     return request<Agent[]>("/agents", undefined, token);
   },
 
-  live() {
-    return request<{ status: string }>("/health/live");
+  listUniverses(token: string) {
+    return request<Universe[]>("/universes", undefined, token);
+  },
+
+  listChronicles(token: string) {
+    return request<ChronicleEntry[]>("/chronicles?limit=18", undefined, token);
+  },
+
+  pulse(token: string) {
+    return request<Pulse>("/pulse", undefined, token);
   },
 };

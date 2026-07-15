@@ -12,11 +12,33 @@ import {
   User,
 } from "lucide-react";
 import { api, ApiError } from "./api";
-import { fallbackAgents, mockChronicle, mockPulse, mockUniverses } from "./mockData";
-import type { Agent, ChatItem, Conversation, Inception, Mission } from "./types";
+import type { Agent, ChatItem, ChronicleEntry, Conversation, Inception, Mission, Pulse, Universe } from "./types";
 
-function universeFor(agent: Agent, index: number) {
-  return agent.universe ?? agent.universe_name ?? mockUniverses[index % mockUniverses.length].name;
+type LoadState = "idle" | "loading" | "ready" | "empty" | "error";
+
+const REFRESH_INTERVAL_MS = 15000;
+
+function normalizeStatus(value: string) {
+  return value.toLowerCase();
+}
+
+function pendingInception(item: Inception) {
+  return !["approved", "rejected", "cancelled"].includes(normalizeStatus(item.status));
+}
+
+function positionFor(index: number, total: number) {
+  const safeTotal = Math.max(total, 1);
+  const angle = (index / safeTotal) * Math.PI * 2 - Math.PI / 2;
+  const radiusX = 31 + (index % 2) * 7;
+  const radiusY = 24 + (index % 3) * 5;
+  return {
+    x: 50 + Math.cos(angle) * radiusX,
+    y: 50 + Math.sin(angle) * radiusY,
+  };
+}
+
+function universeLabel(agent: Agent) {
+  return agent.universe || "unassigned";
 }
 
 export function App() {
@@ -30,36 +52,84 @@ export function App() {
   const [message, setMessage] = useState("");
   const [inceptions, setInceptions] = useState<Inception[]>([]);
   const [missions, setMissions] = useState<Mission[]>([]);
-  const [agents, setAgents] = useState<Agent[]>(fallbackAgents);
-  const [pulse, setPulse] = useState("offline");
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [universes, setUniverses] = useState<Universe[]>([]);
+  const [chronicles, setChronicles] = useState<ChronicleEntry[]>([]);
+  const [pulse, setPulse] = useState<Pulse | null>(null);
+  const [loadState, setLoadState] = useState<LoadState>("idle");
+  const [dataError, setDataError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const authenticated = Boolean(token);
-  const activeAgents = useMemo(() => agents.filter((agent) => agent.active !== false && agent.enabled !== false), [agents]);
-  const pendingInceptions = inceptions.filter((item) => !["approved", "rejected", "cancelled"].includes(item.status));
+  const activeAgents = useMemo(() => agents.filter((agent) => agent.enabled), [agents]);
+  const pendingInceptions = inceptions.filter(pendingInception);
+  const visibleUniverses = useMemo(() => {
+    if (universes.length > 0) return universes;
+    const names = Array.from(new Set(agents.map((agent) => universeLabel(agent)))).filter(Boolean);
+    return names.map((name) => ({
+      id: `derived-${name}`,
+      code: name,
+      name,
+      active: true,
+      created_at: "",
+    }));
+  }, [agents, universes]);
 
   useEffect(() => {
-    api
-      .live()
-      .then((value) => setPulse(value.status))
-      .catch(() => setPulse(mockPulse.status));
-  }, []);
-
-  useEffect(() => {
-    if (!token) return;
-    void refreshWorkspace(token);
+    if (!token) {
+      setLoadState("idle");
+      return undefined;
+    }
+    void refreshWorkspace(token, true);
+    const interval = window.setInterval(() => {
+      void refreshWorkspace(token, false);
+    }, REFRESH_INTERVAL_MS);
+    return () => window.clearInterval(interval);
   }, [token]);
 
-  async function refreshWorkspace(accessToken: string) {
-    const [loadedInceptions, loadedMissions, loadedAgents] = await Promise.allSettled([
-      api.listInceptions(accessToken),
-      api.listMissions(accessToken),
-      api.listAgents(accessToken),
-    ]);
+  async function refreshWorkspace(accessToken: string, showLoading: boolean) {
+    if (showLoading) setLoadState("loading");
+    setDataError(null);
+    const [loadedInceptions, loadedMissions, loadedAgents, loadedUniverses, loadedChronicles, loadedPulse] =
+      await Promise.allSettled([
+        api.listInceptions(accessToken),
+        api.listMissions(accessToken),
+        api.listAgents(accessToken),
+        api.listUniverses(accessToken),
+        api.listChronicles(accessToken),
+        api.pulse(accessToken),
+      ]);
+
+    const failures = [loadedInceptions, loadedMissions, loadedAgents, loadedUniverses, loadedChronicles, loadedPulse].filter(
+      (result) => result.status === "rejected",
+    );
+
     if (loadedInceptions.status === "fulfilled") setInceptions(loadedInceptions.value);
     if (loadedMissions.status === "fulfilled") setMissions(loadedMissions.value);
-    if (loadedAgents.status === "fulfilled" && loadedAgents.value.length > 0) setAgents(loadedAgents.value);
+    if (loadedAgents.status === "fulfilled") setAgents(loadedAgents.value);
+    if (loadedUniverses.status === "fulfilled") setUniverses(loadedUniverses.value);
+    if (loadedChronicles.status === "fulfilled") setChronicles(loadedChronicles.value);
+    if (loadedPulse.status === "fulfilled") setPulse(loadedPulse.value);
+
+    if (failures.length > 0) {
+      setLoadState("error");
+      setDataError("Some real backend data could not be loaded.");
+      return;
+    }
+
+    const hasData =
+      loadedInceptions.status === "fulfilled" &&
+      loadedMissions.status === "fulfilled" &&
+      loadedAgents.status === "fulfilled" &&
+      loadedUniverses.status === "fulfilled" &&
+      loadedChronicles.status === "fulfilled" &&
+      (loadedInceptions.value.length > 0 ||
+        loadedMissions.value.length > 0 ||
+        loadedAgents.value.length > 0 ||
+        loadedUniverses.value.length > 0 ||
+        loadedChronicles.value.length > 0);
+    setLoadState(hasData ? "ready" : "empty");
   }
 
   async function handleLogin(event: FormEvent) {
@@ -118,7 +188,7 @@ export function App() {
           },
         ]);
       }
-      await refreshWorkspace(token);
+      await refreshWorkspace(token, false);
     } catch (error) {
       setChat((items) => [
         ...items,
@@ -138,6 +208,12 @@ export function App() {
     localStorage.removeItem("creator-token");
     setToken(null);
     setConversation(null);
+    setInceptions([]);
+    setMissions([]);
+    setAgents([]);
+    setUniverses([]);
+    setChronicles([]);
+    setPulse(null);
   }
 
   return (
@@ -185,12 +261,15 @@ export function App() {
       <section className="main-stage">
         <header className="pulse-bar">
           <div>
-            <span className="pulse-dot" />
-            Pulse: {pulse}
+            <span className={`pulse-dot ${pulse?.status === "degraded" || loadState === "error" ? "degraded" : ""}`} />
+            Pulse: {pulse?.status ?? (authenticated ? loadState : "locked")}
           </div>
-          <div>Backend: {api.baseUrl}</div>
-          <div>Mock telemetry: Chronicle, Pulse details, Universe map</div>
+          <div>Agents: {pulse?.active_agents ?? activeAgents.length}</div>
+          <div>Chronicle: {pulse?.chronicles_chain.valid === false ? "invalid" : "verified"}</div>
+          <div>Refresh: {REFRESH_INTERVAL_MS / 1000}s</div>
         </header>
+
+        {dataError && <div className="data-banner">{dataError}</div>}
 
         <section className="stage-grid">
           <section className="god-chat">
@@ -221,33 +300,48 @@ export function App() {
 
           <section className="universe-map">
             <div className="milky-way" />
-            {mockUniverses.map((universe) => (
-              <div key={universe.id} className="constellation" style={{ left: `${universe.x}%`, top: `${universe.y}%` }}>
-                <span />
-                <strong>{universe.name}</strong>
-              </div>
-            ))}
-            {activeAgents.map((agent, index) => (
-              <div
-                key={agent.id}
-                className="agent-star"
-                style={{
-                  left: `${18 + ((index * 17) % 64)}%`,
-                  top: `${30 + ((index * 23) % 42)}%`,
-                }}
-                title={`${agent.name} / ${universeFor(agent, index)}`}
-              >
-                <i />
-                <span>{agent.name}</span>
-              </div>
-            ))}
+            {loadState === "loading" && <p className="map-state">Loading real universes and agents...</p>}
+            {loadState !== "loading" && visibleUniverses.length === 0 && (
+              <p className="map-state">No Universes or Agents returned by the backend.</p>
+            )}
+            {visibleUniverses.map((universe, index) => {
+              const position = positionFor(index, visibleUniverses.length);
+              return (
+                <div key={universe.id} className="constellation" style={{ left: `${position.x}%`, top: `${position.y}%` }}>
+                  <span />
+                  <strong>{universe.name}</strong>
+                </div>
+              );
+            })}
+            {activeAgents.map((agent, index) => {
+              const universeIndex = Math.max(
+                visibleUniverses.findIndex((universe) => universe.code === agent.universe || universe.name === agent.universe),
+                0,
+              );
+              const base = positionFor(universeIndex + index / Math.max(activeAgents.length, 1), Math.max(visibleUniverses.length, 1));
+              return (
+                <div
+                  key={agent.id}
+                  className="agent-star"
+                  style={{
+                    left: `${base.x + ((index % 3) - 1) * 6}%`,
+                    top: `${base.y + ((index % 2) - 0.5) * 8}%`,
+                  }}
+                  title={`${agent.name} / ${universeLabel(agent)} / ${agent.status}`}
+                >
+                  <i />
+                  <span>{agent.name}</span>
+                </div>
+              );
+            })}
           </section>
 
           <aside className="right-column">
             <section className="compact-panel">
               <div className="section-title">Pending Inceptions</div>
-              {pendingInceptions.length === 0 ? (
-                <p className="quiet">No pending Inceptions from API.</p>
+              {loadState === "loading" ? <p className="quiet">Loading Inceptions...</p> : null}
+              {loadState !== "loading" && pendingInceptions.length === 0 ? (
+                <p className="quiet">No pending Inceptions returned by the backend.</p>
               ) : (
                 pendingInceptions.slice(0, 4).map((item) => (
                   <article key={item.id} className="list-item">
@@ -259,8 +353,9 @@ export function App() {
             </section>
             <section className="compact-panel">
               <div className="section-title">Missions</div>
-              {missions.length === 0 ? (
-                <p className="quiet">No Missions from API.</p>
+              {loadState === "loading" ? <p className="quiet">Loading Missions...</p> : null}
+              {loadState !== "loading" && missions.length === 0 ? (
+                <p className="quiet">No Missions returned by the backend.</p>
               ) : (
                 missions.slice(0, 4).map((item) => (
                   <article key={item.id} className="list-item">
@@ -274,9 +369,11 @@ export function App() {
         </section>
 
         <footer className="chronicle-strip">
-          {mockChronicle.map((entry) => (
-            <span key={entry.label}>
-              <strong>{entry.label}</strong> {entry.text} {entry.mock ? "(mock)" : ""}
+          {loadState === "loading" ? <span>Loading Chronicle...</span> : null}
+          {loadState !== "loading" && chronicles.length === 0 ? <span>No Chronicle entries returned by the backend.</span> : null}
+          {chronicles.map((entry) => (
+            <span key={entry.id}>
+              <strong>#{entry.position} {entry.actor_role}</strong> {entry.event_type} / {entry.aggregate_type}
             </span>
           ))}
         </footer>

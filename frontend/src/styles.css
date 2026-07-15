@@ -148,6 +148,21 @@ input {
   box-shadow: 0 0 18px #70ffbd;
 }
 
+.pulse-dot.degraded {
+  background: #ffd36f;
+  box-shadow: 0 0 18px #ffd36f;
+}
+
+.data-banner {
+  margin: 10px 18px 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 211, 111, 0.34);
+  border-radius: 8px;
+  color: #ffe2a1;
+  background: rgba(82, 55, 8, 0.34);
+  font-size: 13px;
+}
+
 .stage-grid {
   min-height: 0;
   display: grid;
@@ -245,6 +260,22 @@ input {
     radial-gradient(ellipse at center, rgba(217, 241, 255, 0.2), transparent 9%),
     radial-gradient(ellipse at 48% 50%, rgba(98, 168, 255, 0.13), transparent 36%),
     #02050a;
+}
+
+.map-state {
+  position: absolute;
+  z-index: 2;
+  left: 50%;
+  top: 50%;
+  width: min(72%, 360px);
+  margin: 0;
+  padding: 12px 14px;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(151, 210, 255, 0.16);
+  border-radius: 8px;
+  color: #bcd8e7;
+  background: rgba(2, 7, 12, 0.72);
+  text-align: center;
 }
 
 .milky-way {
