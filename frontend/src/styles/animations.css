@@ -116,8 +116,26 @@
   }
 
   .operational-flow {
-    transform: translateX(-50%) scale(0.88);
+    transform: translateX(-50%) scale(0.45);
     transform-origin: top center;
+  }
+
+  .universe-galaxy.infrastructure {
+    top: 66% !important;
+  }
+
+  .god-chat {
+    width: 360px;
+    bottom: 102px;
+  }
+
+  .exact-chronicle {
+    height: 78px;
+    grid-template-columns: 200px 110px 1fr 90px;
+  }
+
+  .chronicle-events article {
+    min-width: 148px;
   }
 }
 

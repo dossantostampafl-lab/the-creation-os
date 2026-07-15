@@ -193,7 +193,7 @@
   left: 50%;
   top: 47%;
   width: 470px;
-  transform: translateX(-50%) scale(0.82);
+  transform: translateX(-50%) scale(0.68);
   transform-origin: top center;
   display: grid;
   justify-items: center;
@@ -325,8 +325,8 @@
   position: absolute;
   z-index: 24;
   right: 18px;
-  bottom: 105px;
-  width: 420px;
+  bottom: 108px;
+  width: 395px;
   height: 58px;
   display: grid;
   grid-template-columns: 1fr 48px;
@@ -374,7 +374,7 @@
   z-index: 30;
   left: 14px;
   right: 14px;
-  bottom: 14px;
+  bottom: 12px;
   height: 85px;
   display: grid;
   grid-template-columns: 230px 120px 1fr 110px;

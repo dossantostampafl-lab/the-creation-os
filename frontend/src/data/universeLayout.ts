@@ -83,7 +83,7 @@ export const universeLayout: UniverseVisual[] = [
     agents: 2,
     description: "Sustenta, escala\ne mantém o sistema.",
     left: 77,
-    top: 77,
+    top: 72,
     color: "#f0a435",
     colorSoft: "#ffd071",
     icon: "box",
