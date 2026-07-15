@@ -18,6 +18,10 @@ backend/the_creation_os.egg-info/
 
 # Backups
 backup_*.sql
+backups/**/*.sql
+backups/**/*.dump
+backups/**/*.backup
+!backups/BACKUPS.md
 
 # Logs
 *.log
