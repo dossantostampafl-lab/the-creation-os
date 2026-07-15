@@ -7,6 +7,7 @@ from app.api.health import router as health_router
 from app.api.living_core import router as living_core_router
 from app.api.malkuth import router as malkuth_router
 from app.api.planner import router as planner_router
+from app.api.rockmam import router as rockmam_router
 from app.api.sophia import router as sophia_router
 from app.api.tree_core import router as tree_core_router
 from app.api.workers import router as workers_router
@@ -22,3 +23,4 @@ router.include_router(execution_router)
 router.include_router(central_core_router)
 router.include_router(malkuth_router)
 router.include_router(sophia_router)
+router.include_router(rockmam_router)
