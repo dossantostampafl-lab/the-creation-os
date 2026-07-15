@@ -1,0 +1,169 @@
+.pulse-center path {
+  stroke-dasharray: 280;
+  animation: pulseTrace 4s ease-in-out infinite;
+}
+
+.god-sphere {
+  animation: godPulse 5.2s ease-in-out infinite;
+}
+
+.god-geometry {
+  animation: slowSpin 38s linear infinite;
+}
+
+.god-rays {
+  animation: slowSpin 24s linear infinite;
+}
+
+.spiral-disk {
+  animation: galaxySpin 34s linear infinite;
+}
+
+.universe-galaxy:nth-of-type(odd) .spiral-disk {
+  animation-direction: reverse;
+}
+
+.energy-line,
+.orbit-line {
+  animation: energyFlow 8s linear infinite;
+}
+
+.agent-orb,
+.node-symbol,
+.malkuth-galaxy {
+  animation: softPulse 4.8s ease-in-out infinite;
+}
+
+.chronicle-events article {
+  animation: chronicleEnter 700ms ease both;
+}
+
+@keyframes pulseTrace {
+  0%,
+  100% {
+    stroke-dashoffset: 0;
+  }
+  50% {
+    stroke-dashoffset: 90;
+  }
+}
+
+@keyframes godPulse {
+  0%,
+  100% {
+    transform: scale(0.97);
+  }
+  50% {
+    transform: scale(1.04);
+  }
+}
+
+@keyframes slowSpin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes galaxySpin {
+  from {
+    transform: rotate(-8deg);
+  }
+  to {
+    transform: rotate(352deg);
+  }
+}
+
+@keyframes energyFlow {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: -80;
+  }
+}
+
+@keyframes softPulse {
+  0%,
+  100% {
+    filter: brightness(0.94);
+  }
+  50% {
+    filter: brightness(1.22);
+  }
+}
+
+@keyframes chronicleEnter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 1366px) {
+  .creator-interface-exact {
+    font-size: 92%;
+  }
+
+  .universe-galaxy {
+    transform: translate(-50%, -50%) scale(0.9);
+  }
+
+  .operational-flow {
+    transform: translateX(-50%) scale(0.88);
+    transform-origin: top center;
+  }
+}
+
+@media (min-width: 1800px) {
+  .universe-galaxy {
+    transform: translate(-50%, -50%) scale(1.08);
+  }
+}
+
+@media (max-width: 900px) {
+  .brand-mark strong,
+  .trinity-node p,
+  .universe-galaxy p,
+  .pulse-center em {
+    display: none;
+  }
+
+  .exact-header {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+
+  .pulse-center,
+  .creator-status {
+    display: none;
+  }
+
+  .god-core {
+    top: 39%;
+    transform: translate(-50%, -50%) scale(0.84);
+  }
+
+  .universe-galaxy {
+    transform: translate(-50%, -50%) scale(0.72);
+  }
+
+  .operational-flow {
+    transform: translateX(-50%) scale(0.7);
+  }
+
+  .inception-panel {
+    display: none;
+  }
+
+  .god-chat {
+    left: 18px;
+    width: auto;
+  }
+}

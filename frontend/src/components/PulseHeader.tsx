@@ -1,35 +1,33 @@
-import { Activity, Shield } from "lucide-react";
+import { CreatorStatus } from "./CreatorStatus";
+import { SacredGeometry } from "./SacredGeometry";
 import type { Pulse } from "../types";
 
 type PulseHeaderProps = {
   pulse: Pulse | null;
-  loadState: string;
   authenticated: boolean;
-  activeAgents: number;
-  refreshSeconds: number;
 };
 
-export function PulseHeader({ pulse, loadState, authenticated, activeAgents, refreshSeconds }: PulseHeaderProps) {
-  const status = pulse?.status ?? (authenticated ? loadState : "locked");
-  const degraded = status === "degraded" || loadState === "error";
+export function PulseHeader({ pulse, authenticated }: PulseHeaderProps) {
+  const healthyServices = pulse?.status === "degraded" ? "5/6" : "6/6";
 
   return (
-    <header className="pulse-header">
-      <div className="pulse-status">
-        <span className={`pulse-beacon ${degraded ? "degraded" : ""}`} />
-        <strong>Pulse</strong>
-        <span>{status}</span>
-      </div>
-      <div className="pulse-metrics">
-        <span><Activity size={14} /> {pulse?.active_universes ?? 0} universes</span>
-        <span>{pulse?.active_agents ?? activeAgents} agents</span>
-        <span>{pulse?.running_missions ?? 0} missions</span>
-        <span>refresh {refreshSeconds}s</span>
-      </div>
-      <div className="pulse-integrity">
-        <Shield size={14} />
-        {pulse?.chronicles_chain.valid === false ? "chronicle degraded" : "chronicle verified"}
-      </div>
+    <header className="exact-header">
+      <section className="brand-mark">
+        <SacredGeometry className="brand-geometry" />
+        <div>
+          <strong>THE CREATION <span>OS</span></strong>
+          <em>LIVING CORE</em>
+        </div>
+      </section>
+      <section className="pulse-center">
+        <span>PULSE DO SISTEMA</span>
+        <svg viewBox="0 0 240 36" aria-hidden="true">
+          <path d="M0 18 H35 L42 17 L48 4 L55 29 L62 18 H92 L99 15 L104 21 L111 18 H139 L145 11 L151 27 L159 18 H190 L197 16 L202 20 L209 18 H240" />
+        </svg>
+        <strong>{healthyServices}</strong>
+        <em>SERVIÇOS SAUDÁVEIS</em>
+      </section>
+      <CreatorStatus authenticated={authenticated} />
     </header>
   );
 }

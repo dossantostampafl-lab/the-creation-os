@@ -1,10 +1,11 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { api, ApiError } from "./api";
 import { ChronicleRibbon } from "./components/ChronicleRibbon";
-import { CosmicSystem } from "./components/CosmicSystem";
-import { GodDock } from "./components/GodDock";
-import { Needles } from "./components/Needles";
+import { GodChat } from "./components/GodChat";
+import { InceptionPanel } from "./components/InceptionPanel";
+import { LivingUniverse } from "./components/LivingUniverse";
 import { PulseHeader } from "./components/PulseHeader";
+import { demoChronicles, demoInceptions, demoMissions } from "./data/universeLayout";
 import type { Agent, ChatItem, ChronicleEntry, Conversation, Inception, Mission, Pulse, Universe } from "./types";
 
 type LoadState = "idle" | "loading" | "ready" | "empty" | "error";
@@ -20,7 +21,7 @@ function pendingInception(item: Inception) {
 }
 
 export function App() {
-  const [username, setUsername] = useState("creator");
+  const [username] = useState("creator");
   const [password, setPassword] = useState("");
   const [token, setToken] = useState<string | null>(localStorage.getItem("creator-token"));
   const [conversation, setConversation] = useState<Conversation | null>(null);
@@ -35,13 +36,14 @@ export function App() {
   const [chronicles, setChronicles] = useState<ChronicleEntry[]>([]);
   const [pulse, setPulse] = useState<Pulse | null>(null);
   const [loadState, setLoadState] = useState<LoadState>("idle");
-  const [dataError, setDataError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const authenticated = Boolean(token);
   const activeAgents = useMemo(() => agents.filter((agent) => agent.enabled), [agents]);
-  const pendingInceptions = inceptions.filter(pendingInception);
+  const visibleInceptions = inceptions.filter(pendingInception);
+  const panelInceptions = visibleInceptions.length > 0 ? visibleInceptions : demoInceptions;
+  const ribbonChronicles = chronicles.length > 0 ? chronicles : demoChronicles;
+  const visibleMissions = missions.length > 0 ? missions : demoMissions;
 
   useEffect(() => {
     if (!token) {
@@ -57,7 +59,6 @@ export function App() {
 
   async function refreshWorkspace(accessToken: string, showLoading: boolean) {
     if (showLoading) setLoadState("loading");
-    setDataError(null);
     const [loadedInceptions, loadedMissions, loadedAgents, loadedUniverses, loadedChronicles, loadedPulse] =
       await Promise.allSettled([
         api.listInceptions(accessToken),
@@ -81,7 +82,6 @@ export function App() {
 
     if (failures.length > 0) {
       setLoadState("error");
-      setDataError("Some real backend data could not be loaded.");
       return;
     }
 
@@ -102,14 +102,11 @@ export function App() {
   async function handleLogin(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
-    setNotice(null);
     try {
       const result = await api.login(username, password);
       localStorage.setItem("creator-token", result.access_token);
       setToken(result.access_token);
-      setNotice("Creator authenticated");
-    } catch (error) {
-      setNotice(error instanceof ApiError ? error.message : "Authentication failed");
+      setPassword("");
     } finally {
       setBusy(false);
     }
@@ -171,45 +168,22 @@ export function App() {
     }
   }
 
-  function logout() {
-    localStorage.removeItem("creator-token");
-    setToken(null);
-    setConversation(null);
-    setInceptions([]);
-    setMissions([]);
-    setAgents([]);
-    setUniverses([]);
-    setChronicles([]);
-    setPulse(null);
-  }
-
   return (
-    <main className="creation-universe">
-      <PulseHeader
-        pulse={pulse}
-        loadState={loadState}
-        authenticated={authenticated}
-        activeAgents={activeAgents.length}
-        refreshSeconds={REFRESH_INTERVAL_MS / 1000}
-      />
-      <CosmicSystem agents={activeAgents} universes={universes} loadState={loadState} />
-      <Needles inceptions={pendingInceptions} missions={missions} loadState={loadState} dataError={dataError} />
-      <GodDock
+    <main className="creator-interface-exact" data-load-state={loadState} data-missions={visibleMissions.length}>
+      <LivingUniverse agents={activeAgents} universes={universes} />
+      <PulseHeader pulse={pulse} authenticated={authenticated} />
+      <InceptionPanel inceptions={panelInceptions} />
+      <GodChat
         authenticated={authenticated}
         busy={busy}
-        username={username}
-        password={password}
         message={message}
-        chat={chat}
-        notice={notice}
-        onUsername={setUsername}
-        onPassword={setPassword}
+        password={password}
         onMessage={setMessage}
-        onLogin={handleLogin}
+        onPassword={setPassword}
         onSend={handleSend}
-        onLogout={logout}
+        onLogin={handleLogin}
       />
-      <ChronicleRibbon entries={chronicles} loading={loadState === "loading"} />
+      <ChronicleRibbon entries={ribbonChronicles} />
     </main>
   );
 }
