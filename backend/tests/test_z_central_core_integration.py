@@ -21,10 +21,14 @@ from app.config import settings
 from app.main import app
 from app.models.consolidation import MissionConsolidation
 from app.models.decision import MissionDecision
+from app.models.policy import MissionDecisionReasoning
 from app.repositories.consolidation import ConsolidationRepository
 from app.repositories.decision import DecisionRepository
+from app.repositories.policy import PolicyRepository
 from app.services.consolidation import ConsolidationService
 from app.services.decision import DecisionService
+from app.services.domain import NotFoundError
+from app.services.policy import PolicyService
 
 pytestmark = pytest.mark.integration
 pytest_plugins = ["test_consolidation_integration"]
@@ -97,7 +101,48 @@ async def test_0010_migration_round_trip_constraints_and_triggers():
         assert await connection.scalar(text("SELECT version_num FROM alembic_version")) == "0009_tree_core_consolidation"
         assert await connection.scalar(text("SELECT to_regclass('public.mission_decisions')")) is None
     await engine.dispose()
-    run_alembic("0010_central_core_decision", "upgrade")
+    run_alembic("0011_policy_reasoning", "upgrade")
+
+
+@pytest.mark.asyncio
+async def test_0011_migration_round_trip_constraints_and_triggers():
+    run_alembic("0010_central_core_decision", "downgrade")
+    engine = create_isolated_test_engine()
+    async with engine.connect() as connection:
+        assert await connection.scalar(text("SELECT version_num FROM alembic_version")) == "0010_central_core_decision"
+        assert await connection.scalar(text("SELECT to_regclass('public.mission_decision_reasoning')")) is None
+    await engine.dispose()
+
+    run_alembic("0011_policy_reasoning", "upgrade")
+    engine = create_isolated_test_engine()
+    async with engine.connect() as connection:
+        assert await connection.scalar(text("SELECT version_num FROM alembic_version")) == "0011_policy_reasoning"
+        assert await connection.scalar(text("SELECT to_regclass('public.mission_decision_reasoning')")) == "mission_decision_reasoning"
+        constraints = set(
+            (
+                await connection.scalars(
+                    text("SELECT conname FROM pg_constraint WHERE conrelid='mission_decision_reasoning'::regclass")
+                )
+            ).all()
+        )
+        assert constraints >= {
+            "mission_decision_reasoning_pkey",
+            "mission_decision_reasoning_decision_id_fkey",
+            "uq_mission_decision_reasoning_decision",
+            "ck_mission_decision_reasoning_fingerprint",
+        }
+        assert await connection.scalar(
+            text("SELECT count(*) FROM pg_trigger WHERE tgname='trg_mission_decision_reasoning_immutable' AND NOT tgisinternal")
+        ) == 1
+    await engine.dispose()
+
+    run_alembic("0010_central_core_decision", "downgrade")
+    engine = create_isolated_test_engine()
+    async with engine.connect() as connection:
+        assert await connection.scalar(text("SELECT version_num FROM alembic_version")) == "0010_central_core_decision"
+        assert await connection.scalar(text("SELECT to_regclass('public.mission_decision_reasoning')")) is None
+    await engine.dispose()
+    run_alembic("0011_policy_reasoning", "upgrade")
 
 
 async def create_complete_consolidation(factory, mission_id: str) -> MissionConsolidation:
@@ -268,6 +313,164 @@ async def test_decision_database_immutability_and_unique_constraint(consolidatio
                 decision="APPROVED",
                 justification_json={},
                 consolidation_fingerprint=consolidation_fingerprint,
+            )
+        )
+        with pytest.raises(IntegrityError):
+            await session.commit()
+        await session.rollback()
+
+
+@pytest.mark.asyncio
+async def test_http_reasoning_idempotency_security_and_get_without_creation(consolidation_db):
+    factory, ids = consolidation_db
+    path = f"/api/v1/central-core/missions/{ids['mission']}"
+    await create_complete_consolidation(factory, ids["mission"])
+    async with factory() as session:
+        await DecisionService(DecisionRepository(session)).decide(ids["mission"])
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        assert (await client.get(f"{path}/reasoning", headers=auth(ids["creator"]))).status_code == 404
+        assert (await client.post(f"{path}/evaluate")).status_code == 401
+        assert (await client.post(f"{path}/evaluate", headers=auth(str(uuid.uuid4())))).status_code == 403
+        created = await client.post(f"{path}/evaluate", headers=auth(ids["creator"]))
+        assert created.status_code == 201
+        assert created.json()["explanation_payload"]["technical_readiness"] is True
+        assert created.json()["policy_version"] == "central-core-policy-v1"
+        repeated = await client.post(f"{path}/evaluate", headers=auth(ids["creator"]))
+        assert repeated.status_code == 200 and repeated.json() == created.json()
+        queried = await client.get(f"{path}/reasoning", headers=auth(ids["creator"]))
+        assert queried.status_code == 200 and queried.json() == created.json()
+        assert (
+            await client.get("/api/v1/central-core/missions/not-a-uuid/reasoning", headers=auth(ids["creator"]))
+        ).status_code == 422
+
+    async with factory() as session:
+        assert await session.scalar(select(func.count()).select_from(MissionDecisionReasoning)) == 1
+
+
+@pytest.mark.asyncio
+async def test_reasoning_missing_decision_does_not_create_data(consolidation_db):
+    factory, ids = consolidation_db
+    await create_complete_consolidation(factory, ids["mission"])
+    async with factory() as session:
+        with pytest.raises(NotFoundError, match="Mission decision not found"):
+            await PolicyService(PolicyRepository(session)).evaluate(ids["mission"])
+    async with factory() as session:
+        assert await session.scalar(select(func.count()).select_from(MissionDecisionReasoning)) == 0
+
+
+@pytest.mark.asyncio
+async def test_reasoning_missing_consolidation_records_failed_policy(consolidation_db):
+    factory, ids = consolidation_db
+    async with factory() as session:
+        await DecisionService(DecisionRepository(session)).decide(ids["mission"])
+    async with factory() as session:
+        item, created = await PolicyService(PolicyRepository(session)).evaluate(ids["mission"])
+        assert created
+        assert item.explanation_payload["technical_readiness"] is False
+        failed = {rule["code"] for rule in item.rules_applied if rule["passed"] is False}
+        assert "consolidation_exists" in failed
+
+
+@pytest.mark.asyncio
+async def test_reasoning_inconsistent_consolidation_records_failed_policy(consolidation_db):
+    factory, ids = consolidation_db
+    async with factory() as session:
+        consolidation = MissionConsolidation(
+            mission_id=ids["mission"],
+            status="complete",
+            payload_json={"mission_id": ids["mission"], "task_count": 2},
+            inconsistencies_json=[{"code": "blocking", "detail": "technical mismatch"}],
+            completeness_json={
+                "complete": True,
+                "expected_tasks": 2,
+                "consolidated_tasks": 2,
+                "pending_tasks": 0,
+            },
+            fingerprint="b" * 64,
+        )
+        session.add(consolidation)
+        await session.commit()
+        await DecisionService(DecisionRepository(session)).decide(ids["mission"])
+    async with factory() as session:
+        item, _ = await PolicyService(PolicyRepository(session)).evaluate(ids["mission"])
+        failed = {rule["code"] for rule in item.rules_applied if rule["passed"] is False}
+        assert "no_blocking_inconsistencies" in failed
+
+
+@pytest.mark.asyncio
+async def test_real_postgresql_concurrent_reasoning_unique_record(consolidation_db):
+    factory, ids = consolidation_db
+    await create_complete_consolidation(factory, ids["mission"])
+    async with factory() as session:
+        await DecisionService(DecisionRepository(session)).decide(ids["mission"])
+
+    async def evaluate_once():
+        async with factory() as session:
+            item, created = await PolicyService(PolicyRepository(session)).evaluate(ids["mission"])
+            return item.id, created, item.fingerprint
+
+    results = await asyncio.gather(evaluate_once(), evaluate_once())
+    assert {result[1] for result in results} == {True, False}
+    assert results[0][0] == results[1][0]
+    assert results[0][2] == results[1][2]
+    async with factory() as session:
+        assert await session.scalar(select(func.count()).select_from(MissionDecisionReasoning)) == 1
+
+
+class FailingReasoningCommitRepository(PolicyRepository):
+    async def commit(self):
+        await self.session.rollback()
+        raise RuntimeError("forced reasoning failure")
+
+
+@pytest.mark.asyncio
+async def test_reasoning_rollback_leaves_no_partial_row(consolidation_db):
+    factory, ids = consolidation_db
+    await create_complete_consolidation(factory, ids["mission"])
+    async with factory() as session:
+        await DecisionService(DecisionRepository(session)).decide(ids["mission"])
+    async with factory() as session:
+        with pytest.raises(RuntimeError, match="forced reasoning failure"):
+            await PolicyService(FailingReasoningCommitRepository(session)).evaluate(ids["mission"])
+    async with factory() as session:
+        assert await session.scalar(select(func.count()).select_from(MissionDecisionReasoning)) == 0
+        assert await session.scalar(select(func.count()).select_from(MissionDecision)) == 1
+
+
+@pytest.mark.asyncio
+async def test_reasoning_database_immutability_and_unique_constraint(consolidation_db):
+    factory, ids = consolidation_db
+    await create_complete_consolidation(factory, ids["mission"])
+    async with factory() as session:
+        decision, _ = await DecisionService(DecisionRepository(session)).decide(ids["mission"])
+        reasoning, _ = await PolicyService(PolicyRepository(session)).evaluate(ids["mission"])
+        decision_id = decision.id
+        reasoning_id = reasoning.id
+        policy_version = reasoning.policy_version
+        rules_applied = reasoning.rules_applied
+        consistency_summary = reasoning.consistency_summary
+        completeness_summary = reasoning.completeness_summary
+        explanation_payload = reasoning.explanation_payload
+        fingerprint = reasoning.fingerprint
+        with pytest.raises(DBAPIError, match="immutable"):
+            await session.execute(
+                text("UPDATE mission_decision_reasoning SET policy_version='changed' WHERE id=:id"), {"id": reasoning_id}
+            )
+        await session.rollback()
+        with pytest.raises(DBAPIError, match="immutable"):
+            await session.execute(text("DELETE FROM mission_decision_reasoning WHERE id=:id"), {"id": reasoning_id})
+        await session.rollback()
+
+        session.add(
+            MissionDecisionReasoning(
+                decision_id=decision_id,
+                policy_version=policy_version,
+                rules_applied=rules_applied,
+                consistency_summary=consistency_summary,
+                completeness_summary=completeness_summary,
+                explanation_payload=explanation_payload,
+                fingerprint=fingerprint,
             )
         )
         with pytest.raises(IntegrityError):

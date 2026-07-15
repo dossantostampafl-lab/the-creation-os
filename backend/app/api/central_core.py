@@ -8,15 +8,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.dependencies import get_sovereign_creator
 from app.db.session import get_session
 from app.models.decision import MissionDecision
+from app.models.policy import MissionDecisionReasoning
 from app.repositories.decision import DecisionRepository
+from app.repositories.policy import PolicyRepository
 from app.schemas.decision import MissionDecisionResponse
+from app.schemas.policy import MissionDecisionReasoningResponse
 from app.services.decision import DecisionService
+from app.services.policy import PolicyService
 
 router = APIRouter(tags=["central-core"], dependencies=[Depends(get_sovereign_creator)])
 
 
 def service(session: AsyncSession = Depends(get_session)) -> DecisionService:
     return DecisionService(DecisionRepository(session))
+
+
+def reasoning_service(session: AsyncSession = Depends(get_session)) -> PolicyService:
+    return PolicyService(PolicyRepository(session))
 
 
 def decision_response(item: MissionDecision) -> MissionDecisionResponse:
@@ -27,6 +35,22 @@ def decision_response(item: MissionDecision) -> MissionDecisionResponse:
         decision=item.decision,
         justification=item.justification_json,
         consolidation_fingerprint=item.consolidation_fingerprint,
+        created_at=item.created_at,
+        updated_at=item.updated_at,
+    )
+
+
+def reasoning_response(item: MissionDecisionReasoning) -> MissionDecisionReasoningResponse:
+    return MissionDecisionReasoningResponse(
+        id=item.id,
+        decision_id=item.decision_id,
+        policy_version=item.policy_version,
+        evaluation_timestamp=item.evaluation_timestamp,
+        rules_applied=item.rules_applied,
+        consistency_summary=item.consistency_summary,
+        completeness_summary=item.completeness_summary,
+        explanation_payload=item.explanation_payload,
+        fingerprint=item.fingerprint,
         created_at=item.created_at,
         updated_at=item.updated_at,
     )
@@ -56,3 +80,29 @@ async def get_mission_decision(
     decision_service: DecisionService = Depends(service),
 ):
     return decision_response(await decision_service.get(str(mission_id)))
+
+
+@router.post(
+    "/central-core/missions/{mission_id}/evaluate",
+    response_model=MissionDecisionReasoningResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def evaluate_mission_decision(
+    mission_id: uuid.UUID,
+    response: Response,
+    policy_service: PolicyService = Depends(reasoning_service),
+):
+    item, created = await policy_service.evaluate(str(mission_id))
+    response.status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
+    return reasoning_response(item)
+
+
+@router.get(
+    "/central-core/missions/{mission_id}/reasoning",
+    response_model=MissionDecisionReasoningResponse,
+)
+async def get_mission_reasoning(
+    mission_id: uuid.UUID,
+    policy_service: PolicyService = Depends(reasoning_service),
+):
+    return reasoning_response(await policy_service.get(str(mission_id)))
