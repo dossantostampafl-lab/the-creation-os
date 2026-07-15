@@ -17,6 +17,7 @@ from app.models.entities import (
     Universe,
 )
 from app.models.execution import AgentExecution, AgentExecutionEvent
+from app.models.god import GodConversationInteraction
 from app.models.manifestation import MissionManifestation
 from app.models.policy import MissionDecisionReasoning
 
@@ -31,6 +32,7 @@ __all__ = [
     "Creator",
     "DispatchAttempt",
     "DispatchItem",
+    "GodConversationInteraction",
     "Inception",
     "Message",
     "Mission",
