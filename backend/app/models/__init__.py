@@ -17,6 +17,7 @@ from app.models.entities import (
     Universe,
 )
 from app.models.execution import AgentExecution, AgentExecutionEvent
+from app.models.manifestation import MissionManifestation
 from app.models.policy import MissionDecisionReasoning
 
 __all__ = [
@@ -36,6 +37,7 @@ __all__ = [
     "MissionConsolidation",
     "MissionDecision",
     "MissionDecisionReasoning",
+    "MissionManifestation",
     "MissionPlan",
     "Task",
     "TaskDependency",
