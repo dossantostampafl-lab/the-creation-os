@@ -1,17 +1,10 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import {
-  Activity,
-  Bot,
-  Fingerprint,
-  Lock,
-  Milestone,
-  Orbit,
-  Send,
-  Shield,
-  Sparkles,
-  User,
-} from "lucide-react";
 import { api, ApiError } from "./api";
+import { ChronicleRibbon } from "./components/ChronicleRibbon";
+import { CosmicSystem } from "./components/CosmicSystem";
+import { GodDock } from "./components/GodDock";
+import { Needles } from "./components/Needles";
+import { PulseHeader } from "./components/PulseHeader";
 import type { Agent, ChatItem, ChronicleEntry, Conversation, Inception, Mission, Pulse, Universe } from "./types";
 
 type LoadState = "idle" | "loading" | "ready" | "empty" | "error";
@@ -24,21 +17,6 @@ function normalizeStatus(value: string) {
 
 function pendingInception(item: Inception) {
   return !["approved", "rejected", "cancelled"].includes(normalizeStatus(item.status));
-}
-
-function positionFor(index: number, total: number) {
-  const safeTotal = Math.max(total, 1);
-  const angle = (index / safeTotal) * Math.PI * 2 - Math.PI / 2;
-  const radiusX = 31 + (index % 2) * 7;
-  const radiusY = 24 + (index % 3) * 5;
-  return {
-    x: 50 + Math.cos(angle) * radiusX,
-    y: 50 + Math.sin(angle) * radiusY,
-  };
-}
-
-function universeLabel(agent: Agent) {
-  return agent.universe || "unassigned";
 }
 
 export function App() {
@@ -64,17 +42,6 @@ export function App() {
   const authenticated = Boolean(token);
   const activeAgents = useMemo(() => agents.filter((agent) => agent.enabled), [agents]);
   const pendingInceptions = inceptions.filter(pendingInception);
-  const visibleUniverses = useMemo(() => {
-    if (universes.length > 0) return universes;
-    const names = Array.from(new Set(agents.map((agent) => universeLabel(agent)))).filter(Boolean);
-    return names.map((name) => ({
-      id: `derived-${name}`,
-      code: name,
-      name,
-      active: true,
-      created_at: "",
-    }));
-  }, [agents, universes]);
 
   useEffect(() => {
     if (!token) {
@@ -217,167 +184,32 @@ export function App() {
   }
 
   return (
-    <main className="shell">
-      <aside className="side-nav">
-        <div className="brand">
-          <Orbit size={24} />
-          <span>THE CREATION OS</span>
-        </div>
-        <nav>
-          <a className="active"><Bot size={18} />GOD</a>
-          <a><Sparkles size={18} />Trinity</a>
-          <a><Milestone size={18} />Missions</a>
-          <a><Activity size={18} />Pulse</a>
-          <a><Fingerprint size={18} />Chronicle</a>
-        </nav>
-        <div className="auth-box">
-          {authenticated ? (
-            <>
-              <span><Shield size={16} /> Creator session active</span>
-              <button type="button" onClick={logout}>Lock</button>
-            </>
-          ) : (
-            <form onSubmit={handleLogin}>
-              <label>
-                <User size={14} />
-                <input value={username} onChange={(event) => setUsername(event.target.value)} placeholder="creator" />
-              </label>
-              <label>
-                <Lock size={14} />
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  placeholder="password"
-                />
-              </label>
-              <button disabled={busy} type="submit">Enter</button>
-            </form>
-          )}
-          {notice && <small>{notice}</small>}
-        </div>
-      </aside>
-
-      <section className="main-stage">
-        <header className="pulse-bar">
-          <div>
-            <span className={`pulse-dot ${pulse?.status === "degraded" || loadState === "error" ? "degraded" : ""}`} />
-            Pulse: {pulse?.status ?? (authenticated ? loadState : "locked")}
-          </div>
-          <div>Agents: {pulse?.active_agents ?? activeAgents.length}</div>
-          <div>Chronicle: {pulse?.chronicles_chain.valid === false ? "invalid" : "verified"}</div>
-          <div>Refresh: {REFRESH_INTERVAL_MS / 1000}s</div>
-        </header>
-
-        {dataError && <div className="data-banner">{dataError}</div>}
-
-        <section className="stage-grid">
-          <section className="god-chat">
-            <div className="section-title">
-              <Bot size={18} />
-              <span>Direct Channel to GOD</span>
-            </div>
-            <div className="messages">
-              {chat.map((item) => (
-                <article key={item.id} className={`message ${item.role}`}>
-                  <p>{item.text}</p>
-                  {item.meta && <span>{item.meta}</span>}
-                </article>
-              ))}
-            </div>
-            <form className="composer" onSubmit={handleSend}>
-              <input
-                disabled={!authenticated || busy}
-                value={message}
-                onChange={(event) => setMessage(event.target.value)}
-                placeholder={authenticated ? "Speak to GOD" : "Authenticate Creator first"}
-              />
-              <button disabled={!authenticated || busy || !message.trim()} type="submit" aria-label="Send to GOD">
-                <Send size={18} />
-              </button>
-            </form>
-          </section>
-
-          <section className="universe-map">
-            <div className="milky-way" />
-            {loadState === "loading" && <p className="map-state">Loading real universes and agents...</p>}
-            {loadState !== "loading" && visibleUniverses.length === 0 && (
-              <p className="map-state">No Universes or Agents returned by the backend.</p>
-            )}
-            {visibleUniverses.map((universe, index) => {
-              const position = positionFor(index, visibleUniverses.length);
-              return (
-                <div key={universe.id} className="constellation" style={{ left: `${position.x}%`, top: `${position.y}%` }}>
-                  <span />
-                  <strong>{universe.name}</strong>
-                </div>
-              );
-            })}
-            {activeAgents.map((agent, index) => {
-              const universeIndex = Math.max(
-                visibleUniverses.findIndex((universe) => universe.code === agent.universe || universe.name === agent.universe),
-                0,
-              );
-              const base = positionFor(universeIndex + index / Math.max(activeAgents.length, 1), Math.max(visibleUniverses.length, 1));
-              return (
-                <div
-                  key={agent.id}
-                  className="agent-star"
-                  style={{
-                    left: `${base.x + ((index % 3) - 1) * 6}%`,
-                    top: `${base.y + ((index % 2) - 0.5) * 8}%`,
-                  }}
-                  title={`${agent.name} / ${universeLabel(agent)} / ${agent.status}`}
-                >
-                  <i />
-                  <span>{agent.name}</span>
-                </div>
-              );
-            })}
-          </section>
-
-          <aside className="right-column">
-            <section className="compact-panel">
-              <div className="section-title">Pending Inceptions</div>
-              {loadState === "loading" ? <p className="quiet">Loading Inceptions...</p> : null}
-              {loadState !== "loading" && pendingInceptions.length === 0 ? (
-                <p className="quiet">No pending Inceptions returned by the backend.</p>
-              ) : (
-                pendingInceptions.slice(0, 4).map((item) => (
-                  <article key={item.id} className="list-item">
-                    <strong>{item.title}</strong>
-                    <span>{item.status}</span>
-                  </article>
-                ))
-              )}
-            </section>
-            <section className="compact-panel">
-              <div className="section-title">Missions</div>
-              {loadState === "loading" ? <p className="quiet">Loading Missions...</p> : null}
-              {loadState !== "loading" && missions.length === 0 ? (
-                <p className="quiet">No Missions returned by the backend.</p>
-              ) : (
-                missions.slice(0, 4).map((item) => (
-                  <article key={item.id} className="list-item">
-                    <strong>{item.title}</strong>
-                    <span>{item.status}</span>
-                  </article>
-                ))
-              )}
-            </section>
-          </aside>
-        </section>
-
-        <footer className="chronicle-strip">
-          {loadState === "loading" ? <span>Loading Chronicle...</span> : null}
-          {loadState !== "loading" && chronicles.length === 0 ? <span>No Chronicle entries returned by the backend.</span> : null}
-          {chronicles.map((entry) => (
-            <span key={entry.id}>
-              <strong>#{entry.position} {entry.actor_role}</strong> {entry.event_type} / {entry.aggregate_type}
-            </span>
-          ))}
-        </footer>
-      </section>
+    <main className="creation-universe">
+      <PulseHeader
+        pulse={pulse}
+        loadState={loadState}
+        authenticated={authenticated}
+        activeAgents={activeAgents.length}
+        refreshSeconds={REFRESH_INTERVAL_MS / 1000}
+      />
+      <CosmicSystem agents={activeAgents} universes={universes} loadState={loadState} />
+      <Needles inceptions={pendingInceptions} missions={missions} loadState={loadState} dataError={dataError} />
+      <GodDock
+        authenticated={authenticated}
+        busy={busy}
+        username={username}
+        password={password}
+        message={message}
+        chat={chat}
+        notice={notice}
+        onUsername={setUsername}
+        onPassword={setPassword}
+        onMessage={setMessage}
+        onLogin={handleLogin}
+        onSend={handleSend}
+        onLogout={logout}
+      />
+      <ChronicleRibbon entries={chronicles} loading={loadState === "loading"} />
     </main>
   );
 }
