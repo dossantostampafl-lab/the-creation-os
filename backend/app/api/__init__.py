@@ -10,6 +10,7 @@ from app.api.planner import router as planner_router
 from app.api.rockmam import router as rockmam_router
 from app.api.sophia import router as sophia_router
 from app.api.tree_core import router as tree_core_router
+from app.api.trinity import router as trinity_router
 from app.api.workers import router as workers_router
 
 router = APIRouter()
@@ -24,3 +25,4 @@ router.include_router(central_core_router)
 router.include_router(malkuth_router)
 router.include_router(sophia_router)
 router.include_router(rockmam_router)
+router.include_router(trinity_router)
