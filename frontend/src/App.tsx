@@ -1,0 +1,286 @@
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import {
+  Activity,
+  Bot,
+  Fingerprint,
+  Lock,
+  Milestone,
+  Orbit,
+  Send,
+  Shield,
+  Sparkles,
+  User,
+} from "lucide-react";
+import { api, ApiError } from "./api";
+import { fallbackAgents, mockChronicle, mockPulse, mockUniverses } from "./mockData";
+import type { Agent, ChatItem, Conversation, Inception, Mission } from "./types";
+
+function universeFor(agent: Agent, index: number) {
+  return agent.universe ?? agent.universe_name ?? mockUniverses[index % mockUniverses.length].name;
+}
+
+export function App() {
+  const [username, setUsername] = useState("creator");
+  const [password, setPassword] = useState("");
+  const [token, setToken] = useState<string | null>(localStorage.getItem("creator-token"));
+  const [conversation, setConversation] = useState<Conversation | null>(null);
+  const [chat, setChat] = useState<ChatItem[]>([
+    { id: "intro", role: "god", text: "GOD esta presente. Aguardando a palavra do Criador.", meta: "local" },
+  ]);
+  const [message, setMessage] = useState("");
+  const [inceptions, setInceptions] = useState<Inception[]>([]);
+  const [missions, setMissions] = useState<Mission[]>([]);
+  const [agents, setAgents] = useState<Agent[]>(fallbackAgents);
+  const [pulse, setPulse] = useState("offline");
+  const [notice, setNotice] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const authenticated = Boolean(token);
+  const activeAgents = useMemo(() => agents.filter((agent) => agent.active !== false && agent.enabled !== false), [agents]);
+  const pendingInceptions = inceptions.filter((item) => !["approved", "rejected", "cancelled"].includes(item.status));
+
+  useEffect(() => {
+    api
+      .live()
+      .then((value) => setPulse(value.status))
+      .catch(() => setPulse(mockPulse.status));
+  }, []);
+
+  useEffect(() => {
+    if (!token) return;
+    void refreshWorkspace(token);
+  }, [token]);
+
+  async function refreshWorkspace(accessToken: string) {
+    const [loadedInceptions, loadedMissions, loadedAgents] = await Promise.allSettled([
+      api.listInceptions(accessToken),
+      api.listMissions(accessToken),
+      api.listAgents(accessToken),
+    ]);
+    if (loadedInceptions.status === "fulfilled") setInceptions(loadedInceptions.value);
+    if (loadedMissions.status === "fulfilled") setMissions(loadedMissions.value);
+    if (loadedAgents.status === "fulfilled" && loadedAgents.value.length > 0) setAgents(loadedAgents.value);
+  }
+
+  async function handleLogin(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setNotice(null);
+    try {
+      const result = await api.login(username, password);
+      localStorage.setItem("creator-token", result.access_token);
+      setToken(result.access_token);
+      setNotice("Creator authenticated");
+    } catch (error) {
+      setNotice(error instanceof ApiError ? error.message : "Authentication failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function ensureConversation(accessToken: string) {
+    if (conversation) return conversation;
+    const created = await api.createConversation(accessToken, "Creator Interface");
+    setConversation(created);
+    return created;
+  }
+
+  async function handleSend(event: FormEvent) {
+    event.preventDefault();
+    if (!token || !message.trim()) return;
+    const text = message.trim();
+    setMessage("");
+    setBusy(true);
+    setChat((items) => [...items, { id: crypto.randomUUID(), role: "creator", text, meta: "Creator" }]);
+    try {
+      const current = await ensureConversation(token);
+      const god = await api.sendGod(token, current.id, text);
+      setChat((items) => [
+        ...items,
+        {
+          id: god.id,
+          role: "god",
+          text: god.reply.message,
+          meta: `${god.interaction_type} / ${god.next_action}`,
+        },
+      ]);
+      if (god.interaction_type === "POTENTIAL") {
+        const trinity = await api.orchestrateTrinity(token, god.id);
+        setChat((items) => [
+          ...items,
+          {
+            id: trinity.rockmam_assessment_id,
+            role: "trinity",
+            text: `Trindade integrada: ROCKMAM retornou ${trinity.assessment_result}.`,
+            meta: trinity.god_consolidated_result.creator_approval_required
+              ? "Requires Creator approval"
+              : "No approval request emitted",
+          },
+        ]);
+      }
+      await refreshWorkspace(token);
+    } catch (error) {
+      setChat((items) => [
+        ...items,
+        {
+          id: crypto.randomUUID(),
+          role: "god",
+          text: error instanceof ApiError ? error.message : "The channel failed without changing backend state.",
+          meta: "error",
+        },
+      ]);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function logout() {
+    localStorage.removeItem("creator-token");
+    setToken(null);
+    setConversation(null);
+  }
+
+  return (
+    <main className="shell">
+      <aside className="side-nav">
+        <div className="brand">
+          <Orbit size={24} />
+          <span>THE CREATION OS</span>
+        </div>
+        <nav>
+          <a className="active"><Bot size={18} />GOD</a>
+          <a><Sparkles size={18} />Trinity</a>
+          <a><Milestone size={18} />Missions</a>
+          <a><Activity size={18} />Pulse</a>
+          <a><Fingerprint size={18} />Chronicle</a>
+        </nav>
+        <div className="auth-box">
+          {authenticated ? (
+            <>
+              <span><Shield size={16} /> Creator session active</span>
+              <button type="button" onClick={logout}>Lock</button>
+            </>
+          ) : (
+            <form onSubmit={handleLogin}>
+              <label>
+                <User size={14} />
+                <input value={username} onChange={(event) => setUsername(event.target.value)} placeholder="creator" />
+              </label>
+              <label>
+                <Lock size={14} />
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder="password"
+                />
+              </label>
+              <button disabled={busy} type="submit">Enter</button>
+            </form>
+          )}
+          {notice && <small>{notice}</small>}
+        </div>
+      </aside>
+
+      <section className="main-stage">
+        <header className="pulse-bar">
+          <div>
+            <span className="pulse-dot" />
+            Pulse: {pulse}
+          </div>
+          <div>Backend: {api.baseUrl}</div>
+          <div>Mock telemetry: Chronicle, Pulse details, Universe map</div>
+        </header>
+
+        <section className="stage-grid">
+          <section className="god-chat">
+            <div className="section-title">
+              <Bot size={18} />
+              <span>Direct Channel to GOD</span>
+            </div>
+            <div className="messages">
+              {chat.map((item) => (
+                <article key={item.id} className={`message ${item.role}`}>
+                  <p>{item.text}</p>
+                  {item.meta && <span>{item.meta}</span>}
+                </article>
+              ))}
+            </div>
+            <form className="composer" onSubmit={handleSend}>
+              <input
+                disabled={!authenticated || busy}
+                value={message}
+                onChange={(event) => setMessage(event.target.value)}
+                placeholder={authenticated ? "Speak to GOD" : "Authenticate Creator first"}
+              />
+              <button disabled={!authenticated || busy || !message.trim()} type="submit" aria-label="Send to GOD">
+                <Send size={18} />
+              </button>
+            </form>
+          </section>
+
+          <section className="universe-map">
+            <div className="milky-way" />
+            {mockUniverses.map((universe) => (
+              <div key={universe.id} className="constellation" style={{ left: `${universe.x}%`, top: `${universe.y}%` }}>
+                <span />
+                <strong>{universe.name}</strong>
+              </div>
+            ))}
+            {activeAgents.map((agent, index) => (
+              <div
+                key={agent.id}
+                className="agent-star"
+                style={{
+                  left: `${18 + ((index * 17) % 64)}%`,
+                  top: `${30 + ((index * 23) % 42)}%`,
+                }}
+                title={`${agent.name} / ${universeFor(agent, index)}`}
+              >
+                <i />
+                <span>{agent.name}</span>
+              </div>
+            ))}
+          </section>
+
+          <aside className="right-column">
+            <section className="compact-panel">
+              <div className="section-title">Pending Inceptions</div>
+              {pendingInceptions.length === 0 ? (
+                <p className="quiet">No pending Inceptions from API.</p>
+              ) : (
+                pendingInceptions.slice(0, 4).map((item) => (
+                  <article key={item.id} className="list-item">
+                    <strong>{item.title}</strong>
+                    <span>{item.status}</span>
+                  </article>
+                ))
+              )}
+            </section>
+            <section className="compact-panel">
+              <div className="section-title">Missions</div>
+              {missions.length === 0 ? (
+                <p className="quiet">No Missions from API.</p>
+              ) : (
+                missions.slice(0, 4).map((item) => (
+                  <article key={item.id} className="list-item">
+                    <strong>{item.title}</strong>
+                    <span>{item.status}</span>
+                  </article>
+                ))
+              )}
+            </section>
+          </aside>
+        </section>
+
+        <footer className="chronicle-strip">
+          {mockChronicle.map((entry) => (
+            <span key={entry.label}>
+              <strong>{entry.label}</strong> {entry.text} {entry.mock ? "(mock)" : ""}
+            </span>
+          ))}
+        </footer>
+      </section>
+    </main>
+  );
+}
