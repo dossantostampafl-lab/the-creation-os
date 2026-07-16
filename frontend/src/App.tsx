@@ -5,12 +5,32 @@ import { GodChat } from "./components/GodChat";
 import { InceptionPanel } from "./components/InceptionPanel";
 import { LivingUniverse } from "./components/LivingUniverse";
 import { PulseHeader } from "./components/PulseHeader";
-import { demoChronicles, demoInceptions, demoMissions } from "./data/universeLayout";
-import type { Agent, ChatItem, ChronicleEntry, Conversation, Inception, Mission, Pulse, Universe } from "./types";
+import type {
+  Agent,
+  ChatItem,
+  ChronicleEntry,
+  Conversation,
+  Inception,
+  Mission,
+  MissionManifestation,
+  Pulse,
+  Universe,
+} from "./types";
 
 type LoadState = "idle" | "loading" | "ready" | "empty" | "error";
 
 const REFRESH_INTERVAL_MS = 15000;
+const WORKSPACE_CACHE_KEY = "creator-interface-workspace-cache";
+
+type WorkspaceCache = {
+  inceptions: Inception[];
+  missions: Mission[];
+  agents: Agent[];
+  universes: Universe[];
+  chronicles: ChronicleEntry[];
+  manifestations: MissionManifestation[];
+  pulse: Pulse | null;
+};
 
 function normalizeStatus(value: string) {
   return value.toLowerCase();
@@ -31,25 +51,26 @@ export function App() {
   const [message, setMessage] = useState("");
   const [inceptions, setInceptions] = useState<Inception[]>([]);
   const [missions, setMissions] = useState<Mission[]>([]);
+  const [manifestations, setManifestations] = useState<MissionManifestation[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [universes, setUniverses] = useState<Universe[]>([]);
   const [chronicles, setChronicles] = useState<ChronicleEntry[]>([]);
   const [pulse, setPulse] = useState<Pulse | null>(null);
   const [loadState, setLoadState] = useState<LoadState>("idle");
+  const [dataError, setDataError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const authenticated = Boolean(token);
   const activeAgents = useMemo(() => agents.filter((agent) => agent.enabled), [agents]);
   const visibleInceptions = inceptions.filter(pendingInception);
-  const panelInceptions = visibleInceptions.length > 0 ? visibleInceptions : demoInceptions;
-  const ribbonChronicles = chronicles.length > 0 ? chronicles : demoChronicles;
-  const visibleMissions = missions.length > 0 ? missions : demoMissions;
+  const empty = loadState === "empty";
 
   useEffect(() => {
     if (!token) {
       setLoadState("idle");
       return undefined;
     }
+    restoreWorkspaceCache();
     void refreshWorkspace(token, true);
     const interval = window.setInterval(() => {
       void refreshWorkspace(token, false);
@@ -57,8 +78,30 @@ export function App() {
     return () => window.clearInterval(interval);
   }, [token]);
 
+  function restoreWorkspaceCache() {
+    const cached = localStorage.getItem(WORKSPACE_CACHE_KEY);
+    if (!cached) return;
+    try {
+      const workspace = JSON.parse(cached) as WorkspaceCache;
+      setInceptions(workspace.inceptions ?? []);
+      setMissions(workspace.missions ?? []);
+      setAgents(workspace.agents ?? []);
+      setUniverses(workspace.universes ?? []);
+      setChronicles(workspace.chronicles ?? []);
+      setManifestations(workspace.manifestations ?? []);
+      setPulse(workspace.pulse ?? null);
+    } catch {
+      localStorage.removeItem(WORKSPACE_CACHE_KEY);
+    }
+  }
+
+  function cacheWorkspace(workspace: WorkspaceCache) {
+    localStorage.setItem(WORKSPACE_CACHE_KEY, JSON.stringify(workspace));
+  }
+
   async function refreshWorkspace(accessToken: string, showLoading: boolean) {
     if (showLoading) setLoadState("loading");
+    setDataError(null);
     const [loadedInceptions, loadedMissions, loadedAgents, loadedUniverses, loadedChronicles, loadedPulse] =
       await Promise.allSettled([
         api.listInceptions(accessToken),
@@ -73,15 +116,29 @@ export function App() {
       (result) => result.status === "rejected",
     );
 
-    if (loadedInceptions.status === "fulfilled") setInceptions(loadedInceptions.value);
-    if (loadedMissions.status === "fulfilled") setMissions(loadedMissions.value);
-    if (loadedAgents.status === "fulfilled") setAgents(loadedAgents.value);
-    if (loadedUniverses.status === "fulfilled") setUniverses(loadedUniverses.value);
-    if (loadedChronicles.status === "fulfilled") setChronicles(loadedChronicles.value);
-    if (loadedPulse.status === "fulfilled") setPulse(loadedPulse.value);
+    const nextInceptions = loadedInceptions.status === "fulfilled" ? loadedInceptions.value : inceptions;
+    const nextMissions = loadedMissions.status === "fulfilled" ? loadedMissions.value : missions;
+    const nextAgents = loadedAgents.status === "fulfilled" ? loadedAgents.value : agents;
+    const nextUniverses = loadedUniverses.status === "fulfilled" ? loadedUniverses.value : universes;
+    const nextChronicles = loadedChronicles.status === "fulfilled" ? loadedChronicles.value : chronicles;
+    const nextPulse = loadedPulse.status === "fulfilled" ? loadedPulse.value : pulse;
+
+    const manifestationResults = await Promise.allSettled(
+      nextMissions.map((mission) => api.getMissionManifestation(accessToken, mission.id)),
+    );
+    const nextManifestations = manifestationResults.flatMap((result) => (result.status === "fulfilled" ? [result.value] : []));
+
+    setInceptions(nextInceptions);
+    setMissions(nextMissions);
+    setAgents(nextAgents);
+    setUniverses(nextUniverses);
+    setChronicles(nextChronicles);
+    setPulse(nextPulse);
+    setManifestations(nextManifestations);
 
     if (failures.length > 0) {
       setLoadState("error");
+      setDataError("Falha ao carregar dados reais da API.");
       return;
     }
 
@@ -95,7 +152,17 @@ export function App() {
         loadedMissions.value.length > 0 ||
         loadedAgents.value.length > 0 ||
         loadedUniverses.value.length > 0 ||
-        loadedChronicles.value.length > 0);
+        loadedChronicles.value.length > 0 ||
+        nextManifestations.length > 0);
+    cacheWorkspace({
+      inceptions: nextInceptions,
+      missions: nextMissions,
+      agents: nextAgents,
+      universes: nextUniverses,
+      chronicles: nextChronicles,
+      manifestations: nextManifestations,
+      pulse: nextPulse,
+    });
     setLoadState(hasData ? "ready" : "empty");
   }
 
@@ -169,10 +236,12 @@ export function App() {
   }
 
   return (
-    <main className="creator-interface-exact" data-load-state={loadState} data-missions={visibleMissions.length}>
-      <LivingUniverse agents={activeAgents} universes={universes} />
+    <main className="creator-interface-exact" data-load-state={loadState} data-missions={missions.length}>
+      <LivingUniverse agents={activeAgents} universes={universes} manifestations={manifestations} />
       <PulseHeader pulse={pulse} authenticated={authenticated} />
-      <InceptionPanel inceptions={panelInceptions} />
+      <InceptionPanel inceptions={visibleInceptions} />
+      {dataError ? <div className="api-state api-state-error">{dataError}</div> : null}
+      {empty ? <div className="api-state api-state-empty">API conectada sem dados ativos.</div> : null}
       <GodChat
         authenticated={authenticated}
         busy={busy}
@@ -183,7 +252,7 @@ export function App() {
         onSend={handleSend}
         onLogin={handleLogin}
       />
-      <ChronicleRibbon entries={ribbonChronicles} />
+      <ChronicleRibbon entries={chronicles} />
     </main>
   );
 }

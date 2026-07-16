@@ -5,6 +5,7 @@ import type {
   GodResponse,
   Inception,
   Mission,
+  MissionManifestation,
   Pulse,
   TokenResponse,
   TrinityResponse,
@@ -103,5 +104,9 @@ export const api = {
 
   pulse(token: string) {
     return request<Pulse>("/pulse", undefined, token);
+  },
+
+  getMissionManifestation(token: string, missionId: string) {
+    return request<MissionManifestation>(`/malkuth/missions/${missionId}/manifestation`, undefined, token);
   },
 };

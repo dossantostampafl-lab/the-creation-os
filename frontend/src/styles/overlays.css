@@ -188,6 +188,26 @@
   letter-spacing: 0.08em;
 }
 
+.api-state {
+  position: absolute;
+  z-index: 26;
+  left: 50%;
+  top: 88px;
+  transform: translateX(-50%);
+  padding: 7px 12px;
+  border: 1px solid rgba(255, 196, 84, 0.16);
+  border-radius: 999px;
+  color: #d8cdbd;
+  background: rgba(2, 5, 12, 0.54);
+  backdrop-filter: blur(10px);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+.api-state-error {
+  color: #ffd071;
+}
+
 .operational-flow {
   position: absolute;
   z-index: 10;

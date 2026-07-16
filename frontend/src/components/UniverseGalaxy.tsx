@@ -4,16 +4,10 @@ import type { UniverseVisual } from "../data/universeLayout";
 type UniverseGalaxyProps = {
   universe: UniverseVisual;
   agents: Agent[];
-  demo: boolean;
 };
 
-function displayAgents(universe: UniverseVisual, agents: Agent[]) {
-  if (agents.length > 0) return agents.length;
-  return universe.agents;
-}
-
-export function UniverseGalaxy({ universe, agents, demo }: UniverseGalaxyProps) {
-  const count = displayAgents(universe, agents);
+export function UniverseGalaxy({ universe, agents }: UniverseGalaxyProps) {
+  const count = agents.length;
   const points = Array.from({ length: count }, (_, index) => index);
 
   return (
@@ -25,7 +19,7 @@ export function UniverseGalaxy({ universe, agents, demo }: UniverseGalaxyProps) 
         "--galaxy-color": universe.color,
         "--galaxy-soft": universe.colorSoft,
       } as React.CSSProperties}
-      data-source={demo ? "DEMO_VISUAL_DATA" : "API"}
+      data-source="API"
     >
       <div className="galaxy-icon">{iconFor(universe.icon)}</div>
       <div className="spiral-disk">

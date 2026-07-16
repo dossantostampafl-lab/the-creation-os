@@ -121,6 +121,18 @@ export type Pulse = {
   timestamp: string;
 };
 
+export type MissionManifestation = {
+  id: string;
+  mission_id: string;
+  decision_id: string;
+  manifestation_state: "PENDING" | "MANIFESTED" | "FAILED";
+  manifestation_payload: Record<string, unknown>;
+  manifestation_fingerprint: string;
+  audit_metadata: Record<string, unknown>;
+  created_at: string;
+  manifested_at: string | null;
+};
+
 export type ChatItem = {
   id: string;
   role: "creator" | "god" | "trinity";

@@ -44,20 +44,21 @@ input {
   content: "";
   position: absolute;
   z-index: 1;
-  left: -18vw;
-  top: 22vh;
-  width: 138vw;
-  height: 34vh;
+  left: -24vw;
+  top: 10vh;
+  width: 150vw;
+  height: 52vh;
   pointer-events: none;
   border-radius: 50%;
   background:
-    radial-gradient(ellipse at 18% 52%, rgba(82, 181, 255, 0.24), transparent 34%),
-    radial-gradient(ellipse at 48% 42%, rgba(255, 196, 84, 0.2), transparent 31%),
-    radial-gradient(ellipse at 76% 48%, rgba(182, 92, 255, 0.18), transparent 36%),
-    linear-gradient(90deg, transparent, rgba(69, 154, 255, 0.18), rgba(255, 159, 28, 0.22), rgba(113, 183, 255, 0.16), transparent);
-  filter: blur(24px);
+    radial-gradient(ellipse at 16% 52%, rgba(82, 181, 255, 0.44), transparent 34%),
+    radial-gradient(ellipse at 42% 44%, rgba(255, 196, 84, 0.34), transparent 30%),
+    radial-gradient(ellipse at 68% 46%, rgba(182, 92, 255, 0.34), transparent 34%),
+    radial-gradient(ellipse at 84% 54%, rgba(72, 217, 155, 0.24), transparent 32%),
+    linear-gradient(90deg, transparent 6%, rgba(69, 154, 255, 0.34), rgba(255, 159, 28, 0.36), rgba(182, 92, 255, 0.3), transparent 94%);
+  filter: blur(16px);
   mix-blend-mode: screen;
-  opacity: 0.24;
+  opacity: 0.46;
   transform: rotate(-22deg);
 }
 
@@ -73,26 +74,26 @@ input {
   position: absolute;
   border-radius: 50%;
   pointer-events: none;
-  filter: blur(22px);
-  opacity: 0.26;
+  filter: blur(18px);
+  opacity: 0.36;
   mix-blend-mode: screen;
   z-index: 2;
 }
 
 .nebula-blue {
-  width: 58vw;
-  height: 30vh;
-  left: 23vw;
-  top: 4vh;
-  background: radial-gradient(ellipse, rgba(70, 160, 255, 0.26), transparent 68%);
+  width: 62vw;
+  height: 34vh;
+  left: 17vw;
+  top: 3vh;
+  background: radial-gradient(ellipse, rgba(70, 160, 255, 0.38), transparent 66%);
 }
 
 .nebula-gold {
-  width: 74vw;
-  height: 44vh;
-  left: 13vw;
-  top: 32vh;
-  background: radial-gradient(ellipse, rgba(255, 159, 28, 0.16), transparent 70%);
+  width: 82vw;
+  height: 48vh;
+  left: 8vw;
+  top: 29vh;
+  background: radial-gradient(ellipse, rgba(255, 159, 28, 0.28), transparent 68%);
 }
 
 .connection-layer {
@@ -102,6 +103,18 @@ input {
   height: 100%;
   opacity: 0.82;
   pointer-events: none;
+}
+
+.universe-empty-state {
+  position: absolute;
+  z-index: 5;
+  left: 50%;
+  top: 61%;
+  transform: translateX(-50%);
+  margin: 0;
+  color: rgba(216, 205, 189, 0.72);
+  font-size: 12px;
+  letter-spacing: 0.08em;
 }
 
 .orbit-line {
