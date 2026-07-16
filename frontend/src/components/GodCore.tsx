@@ -1,8 +1,12 @@
 import { SacredGeometry } from "./SacredGeometry";
 
-export function GodCore() {
+type GodCoreProps = {
+  activity: number;
+};
+
+export function GodCore({ activity }: GodCoreProps) {
   return (
-    <section className="god-core exact-god">
+    <section className="god-core exact-god" style={{ "--god-activity": activity } as React.CSSProperties}>
       <div className="god-title">
         <strong>G O D</strong>
         <span>PRESENTE</span>

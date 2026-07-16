@@ -38,6 +38,10 @@ input {
   position: absolute;
   inset: 0;
   overflow: hidden;
+  --universe-activity: 0;
+  --universe-zoom: 1;
+  --universe-pan-x: 0px;
+  --universe-pan-y: 0px;
 }
 
 .living-universe::before {
@@ -96,6 +100,22 @@ input {
   background: radial-gradient(ellipse, rgba(255, 159, 28, 0.28), transparent 68%);
 }
 
+.universe-viewport {
+  position: absolute;
+  z-index: 3;
+  inset: 0;
+  transform:
+    translate3d(var(--universe-pan-x), var(--universe-pan-y), 0)
+    scale(var(--universe-zoom));
+  transform-origin: 50% 46%;
+  transition: transform 1200ms ease;
+  will-change: transform;
+}
+
+.living-universe[data-pulse-health="degraded"] .universe-viewport {
+  filter: saturate(0.9) brightness(0.94);
+}
+
 .connection-layer {
   position: absolute;
   inset: 0;
@@ -149,6 +169,25 @@ input {
 
 .energy-line.vertical {
   stroke: rgba(255, 159, 28, 0.56);
+}
+
+.connection-layer[data-flow-active="false"] .trinity-flow,
+.connection-layer[data-flow-active="false"] .inception-flow,
+.connection-layer[data-flow-active="false"] .core-flow,
+.connection-layer[data-flow-active="false"] .agent-flow,
+.connection-layer[data-flow-active="false"] .malkuth-flow,
+.connection-layer[data-manifested="0"] .manifestation-flow {
+  opacity: 0.18;
+}
+
+.connection-layer[data-flow-active="true"] .trinity-flow,
+.connection-layer[data-flow-active="true"] .inception-flow,
+.connection-layer[data-flow-active="true"] .core-flow,
+.connection-layer[data-flow-active="true"] .agent-flow,
+.connection-layer:not([data-manifested="0"]) .manifestation-flow {
+  stroke-dasharray: 8 12;
+  stroke-width: 1.35;
+  animation-duration: 3.8s;
 }
 
 .sacred-geometry {
@@ -211,6 +250,13 @@ input {
     0 0 144px rgba(255, 159, 28, 0.28);
 }
 
+.living-universe[data-flow-active="true"] .god-sphere {
+  box-shadow:
+    0 0 30px rgba(255, 255, 255, 0.92),
+    0 0 104px rgba(255, 196, 84, 0.82),
+    0 0 190px rgba(255, 159, 28, 0.36);
+}
+
 .god-geometry {
   position: absolute;
   width: 144px;
@@ -269,6 +315,14 @@ input {
 .rockmam-node {
   left: 63.2%;
   top: 30%;
+}
+
+.sophia-node[data-orbit-active="true"] {
+  animation: sophiaOrbit 8s ease-in-out infinite;
+}
+
+.rockmam-node[data-orbit-active="true"] {
+  animation: rockmamOrbit 8.8s ease-in-out infinite;
 }
 
 .node-symbol {
@@ -396,6 +450,7 @@ input {
     repeating-radial-gradient(ellipse at center, transparent 0 8px, color-mix(in srgb, var(--galaxy-color), transparent 62%) 9px 10px),
     radial-gradient(ellipse at center, var(--galaxy-soft), color-mix(in srgb, var(--galaxy-color), transparent 30%) 18%, transparent 64%);
   filter: drop-shadow(0 0 28px color-mix(in srgb, var(--galaxy-color), transparent 34%));
+  transform-origin: 50% 50%;
 }
 
 .spiral-core {
@@ -419,6 +474,18 @@ input {
   border-radius: 50%;
   background: var(--galaxy-soft);
   box-shadow: 0 0 14px var(--galaxy-soft);
+  animation: agentStarPulse 2.8s ease-in-out infinite;
+  animation-delay: calc(var(--star-index) * -220ms);
+}
+
+.universe-galaxy[data-agent-active="true"] .spiral-disk i {
+  animation-duration: 1.2s;
+  box-shadow: 0 0 18px var(--galaxy-soft), 0 0 34px var(--galaxy-color);
+}
+
+.universe-galaxy[data-empty="true"] .spiral-disk {
+  opacity: 0.66;
+  filter: grayscale(0.18) drop-shadow(0 0 20px color-mix(in srgb, var(--galaxy-color), transparent 52%));
 }
 
 .malkuth-node {

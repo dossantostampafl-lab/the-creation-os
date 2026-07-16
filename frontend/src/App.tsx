@@ -237,7 +237,15 @@ export function App() {
 
   return (
     <main className="creator-interface-exact" data-load-state={loadState} data-missions={missions.length}>
-      <LivingUniverse agents={activeAgents} universes={universes} manifestations={manifestations} />
+      <LivingUniverse
+        agents={activeAgents}
+        universes={universes}
+        missions={missions}
+        inceptions={visibleInceptions}
+        chronicles={chronicles}
+        manifestations={manifestations}
+        pulse={pulse}
+      />
       <PulseHeader pulse={pulse} authenticated={authenticated} />
       <InceptionPanel inceptions={visibleInceptions} />
       {dataError ? <div className="api-state api-state-error">{dataError}</div> : null}

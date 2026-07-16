@@ -4,9 +4,10 @@ import type { UniverseVisual } from "../data/universeLayout";
 type UniverseGalaxyProps = {
   universe: UniverseVisual;
   agents: Agent[];
+  missionActive: boolean;
 };
 
-export function UniverseGalaxy({ universe, agents }: UniverseGalaxyProps) {
+export function UniverseGalaxy({ universe, agents, missionActive }: UniverseGalaxyProps) {
   const count = agents.length;
   const points = Array.from({ length: count }, (_, index) => index);
 
@@ -18,8 +19,12 @@ export function UniverseGalaxy({ universe, agents }: UniverseGalaxyProps) {
         top: `${universe.top}%`,
         "--galaxy-color": universe.color,
         "--galaxy-soft": universe.colorSoft,
+        "--agent-count": count,
+        "--galaxy-duration": `${Math.max(20, 42 - count * 1.5)}s`,
       } as React.CSSProperties}
       data-source="API"
+      data-agent-active={missionActive && count > 0}
+      data-empty={count === 0}
     >
       <div className="galaxy-icon">{iconFor(universe.icon)}</div>
       <div className="spiral-disk">
