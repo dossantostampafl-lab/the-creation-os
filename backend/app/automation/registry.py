@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.automation.connectors.github import GitHubConnector
 from app.automation.connectors.rest import RestrictedRestConnector
 from app.automation.contracts import Connector, ConnectorCapability, ConnectorRejected
 
@@ -45,4 +46,5 @@ def default_registry() -> ConnectorRegistry:
             max_response_bytes=65536,
         )
     )
+    registry.register(GitHubConnector())
     return registry
