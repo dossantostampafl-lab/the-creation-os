@@ -9,6 +9,7 @@ from app.capabilities.registry import CapabilityError, CapabilityRegistry, defau
 from app.core.domain import Actor
 from app.models.automation import AutomationExecution
 from app.services.automation import AutomationService
+from app.services.capability_governance import CAPABILITY_NOT_REGISTERED
 
 
 class EchoConnector:
@@ -37,6 +38,11 @@ class FakeAutomationRepository:
 
     async def rollback(self) -> None:
         return None
+
+
+class UnregisteredGovernanceService:
+    async def authorize_execution(self, actor: Actor, *, connector_id: str, connector_capability: str, correlation_id: str):
+        raise CAPABILITY_NOT_REGISTERED("Connector capability is not registered as a Capability")
 
 
 def capability(
@@ -115,10 +121,9 @@ def test_capability_registry_supports_enable_disable():
 async def test_automation_service_blocks_unregistered_connector_capability_before_execution():
     connector_registry = ConnectorRegistry()
     connector_registry.register(EchoConnector())
-    capability_registry = CapabilityRegistry()
-    service = AutomationService(FakeAutomationRepository(), connector_registry, capability_registry)  # type: ignore[arg-type]
+    service = AutomationService(FakeAutomationRepository(), connector_registry, UnregisteredGovernanceService())  # type: ignore[arg-type]
 
-    with pytest.raises(CapabilityError, match="not registered"):
+    with pytest.raises(CAPABILITY_NOT_REGISTERED, match="not registered"):
         await service.execute(
             Actor(id="creator-1", role="creator"),
             connector_id="echo",

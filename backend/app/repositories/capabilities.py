@@ -37,9 +37,10 @@ class CapabilityRepository:
         actor_role: str,
         correlation_id: str,
         payload: dict,
+        event_type: str = "capability_state_changed",
     ) -> None:
         await self.domain.add_event(
-            "capability_state_changed",
+            event_type,
             "registered_capability",
             aggregate_id,
             actor_id,

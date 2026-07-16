@@ -15,15 +15,18 @@ from app.capabilities.registry import CapabilityRegistry
 from app.core.domain import Actor
 from app.models.automation import AutomationExecution
 from app.services.automation import AutomationIdempotencyConflict, AutomationService
+from app.services.capability_governance import CAPABILITY_DISABLED, CapabilityAuthorization
 
 
 class EchoConnector:
     connector_id = "echo"
+    calls = 0
 
     def capabilities(self) -> list[ConnectorCapability]:
         return [ConnectorCapability(name="echo", description="Echo payload", input_schema={})]
 
     async def execute(self, request: ConnectorRequest) -> ConnectorResult:
+        self.calls += 1
         return ConnectorResult(status=ConnectorStatus.SUCCEEDED, output={"payload": request.payload})
 
 
@@ -77,6 +80,21 @@ def echo_capability_registry() -> CapabilityRegistry:
         )
     )
     return registry
+
+
+class FakeGovernanceService:
+    def __init__(self) -> None:
+        self.calls = 0
+        self.capability = echo_capability_registry().get("test.echo")
+
+    async def authorize_execution(self, actor: Actor, *, connector_id: str, connector_capability: str, correlation_id: str) -> CapabilityAuthorization:
+        self.calls += 1
+        return CapabilityAuthorization(capability=self.capability, persisted=None)  # type: ignore[arg-type]
+
+
+class DenyingGovernanceService:
+    async def authorize_execution(self, actor: Actor, *, connector_id: str, connector_capability: str, correlation_id: str) -> CapabilityAuthorization:
+        raise CAPABILITY_DISABLED("Capability disabled")
 
 
 def connector_request(**overrides) -> ConnectorRequest:
@@ -182,7 +200,8 @@ async def test_automation_service_is_idempotent_and_audited():
     registry = ConnectorRegistry()
     registry.register(EchoConnector())
     repository = FakeAutomationRepository()
-    service = AutomationService(repository, registry, echo_capability_registry())  # type: ignore[arg-type]
+    governance = FakeGovernanceService()
+    service = AutomationService(repository, registry, governance)  # type: ignore[arg-type]
     actor = Actor(id="creator-1", role="creator")
 
     first, created = await service.execute(
@@ -209,6 +228,7 @@ async def test_automation_service_is_idempotent_and_audited():
     assert second.request_fingerprint == first.request_fingerprint
     assert len(repository.events) == 1
     assert repository.events[0]["status"] == "SUCCEEDED"
+    assert governance.calls == 2
 
 
 @pytest.mark.asyncio
@@ -216,7 +236,7 @@ async def test_automation_service_rejects_idempotency_conflict_without_new_event
     registry = ConnectorRegistry()
     registry.register(EchoConnector())
     repository = FakeAutomationRepository()
-    service = AutomationService(repository, registry, echo_capability_registry())  # type: ignore[arg-type]
+    service = AutomationService(repository, registry, FakeGovernanceService())  # type: ignore[arg-type]
     actor = Actor(id="creator-1", role="creator")
 
     await service.execute(
@@ -241,3 +261,26 @@ async def test_automation_service_rejects_idempotency_conflict_without_new_event
         )
 
     assert len(repository.events) == 1
+
+
+@pytest.mark.asyncio
+async def test_automation_service_denied_execution_never_reaches_connector():
+    registry = ConnectorRegistry()
+    connector = EchoConnector()
+    registry.register(connector)
+    repository = FakeAutomationRepository()
+    service = AutomationService(repository, registry, DenyingGovernanceService())  # type: ignore[arg-type]
+
+    with pytest.raises(CAPABILITY_DISABLED):
+        await service.execute(
+            Actor(id="creator-1", role="creator"),
+            connector_id="echo",
+            capability="echo",
+            payload={"message": "hello"},
+            timeout_seconds=1,
+            idempotency_key="same-key",
+            correlation_id="correlation-1",
+        )
+
+    assert connector.calls == 0
+    assert len(repository.events) == 0

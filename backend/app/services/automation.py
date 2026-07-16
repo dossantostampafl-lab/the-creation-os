@@ -5,13 +5,12 @@ from sqlalchemy.exc import IntegrityError
 from app.automation.contracts import ConnectorRequest
 from app.automation.executor import AutomationExecutor, request_fingerprint
 from app.automation.registry import ConnectorRegistry, default_registry
-from app.capabilities.registry import CapabilityRegistry
 from app.core.domain import Actor, DomainError, require_creator
 from app.models.automation import AutomationExecution
 from app.repositories.automation import AutomationRepository
 from app.repositories.capabilities import CapabilityRepository
 from app.repositories.domain import sanitize
-from app.services.capabilities import CapabilityPersistenceService
+from app.services.capability_governance import CapabilityGovernanceService
 
 
 class AutomationError(DomainError):
@@ -27,11 +26,11 @@ class AutomationService:
         self,
         repository: AutomationRepository,
         registry: ConnectorRegistry | None = None,
-        capability_registry: CapabilityRegistry | None = None,
+        governance_service: CapabilityGovernanceService | None = None,
     ) -> None:
         self.repository = repository
         self.registry = registry or default_registry()
-        self.capability_registry = capability_registry
+        self.governance_service = governance_service
         self.executor = AutomationExecutor(self.registry)
 
     async def execute(
@@ -48,8 +47,12 @@ class AutomationService:
         require_creator(actor, "execute automation connector")
         if timeout_seconds <= 0 or timeout_seconds > 30:
             raise AutomationError("Automation timeout must be between 0 and 30 seconds")
-        capability_registry = await self._execution_capability_registry()
-        capability_validation = capability_registry.validate_execution(connector_id, capability)
+        authorization = await self._governance().authorize_execution(
+            actor,
+            connector_id=connector_id,
+            connector_capability=capability,
+            correlation_id=correlation_id,
+        )
         request = ConnectorRequest(
             connector_id=connector_id,
             capability=capability,
@@ -92,9 +95,9 @@ class AutomationService:
                     "execution_id": item.id,
                     "connector_id": connector_id,
                     "capability": capability,
-                    "capability_id": capability_validation.capability.capability_id,
-                    "capability_version": capability_validation.capability.version,
-                    "capability_framework_version": capability_validation.framework_version,
+                    "capability_id": authorization.capability.capability_id,
+                    "capability_version": authorization.capability.version,
+                    "capability_framework_version": authorization.framework_version,
                     "status": item.status,
                     "request_fingerprint": item.request_fingerprint,
                     "error_code": item.error_code,
@@ -114,7 +117,7 @@ class AutomationService:
             await self.repository.rollback()
             raise
 
-    async def _execution_capability_registry(self) -> CapabilityRegistry:
-        if self.capability_registry is not None:
-            return self.capability_registry
-        return await CapabilityPersistenceService(CapabilityRepository(self.repository.session)).synced_registry()
+    def _governance(self) -> CapabilityGovernanceService:
+        if self.governance_service is not None:
+            return self.governance_service
+        return CapabilityGovernanceService(CapabilityRepository(self.repository.session), connector_registry=self.registry)
