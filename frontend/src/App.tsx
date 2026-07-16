@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { api, ApiError } from "./api";
+import { CapabilityPanel } from "./components/CapabilityPanel";
 import { ChronicleRibbon } from "./components/ChronicleRibbon";
 import { GodChat } from "./components/GodChat";
 import { InceptionPanel } from "./components/InceptionPanel";
@@ -7,6 +8,8 @@ import { LivingUniverse } from "./components/LivingUniverse";
 import { PulseHeader } from "./components/PulseHeader";
 import type {
   Agent,
+  AutomationExecution,
+  CapabilityFramework,
   ChatItem,
   ChronicleEntry,
   Conversation,
@@ -29,6 +32,7 @@ type WorkspaceCache = {
   universes: Universe[];
   chronicles: ChronicleEntry[];
   manifestations: MissionManifestation[];
+  capabilities: CapabilityFramework[];
   pulse: Pulse | null;
 };
 
@@ -52,6 +56,10 @@ export function App() {
   const [inceptions, setInceptions] = useState<Inception[]>([]);
   const [missions, setMissions] = useState<Mission[]>([]);
   const [manifestations, setManifestations] = useState<MissionManifestation[]>([]);
+  const [capabilities, setCapabilities] = useState<CapabilityFramework[]>([]);
+  const [automationResult, setAutomationResult] = useState<AutomationExecution | null>(null);
+  const [capabilityError, setCapabilityError] = useState<string | null>(null);
+  const [capabilityBusy, setCapabilityBusy] = useState(false);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [universes, setUniverses] = useState<Universe[]>([]);
   const [chronicles, setChronicles] = useState<ChronicleEntry[]>([]);
@@ -89,6 +97,7 @@ export function App() {
       setUniverses(workspace.universes ?? []);
       setChronicles(workspace.chronicles ?? []);
       setManifestations(workspace.manifestations ?? []);
+      setCapabilities(workspace.capabilities ?? []);
       setPulse(workspace.pulse ?? null);
     } catch {
       localStorage.removeItem(WORKSPACE_CACHE_KEY);
@@ -102,7 +111,7 @@ export function App() {
   async function refreshWorkspace(accessToken: string, showLoading: boolean) {
     if (showLoading) setLoadState("loading");
     setDataError(null);
-    const [loadedInceptions, loadedMissions, loadedAgents, loadedUniverses, loadedChronicles, loadedPulse] =
+    const [loadedInceptions, loadedMissions, loadedAgents, loadedUniverses, loadedChronicles, loadedPulse, loadedCapabilities] =
       await Promise.allSettled([
         api.listInceptions(accessToken),
         api.listMissions(accessToken),
@@ -110,11 +119,18 @@ export function App() {
         api.listUniverses(accessToken),
         api.listChronicles(accessToken),
         api.pulse(accessToken),
+        api.listCapabilities(accessToken),
       ]);
 
-    const failures = [loadedInceptions, loadedMissions, loadedAgents, loadedUniverses, loadedChronicles, loadedPulse].filter(
-      (result) => result.status === "rejected",
-    );
+    const failures = [
+      loadedInceptions,
+      loadedMissions,
+      loadedAgents,
+      loadedUniverses,
+      loadedChronicles,
+      loadedPulse,
+      loadedCapabilities,
+    ].filter((result) => result.status === "rejected");
 
     const nextInceptions = loadedInceptions.status === "fulfilled" ? loadedInceptions.value : inceptions;
     const nextMissions = loadedMissions.status === "fulfilled" ? loadedMissions.value : missions;
@@ -122,6 +138,7 @@ export function App() {
     const nextUniverses = loadedUniverses.status === "fulfilled" ? loadedUniverses.value : universes;
     const nextChronicles = loadedChronicles.status === "fulfilled" ? loadedChronicles.value : chronicles;
     const nextPulse = loadedPulse.status === "fulfilled" ? loadedPulse.value : pulse;
+    const nextCapabilities = loadedCapabilities.status === "fulfilled" ? loadedCapabilities.value : capabilities;
 
     const manifestationResults = await Promise.allSettled(
       nextMissions.map((mission) => api.getMissionManifestation(accessToken, mission.id)),
@@ -135,6 +152,7 @@ export function App() {
     setChronicles(nextChronicles);
     setPulse(nextPulse);
     setManifestations(nextManifestations);
+    setCapabilities(nextCapabilities);
 
     if (failures.length > 0) {
       setLoadState("error");
@@ -148,11 +166,13 @@ export function App() {
       loadedAgents.status === "fulfilled" &&
       loadedUniverses.status === "fulfilled" &&
       loadedChronicles.status === "fulfilled" &&
+      loadedCapabilities.status === "fulfilled" &&
       (loadedInceptions.value.length > 0 ||
         loadedMissions.value.length > 0 ||
         loadedAgents.value.length > 0 ||
         loadedUniverses.value.length > 0 ||
         loadedChronicles.value.length > 0 ||
+        loadedCapabilities.value.length > 0 ||
         nextManifestations.length > 0);
     cacheWorkspace({
       inceptions: nextInceptions,
@@ -161,6 +181,7 @@ export function App() {
       universes: nextUniverses,
       chronicles: nextChronicles,
       manifestations: nextManifestations,
+      capabilities: nextCapabilities,
       pulse: nextPulse,
     });
     setLoadState(hasData ? "ready" : "empty");
@@ -184,6 +205,63 @@ export function App() {
     const created = await api.createConversation(accessToken, "Creator Interface");
     setConversation(created);
     return created;
+  }
+
+  async function handleEnableCapability(capabilityId: string) {
+    if (!token) return;
+    setCapabilityBusy(true);
+    setCapabilityError(null);
+    try {
+      await api.enableCapability(token, capabilityId);
+      await refreshWorkspace(token, false);
+    } catch (error) {
+      setCapabilityError(error instanceof ApiError ? error.message : "Falha ao habilitar capability.");
+    } finally {
+      setCapabilityBusy(false);
+    }
+  }
+
+  async function handleDisableCapability(capabilityId: string) {
+    if (!token) return;
+    setCapabilityBusy(true);
+    setCapabilityError(null);
+    try {
+      await api.disableCapability(token, capabilityId);
+      await refreshWorkspace(token, false);
+    } catch (error) {
+      setCapabilityError(error instanceof ApiError ? error.message : "Falha ao desabilitar capability.");
+    } finally {
+      setCapabilityBusy(false);
+    }
+  }
+
+  async function handleExecuteAutomation() {
+    if (!token) return;
+    setCapabilityBusy(true);
+    setCapabilityError(null);
+    setAutomationResult(null);
+    try {
+      const result = await api.executeAutomation(token, {
+        connector_id: "restricted_rest",
+        capability: "http_request",
+        payload: {
+          method: "GET",
+          url: "https://example.com",
+          headers: {
+            accept: "text/html",
+            "user-agent": "the-creation-os-creator-interface",
+          },
+        },
+        timeout_seconds: 10,
+        idempotency_key: `creator-interface-${Date.now()}`,
+      });
+      setAutomationResult(result);
+      await refreshWorkspace(token, false);
+    } catch (error) {
+      setCapabilityError(error instanceof ApiError ? error.message : "Automation negada pelo backend.");
+    } finally {
+      setCapabilityBusy(false);
+    }
   }
 
   async function handleSend(event: FormEvent) {
@@ -250,6 +328,17 @@ export function App() {
       <InceptionPanel inceptions={visibleInceptions} />
       {dataError ? <div className="api-state api-state-error">{dataError}</div> : null}
       {empty ? <div className="api-state api-state-empty">API conectada sem dados ativos.</div> : null}
+      {authenticated ? (
+        <CapabilityPanel
+          capabilities={capabilities}
+          loading={capabilityBusy}
+          error={capabilityError}
+          result={automationResult}
+          onEnable={handleEnableCapability}
+          onDisable={handleDisableCapability}
+          onExecute={handleExecuteAutomation}
+        />
+      ) : null}
       <GodChat
         authenticated={authenticated}
         busy={busy}

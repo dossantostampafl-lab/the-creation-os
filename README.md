@@ -1,112 +1,113 @@
-# THE CREATION OS v0.3 — Living Core
+# THE CREATION OS - MVP
 
-Projeto backend do núcleo persistente do THE CREATION OS. Inclui autenticação do Criador, conversa com GOD, Trindade, Inceptions, Central Core, Tree Core, Universos, memória, Chronicles e Pulse.
+Backend FastAPI, PostgreSQL, Redis e Creator Interface React/Vite.
 
-## Arquitetura
+## Pre-requisitos
 
-- `api` expõe REST estável `/api/v1`
-- `auth` gerencia o único Criador e tokens JWT
-- `chronicles` mantém histórico append-only encadeado
-- `core` executa a lógica de GOD, SOPHIA, ROCKMAM, Central Core, Tree Core e Malkuth
-- `memory` implementa memória de conversa, missão, universo e consciousness
-- `db` e `alembic` gerenciam persistência PostgreSQL
-- `redis` e `redis streams` suportam execução de tarefas
+- Docker e Docker Compose
+- Node.js 20 para execucao local do frontend sem Docker
+- Python 3.12 para execucao local do backend sem Docker
 
-## Requisitos
+## Ambiente
 
-- Docker
-- Docker Compose
-- Python 3.12 (para execução local sem container)
+1. Copie `.env.example` para `.env`.
+2. Ajuste `APP_SECRET_KEY` e `CREATOR_BOOTSTRAP_PASSWORD`.
+3. Nao preencha `GITHUB_TOKEN` salvo quando for validar o connector GitHub.
 
-## Configuração
+Variaveis principais:
 
-Copie `.env.example` para `.env` e ajuste os valores.
+- `DATABASE_URL`: conexao async do PostgreSQL usada pela API.
+- `REDIS_URL`: conexao Redis usada por Pulse e filas.
+- `CREATOR_BOOTSTRAP_USERNAME`: usuario inicial do Criador.
+- `CREATOR_BOOTSTRAP_PASSWORD`: senha inicial do Criador.
+- `VITE_API_BASE_URL`: base REST usada pelo frontend.
 
-## Executar local
+## Iniciar com Docker
 
 ```bash
-docker compose up --build
+docker compose config
+docker compose build
+docker compose up -d
+docker compose ps
 ```
 
-## Migrations
+A API aplica migrations automaticamente ao iniciar.
+
+## Criar ou acessar o Criador
+
+Em banco limpo, crie o Criador uma unica vez:
 
 ```bash
-docker compose exec api alembic upgrade head
-```
-
-## Criar o Criador
-
-```bash
-curl -X POST http://localhost:8000/api/v1/auth/bootstrap \
+curl -X POST http://127.0.0.1:8000/api/v1/auth/bootstrap \
   -H "Content-Type: application/json" \
-  -d '{"username":"creator","password":"change-me-securely"}'
+  -d "{\"username\":\"creator\",\"password\":\"change-me-securely\"}"
 ```
 
-## Login
+Depois acesse a interface com:
 
-```bash
-curl -X POST http://localhost:8000/api/v1/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"username":"creator","password":"change-me-securely"}'
-```
+- usuario: `creator`
+- senha: valor de `CREATOR_BOOTSTRAP_PASSWORD`
 
-## Endpoints principais
+## Enderecos
 
-- `POST /api/v1/auth/login`
-- `POST /api/v1/conversations`
-- `POST /api/v1/conversations/{id}/messages`
-- `GET /api/v1/inceptions`
-- `POST /api/v1/inceptions/{id}/approve`
-- `POST /api/v1/inceptions/{id}/reject`
-- `GET /api/v1/pulse`
-- `GET /api/v1/chronicles`
-- `GET /api/v1/chronicles/verify`
+- Frontend: http://127.0.0.1:5173
+- Backend: http://127.0.0.1:8000/api/v1
+- Healthcheck: http://127.0.0.1:8000/api/v1/health/ready
+
+## Fluxo principal do MVP
+
+1. Abra o frontend.
+2. Faça login como Criador.
+3. Confirme Pulse, Chronicle e dados reais carregados.
+4. Abra o painel `CAPABILITIES`.
+5. Liste capabilities registradas.
+6. Habilite ou desabilite uma capability permitida.
+7. Execute `REST seguro`.
+8. Confirme resposta da automation na interface.
+9. Para validar negacao, desabilite `Restricted REST Request` e execute novamente; o governance deve negar antes do connector.
 
 ## Testes
 
+Backend focado:
+
 ```bash
 cd backend
-pytest
+python -m pytest tests/test_capability_governance.py tests/test_capability_persistence.py tests/test_capabilities.py tests/test_automation.py -q
 ```
 
-## v0.4.1 - Tree Core Foundation
+Frontend:
 
-O Tree Core possui agora um Agent Registry persistente e um Capability Engine.
-Capabilities sao entidades normalizadas e relacionadas a agentes por uma tabela
-N:N. O mecanismo de match aceita somente Missions autorizadas e retorna agentes
-idle, habilitados, com heartbeat valido e todas as capabilities solicitadas,
-ordenados por prioridade.
+```bash
+cd frontend
+npm run build
+```
 
-Esta versao nao implementa Dispatch, Execution, Aggregation nem Malkuth. O Tree
-Core seleciona agentes, mas nunca inicia ou manifesta uma Mission.
+Checks finais:
 
-## v0.4.2 - Mission Planner e Task Graph
+```bash
+git diff --check
+```
 
-Mission e o objetivo estrategico. O planner deterministico produz Tasks, e o
-Dependency Graph valida um DAG com ordenacao topologica. Dispatch, execucao,
-Result Aggregator, Pulse e Malkuth continuam fora do escopo.
+## Logs
 
-## v0.4.3 - Dispatch Queue Foundation
+```bash
+docker compose logs api
+docker compose logs frontend
+docker compose logs postgres
+docker compose logs redis
+```
 
-A fila persistente oferece enqueue estrutural, lease transacional, renovacao,
-acknowledge logico, release, retry exponencial, dead-letter e cancelamento. Ela
-nao executa agentes, Tasks ou Missions.
+## Parar
 
-## v0.4.4 - Agent Dispatcher Protocol
+```bash
+docker compose down
+```
 
-**STATUS: FROZEN**
+Use `docker compose down -v` apenas quando desejar apagar volumes locais.
 
-A v0.4.4 foi encerrada após auditoria final. Nenhuma alteração funcional deve
-ser incorporada a esta versão. Consulte `docs/V044_FINAL_AUDIT.md`.
+## Limitacoes conhecidas do MVP
 
-O protocolo adiciona Worker Registry persistente, capabilities normalizadas,
-heartbeat, autenticação por credencial opaca, claim com Execution Envelope e as
-operações acknowledge, release, fail e shutdown. Nenhum Agent, Task ou Mission
-é executado por esta camada.
-
-## v0.4.5 - Agents: Controlled Task Execution
-
-Agents execute only authorized Tasks through deterministic, internally registered
-handlers. Results are persisted and returned to Tree Core. Agents do not create
-or authorize Missions and never manifest results. No new architectural layer was
-introduced.
+- O connector GitHub exige `GITHUB_TOKEN` e allowlist configurados.
+- O connector REST restrito permite somente hosts e metodos definidos no registry.
+- Sem embeddings ou LLM externos obrigatorios neste MVP.
+- O frontend executa somente o fluxo principal de capabilities/automation; recursos avancados permanecem no backend.

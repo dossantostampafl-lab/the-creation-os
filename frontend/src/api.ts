@@ -1,5 +1,7 @@
 import type {
   Agent,
+  AutomationExecution,
+  CapabilityFramework,
   ChronicleEntry,
   Conversation,
   GodResponse,
@@ -108,5 +110,45 @@ export const api = {
 
   getMissionManifestation(token: string, missionId: string) {
     return request<MissionManifestation>(`/malkuth/missions/${missionId}/manifestation`, undefined, token);
+  },
+
+  listCapabilities(token: string) {
+    return request<CapabilityFramework[]>("/automation/capabilities", undefined, token);
+  },
+
+  enableCapability(token: string, capabilityId: string) {
+    return request<CapabilityFramework>(
+      `/automation/capabilities/${encodeURIComponent(capabilityId)}/enable`,
+      { method: "POST" },
+      token,
+    );
+  },
+
+  disableCapability(token: string, capabilityId: string) {
+    return request<CapabilityFramework>(
+      `/automation/capabilities/${encodeURIComponent(capabilityId)}/disable`,
+      { method: "POST" },
+      token,
+    );
+  },
+
+  executeAutomation(
+    token: string,
+    body: {
+      connector_id: string;
+      capability: string;
+      payload: Record<string, unknown>;
+      timeout_seconds: number;
+      idempotency_key: string;
+    },
+  ) {
+    return request<AutomationExecution>(
+      "/automation/execute",
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+      token,
+    );
   },
 };

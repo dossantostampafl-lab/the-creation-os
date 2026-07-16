@@ -133,6 +133,38 @@ export type MissionManifestation = {
   manifested_at: string | null;
 };
 
+export type CapabilityFramework = {
+  id: string | null;
+  capability_id: string;
+  name: string;
+  description: string;
+  version: string;
+  connector_id: string;
+  connector_capability: string;
+  enabled: boolean;
+  permissions: string[];
+  dependencies: string[];
+  metadata: Record<string, string>;
+  mandatory: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+export type AutomationExecution = {
+  id: string;
+  creator_id: string;
+  connector_id: string;
+  capability: string;
+  idempotency_key: string;
+  request_fingerprint: string;
+  status: string;
+  result_payload: Record<string, unknown>;
+  error_code: string | null;
+  error_message: string | null;
+  created_at: string;
+  completed_at: string;
+};
+
 export type ChatItem = {
   id: string;
   role: "creator" | "god" | "trinity";
