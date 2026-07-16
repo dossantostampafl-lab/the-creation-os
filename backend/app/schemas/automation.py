@@ -32,3 +32,16 @@ class AutomationExecutionResponse(BaseModel):
 class AutomationCapabilityResponse(BaseModel):
     connector_id: str
     capabilities: list[dict[str, Any]]
+
+
+class CapabilityFrameworkResponse(BaseModel):
+    capability_id: str
+    name: str
+    description: str
+    version: str
+    connector_id: str
+    connector_capability: str
+    enabled: bool
+    permissions: list[str]
+    dependencies: list[str]
+    metadata: dict[str, str]

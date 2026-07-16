@@ -10,6 +10,8 @@ from app.automation.connectors.rest import RestrictedRestConnector
 from app.automation.contracts import ConnectorCapability, ConnectorRequest, ConnectorResult, ConnectorStatus
 from app.automation.executor import AutomationExecutor, request_fingerprint
 from app.automation.registry import ConnectorRegistry
+from app.capabilities.contracts import CapabilityDefinition, CapabilityPermission
+from app.capabilities.registry import CapabilityRegistry
 from app.core.domain import Actor
 from app.models.automation import AutomationExecution
 from app.services.automation import AutomationIdempotencyConflict, AutomationService
@@ -58,6 +60,23 @@ class FakeAutomationRepository:
 
     async def rollback(self) -> None:
         self.rollbacks += 1
+
+
+def echo_capability_registry() -> CapabilityRegistry:
+    registry = CapabilityRegistry()
+    registry.register(
+        CapabilityDefinition(
+            capability_id="test.echo",
+            name="Test Echo",
+            description="Echo test capability.",
+            version="1.0.0",
+            connector_id="echo",
+            connector_capability="echo",
+            enabled=True,
+            permissions=(CapabilityPermission.READ,),
+        )
+    )
+    return registry
 
 
 def connector_request(**overrides) -> ConnectorRequest:
@@ -163,7 +182,7 @@ async def test_automation_service_is_idempotent_and_audited():
     registry = ConnectorRegistry()
     registry.register(EchoConnector())
     repository = FakeAutomationRepository()
-    service = AutomationService(repository, registry)  # type: ignore[arg-type]
+    service = AutomationService(repository, registry, echo_capability_registry())  # type: ignore[arg-type]
     actor = Actor(id="creator-1", role="creator")
 
     first, created = await service.execute(
@@ -197,7 +216,7 @@ async def test_automation_service_rejects_idempotency_conflict_without_new_event
     registry = ConnectorRegistry()
     registry.register(EchoConnector())
     repository = FakeAutomationRepository()
-    service = AutomationService(repository, registry)  # type: ignore[arg-type]
+    service = AutomationService(repository, registry, echo_capability_registry())  # type: ignore[arg-type]
     actor = Actor(id="creator-1", role="creator")
 
     await service.execute(

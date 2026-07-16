@@ -7,12 +7,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_sovereign_creator
 from app.automation.registry import default_registry
+from app.capabilities.registry import default_capability_registry
 from app.core.domain import Actor
 from app.db.session import get_session
 from app.models.automation import AutomationExecution
 from app.repositories.automation import AutomationRepository
 from app.schemas.auth import TokenPayload
-from app.schemas.automation import AutomationCapabilityResponse, AutomationExecuteRequest, AutomationExecutionResponse
+from app.schemas.automation import (
+    AutomationCapabilityResponse,
+    AutomationExecuteRequest,
+    AutomationExecutionResponse,
+    CapabilityFrameworkResponse,
+)
 from app.services.automation import AutomationService
 
 router = APIRouter(tags=["automation"], dependencies=[Depends(get_sovereign_creator)])
@@ -65,6 +71,25 @@ async def list_connectors():
             ],
         )
         for connector_id, capabilities in registry.list_capabilities().items()
+    ]
+
+
+@router.get("/automation/capabilities", response_model=list[CapabilityFrameworkResponse])
+async def list_automation_capabilities():
+    return [
+        CapabilityFrameworkResponse(
+            capability_id=item.capability_id,
+            name=item.name,
+            description=item.description,
+            version=item.version,
+            connector_id=item.connector_id,
+            connector_capability=item.connector_capability,
+            enabled=item.enabled,
+            permissions=[permission.value for permission in item.permissions],
+            dependencies=list(item.dependencies),
+            metadata=item.metadata,
+        )
+        for item in default_capability_registry().discover()
     ]
 
 

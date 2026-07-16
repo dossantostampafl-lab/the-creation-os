@@ -5,6 +5,7 @@ from sqlalchemy.exc import IntegrityError
 from app.automation.contracts import ConnectorRequest
 from app.automation.executor import AutomationExecutor, request_fingerprint
 from app.automation.registry import ConnectorRegistry, default_registry
+from app.capabilities.registry import CapabilityRegistry, default_capability_registry
 from app.core.domain import Actor, DomainError, require_creator
 from app.models.automation import AutomationExecution
 from app.repositories.automation import AutomationRepository
@@ -20,9 +21,15 @@ class AutomationIdempotencyConflict(AutomationError):
 
 
 class AutomationService:
-    def __init__(self, repository: AutomationRepository, registry: ConnectorRegistry | None = None) -> None:
+    def __init__(
+        self,
+        repository: AutomationRepository,
+        registry: ConnectorRegistry | None = None,
+        capability_registry: CapabilityRegistry | None = None,
+    ) -> None:
         self.repository = repository
         self.registry = registry or default_registry()
+        self.capability_registry = capability_registry or default_capability_registry()
         self.executor = AutomationExecutor(self.registry)
 
     async def execute(
@@ -39,6 +46,7 @@ class AutomationService:
         require_creator(actor, "execute automation connector")
         if timeout_seconds <= 0 or timeout_seconds > 30:
             raise AutomationError("Automation timeout must be between 0 and 30 seconds")
+        capability_validation = self.capability_registry.validate_execution(connector_id, capability)
         request = ConnectorRequest(
             connector_id=connector_id,
             capability=capability,
@@ -81,6 +89,9 @@ class AutomationService:
                     "execution_id": item.id,
                     "connector_id": connector_id,
                     "capability": capability,
+                    "capability_id": capability_validation.capability.capability_id,
+                    "capability_version": capability_validation.capability.version,
+                    "capability_framework_version": capability_validation.framework_version,
                     "status": item.status,
                     "request_fingerprint": item.request_fingerprint,
                     "error_code": item.error_code,
