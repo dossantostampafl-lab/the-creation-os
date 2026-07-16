@@ -19,6 +19,7 @@ from app.models.entities import (
 from app.models.execution import AgentExecution, AgentExecutionEvent
 from app.models.god import GodConversationInteraction
 from app.models.manifestation import MissionManifestation
+from app.models.memory import CreatorMemory
 from app.models.policy import MissionDecisionReasoning
 from app.models.rockmam import RockmamPossibilityAssessment
 from app.models.sophia import SophiaUnderstanding
@@ -32,6 +33,7 @@ __all__ = [
     "Chronicle",
     "Conversation",
     "Creator",
+    "CreatorMemory",
     "DispatchAttempt",
     "DispatchItem",
     "GodConversationInteraction",
