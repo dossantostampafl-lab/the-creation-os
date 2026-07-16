@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -29,9 +31,29 @@ class CapabilityDefinition:
     permissions: tuple[CapabilityPermission, ...]
     dependencies: tuple[str, ...] = field(default_factory=tuple)
     metadata: dict[str, str] = field(default_factory=dict)
+    mandatory: bool = False
 
 
 @dataclass(frozen=True)
 class CapabilityValidation:
     capability: CapabilityDefinition
     framework_version: str = CAPABILITY_FRAMEWORK_VERSION
+
+
+def capability_fingerprint(capability: CapabilityDefinition) -> str:
+    material = {
+        "schema_version": "1.0",
+        "framework_version": CAPABILITY_FRAMEWORK_VERSION,
+        "capability_id": capability.capability_id,
+        "name": capability.name,
+        "description": capability.description,
+        "version": capability.version,
+        "connector_id": capability.connector_id,
+        "connector_capability": capability.connector_capability,
+        "permissions": [permission.value for permission in capability.permissions],
+        "dependencies": list(capability.dependencies),
+        "metadata": capability.metadata,
+        "mandatory": capability.mandatory,
+    }
+    canonical = json.dumps(material, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()

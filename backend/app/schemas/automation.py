@@ -35,6 +35,7 @@ class AutomationCapabilityResponse(BaseModel):
 
 
 class CapabilityFrameworkResponse(BaseModel):
+    id: str | None = None
     capability_id: str
     name: str
     description: str
@@ -45,3 +46,6 @@ class CapabilityFrameworkResponse(BaseModel):
     permissions: list[str]
     dependencies: list[str]
     metadata: dict[str, str]
+    mandatory: bool = False
+    created_at: datetime | None = None
+    updated_at: datetime | None = None

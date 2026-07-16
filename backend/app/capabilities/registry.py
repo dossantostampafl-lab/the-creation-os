@@ -92,6 +92,7 @@ def github_capabilities() -> list[CapabilityDefinition]:
             enabled=True,
             permissions=(CapabilityPermission.READ,),
             metadata={"provider": "github", "destructive": "false"},
+            mandatory=True,
         ),
         CapabilityDefinition(
             capability_id="github.issues.read",

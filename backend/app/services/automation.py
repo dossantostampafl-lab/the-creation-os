@@ -5,11 +5,13 @@ from sqlalchemy.exc import IntegrityError
 from app.automation.contracts import ConnectorRequest
 from app.automation.executor import AutomationExecutor, request_fingerprint
 from app.automation.registry import ConnectorRegistry, default_registry
-from app.capabilities.registry import CapabilityRegistry, default_capability_registry
+from app.capabilities.registry import CapabilityRegistry
 from app.core.domain import Actor, DomainError, require_creator
 from app.models.automation import AutomationExecution
 from app.repositories.automation import AutomationRepository
+from app.repositories.capabilities import CapabilityRepository
 from app.repositories.domain import sanitize
+from app.services.capabilities import CapabilityPersistenceService
 
 
 class AutomationError(DomainError):
@@ -29,7 +31,7 @@ class AutomationService:
     ) -> None:
         self.repository = repository
         self.registry = registry or default_registry()
-        self.capability_registry = capability_registry or default_capability_registry()
+        self.capability_registry = capability_registry
         self.executor = AutomationExecutor(self.registry)
 
     async def execute(
@@ -46,7 +48,8 @@ class AutomationService:
         require_creator(actor, "execute automation connector")
         if timeout_seconds <= 0 or timeout_seconds > 30:
             raise AutomationError("Automation timeout must be between 0 and 30 seconds")
-        capability_validation = self.capability_registry.validate_execution(connector_id, capability)
+        capability_registry = await self._execution_capability_registry()
+        capability_validation = capability_registry.validate_execution(connector_id, capability)
         request = ConnectorRequest(
             connector_id=connector_id,
             capability=capability,
@@ -110,3 +113,8 @@ class AutomationService:
         except Exception:
             await self.repository.rollback()
             raise
+
+    async def _execution_capability_registry(self) -> CapabilityRegistry:
+        if self.capability_registry is not None:
+            return self.capability_registry
+        return await CapabilityPersistenceService(CapabilityRepository(self.repository.session)).synced_registry()

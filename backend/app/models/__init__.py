@@ -1,4 +1,5 @@
 from app.models.automation import AutomationExecution
+from app.models.capability_registry import RegisteredCapability
 from app.models.consolidation import MissionConsolidation
 from app.models.decision import MissionDecision
 from app.models.dispatch import DispatchAttempt, DispatchItem, Worker
@@ -48,6 +49,7 @@ __all__ = [
     "MissionManifestation",
     "MissionPlan",
     "RockmamPossibilityAssessment",
+    "RegisteredCapability",
     "SophiaUnderstanding",
     "Task",
     "TaskDependency",

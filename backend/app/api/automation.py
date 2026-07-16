@@ -7,11 +7,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_sovereign_creator
 from app.automation.registry import default_registry
-from app.capabilities.registry import default_capability_registry
 from app.core.domain import Actor
 from app.db.session import get_session
 from app.models.automation import AutomationExecution
+from app.models.capability_registry import RegisteredCapability
 from app.repositories.automation import AutomationRepository
+from app.repositories.capabilities import CapabilityRepository
 from app.schemas.auth import TokenPayload
 from app.schemas.automation import (
     AutomationCapabilityResponse,
@@ -20,6 +21,7 @@ from app.schemas.automation import (
     CapabilityFrameworkResponse,
 )
 from app.services.automation import AutomationService
+from app.services.capabilities import CapabilityPersistenceService
 
 router = APIRouter(tags=["automation"], dependencies=[Depends(get_sovereign_creator)])
 
@@ -38,6 +40,10 @@ def service(session: AsyncSession = Depends(get_session)) -> AutomationService:
     return AutomationService(AutomationRepository(session))
 
 
+def capability_service(session: AsyncSession = Depends(get_session)) -> CapabilityPersistenceService:
+    return CapabilityPersistenceService(CapabilityRepository(session))
+
+
 def execution_response(item: AutomationExecution) -> AutomationExecutionResponse:
     return AutomationExecutionResponse(
         id=item.id,
@@ -52,6 +58,25 @@ def execution_response(item: AutomationExecution) -> AutomationExecutionResponse
         error_message=item.error_message,
         created_at=item.created_at,
         completed_at=item.completed_at,
+    )
+
+
+def persisted_capability_response(item: RegisteredCapability) -> CapabilityFrameworkResponse:
+    return CapabilityFrameworkResponse(
+        id=item.id,
+        capability_id=item.capability_id,
+        name=item.name,
+        description=item.description,
+        version=item.version,
+        connector_id=item.connector_id,
+        connector_capability=item.connector_capability,
+        enabled=item.enabled,
+        permissions=list(item.permissions_json),
+        dependencies=list(item.dependencies_json),
+        metadata=dict(item.metadata_json),
+        mandatory=item.mandatory,
+        created_at=item.created_at,
+        updated_at=item.updated_at,
     )
 
 
@@ -75,22 +100,31 @@ async def list_connectors():
 
 
 @router.get("/automation/capabilities", response_model=list[CapabilityFrameworkResponse])
-async def list_automation_capabilities():
-    return [
-        CapabilityFrameworkResponse(
-            capability_id=item.capability_id,
-            name=item.name,
-            description=item.description,
-            version=item.version,
-            connector_id=item.connector_id,
-            connector_capability=item.connector_capability,
-            enabled=item.enabled,
-            permissions=[permission.value for permission in item.permissions],
-            dependencies=list(item.dependencies),
-            metadata=item.metadata,
-        )
-        for item in default_capability_registry().discover()
-    ]
+async def list_automation_capabilities(
+    a: Actor = Depends(actor),
+    capabilities: CapabilityPersistenceService = Depends(capability_service),
+):
+    return [persisted_capability_response(item) for item in await capabilities.list(a)]
+
+
+@router.post("/automation/capabilities/{capability_id}/enable", response_model=CapabilityFrameworkResponse)
+async def enable_automation_capability(
+    capability_id: str,
+    a: Actor = Depends(actor),
+    cid: str = Depends(correlation_id),
+    capabilities: CapabilityPersistenceService = Depends(capability_service),
+):
+    return persisted_capability_response(await capabilities.enable(a, capability_id, cid))
+
+
+@router.post("/automation/capabilities/{capability_id}/disable", response_model=CapabilityFrameworkResponse)
+async def disable_automation_capability(
+    capability_id: str,
+    a: Actor = Depends(actor),
+    cid: str = Depends(correlation_id),
+    capabilities: CapabilityPersistenceService = Depends(capability_service),
+):
+    return persisted_capability_response(await capabilities.disable(a, capability_id, cid))
 
 
 @router.post("/automation/execute", response_model=AutomationExecutionResponse, status_code=status.HTTP_201_CREATED)
