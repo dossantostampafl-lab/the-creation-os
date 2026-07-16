@@ -1,3 +1,4 @@
+from app.models.automation import AutomationExecution
 from app.models.consolidation import MissionConsolidation
 from app.models.decision import MissionDecision
 from app.models.dispatch import DispatchAttempt, DispatchItem, Worker
@@ -29,6 +30,7 @@ __all__ = [
     "AgentCapability",
     "AgentExecution",
     "AgentExecutionEvent",
+    "AutomationExecution",
     "Capability",
     "Chronicle",
     "Conversation",

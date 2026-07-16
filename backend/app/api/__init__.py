@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 
+from app.api.automation import router as automation_router
 from app.api.central_core import router as central_core_router
 from app.api.creator_interface import router as creator_interface_router
 from app.api.dispatch import router as dispatch_router
@@ -16,6 +17,7 @@ from app.api.trinity import router as trinity_router
 from app.api.workers import router as workers_router
 
 router = APIRouter()
+router.include_router(automation_router)
 router.include_router(health_router)
 router.include_router(creator_interface_router)
 router.include_router(living_core_router)
