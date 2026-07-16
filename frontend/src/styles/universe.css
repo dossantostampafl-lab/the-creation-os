@@ -40,8 +40,30 @@ input {
   overflow: hidden;
 }
 
+.living-universe::before {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  left: -18vw;
+  top: 22vh;
+  width: 138vw;
+  height: 34vh;
+  pointer-events: none;
+  border-radius: 50%;
+  background:
+    radial-gradient(ellipse at 18% 52%, rgba(82, 181, 255, 0.24), transparent 34%),
+    radial-gradient(ellipse at 48% 42%, rgba(255, 196, 84, 0.2), transparent 31%),
+    radial-gradient(ellipse at 76% 48%, rgba(182, 92, 255, 0.18), transparent 36%),
+    linear-gradient(90deg, transparent, rgba(69, 154, 255, 0.18), rgba(255, 159, 28, 0.22), rgba(113, 183, 255, 0.16), transparent);
+  filter: blur(24px);
+  mix-blend-mode: screen;
+  opacity: 0.24;
+  transform: rotate(-22deg);
+}
+
 .starfield-canvas {
   position: absolute;
+  z-index: 0;
   inset: 0;
   width: 100vw;
   height: 100vh;
@@ -52,7 +74,9 @@ input {
   border-radius: 50%;
   pointer-events: none;
   filter: blur(22px);
-  opacity: 0.42;
+  opacity: 0.26;
+  mix-blend-mode: screen;
+  z-index: 2;
 }
 
 .nebula-blue {
