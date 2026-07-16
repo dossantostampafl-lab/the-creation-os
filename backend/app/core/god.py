@@ -151,9 +151,15 @@ def canonical_request_fingerprint(conversation_id: str, message: str, idempotenc
     )
 
 
-def build_god_interaction(conversation_id: str, message: str, idempotency_key: str) -> GodInteractionDocument:
+def build_god_interaction(
+    conversation_id: str,
+    message: str,
+    idempotency_key: str,
+    memory_context: list[dict[str, Any]] | None = None,
+) -> GodInteractionDocument:
     interaction_type = classify_message(message)
     reply, next_action, potential_detected = build_reply(interaction_type)
+    resolved_memory_context = memory_context or []
     request_fingerprint = canonical_request_fingerprint(conversation_id, message, idempotency_key)
     fingerprint_payload = {
         "schema_version": "1.0",
@@ -161,6 +167,7 @@ def build_god_interaction(conversation_id: str, message: str, idempotency_key: s
         "conversation_id": conversation_id,
         "idempotency_key": idempotency_key,
         "request_fingerprint": request_fingerprint,
+        "memory_context": resolved_memory_context,
         "interaction_type": interaction_type.value,
         "reply": reply,
         "potential_detected": potential_detected,

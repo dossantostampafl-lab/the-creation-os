@@ -28,11 +28,15 @@ class MemoryRepository:
         creator_id: str,
         query: str | None = None,
         memory_type: str | None = None,
+        memory_types: list[str] | None = None,
+        min_importance: int = 1,
         limit: int = 20,
     ) -> list[CreatorMemory]:
-        conditions = [CreatorMemory.creator_id == creator_id]
+        conditions = [CreatorMemory.creator_id == creator_id, CreatorMemory.importance >= min_importance]
         if memory_type is not None:
             conditions.append(CreatorMemory.memory_type == memory_type)
+        if memory_types is not None:
+            conditions.append(CreatorMemory.memory_type.in_(memory_types))
         if query:
             pattern = f"%{query}%"
             conditions.append(

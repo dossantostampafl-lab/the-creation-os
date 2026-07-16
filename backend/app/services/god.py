@@ -4,6 +4,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.core.domain import Actor, ConversationStatus, DomainError, require_creator
 from app.core.god import build_god_interaction, canonical_request_fingerprint
+from app.core.memory import MemoryType, normalize_memory_text, select_memory_context
 from app.models.entities import Message
 from app.models.god import GodConversationInteraction
 from app.repositories.god import GodConversationRepository
@@ -46,7 +47,8 @@ class GodConversationService:
             return existing, False
 
         try:
-            document = build_god_interaction(conversation_id, message, idempotency_key)
+            memory_context = await self._memory_context(actor, message)
+            document = build_god_interaction(conversation_id, message, idempotency_key, memory_context)
             creator_message = await self.repository.add_message(Message(
                 conversation_id=conversation_id,
                 actor_id=actor.id,
@@ -66,6 +68,7 @@ class GodConversationService:
                 metadata_json={
                     "interaction_type": document.interaction_type.value,
                     "fingerprint": document.fingerprint,
+                    "memory_context": memory_context,
                     "next_action": document.next_action,
                 },
             ))
@@ -77,6 +80,8 @@ class GodConversationService:
                 "reply": document.reply,
                 "potential_detected": document.potential_detected,
                 "next_action": document.next_action,
+                "memory_context": memory_context,
+                "memory_ids": [item["id"] for item in memory_context],
                 "fingerprint": document.fingerprint,
             }
             item = await self.repository.add_interaction(GodConversationInteraction(
@@ -90,6 +95,8 @@ class GodConversationService:
                     "idempotency_key": idempotency_key,
                     "policy_version": document.reply["policy_version"],
                     "request_fingerprint": document.request_fingerprint,
+                    "memory_context": memory_context,
+                    "memory_ids": [item["id"] for item in memory_context],
                 },
                 response_payload=response_payload,
                 potential_detected=document.potential_detected,
@@ -109,6 +116,8 @@ class GodConversationService:
                     "interaction_type": item.interaction_type,
                     "idempotency_key": idempotency_key,
                     "fingerprint": item.fingerprint,
+                    "memory_ids": [memory["id"] for memory in memory_context],
+                    "memory_fingerprints": [memory["fingerprint"] for memory in memory_context],
                     "potential_detected": item.potential_detected,
                     "next_action": document.next_action,
                 },
@@ -143,3 +152,24 @@ class GodConversationService:
             )
         if persisted != incoming:
             raise GodIdempotencyConflict("Idempotency key already used with a different GOD request payload")
+
+    async def _memory_context(self, actor: Actor, message: str) -> list[dict]:
+        candidates = await self.repository.memory.search(
+            creator_id=actor.id,
+            query=normalize_memory_text(message),
+            memory_types=[item.value for item in MemoryType],
+            min_importance=1,
+            limit=50,
+        )
+        return [
+            {
+                "id": item.id,
+                "memory_type": item.memory_type,
+                "source": item.source,
+                "content": item.content,
+                "importance": item.importance,
+                "fingerprint": item.fingerprint,
+                "relevance_score": item.relevance_score,
+            }
+            for item in select_memory_context(candidates, query=message, limit=5)
+        ]

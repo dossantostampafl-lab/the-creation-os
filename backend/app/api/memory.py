@@ -70,9 +70,10 @@ async def remember(
 async def search_memory(
     q: str | None = Query(None, min_length=1),
     memory_type: MemoryTypeLiteral | None = None,
+    min_importance: int = Query(1, ge=1, le=10),
     limit: int = Query(20, ge=1, le=100),
     a: Actor = Depends(actor),
     memory_service: MemoryService = Depends(service),
 ):
-    items = await memory_service.search(a, query=q, memory_type=memory_type, limit=limit)
+    items = await memory_service.search(a, query=q, memory_type=memory_type, min_importance=min_importance, limit=limit)
     return MemorySearchResponse(items=[memory_response(item) for item in items])

@@ -64,6 +64,7 @@ def god_conversation_response(item) -> GodConversationResponse:
         reply=item.response_payload["reply"],
         potential_detected=item.potential_detected,
         next_action=item.response_payload["next_action"],
+        memory_context=item.response_payload.get("memory_context", []),
         fingerprint=item.fingerprint,
         created_at=item.created_at,
         completed_at=item.completed_at,

@@ -31,10 +31,22 @@ class FakeMemoryRepository:
         self.items[item.memory_fingerprint] = item
         return item
 
-    async def search(self, *, creator_id: str, query: str | None = None, memory_type: str | None = None, limit: int = 20):
+    async def search(
+        self,
+        *,
+        creator_id: str,
+        query: str | None = None,
+        memory_type: str | None = None,
+        memory_types: list[str] | None = None,
+        min_importance: int = 1,
+        limit: int = 20,
+    ):
         values = [item for item in self.items.values() if item.creator_id == creator_id]
         if memory_type is not None:
             values = [item for item in values if item.memory_type == memory_type]
+        if memory_types is not None:
+            values = [item for item in values if item.memory_type in memory_types]
+        values = [item for item in values if item.importance >= min_importance]
         if query is not None:
             values = [item for item in values if query in item.normalized_content or query in item.source.lower()]
         return values[:limit]

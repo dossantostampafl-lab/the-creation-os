@@ -3,7 +3,7 @@ from __future__ import annotations
 from sqlalchemy.exc import IntegrityError
 
 from app.core.domain import Actor, DomainError, require_creator
-from app.core.memory import MemoryType, build_memory_document, normalize_memory_text
+from app.core.memory import MemoryContextItem, MemoryType, build_memory_document, normalize_memory_text, select_memory_context
 from app.models.memory import CreatorMemory
 from app.repositories.memory import MemoryRepository
 
@@ -93,6 +93,7 @@ class MemoryService:
         *,
         query: str | None,
         memory_type: MemoryType | str | None,
+        min_importance: int = 1,
         limit: int,
     ) -> list[CreatorMemory]:
         require_creator(actor, "search creator memory")
@@ -102,5 +103,26 @@ class MemoryService:
             creator_id=actor.id,
             query=normalized_query,
             memory_type=resolved_type,
+            min_importance=min_importance,
             limit=limit,
         )
+
+    async def context_for_god(
+        self,
+        actor: Actor,
+        *,
+        message: str,
+        memory_types: list[MemoryType | str] | None = None,
+        min_importance: int = 1,
+        limit: int = 5,
+    ) -> list[MemoryContextItem]:
+        require_creator(actor, "read memory context for GOD")
+        normalized_types = [MemoryType(item).value for item in memory_types] if memory_types is not None else None
+        candidates = await self.repository.search(
+            creator_id=actor.id,
+            query=normalize_memory_text(message),
+            memory_types=normalized_types,
+            min_importance=min_importance,
+            limit=50,
+        )
+        return select_memory_context(candidates, query=message, limit=limit)

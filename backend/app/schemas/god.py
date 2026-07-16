@@ -20,6 +20,7 @@ class GodConversationResponse(BaseModel):
     reply: dict[str, Any]
     potential_detected: bool
     next_action: str
+    memory_context: list[dict[str, Any]]
     fingerprint: str
     created_at: datetime
     completed_at: datetime
