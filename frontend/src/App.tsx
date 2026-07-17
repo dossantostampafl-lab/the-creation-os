@@ -56,6 +56,10 @@ function pendingInception(item: Inception) {
   return !["approved", "rejected", "cancelled"].includes(normalizeStatus(item.status));
 }
 
+function percent(value: number) {
+  return `${Math.round(value * 100)}%`;
+}
+
 export function App() {
   const [username] = useState("creator");
   const [password, setPassword] = useState("");
@@ -94,6 +98,90 @@ export function App() {
   const activeAgents = useMemo(() => agents.filter((agent) => agent.enabled), [agents]);
   const visibleInceptions = inceptions.filter(pendingInception);
   const empty = loadState === "empty";
+  const activeMission = missions[0] ?? null;
+  const topOpportunities = useMemo(
+    () => [...opportunities].sort((left, right) => right.priority_score - left.priority_score).slice(0, 3),
+    [opportunities],
+  );
+  const pendingDecisions = useMemo(() => {
+    const decisions: Array<{
+      id: string;
+      title: string;
+      detail: string;
+      action: string;
+      disabled?: boolean;
+      onClick?: () => void;
+    }> = [];
+
+    visibleInceptions.slice(0, 2).forEach((item) => {
+      decisions.push({
+        id: `inception-${item.id}`,
+        title: item.title,
+        detail: `Inception aguardando revisao do Criador (${item.status}).`,
+        action: "Analisar",
+      });
+    });
+
+    if (activeMission && (!missionAuthorization || missionAuthorization.status === "pending")) {
+      decisions.push({
+        id: `mission-auth-${activeMission.id}`,
+        title: "Autorizacao da missao",
+        detail: `${activeMission.title} exige autorizacao explicita do Criador.`,
+        action: missionAuthorization?.status === "pending" ? "Aprovar" : "Analisar",
+        disabled: missionAuthorizationBusy,
+        onClick:
+          missionAuthorization?.status === "pending"
+            ? () => handleApproveMissionAuthorization(activeMission.id)
+            : () => handleRequestMissionAuthorization(activeMission.id),
+      });
+    }
+
+    if (activeMission && missionAuthorization?.status === "suspended") {
+      decisions.push({
+        id: `mission-suspended-${activeMission.id}`,
+        title: "Missao suspensa",
+        detail: "A missao esta suspensa e exige decisao do Criador.",
+        action: "Analisar",
+      });
+    }
+
+    opportunities
+      .filter((item) => item.status === "pending_creator_review")
+      .slice(0, 2)
+      .forEach((item) => {
+        decisions.push({
+          id: `opportunity-${item.id}`,
+          title: item.title,
+          detail: `Oportunidade com score ${percent(item.priority_score)} aguardando aprovacao.`,
+          action: "Aprovar",
+          disabled: opportunityBusy,
+          onClick: () => window.confirm("Aprovar esta oportunidade?") && handleApproveOpportunity(item.id),
+        });
+      });
+
+    notifications
+      .filter((item) => item.status === "unread")
+      .slice(0, 2)
+      .forEach((item) => {
+        decisions.push({
+          id: `notification-${item.id}`,
+          title: item.title,
+          detail: item.message,
+          action: "Analisar",
+          onClick: () => handleReadNotification(item.id),
+        });
+      });
+
+    return decisions.slice(0, 5);
+  }, [
+    activeMission,
+    missionAuthorization,
+    missionAuthorizationBusy,
+    notifications,
+    opportunities,
+    opportunityBusy,
+    visibleInceptions,
+  ]);
 
   useEffect(() => {
     if (!token) {
@@ -549,73 +637,166 @@ export function App() {
         pulse={pulse}
       />
       <PulseHeader pulse={pulse} authenticated={authenticated} />
-      <InceptionPanel inceptions={visibleInceptions} />
       {dataError ? <div className="api-state api-state-error">{dataError}</div> : null}
       {empty ? <div className="api-state api-state-empty">API conectada sem dados ativos.</div> : null}
+      <section className="creator-home" aria-label="Creator Interface principal">
+        <section className="creator-god-presence" aria-label="GOD e conversa">
+          <div className="god-presence-header">
+            <span>GOD</span>
+            <strong>{authenticated ? "Presente" : "Aguardando autenticacao"}</strong>
+            <em>{busy ? "processing" : "idle"}</em>
+          </div>
+          <p className="god-last-response">{chat.filter((item) => item.role === "god").at(-1)?.text ?? "GOD esta presente."}</p>
+          <div className="god-context-strip">
+            <span>{activeMission ? `Missao: ${activeMission.title}` : "Sem missao ativa"}</span>
+            <span>{topOpportunities[0] ? `Oportunidade: ${topOpportunities[0].title}` : "Sem oportunidade prioritaria"}</span>
+            <span>{pendingDecisions.length ? `${pendingDecisions.length} decisao pendente` : "Sem decisao pendente"}</span>
+          </div>
+          {authenticated ? (
+            <VoiceConversation
+              authenticated={authenticated}
+              busy={busy}
+              token={token}
+              chat={chat}
+              missions={missions}
+              opportunities={opportunities}
+              onSendToGod={sendToGod}
+            />
+          ) : (
+            <GodChat
+              authenticated={authenticated}
+              busy={busy}
+              message={message}
+              password={password}
+              onMessage={setMessage}
+              onPassword={setPassword}
+              onSend={handleSend}
+              onLogin={handleLogin}
+            />
+          )}
+        </section>
+
+        <section className="creator-focus-grid" aria-label="Prioridades do Criador">
+          <article className="creator-focus-card active-mission-card">
+            <header>
+              <span>Missao ativa</span>
+              <strong>{activeMission?.status ?? "sem missao"}</strong>
+            </header>
+            {activeMission ? (
+              <>
+                <h2>{activeMission.title}</h2>
+                <p>{activeMission.objective}</p>
+                <div className="mission-progress">
+                  <span style={{ width: missionAuthorization?.status === "authorized" ? "62%" : "18%" }} />
+                </div>
+                <dl>
+                  <div>
+                    <dt>Progresso</dt>
+                    <dd>{missionAuthorization?.status === "authorized" ? "em execucao autorizada" : "aguardando autorizacao"}</dd>
+                  </div>
+                  <div>
+                    <dt>Proxima acao</dt>
+                    <dd>{missionAuthorization?.status === "authorized" ? "acompanhar resultado" : "decisao do Criador"}</dd>
+                  </div>
+                  <div>
+                    <dt>Autorizacao</dt>
+                    <dd>{missionAuthorization?.status ?? "nao solicitada"}</dd>
+                  </div>
+                </dl>
+                <a href="#creator-secondary">Abrir detalhes</a>
+              </>
+            ) : (
+              <p>Nenhuma missao ativa retornada pela API.</p>
+            )}
+          </article>
+
+          <article className="creator-focus-card decisions-card">
+            <header>
+              <span>Decisoes pendentes</span>
+              <strong>{pendingDecisions.length}</strong>
+            </header>
+            {pendingDecisions.length === 0 ? <p>Nenhuma acao direta do Criador neste momento.</p> : null}
+            {pendingDecisions.map((item) => (
+              <div className="decision-item" key={item.id}>
+                <div>
+                  <strong>{item.title}</strong>
+                  <p>{item.detail}</p>
+                </div>
+                <button type="button" disabled={item.disabled} onClick={item.onClick}>
+                  {item.action}
+                </button>
+              </div>
+            ))}
+          </article>
+
+          <article className="creator-focus-card priority-opportunities-card">
+            <header>
+              <span>Oportunidades prioritarias</span>
+              <button type="button" disabled={opportunityBusy} onClick={handleRunDiscovery}>
+                Atualizar
+              </button>
+            </header>
+            {topOpportunities.length === 0 ? <p>Nenhuma oportunidade relevante detectada.</p> : null}
+            {topOpportunities.map((item) => (
+              <div className="priority-opportunity" key={item.id}>
+                <strong>{item.title}</strong>
+                <span>
+                  {item.universe} / score {percent(item.priority_score)}
+                </span>
+                <p>{item.summary}</p>
+                <a href="#creator-secondary">Analisar</a>
+              </div>
+            ))}
+            {opportunityError ? <p className="opportunity-error">{opportunityError}</p> : null}
+          </article>
+        </section>
+      </section>
+
       {authenticated ? (
-        <OpportunityPanel
-          opportunities={opportunities}
-          loading={opportunityBusy}
-          error={opportunityError}
-          onDiscover={handleRunDiscovery}
-          onApprove={handleApproveOpportunity}
-          onReject={handleRejectOpportunity}
-          onConvert={handleConvertOpportunity}
-        />
+        <details className="creator-secondary" id="creator-secondary">
+          <summary>Areas secundarias</summary>
+          <div className="creator-secondary-grid">
+            <InceptionPanel inceptions={visibleInceptions} />
+            <MissionAuthorizationPanel
+              mission={activeMission}
+              authorization={missionAuthorization}
+              loading={missionAuthorizationBusy}
+              error={missionAuthorizationError}
+              onRequest={handleRequestMissionAuthorization}
+              onApprove={handleApproveMissionAuthorization}
+              onRevoke={handleRevokeMissionAuthorization}
+            />
+            <OpportunityPanel
+              opportunities={opportunities}
+              loading={opportunityBusy}
+              error={opportunityError}
+              onDiscover={handleRunDiscovery}
+              onApprove={handleApproveOpportunity}
+              onReject={handleRejectOpportunity}
+              onConvert={handleConvertOpportunity}
+            />
+            <PerceptionPanel
+              sources={perceptionSources}
+              notifications={notifications}
+              loading={perceptionBusy}
+              error={perceptionError}
+              onEnable={handleEnablePerceptionSource}
+              onDisable={handleDisablePerceptionSource}
+              onRun={handleRunPerceptionSource}
+              onReadNotification={handleReadNotification}
+            />
+            <CapabilityPanel
+              capabilities={capabilities}
+              loading={capabilityBusy}
+              error={capabilityError}
+              result={automationResult}
+              onEnable={handleEnableCapability}
+              onDisable={handleDisableCapability}
+              onExecute={handleExecuteAutomation}
+            />
+          </div>
+        </details>
       ) : null}
-      {authenticated ? (
-        <MissionAuthorizationPanel
-          mission={missions[0] ?? null}
-          authorization={missionAuthorization}
-          loading={missionAuthorizationBusy}
-          error={missionAuthorizationError}
-          onRequest={handleRequestMissionAuthorization}
-          onApprove={handleApproveMissionAuthorization}
-          onRevoke={handleRevokeMissionAuthorization}
-        />
-      ) : null}
-      {authenticated ? (
-        <PerceptionPanel
-          sources={perceptionSources}
-          notifications={notifications}
-          loading={perceptionBusy}
-          error={perceptionError}
-          onEnable={handleEnablePerceptionSource}
-          onDisable={handleDisablePerceptionSource}
-          onRun={handleRunPerceptionSource}
-          onReadNotification={handleReadNotification}
-        />
-      ) : null}
-      {authenticated ? (
-        <CapabilityPanel
-          capabilities={capabilities}
-          loading={capabilityBusy}
-          error={capabilityError}
-          result={automationResult}
-          onEnable={handleEnableCapability}
-          onDisable={handleDisableCapability}
-          onExecute={handleExecuteAutomation}
-        />
-      ) : null}
-      <GodChat
-        authenticated={authenticated}
-        busy={busy}
-        message={message}
-        password={password}
-        onMessage={setMessage}
-        onPassword={setPassword}
-        onSend={handleSend}
-        onLogin={handleLogin}
-      />
-      <VoiceConversation
-        authenticated={authenticated}
-        busy={busy}
-        token={token}
-        chat={chat}
-        missions={missions}
-        opportunities={opportunities}
-        onSendToGod={sendToGod}
-      />
       <ChronicleRibbon entries={chronicles} />
     </main>
   );

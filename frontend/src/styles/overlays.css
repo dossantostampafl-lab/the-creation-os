@@ -946,3 +946,361 @@
   font-size: 12px;
   letter-spacing: 0.08em;
 }
+
+.creator-home {
+  position: absolute;
+  z-index: 26;
+  left: clamp(18px, 3vw, 54px);
+  right: clamp(18px, 3vw, 54px);
+  top: 94px;
+  bottom: 92px;
+  display: grid;
+  grid-template-columns: minmax(360px, 0.95fr) minmax(420px, 1.05fr);
+  gap: clamp(18px, 3vw, 42px);
+  align-items: center;
+  pointer-events: none;
+}
+
+.creator-home > * {
+  pointer-events: auto;
+}
+
+.creator-god-presence {
+  min-width: 0;
+  padding: clamp(18px, 2.3vw, 30px);
+  border: 1px solid rgba(255, 196, 84, 0.16);
+  border-radius: 20px;
+  color: #f5fbff;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(255, 196, 84, 0.12), transparent 44%),
+    rgba(2, 5, 12, 0.52);
+  backdrop-filter: blur(16px);
+  box-shadow: inset 0 0 44px rgba(255, 196, 84, 0.04), 0 0 48px rgba(2, 5, 12, 0.48);
+}
+
+.god-presence-header {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: end;
+  gap: 12px;
+  color: #ffc454;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.god-presence-header span {
+  font-size: clamp(36px, 4.6vw, 68px);
+  letter-spacing: 0.16em;
+}
+
+.god-presence-header strong {
+  color: #f6efe5;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.god-presence-header em {
+  color: #86f4c4;
+  font-size: 11px;
+  font-style: normal;
+}
+
+.god-last-response {
+  min-height: 54px;
+  margin: 16px 0;
+  color: rgba(239, 245, 255, 0.88);
+  font-size: clamp(15px, 1.4vw, 19px);
+  line-height: 1.45;
+}
+
+.god-context-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.god-context-strip span {
+  max-width: 100%;
+  padding: 7px 10px;
+  overflow: hidden;
+  border: 1px solid rgba(113, 183, 255, 0.14);
+  border-radius: 999px;
+  color: rgba(216, 232, 255, 0.76);
+  background: rgba(8, 16, 34, 0.48);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.creator-god-presence .voice-conversation,
+.creator-god-presence .god-chat {
+  position: static;
+  width: 100%;
+  height: auto;
+  margin-top: 12px;
+}
+
+.creator-god-presence .voice-conversation {
+  padding: 14px;
+}
+
+.creator-god-presence .god-chat {
+  display: grid;
+  min-height: 58px;
+  grid-template-columns: 22px 1fr 48px;
+  padding: 7px 8px 7px 18px;
+}
+
+.creator-focus-grid {
+  display: grid;
+  gap: 14px;
+  align-content: center;
+}
+
+.creator-focus-card {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid rgba(113, 183, 255, 0.14);
+  border-radius: 16px;
+  color: #f5fbff;
+  background: rgba(2, 5, 12, 0.5);
+  backdrop-filter: blur(14px);
+}
+
+.creator-focus-card header,
+.decision-item,
+.priority-opportunity {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.creator-focus-card header {
+  margin-bottom: 10px;
+  color: #ffc454;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.creator-focus-card h2 {
+  margin: 0 0 8px;
+  color: #f5fbff;
+  font-size: clamp(18px, 2vw, 26px);
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.creator-focus-card p {
+  margin: 0;
+  color: rgba(223, 233, 248, 0.76);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.creator-focus-card a,
+.creator-focus-card button {
+  flex: 0 0 auto;
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 196, 84, 0.24);
+  border-radius: 999px;
+  color: #ffc454;
+  background: rgba(255, 159, 28, 0.08);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+
+.creator-focus-card button:disabled {
+  opacity: 0.5;
+}
+
+.mission-progress {
+  height: 4px;
+  margin: 14px 0;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.mission-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #71b7ff, #ffc454);
+}
+
+.active-mission-card dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0 14px;
+}
+
+.active-mission-card dt,
+.active-mission-card dd {
+  margin: 0;
+  font-size: 10px;
+}
+
+.active-mission-card dt {
+  color: rgba(255, 196, 84, 0.76);
+}
+
+.active-mission-card dd {
+  color: rgba(239, 245, 255, 0.82);
+}
+
+.decisions-card,
+.priority-opportunities-card {
+  max-height: min(30vh, 260px);
+  overflow: auto;
+}
+
+.decision-item,
+.priority-opportunity {
+  padding: 10px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.decision-item strong,
+.priority-opportunity strong {
+  display: block;
+  color: #f5fbff;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.decision-item p,
+.priority-opportunity p {
+  margin-top: 4px;
+}
+
+.priority-opportunity {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: start;
+}
+
+.priority-opportunity span {
+  color: #86f4c4;
+  font-size: 11px;
+}
+
+.priority-opportunity p {
+  grid-column: 1 / -1;
+}
+
+.priority-opportunity a {
+  grid-column: 2;
+}
+
+.creator-secondary {
+  position: absolute;
+  z-index: 32;
+  left: 18px;
+  bottom: 86px;
+  width: min(1120px, calc(100vw - 36px));
+  color: #f5fbff;
+  pointer-events: auto;
+}
+
+.creator-secondary summary {
+  width: fit-content;
+  padding: 8px 14px;
+  border: 1px solid rgba(113, 183, 255, 0.18);
+  border-radius: 999px;
+  color: #71b7ff;
+  background: rgba(2, 5, 12, 0.72);
+  cursor: pointer;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.creator-secondary[open] {
+  top: 84px;
+  bottom: 86px;
+  overflow: auto;
+  padding: 16px;
+  border: 1px solid rgba(113, 183, 255, 0.12);
+  border-radius: 18px;
+  background: rgba(2, 5, 12, 0.88);
+  backdrop-filter: blur(16px);
+}
+
+.creator-secondary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.creator-secondary-grid .inception-panel,
+.creator-secondary-grid .mission-authorization-panel,
+.creator-secondary-grid .opportunity-panel,
+.creator-secondary-grid .perception-panel,
+.creator-secondary-grid .capability-panel {
+  position: static;
+  width: auto;
+  max-height: 360px;
+}
+
+@media (max-width: 1024px) {
+  .creator-home {
+    top: 86px;
+    bottom: 84px;
+    grid-template-columns: 1fr;
+    align-items: start;
+    overflow: auto;
+  }
+
+  .creator-god-presence {
+    padding: 18px;
+  }
+
+  .creator-focus-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .decisions-card,
+  .priority-opportunities-card {
+    max-height: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .creator-home {
+    left: 12px;
+    right: 12px;
+    top: 78px;
+  }
+
+  .god-presence-header {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .active-mission-card dl {
+    grid-template-columns: 1fr;
+  }
+
+  .decision-item,
+  .priority-opportunity {
+    display: grid;
+  }
+
+  .creator-secondary {
+    left: 12px;
+    width: calc(100vw - 24px);
+  }
+
+  .exact-chronicle {
+    height: 56px;
+    grid-template-columns: 1fr;
+  }
+}
