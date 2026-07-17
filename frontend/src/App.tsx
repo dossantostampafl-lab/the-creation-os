@@ -9,6 +9,7 @@ import { MissionAuthorizationPanel } from "./components/MissionAuthorizationPane
 import { OpportunityPanel } from "./components/OpportunityPanel";
 import { PerceptionPanel } from "./components/PerceptionPanel";
 import { PulseHeader } from "./components/PulseHeader";
+import { VoiceConversation } from "./components/VoiceConversation";
 import type {
   Agent,
   AutomationExecution,
@@ -475,16 +476,14 @@ export function App() {
     }
   }
 
-  async function handleSend(event: FormEvent) {
-    event.preventDefault();
-    if (!token || !message.trim()) return;
-    const text = message.trim();
-    setMessage("");
+  async function sendToGod(text: string) {
+    if (!token || !text.trim()) return "";
+    const normalized = text.trim();
     setBusy(true);
-    setChat((items) => [...items, { id: crypto.randomUUID(), role: "creator", text, meta: "Creator" }]);
+    setChat((items) => [...items, { id: crypto.randomUUID(), role: "creator", text: normalized, meta: "Creator" }]);
     try {
       const current = await ensureConversation(token);
-      const god = await api.sendGod(token, current.id, text);
+      const god = await api.sendGod(token, current.id, normalized);
       setChat((items) => [
         ...items,
         {
@@ -494,14 +493,17 @@ export function App() {
           meta: `${god.interaction_type} / ${god.next_action}`,
         },
       ]);
+      let spokenReply = god.reply.message;
       if (god.interaction_type === "POTENTIAL") {
         const trinity = await api.orchestrateTrinity(token, god.id);
+        const trinityReply = `Trindade integrada: ROCKMAM retornou ${trinity.assessment_result}.`;
+        spokenReply = `${spokenReply} ${trinityReply}`;
         setChat((items) => [
           ...items,
           {
             id: trinity.rockmam_assessment_id,
             role: "trinity",
-            text: `Trindade integrada: ROCKMAM retornou ${trinity.assessment_result}.`,
+            text: trinityReply,
             meta: trinity.god_consolidated_result.creator_approval_required
               ? "Requires Creator approval"
               : "No approval request emitted",
@@ -509,19 +511,30 @@ export function App() {
         ]);
       }
       await refreshWorkspace(token, false);
+      return spokenReply;
     } catch (error) {
+      const text = error instanceof ApiError ? error.message : "The channel failed without changing backend state.";
       setChat((items) => [
         ...items,
         {
           id: crypto.randomUUID(),
           role: "god",
-          text: error instanceof ApiError ? error.message : "The channel failed without changing backend state.",
+          text,
           meta: "error",
         },
       ]);
+      throw error instanceof Error ? error : new Error(text);
     } finally {
       setBusy(false);
     }
+  }
+
+  async function handleSend(event: FormEvent) {
+    event.preventDefault();
+    if (!token || !message.trim()) return;
+    const text = message.trim();
+    setMessage("");
+    await sendToGod(text).catch(() => undefined);
   }
 
   return (
@@ -593,6 +606,15 @@ export function App() {
         onPassword={setPassword}
         onSend={handleSend}
         onLogin={handleLogin}
+      />
+      <VoiceConversation
+        authenticated={authenticated}
+        busy={busy}
+        token={token}
+        chat={chat}
+        missions={missions}
+        opportunities={opportunities}
+        onSendToGod={sendToGod}
       />
       <ChronicleRibbon entries={chronicles} />
     </main>

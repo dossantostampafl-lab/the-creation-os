@@ -43,6 +43,12 @@ class Settings(BaseSettings):
     opportunity_notification_min_confidence: float = Field(0.65, env="OPPORTUNITY_NOTIFICATION_MIN_CONFIDENCE")
     opportunity_notification_max_risk: float = Field(0.80, env="OPPORTUNITY_NOTIFICATION_MAX_RISK")
     opportunity_notification_cooldown_seconds: int = Field(21600, env="OPPORTUNITY_NOTIFICATION_COOLDOWN_SECONDS")
+    elevenlabs_enabled: bool = Field(False, env="ELEVENLABS_ENABLED")
+    elevenlabs_api_key: SecretStr | None = Field(None, env="ELEVENLABS_API_KEY")
+    elevenlabs_voice_id: str = Field("configured-voice-id", env="ELEVENLABS_VOICE_ID")
+    elevenlabs_model_id: str = Field("eleven_multilingual_v2", env="ELEVENLABS_MODEL_ID")
+    elevenlabs_timeout_seconds: float = Field(12.0, env="ELEVENLABS_TIMEOUT_SECONDS")
+    voice_synthesis_max_chars: int = Field(1200, env="VOICE_SYNTHESIS_MAX_CHARS")
 
     class Config:
         env_file = os.path.join(os.path.dirname(__file__), "..", "..", ".env")

@@ -47,6 +47,22 @@ async function request<T>(path: string, options: RequestInit = {}, token?: strin
   return (await response.json()) as T;
 }
 
+async function requestAudio(path: string, text: string, token: string): Promise<Blob> {
+  const response = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ text }),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new ApiError(body.detail ?? response.statusText, response.status);
+  }
+  return await response.blob();
+}
+
 export const api = {
   baseUrl: API_BASE,
 
@@ -287,5 +303,9 @@ export const api = {
 
   acknowledgeNotification(token: string, notificationId: string) {
     return request<CreatorNotification>(`/notifications/${notificationId}/acknowledge`, { method: "POST" }, token);
+  },
+
+  synthesizeVoice(token: string, text: string) {
+    return requestAudio("/voice/synthesize", text, token);
   },
 };
