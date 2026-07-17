@@ -54,6 +54,14 @@ class AgentResponse(BaseModel):
     enabled: bool
 
 
+class UniverseResponse(BaseModel):
+    id: str
+    code: str
+    name: str
+    active: bool
+    created_at: datetime
+
+
 class TreeCoreMatchRequest(StrictRequest):
     mission_id: UUID
     required_capabilities: list[str] = Field(..., min_length=1)

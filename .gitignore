@@ -15,9 +15,15 @@ __pycache__/
 
 # Build
 backend/the_creation_os.egg-info/
+frontend/node_modules/
+frontend/dist/
 
 # Backups
 backup_*.sql
+backups/**/*.sql
+backups/**/*.dump
+backups/**/*.backup
+!backups/BACKUPS.md
 
 # Logs
 *.log
