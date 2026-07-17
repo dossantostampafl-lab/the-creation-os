@@ -163,7 +163,7 @@ class PerceptionService:
         await self.repository.commit()
 
         try:
-            observations, attempts = await self._collect_with_retry(actor, source, correlation_id)
+            observations, attempts, response_metadata = await self._collect_with_retry(actor, source, correlation_id)
             persisted = 0
             for payload in observations:
                 try:
@@ -182,7 +182,7 @@ class PerceptionService:
                 opportunities = await self.discovery.detect(actor, correlation_id)
                 await self.repository.add_event("opportunity.ranking.updated", "perception_source", source.id, actor.id, actor.role, correlation_id, {"opportunity_count": len(opportunities)})
             notifications = await self._notify_creator(actor, correlation_id)
-            await self._finish_success(source, run, attempts, persisted, len(opportunities), correlation_id, actor, notifications)
+            await self._finish_success(source, run, attempts, persisted, len(opportunities), correlation_id, actor, notifications, response_metadata)
             return CollectionResult(source, run, persisted, len(opportunities), notifications)
         except PerceptionError as exc:
             await self._finish_failure(source, run, actor, correlation_id, exc.__class__.__name__, str(exc))
@@ -236,13 +236,14 @@ class PerceptionService:
         await self.repository.commit()
         return item
 
-    async def _collect_with_retry(self, actor: Actor, source: PerceptionSource, correlation_id: str) -> tuple[list[dict[str, Any]], int]:
+    async def _collect_with_retry(self, actor: Actor, source: PerceptionSource, correlation_id: str) -> tuple[list[dict[str, Any]], int, dict[str, Any]]:
         attempts = 0
         last_error: str | None = None
         for attempt in range(settings.perception_max_retries + 1):
             attempts = attempt + 1
             try:
-                return await self._collect_once(actor, source, correlation_id, attempts), attempts
+                observations, metadata = await self._collect_once(actor, source, correlation_id, attempts)
+                return observations, attempts, metadata
             except PERCEPTION_RESPONSE_INVALID as exc:
                 raise exc
             except PerceptionError as exc:
@@ -251,7 +252,7 @@ class PerceptionService:
                     break
         raise PERCEPTION_COLLECTION_FAILED(last_error or "Collection failed")
 
-    async def _collect_once(self, actor: Actor, source: PerceptionSource, correlation_id: str, attempt: int) -> list[dict[str, Any]]:
+    async def _collect_once(self, actor: Actor, source: PerceptionSource, correlation_id: str, attempt: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         if source.provider.startswith("fixture_"):
             execution, _ = await self.automation.execute(
                 actor,
@@ -262,7 +263,7 @@ class PerceptionService:
                 idempotency_key=f"perception-fixture:{source.id}:{correlation_id}:{attempt}",
                 correlation_id=correlation_id,
             )
-            return list((execution.result_payload or {}).get("observations", []))
+            return list((execution.result_payload or {}).get("observations", [])), {"connector_status": execution.status}
         url = self._source_url(source)
         execution, _ = await self.automation.execute(
             actor,
@@ -273,10 +274,16 @@ class PerceptionService:
             idempotency_key=f"perception:{source.id}:{correlation_id}:{attempt}",
             correlation_id=correlation_id,
         )
-        if execution.status != "succeeded":
-            raise PERCEPTION_PROVIDER_UNAVAILABLE(execution.error_code or "provider unavailable")
+        if str(execution.status).upper() != "SUCCEEDED":
+            raise PERCEPTION_PROVIDER_UNAVAILABLE(execution.error_code or execution.error_message or "provider unavailable")
         payload = execution.result_payload or {}
         headers = cast(dict[str, str], payload.get("headers") if isinstance(payload.get("headers"), dict) else {})
+        status_code = int(payload.get("status_code") or 0)
+        content_type = str(headers.get("content-type") or "")
+        if status_code < 200 or status_code >= 300:
+            raise PERCEPTION_PROVIDER_UNAVAILABLE(f"HTTP {status_code}")
+        if "json" not in content_type.lower():
+            raise PERCEPTION_RESPONSE_INVALID(f"Unexpected content type: {content_type}")
         source.last_etag = headers.get("etag") or source.last_etag
         source.last_modified = headers.get("last-modified") or source.last_modified
         try:
@@ -284,9 +291,9 @@ class PerceptionService:
         except json.JSONDecodeError as exc:
             raise PERCEPTION_RESPONSE_INVALID("Provider returned invalid JSON") from exc
         if source.provider == "yahoo_finance_chart":
-            return self._normalize_yahoo_response(source, body)
+            return self._normalize_yahoo_response(source, body), {"connector_status": execution.status, "http_status": status_code, "content_type": content_type}
         if source.provider == "github_releases":
-            return self._normalize_github_releases(source, body)
+            return self._normalize_github_releases(source, body), {"connector_status": execution.status, "http_status": status_code, "content_type": content_type}
         raise PERCEPTION_PROVIDER_UNAVAILABLE("Unknown perception provider")
 
     def _source_url(self, source: PerceptionSource) -> str:
@@ -416,6 +423,7 @@ class PerceptionService:
         correlation_id: str,
         actor: Actor,
         notifications_count: int,
+        response_metadata: dict[str, Any],
     ) -> None:
         completed = datetime.now(timezone.utc)
         previous_failures = source.failure_count
@@ -429,7 +437,7 @@ class PerceptionService:
         run.attempts_count = attempts
         run.observations_count = observations_count
         run.opportunities_count = opportunities_count
-        run.metadata_json = {"notifications_count": notifications_count}
+        run.metadata_json = {"notifications_count": notifications_count, **response_metadata}
         await self.repository.add_event("perception.checkpoint.updated", "perception_source", source.id, actor.id, actor.role, correlation_id, {"last_cursor": source.last_cursor})
         await self.repository.add_event("perception.collection.succeeded", "perception_source", source.id, actor.id, actor.role, correlation_id, {"observations": observations_count, "opportunities": opportunities_count, "duration_ms": run.duration_ms})
         if previous_failures >= source.max_consecutive_failures:

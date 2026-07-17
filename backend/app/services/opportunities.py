@@ -406,8 +406,10 @@ class OpportunityDiscoveryService:
     def _score(self, observations: list[OpportunityObservation]) -> ScoreResult:
         reliability = clamp(sum(item.source_reliability for item in observations) / len(observations))
         confidence = clamp(0.45 + 0.12 * len(observations) + reliability * 0.25)
-        impact = clamp(0.55 + 0.1 * sum(1 for item in observations if item.event_type in {"volume_anomaly", "launch", "macro_event"}))
-        urgency = clamp(0.5 + 0.1 * sum(1 for item in observations if item.event_type in {"volatility_increase", "regulatory_change"}))
+        impact_events = {"volume_anomaly", "abnormal_volume", "price_change", "launch", "product_launch", "technology_release", "activity_growth", "business_event", "macro_event"}
+        urgency_events = {"volatility_increase", "volatility_change", "regulatory_change", "trend_signal"}
+        impact = clamp(0.55 + 0.1 * sum(1 for item in observations if item.event_type in impact_events))
+        urgency = clamp(0.5 + 0.1 * sum(1 for item in observations if item.event_type in urgency_events))
         risk = clamp(0.25 + 0.08 * sum(1 for item in observations if item.event_type in {"divergence", "rumor"}))
         weights = {"confidence": 0.35, "impact": 0.30, "urgency": 0.20, "source_reliability": 0.15}
         risk_penalty = round(risk * 0.20, 4)
