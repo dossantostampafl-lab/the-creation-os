@@ -4,6 +4,7 @@ from app.automation.connectors.github import GitHubConnector
 from app.automation.connectors.opportunity import OpportunityConnector
 from app.automation.connectors.rest import RestrictedRestConnector
 from app.automation.contracts import Connector, ConnectorCapability, ConnectorRejected
+from app.config import settings
 
 
 class ConnectorRegistry:
@@ -40,9 +41,10 @@ class ConnectorRegistry:
 
 def default_registry() -> ConnectorRegistry:
     registry = ConnectorRegistry()
+    perception_hosts = {item.strip().lower() for item in settings.perception_allowed_hosts.split(",") if item.strip()}
     registry.register(
         RestrictedRestConnector(
-            allowed_hosts={"api.creation.local", "example.com"},
+            allowed_hosts={"api.creation.local", "example.com", *perception_hosts},
             allowed_methods={"GET", "POST"},
             max_response_bytes=65536,
         )

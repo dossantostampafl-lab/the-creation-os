@@ -4,11 +4,15 @@ import type {
   CapabilityFramework,
   ChronicleEntry,
   Conversation,
+  CreatorNotification,
   GodResponse,
   Inception,
   Mission,
   MissionManifestation,
   Opportunity,
+  PerceptionRun,
+  PerceptionRunResult,
+  PerceptionSource,
   Pulse,
   TokenResponse,
   TrinityResponse,
@@ -219,5 +223,37 @@ export const api = {
 
   convertOpportunity(token: string, opportunityId: string) {
     return request<Opportunity>(`/opportunities/${opportunityId}/convert-to-inception`, { method: "POST" }, token);
+  },
+
+  listPerceptionSources(token: string) {
+    return request<PerceptionSource[]>("/perception/sources", undefined, token);
+  },
+
+  enablePerceptionSource(token: string, sourceId: string) {
+    return request<PerceptionSource>(`/perception/sources/${sourceId}/enable`, { method: "POST" }, token);
+  },
+
+  disablePerceptionSource(token: string, sourceId: string) {
+    return request<PerceptionSource>(`/perception/sources/${sourceId}/disable`, { method: "POST" }, token);
+  },
+
+  runPerceptionSource(token: string, sourceId: string) {
+    return request<PerceptionRunResult>(`/perception/sources/${sourceId}/run`, { method: "POST" }, token);
+  },
+
+  listPerceptionRuns(token: string, sourceId: string) {
+    return request<PerceptionRun[]>(`/perception/sources/${sourceId}/runs?limit=8`, undefined, token);
+  },
+
+  listNotifications(token: string) {
+    return request<CreatorNotification[]>("/notifications?limit=20", undefined, token);
+  },
+
+  readNotification(token: string, notificationId: string) {
+    return request<CreatorNotification>(`/notifications/${notificationId}/read`, { method: "POST" }, token);
+  },
+
+  acknowledgeNotification(token: string, notificationId: string) {
+    return request<CreatorNotification>(`/notifications/${notificationId}/acknowledge`, { method: "POST" }, token);
   },
 };

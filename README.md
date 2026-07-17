@@ -110,6 +110,45 @@ Capabilities registradas:
 - `opportunity.review`
 - `opportunity.convert_to_inception`
 
+## Fluxo de percepcao continua v1.2
+
+1. Faca login como Criador.
+2. Abra a area `PERCEPCAO`.
+3. Ative uma fonte configurada.
+4. Execute a coleta manual ou rode o scheduler controlado por endpoint.
+5. A coleta passa por `CapabilityGovernanceService` e pelo connector autorizado.
+6. Dados externos sao normalizados como observations, deduplicados e persistidos.
+7. `OpportunityDiscoveryService` atualiza oportunidades e ranking.
+8. O backend cria notificacoes internas quando score, confianca e risco passam pelos thresholds.
+9. O Criador decide se aprova, rejeita ou converte uma oportunidade aprovada em Inception.
+
+Fontes iniciais:
+
+- `financial-public-market`: Yahoo Finance chart publico, informativo, sem negociacao.
+- `technology-public-releases`: GitHub Releases publico, informativo, sem executar codigo.
+
+Endpoints principais:
+
+- `GET /api/v1/perception/sources`
+- `POST /api/v1/perception/sources/{id}/enable`
+- `POST /api/v1/perception/sources/{id}/disable`
+- `POST /api/v1/perception/sources/{id}/run`
+- `GET /api/v1/perception/sources/{id}/runs`
+- `POST /api/v1/perception/scheduler/run`
+- `GET /api/v1/notifications`
+- `POST /api/v1/notifications/{id}/read`
+- `POST /api/v1/notifications/{id}/acknowledge`
+
+Capabilities de percepcao:
+
+- `perception.source.list`
+- `perception.source.enable`
+- `perception.source.disable`
+- `perception.source.collect`
+- `perception.scheduler.run`
+- `perception.notification.list`
+- `perception.notification.update`
+
 ## Testes
 
 Backend focado:
@@ -118,6 +157,7 @@ Backend focado:
 cd backend
 python -m pytest tests/test_capability_governance.py tests/test_capability_persistence.py tests/test_capabilities.py tests/test_automation.py -q
 python -m pytest tests/test_opportunities.py -q
+python -m pytest tests/test_perception.py -q
 python -m pytest -m integration tests/test_opportunities_http.py -q
 ```
 
@@ -152,6 +192,11 @@ docker compose down
 Use `docker compose down -v` apenas quando desejar apagar volumes locais.
 
 ## Limitacoes conhecidas do MVP
+
+Notas v1.2:
+
+- A percepcao usa execucao manual e scheduler controlado por endpoint; nao adiciona worker ou container separado.
+- A percepcao detecta e notifica, mas nunca aprova oportunidade ou cria Inception automaticamente.
 
 - O connector GitHub exige `GITHUB_TOKEN` e allowlist configurados.
 - O connector REST restrito permite somente hosts e metodos definidos no registry.

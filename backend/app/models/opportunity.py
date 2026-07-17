@@ -29,6 +29,7 @@ class OpportunityObservation(Base):
     evidence: Mapped[dict] = mapped_column(JSON, nullable=False, server_default=text("'{}'"))
     source_reliability: Mapped[float] = mapped_column(Float, nullable=False)
     correlation_key: Mapped[str] = mapped_column(String(256), nullable=False)
+    external_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
     observation_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
 

@@ -19,6 +19,7 @@ class ObservationCreateRequest(BaseModel):
     evidence: dict[str, Any] = Field(default_factory=dict)
     source_reliability: float = Field(ge=0, le=1)
     correlation_key: str | None = Field(default=None, max_length=256)
+    external_id: str | None = Field(default=None, max_length=256)
 
 
 class ObservationResponse(BaseModel):
@@ -34,6 +35,7 @@ class ObservationResponse(BaseModel):
     evidence: dict[str, Any]
     source_reliability: float
     correlation_key: str
+    external_id: str | None
     created_at: datetime
 
 

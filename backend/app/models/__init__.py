@@ -23,6 +23,7 @@ from app.models.god import GodConversationInteraction
 from app.models.manifestation import MissionManifestation
 from app.models.memory import CreatorMemory
 from app.models.opportunity import Opportunity, OpportunityEvidence, OpportunityObservation
+from app.models.perception import CreatorNotification, PerceptionRun, PerceptionSource
 from app.models.policy import MissionDecisionReasoning
 from app.models.rockmam import RockmamPossibilityAssessment
 from app.models.sophia import SophiaUnderstanding
@@ -38,6 +39,7 @@ __all__ = [
     "Conversation",
     "Creator",
     "CreatorMemory",
+    "CreatorNotification",
     "DispatchAttempt",
     "DispatchItem",
     "GodConversationInteraction",
@@ -52,6 +54,8 @@ __all__ = [
     "Opportunity",
     "OpportunityEvidence",
     "OpportunityObservation",
+    "PerceptionRun",
+    "PerceptionSource",
     "RockmamPossibilityAssessment",
     "RegisteredCapability",
     "SophiaUnderstanding",

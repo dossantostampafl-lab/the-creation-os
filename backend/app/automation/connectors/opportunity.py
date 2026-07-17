@@ -15,6 +15,13 @@ class OpportunityConnector:
             ConnectorCapability("rank_opportunities", "Authorize opportunity ranking for the Creator.", {}),
             ConnectorCapability("review_opportunity", "Authorize Creator opportunity review.", {}),
             ConnectorCapability("convert_to_inception", "Authorize Creator conversion of an approved opportunity to Inception.", {}),
+            ConnectorCapability("perception_source_list", "Authorize listing perception sources.", {}),
+            ConnectorCapability("perception_source_enable", "Authorize enabling perception sources.", {}),
+            ConnectorCapability("perception_source_disable", "Authorize disabling perception sources.", {}),
+            ConnectorCapability("perception_source_collect", "Authorize collecting perception sources.", {}),
+            ConnectorCapability("perception_scheduler_run", "Authorize running due perception sources.", {}),
+            ConnectorCapability("perception_notification_list", "Authorize listing Creator notifications.", {}),
+            ConnectorCapability("perception_notification_update", "Authorize updating Creator notifications.", {}),
         ]
 
     async def execute(self, request: ConnectorRequest) -> ConnectorResult:
@@ -32,6 +39,16 @@ class OpportunityConnector:
                             "summary": "Volume rose above the configured informational threshold.",
                             "source_reliability": 0.82,
                             "correlation_key": "ACME:volume",
+                        },
+                        {
+                            "universe": "finance",
+                            "source": "fixture.market",
+                            "subject": "ACME",
+                            "event_type": "volatility_increase",
+                            "title": "ACME volatility increase",
+                            "summary": "Volatility rose above the configured informational threshold.",
+                            "source_reliability": 0.82,
+                            "correlation_key": "ACME:volume",
                         }
                     ]
                 },
@@ -43,6 +60,13 @@ class OpportunityConnector:
             "rank_opportunities",
             "review_opportunity",
             "convert_to_inception",
+            "perception_source_list",
+            "perception_source_enable",
+            "perception_source_disable",
+            "perception_source_collect",
+            "perception_scheduler_run",
+            "perception_notification_list",
+            "perception_notification_update",
         }:
             return ConnectorResult(status=ConnectorStatus.SUCCEEDED, output={"authorized": True})
         raise ConnectorRejected("Unsupported opportunity capability")

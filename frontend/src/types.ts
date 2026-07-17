@@ -192,6 +192,66 @@ export type Opportunity = {
   updated_at: string;
 };
 
+export type PerceptionSource = {
+  id: string;
+  name: string;
+  universe: string;
+  provider: string;
+  capability_name: string;
+  connector_name: string;
+  enabled: boolean;
+  state: string;
+  schedule_interval_seconds: number;
+  minimum_interval_seconds: number;
+  last_started_at: string | null;
+  last_succeeded_at: string | null;
+  last_failed_at: string | null;
+  failure_count: number;
+  max_consecutive_failures: number;
+  next_run_at: string | null;
+  last_cursor: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PerceptionRun = {
+  id: string;
+  source_id: string;
+  status: string;
+  started_at: string;
+  completed_at: string | null;
+  duration_ms: number | null;
+  observations_count: number;
+  opportunities_count: number;
+  attempts_count: number;
+  error_code: string | null;
+  error_message: string | null;
+  metadata_json: Record<string, unknown>;
+  created_at: string;
+};
+
+export type PerceptionRunResult = {
+  source: PerceptionSource;
+  run: PerceptionRun;
+  observations_count: number;
+  opportunities_count: number;
+  notifications_count: number;
+};
+
+export type CreatorNotification = {
+  id: string;
+  recipient_actor_id: string;
+  type: string;
+  title: string;
+  message: string;
+  opportunity_id: string | null;
+  priority_score: number | null;
+  status: string;
+  created_at: string;
+  read_at: string | null;
+  acknowledged_at: string | null;
+};
+
 export type ChatItem = {
   id: string;
   role: "creator" | "god" | "trinity";

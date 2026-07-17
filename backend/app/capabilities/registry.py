@@ -261,8 +261,95 @@ def opportunity_capabilities() -> list[CapabilityDefinition]:
     ]
 
 
+def perception_capabilities() -> list[CapabilityDefinition]:
+    return [
+        CapabilityDefinition(
+            capability_id="perception.source.list",
+            name="Perception Source Listing",
+            description="Lists configured continuous perception sources for the Creator.",
+            version="1.0.0",
+            connector_id="opportunity",
+            connector_capability="perception_source_list",
+            enabled=True,
+            permissions=(CapabilityPermission.READ,),
+            metadata={"provider": "perception", "auto_approval": "false"},
+        ),
+        CapabilityDefinition(
+            capability_id="perception.source.enable",
+            name="Perception Source Enable",
+            description="Allows the Creator to enable a configured perception source.",
+            version="1.0.0",
+            connector_id="opportunity",
+            connector_capability="perception_source_enable",
+            enabled=True,
+            permissions=(CapabilityPermission.WRITE,),
+            dependencies=("perception.source.list",),
+            metadata={"provider": "perception", "auto_approval": "false"},
+        ),
+        CapabilityDefinition(
+            capability_id="perception.source.disable",
+            name="Perception Source Disable",
+            description="Allows the Creator to disable a configured perception source.",
+            version="1.0.0",
+            connector_id="opportunity",
+            connector_capability="perception_source_disable",
+            enabled=True,
+            permissions=(CapabilityPermission.WRITE,),
+            dependencies=("perception.source.list",),
+            metadata={"provider": "perception", "auto_approval": "false"},
+        ),
+        CapabilityDefinition(
+            capability_id="perception.source.collect",
+            name="Perception Source Collection",
+            description="Collects data from a configured source through governed connectors.",
+            version="1.0.0",
+            connector_id="opportunity",
+            connector_capability="perception_source_collect",
+            enabled=True,
+            permissions=(CapabilityPermission.NETWORK,),
+            dependencies=("rest.restricted.request", "opportunity.observation.ingest"),
+            metadata={"provider": "perception", "financial_execution": "false"},
+        ),
+        CapabilityDefinition(
+            capability_id="perception.scheduler.run",
+            name="Perception Scheduler Run",
+            description="Runs due perception sources using the existing automation path.",
+            version="1.0.0",
+            connector_id="opportunity",
+            connector_capability="perception_scheduler_run",
+            enabled=True,
+            permissions=(CapabilityPermission.STATUS,),
+            dependencies=("perception.source.collect", "opportunity.discovery.run", "opportunity.ranking.list"),
+            metadata={"provider": "perception", "auto_approval": "false"},
+        ),
+        CapabilityDefinition(
+            capability_id="perception.notification.list",
+            name="Creator Notification Listing",
+            description="Lists internal Creator notifications emitted by perception.",
+            version="1.0.0",
+            connector_id="opportunity",
+            connector_capability="perception_notification_list",
+            enabled=True,
+            permissions=(CapabilityPermission.READ,),
+            metadata={"provider": "perception"},
+        ),
+        CapabilityDefinition(
+            capability_id="perception.notification.update",
+            name="Creator Notification Update",
+            description="Marks internal Creator notifications as read or acknowledged.",
+            version="1.0.0",
+            connector_id="opportunity",
+            connector_capability="perception_notification_update",
+            enabled=True,
+            permissions=(CapabilityPermission.WRITE,),
+            dependencies=("perception.notification.list",),
+            metadata={"provider": "perception"},
+        ),
+    ]
+
+
 def default_capability_registry() -> CapabilityRegistry:
     registry = CapabilityRegistry()
-    for capability in [*github_capabilities(), *rest_capabilities(), *opportunity_capabilities()]:
+    for capability in [*github_capabilities(), *rest_capabilities(), *opportunity_capabilities(), *perception_capabilities()]:
         registry.register(capability)
     return registry

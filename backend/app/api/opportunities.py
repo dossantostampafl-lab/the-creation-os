@@ -50,6 +50,7 @@ def observation_response(item: OpportunityObservation) -> ObservationResponse:
         evidence=item.evidence,
         source_reliability=item.source_reliability,
         correlation_key=item.correlation_key,
+        external_id=item.external_id,
         created_at=item.created_at,
     )
 

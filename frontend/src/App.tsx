@@ -6,6 +6,7 @@ import { GodChat } from "./components/GodChat";
 import { InceptionPanel } from "./components/InceptionPanel";
 import { LivingUniverse } from "./components/LivingUniverse";
 import { OpportunityPanel } from "./components/OpportunityPanel";
+import { PerceptionPanel } from "./components/PerceptionPanel";
 import { PulseHeader } from "./components/PulseHeader";
 import type {
   Agent,
@@ -14,10 +15,12 @@ import type {
   ChatItem,
   ChronicleEntry,
   Conversation,
+  CreatorNotification,
   Inception,
   Mission,
   MissionManifestation,
   Opportunity,
+  PerceptionSource,
   Pulse,
   Universe,
 } from "./types";
@@ -36,6 +39,8 @@ type WorkspaceCache = {
   manifestations: MissionManifestation[];
   capabilities: CapabilityFramework[];
   opportunities: Opportunity[];
+  perceptionSources: PerceptionSource[];
+  notifications: CreatorNotification[];
   pulse: Pulse | null;
 };
 
@@ -66,6 +71,10 @@ export function App() {
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [opportunityBusy, setOpportunityBusy] = useState(false);
   const [opportunityError, setOpportunityError] = useState<string | null>(null);
+  const [perceptionSources, setPerceptionSources] = useState<PerceptionSource[]>([]);
+  const [notifications, setNotifications] = useState<CreatorNotification[]>([]);
+  const [perceptionBusy, setPerceptionBusy] = useState(false);
+  const [perceptionError, setPerceptionError] = useState<string | null>(null);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [universes, setUniverses] = useState<Universe[]>([]);
   const [chronicles, setChronicles] = useState<ChronicleEntry[]>([]);
@@ -105,6 +114,8 @@ export function App() {
       setManifestations(workspace.manifestations ?? []);
       setCapabilities(workspace.capabilities ?? []);
       setOpportunities(workspace.opportunities ?? []);
+      setPerceptionSources(workspace.perceptionSources ?? []);
+      setNotifications(workspace.notifications ?? []);
       setPulse(workspace.pulse ?? null);
     } catch {
       localStorage.removeItem(WORKSPACE_CACHE_KEY);
@@ -127,6 +138,8 @@ export function App() {
       loadedPulse,
       loadedCapabilities,
       loadedOpportunities,
+      loadedPerceptionSources,
+      loadedNotifications,
     ] =
       await Promise.allSettled([
         api.listInceptions(accessToken),
@@ -137,6 +150,8 @@ export function App() {
         api.pulse(accessToken),
         api.listCapabilities(accessToken),
         api.listOpportunities(accessToken),
+        api.listPerceptionSources(accessToken),
+        api.listNotifications(accessToken),
       ]);
 
     const failures = [
@@ -148,6 +163,8 @@ export function App() {
       loadedPulse,
       loadedCapabilities,
       loadedOpportunities,
+      loadedPerceptionSources,
+      loadedNotifications,
     ].filter((result) => result.status === "rejected");
 
     const nextInceptions = loadedInceptions.status === "fulfilled" ? loadedInceptions.value : inceptions;
@@ -158,6 +175,8 @@ export function App() {
     const nextPulse = loadedPulse.status === "fulfilled" ? loadedPulse.value : pulse;
     const nextCapabilities = loadedCapabilities.status === "fulfilled" ? loadedCapabilities.value : capabilities;
     const nextOpportunities = loadedOpportunities.status === "fulfilled" ? loadedOpportunities.value : opportunities;
+    const nextPerceptionSources = loadedPerceptionSources.status === "fulfilled" ? loadedPerceptionSources.value : perceptionSources;
+    const nextNotifications = loadedNotifications.status === "fulfilled" ? loadedNotifications.value : notifications;
 
     const manifestationResults = await Promise.allSettled(
       nextMissions.map((mission) => api.getMissionManifestation(accessToken, mission.id)),
@@ -173,6 +192,8 @@ export function App() {
     setManifestations(nextManifestations);
     setCapabilities(nextCapabilities);
     setOpportunities(nextOpportunities);
+    setPerceptionSources(nextPerceptionSources);
+    setNotifications(nextNotifications);
 
     if (failures.length > 0) {
       setLoadState("error");
@@ -188,6 +209,8 @@ export function App() {
       loadedChronicles.status === "fulfilled" &&
       loadedCapabilities.status === "fulfilled" &&
       loadedOpportunities.status === "fulfilled" &&
+      loadedPerceptionSources.status === "fulfilled" &&
+      loadedNotifications.status === "fulfilled" &&
       (loadedInceptions.value.length > 0 ||
         loadedMissions.value.length > 0 ||
         loadedAgents.value.length > 0 ||
@@ -195,6 +218,8 @@ export function App() {
         loadedChronicles.value.length > 0 ||
         loadedCapabilities.value.length > 0 ||
         loadedOpportunities.value.length > 0 ||
+        loadedPerceptionSources.value.length > 0 ||
+        loadedNotifications.value.length > 0 ||
         nextManifestations.length > 0);
     cacheWorkspace({
       inceptions: nextInceptions,
@@ -205,6 +230,8 @@ export function App() {
       manifestations: nextManifestations,
       capabilities: nextCapabilities,
       opportunities: nextOpportunities,
+      perceptionSources: nextPerceptionSources,
+      notifications: nextNotifications,
       pulse: nextPulse,
     });
     setLoadState(hasData ? "ready" : "empty");
@@ -343,6 +370,58 @@ export function App() {
     }
   }
 
+  async function handleEnablePerceptionSource(sourceId: string) {
+    if (!token) return;
+    setPerceptionBusy(true);
+    setPerceptionError(null);
+    try {
+      await api.enablePerceptionSource(token, sourceId);
+      await refreshWorkspace(token, false);
+    } catch (error) {
+      setPerceptionError(error instanceof ApiError ? error.message : "Falha ao ativar fonte.");
+    } finally {
+      setPerceptionBusy(false);
+    }
+  }
+
+  async function handleDisablePerceptionSource(sourceId: string) {
+    if (!token) return;
+    setPerceptionBusy(true);
+    setPerceptionError(null);
+    try {
+      await api.disablePerceptionSource(token, sourceId);
+      await refreshWorkspace(token, false);
+    } catch (error) {
+      setPerceptionError(error instanceof ApiError ? error.message : "Falha ao desativar fonte.");
+    } finally {
+      setPerceptionBusy(false);
+    }
+  }
+
+  async function handleRunPerceptionSource(sourceId: string) {
+    if (!token) return;
+    setPerceptionBusy(true);
+    setPerceptionError(null);
+    try {
+      await api.runPerceptionSource(token, sourceId);
+      await refreshWorkspace(token, false);
+    } catch (error) {
+      setPerceptionError(error instanceof ApiError ? error.message : "Falha na coleta da fonte.");
+    } finally {
+      setPerceptionBusy(false);
+    }
+  }
+
+  async function handleReadNotification(notificationId: string) {
+    if (!token) return;
+    try {
+      await api.readNotification(token, notificationId);
+      await refreshWorkspace(token, false);
+    } catch (error) {
+      setPerceptionError(error instanceof ApiError ? error.message : "Falha ao marcar notificacao.");
+    }
+  }
+
   async function handleSend(event: FormEvent) {
     event.preventDefault();
     if (!token || !message.trim()) return;
@@ -416,6 +495,18 @@ export function App() {
           onApprove={handleApproveOpportunity}
           onReject={handleRejectOpportunity}
           onConvert={handleConvertOpportunity}
+        />
+      ) : null}
+      {authenticated ? (
+        <PerceptionPanel
+          sources={perceptionSources}
+          notifications={notifications}
+          loading={perceptionBusy}
+          error={perceptionError}
+          onEnable={handleEnablePerceptionSource}
+          onDisable={handleDisablePerceptionSource}
+          onRun={handleRunPerceptionSource}
+          onReadNotification={handleReadNotification}
         />
       ) : null}
       {authenticated ? (

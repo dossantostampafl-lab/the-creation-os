@@ -384,16 +384,23 @@ class OpportunityDiscoveryService:
             "evidence": payload.get("evidence") or {},
             "source_reliability": source_reliability,
             "correlation_key": correlation_key,
+            "external_id": str(payload["external_id"]).strip() if payload.get("external_id") else None,
         }
 
     def _observation_fingerprint(self, data: dict[str, Any]) -> str:
         material = {
             "universe": data["universe"],
             "source": data["source"],
+            "external_id": data.get("external_id"),
             "subject": data["subject"],
             "event_type": data["event_type"],
             "correlation_key": data["correlation_key"],
+            "content_hash": hashlib.sha256(
+                json.dumps(data["normalized_data"], sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+            ).hexdigest(),
         }
+        if data.get("external_id"):
+            material["observed_at"] = data["observed_at"].isoformat()
         return hashlib.sha256(json.dumps(material, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
     def _score(self, observations: list[OpportunityObservation]) -> ScoreResult:
