@@ -22,6 +22,7 @@ from app.schemas.automation import (
 )
 from app.services.automation import AutomationService
 from app.services.capabilities import CapabilityPersistenceService
+from app.services.mission_authorization import MissionActionContext
 
 router = APIRouter(tags=["automation"], dependencies=[Depends(get_sovereign_creator)])
 
@@ -143,6 +144,16 @@ async def execute_automation(
         timeout_seconds=body.timeout_seconds,
         idempotency_key=body.idempotency_key,
         correlation_id=cid,
+        mission_context=MissionActionContext(
+            mission_id=body.mission_id,
+            project_id=body.project_id or "",
+            action=body.action or "",
+            capability_id="",
+            resource=body.resource,
+            reason=body.reason,
+        )
+        if body.mission_id
+        else None,
     )
     response.status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
     return execution_response(item)

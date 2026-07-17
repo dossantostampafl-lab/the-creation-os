@@ -61,6 +61,26 @@ export type Mission = {
   status: string;
 };
 
+export type MissionAuthorization = {
+  id: string;
+  mission_id: string;
+  project_id: string;
+  creator_id: string;
+  status: "pending" | "authorized" | "suspended" | "revoked" | "completed";
+  scope_json: { actions?: string[]; version?: string };
+  allowed_capabilities_json: string[];
+  allowed_resources_json: string[];
+  restrictions_json: Record<string, unknown>;
+  approved_at: string | null;
+  suspended_at: string | null;
+  revoked_at: string | null;
+  completed_at: string | null;
+  expires_at: string | null;
+  created_at: string;
+  updated_at: string;
+  metadata_json: Record<string, unknown>;
+};
+
 export type Capability = {
   id: string;
   name: string;

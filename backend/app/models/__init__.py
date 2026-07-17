@@ -22,6 +22,7 @@ from app.models.execution import AgentExecution, AgentExecutionEvent
 from app.models.god import GodConversationInteraction
 from app.models.manifestation import MissionManifestation
 from app.models.memory import CreatorMemory
+from app.models.mission_authorization import MissionAuthorization
 from app.models.opportunity import Opportunity, OpportunityEvidence, OpportunityObservation
 from app.models.perception import CreatorNotification, PerceptionRun, PerceptionSource
 from app.models.policy import MissionDecisionReasoning
@@ -46,6 +47,7 @@ __all__ = [
     "Inception",
     "Message",
     "Mission",
+    "MissionAuthorization",
     "MissionConsolidation",
     "MissionDecision",
     "MissionDecisionReasoning",

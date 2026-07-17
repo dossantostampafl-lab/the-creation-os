@@ -5,6 +5,7 @@ import { ChronicleRibbon } from "./components/ChronicleRibbon";
 import { GodChat } from "./components/GodChat";
 import { InceptionPanel } from "./components/InceptionPanel";
 import { LivingUniverse } from "./components/LivingUniverse";
+import { MissionAuthorizationPanel } from "./components/MissionAuthorizationPanel";
 import { OpportunityPanel } from "./components/OpportunityPanel";
 import { PerceptionPanel } from "./components/PerceptionPanel";
 import { PulseHeader } from "./components/PulseHeader";
@@ -18,6 +19,7 @@ import type {
   CreatorNotification,
   Inception,
   Mission,
+  MissionAuthorization,
   MissionManifestation,
   Opportunity,
   PerceptionSource,
@@ -41,6 +43,7 @@ type WorkspaceCache = {
   opportunities: Opportunity[];
   perceptionSources: PerceptionSource[];
   notifications: CreatorNotification[];
+  missionAuthorization: MissionAuthorization | null;
   pulse: Pulse | null;
 };
 
@@ -64,6 +67,9 @@ export function App() {
   const [inceptions, setInceptions] = useState<Inception[]>([]);
   const [missions, setMissions] = useState<Mission[]>([]);
   const [manifestations, setManifestations] = useState<MissionManifestation[]>([]);
+  const [missionAuthorization, setMissionAuthorization] = useState<MissionAuthorization | null>(null);
+  const [missionAuthorizationBusy, setMissionAuthorizationBusy] = useState(false);
+  const [missionAuthorizationError, setMissionAuthorizationError] = useState<string | null>(null);
   const [capabilities, setCapabilities] = useState<CapabilityFramework[]>([]);
   const [automationResult, setAutomationResult] = useState<AutomationExecution | null>(null);
   const [capabilityError, setCapabilityError] = useState<string | null>(null);
@@ -112,6 +118,7 @@ export function App() {
       setUniverses(workspace.universes ?? []);
       setChronicles(workspace.chronicles ?? []);
       setManifestations(workspace.manifestations ?? []);
+      setMissionAuthorization(workspace.missionAuthorization ?? null);
       setCapabilities(workspace.capabilities ?? []);
       setOpportunities(workspace.opportunities ?? []);
       setPerceptionSources(workspace.perceptionSources ?? []);
@@ -182,6 +189,8 @@ export function App() {
       nextMissions.map((mission) => api.getMissionManifestation(accessToken, mission.id)),
     );
     const nextManifestations = manifestationResults.flatMap((result) => (result.status === "fulfilled" ? [result.value] : []));
+    const nextMissionAuthorization =
+      nextMissions[0] ? await api.getMissionAuthorization(accessToken, nextMissions[0].id).catch(() => missionAuthorization) : null;
 
     setInceptions(nextInceptions);
     setMissions(nextMissions);
@@ -190,6 +199,7 @@ export function App() {
     setChronicles(nextChronicles);
     setPulse(nextPulse);
     setManifestations(nextManifestations);
+    setMissionAuthorization(nextMissionAuthorization);
     setCapabilities(nextCapabilities);
     setOpportunities(nextOpportunities);
     setPerceptionSources(nextPerceptionSources);
@@ -228,6 +238,7 @@ export function App() {
       universes: nextUniverses,
       chronicles: nextChronicles,
       manifestations: nextManifestations,
+      missionAuthorization: nextMissionAuthorization,
       capabilities: nextCapabilities,
       opportunities: nextOpportunities,
       perceptionSources: nextPerceptionSources,
@@ -422,6 +433,48 @@ export function App() {
     }
   }
 
+  async function handleRequestMissionAuthorization(missionId: string) {
+    if (!token) return;
+    setMissionAuthorizationBusy(true);
+    setMissionAuthorizationError(null);
+    try {
+      await api.requestMissionAuthorization(token, missionId, "local");
+      await refreshWorkspace(token, false);
+    } catch (error) {
+      setMissionAuthorizationError(error instanceof ApiError ? error.message : "Falha ao solicitar autorizacao.");
+    } finally {
+      setMissionAuthorizationBusy(false);
+    }
+  }
+
+  async function handleApproveMissionAuthorization(missionId: string) {
+    if (!token) return;
+    setMissionAuthorizationBusy(true);
+    setMissionAuthorizationError(null);
+    try {
+      await api.approveMissionAuthorization(token, missionId);
+      await refreshWorkspace(token, false);
+    } catch (error) {
+      setMissionAuthorizationError(error instanceof ApiError ? error.message : "Falha ao autorizar missao.");
+    } finally {
+      setMissionAuthorizationBusy(false);
+    }
+  }
+
+  async function handleRevokeMissionAuthorization(missionId: string) {
+    if (!token) return;
+    setMissionAuthorizationBusy(true);
+    setMissionAuthorizationError(null);
+    try {
+      await api.revokeMissionAuthorization(token, missionId);
+      await refreshWorkspace(token, false);
+    } catch (error) {
+      setMissionAuthorizationError(error instanceof ApiError ? error.message : "Falha ao revogar missao.");
+    } finally {
+      setMissionAuthorizationBusy(false);
+    }
+  }
+
   async function handleSend(event: FormEvent) {
     event.preventDefault();
     if (!token || !message.trim()) return;
@@ -495,6 +548,17 @@ export function App() {
           onApprove={handleApproveOpportunity}
           onReject={handleRejectOpportunity}
           onConvert={handleConvertOpportunity}
+        />
+      ) : null}
+      {authenticated ? (
+        <MissionAuthorizationPanel
+          mission={missions[0] ?? null}
+          authorization={missionAuthorization}
+          loading={missionAuthorizationBusy}
+          error={missionAuthorizationError}
+          onRequest={handleRequestMissionAuthorization}
+          onApprove={handleApproveMissionAuthorization}
+          onRevoke={handleRevokeMissionAuthorization}
         />
       ) : null}
       {authenticated ? (

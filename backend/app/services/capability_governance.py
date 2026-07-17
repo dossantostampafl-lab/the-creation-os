@@ -9,7 +9,9 @@ from app.capabilities.registry import CapabilityRegistry, default_capability_reg
 from app.core.domain import Actor, DomainError
 from app.models.capability_registry import RegisteredCapability
 from app.repositories.capabilities import CapabilityRepository
+from app.repositories.mission_authorization import MissionAuthorizationRepository
 from app.services.capabilities import CapabilityPersistenceService
+from app.services.mission_authorization import MissionActionContext, MissionAuthorizationService
 
 
 class CapabilityGovernanceError(DomainError):
@@ -70,11 +72,22 @@ class CapabilityGovernanceService:
         connector_id: str,
         connector_capability: str,
         correlation_id: str,
+        mission_context: MissionActionContext | None = None,
     ) -> CapabilityAuthorization:
         capability: CapabilityDefinition | None = None
         try:
             self._ensure_creator(actor)
             capability = self._definition_for_connector(connector_id, connector_capability)
+            if mission_context is not None:
+                mission_context = MissionActionContext(
+                    mission_id=mission_context.mission_id,
+                    project_id=mission_context.project_id,
+                    action=mission_context.action,
+                    capability_id=capability.capability_id,
+                    resource=mission_context.resource,
+                    reason=mission_context.reason,
+                )
+                await MissionAuthorizationService(MissionAuthorizationRepository(self.repository.session)).check_action(actor, mission_context, correlation_id)
             await CapabilityPersistenceService(self.repository, self.capability_registry)._sync_definitions()
             persisted = await self.repository.by_capability_id(capability.capability_id)
             if persisted is None:

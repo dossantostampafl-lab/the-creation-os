@@ -8,6 +8,7 @@ import type {
   GodResponse,
   Inception,
   Mission,
+  MissionAuthorization,
   MissionManifestation,
   Opportunity,
   PerceptionRun,
@@ -95,6 +96,37 @@ export const api = {
 
   listMissions(token: string) {
     return request<Mission[]>("/missions", undefined, token);
+  },
+
+  getMissionAuthorization(token: string, missionId: string) {
+    return request<MissionAuthorization | null>(`/missions/${missionId}/authorization`, undefined, token);
+  },
+
+  requestMissionAuthorization(token: string, missionId: string, projectId: string) {
+    return request<MissionAuthorization>(
+      `/missions/${missionId}/authorization/request`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          project_id: projectId,
+          scope: {
+            actions: ["read_project_files", "modify_project_files", "run_tests", "run_lint", "run_typecheck", "update_documentation", "create_local_commit"],
+          },
+          allowed_capabilities: ["rest.restricted.request", "opportunity.discovery.run", "opportunity.ranking.list"],
+          allowed_resources: ["*"],
+          restrictions: { denied_actions: ["git_push", "deploy", "production_change", "use_real_financial_account"] },
+        }),
+      },
+      token,
+    );
+  },
+
+  approveMissionAuthorization(token: string, missionId: string) {
+    return request<MissionAuthorization>(`/missions/${missionId}/authorization/approve`, { method: "POST" }, token);
+  },
+
+  revokeMissionAuthorization(token: string, missionId: string) {
+    return request<MissionAuthorization>(`/missions/${missionId}/authorization/revoke`, { method: "POST" }, token);
   },
 
   listAgents(token: string) {

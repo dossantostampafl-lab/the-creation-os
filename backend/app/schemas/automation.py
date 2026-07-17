@@ -12,6 +12,11 @@ class AutomationExecuteRequest(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
     timeout_seconds: float = Field(gt=0, le=30)
     idempotency_key: str = Field(min_length=1, max_length=128)
+    mission_id: str | None = Field(default=None, max_length=36)
+    project_id: str | None = Field(default=None, max_length=256)
+    action: str | None = Field(default=None, max_length=128)
+    resource: str | None = Field(default=None, max_length=1024)
+    reason: str | None = Field(default=None, max_length=2048)
 
 
 class AutomationExecutionResponse(BaseModel):

@@ -240,6 +240,82 @@
   backdrop-filter: blur(12px);
 }
 
+.mission-authorization-panel {
+  position: absolute;
+  z-index: 23;
+  left: 330px;
+  bottom: 86px;
+  width: 330px;
+  max-height: 250px;
+  padding: 13px 14px;
+  overflow: auto;
+  border: 1px solid rgba(255, 196, 84, 0.18);
+  border-radius: 12px;
+  color: #f5fbff;
+  background: rgba(2, 5, 12, 0.58);
+  backdrop-filter: blur(12px);
+}
+
+.mission-authorization-panel header,
+.mission-authorization-panel dl {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mission-authorization-panel header {
+  margin-bottom: 10px;
+  color: #ffc454;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
+
+.mission-authorization-panel header span,
+.mission-authorization-panel p,
+.mission-authorization-panel dd,
+.mission-authorization-panel dt,
+.mission-auth-list span {
+  color: #cfc9be;
+  font-size: 10px;
+}
+
+.mission-authorization-panel article strong,
+.mission-auth-list strong {
+  display: block;
+  color: #f5fbff;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.mission-authorization-panel article p {
+  margin: 6px 0;
+  line-height: 1.35;
+}
+
+.mission-auth-list {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 196, 84, 0.1);
+}
+
+.mission-authorization-panel button {
+  margin-top: 10px;
+  border: 1px solid rgba(255, 196, 84, 0.28);
+  border-radius: 999px;
+  color: #ffc454;
+  background: rgba(2, 5, 12, 0.4);
+  font-size: 10px;
+}
+
+.mission-auth-ok {
+  color: #86f4c4;
+}
+
+.mission-auth-error {
+  color: #ffd071;
+}
+
 .opportunity-panel {
   position: absolute;
   z-index: 23;

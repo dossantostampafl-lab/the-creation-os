@@ -11,6 +11,7 @@ from app.repositories.automation import AutomationRepository
 from app.repositories.capabilities import CapabilityRepository
 from app.repositories.domain import sanitize
 from app.services.capability_governance import CapabilityGovernanceService
+from app.services.mission_authorization import MissionActionContext
 
 
 class AutomationError(DomainError):
@@ -43,16 +44,27 @@ class AutomationService:
         timeout_seconds: float,
         idempotency_key: str,
         correlation_id: str,
+        mission_context: MissionActionContext | None = None,
     ) -> tuple[AutomationExecution, bool]:
         require_creator(actor, "execute automation connector")
         if timeout_seconds <= 0 or timeout_seconds > 30:
             raise AutomationError("Automation timeout must be between 0 and 30 seconds")
-        authorization = await self._governance().authorize_execution(
-            actor,
-            connector_id=connector_id,
-            connector_capability=capability,
-            correlation_id=correlation_id,
-        )
+        governance = self._governance()
+        if mission_context is None:
+            authorization = await governance.authorize_execution(
+                actor,
+                connector_id=connector_id,
+                connector_capability=capability,
+                correlation_id=correlation_id,
+            )
+        else:
+            authorization = await governance.authorize_execution(
+                actor,
+                connector_id=connector_id,
+                connector_capability=capability,
+                correlation_id=correlation_id,
+                mission_context=mission_context,
+            )
         request = ConnectorRequest(
             connector_id=connector_id,
             capability=capability,
