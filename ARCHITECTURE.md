@@ -57,3 +57,29 @@ Controlled execution belongs to the existing Agents block. Dispatch Queue and
 Agent Dispatcher remain internal mechanisms between Capability Engine and Agents.
 Only registered deterministic handlers with no side effects can run. Every result
 returns to Tree Core; Malkuth remains responsible for manifestation.
+
+## Central Core Decision
+
+Central Core reads Tree Core mission consolidations and records immutable
+decisions. It does not change Mission, Task, DispatchItem, AgentExecution, or
+MissionConsolidation records. A recorded decision becomes available for later
+policy reasoning and Malkuth manifestation.
+
+## GOD, SOPHIA, ROCKMAM
+
+GOD conversation, SOPHIA understanding, and ROCKMAM assessment are separate
+bounded steps. They may interpret, understand, and assess, but they do not create
+Mission automatically and do not bypass Creator authorization.
+
+## Memory, Automation, Opportunity, Perception
+
+Memory provides Creator context. Automation connectors remain capability-governed.
+Opportunity Discovery and Continuous Perception may collect, rank, notify, and
+support Creator review, but they do not authorize Mission and do not manifest.
+
+## Release Candidate Boundary
+
+The release-candidate health boundary is Alembic `0021_mission_authorization`.
+Readiness requires PostgreSQL, Redis, and the expected migration revision. This
+document records architecture only; it does not authorize new layers, engines,
+workers, endpoints, or responsibility shifts.

@@ -1,19 +1,19 @@
-# Test database safety
+# Test Database Safety
 
 Unit tests do not require `TEST_DATABASE_URL`:
 
 ```powershell
-pytest -m "not integration"
+python -m pytest tests -m "not integration" -q
 ```
 
-PostgreSQL integration tests are destructive. Their fixtures truncate all data
-in the configured test database. The operator must deliberately create a
-disposable database whose name clearly identifies it as a test database, then
-set its complete URL explicitly:
+The full backend suite includes destructive PostgreSQL integration tests. Their
+fixtures truncate data in the configured test database. The operator must
+deliberately create a disposable database whose name clearly identifies it as a
+test database, then set its complete URL explicitly:
 
 ```powershell
-$env:TEST_DATABASE_URL='postgresql+asyncpg://postgres:<test-password>@localhost:5432/the_creation_os_v046_test'
-pytest -m integration
+$env:TEST_DATABASE_URL='postgresql+asyncpg://postgres:<test-password>@localhost:5432/the_creation_os_test'
+python -m pytest tests -q
 ```
 
 Safety rules:
@@ -28,3 +28,18 @@ Safety rules:
 The test harness rejects missing, malformed, non-PostgreSQL, production-like,
 or application-equivalent URLs before it creates the integration-test engine.
 It does not fall back to `DATABASE_URL`.
+
+Migration round-trip tests may downgrade the disposable database temporarily.
+The shared test teardown restores the disposable database to Alembic `head`
+after each migration round-trip test so later HTTP and service tests see the
+current schema.
+
+Recommended backend release commands:
+
+```powershell
+$env:TEST_DATABASE_URL='postgresql+asyncpg://postgres:<test-password>@localhost:5432/the_creation_os_test'
+python -m pytest tests -q
+python -m ruff check .
+python -m alembic heads
+python -m alembic current
+```

@@ -1,5 +1,19 @@
 # THE CREATION OS backend
 
+## Release Candidate Baseline
+
+The backend release-candidate baseline expects Alembic head
+`0021_mission_authorization`. The readiness endpoint verifies PostgreSQL, Redis,
+and this exact migration revision before returning ready.
+
+Operational endpoints:
+
+- `GET /api/v1/health/live`
+- `GET /api/v1/health/ready`
+
+The backend does not require external LLM, embedding, GitHub, or ElevenLabs
+credentials for the default fake-provider development path.
+
 ## Tree Core v0.4.1
 
 The Tree Core foundation contains two bounded components:
@@ -34,3 +48,13 @@ Agent, capability, authenticated Worker, lease ownership, deadline, and register
 handler before running. Handlers are deterministic internal callables with no
 filesystem, network, shell, subprocess, dynamic import, or manifestation access.
 Structured results return only to Tree Core.
+
+## Central Core and Later Release-Candidate Scope
+
+Central Core records immutable decisions over Tree Core consolidations. Policy,
+Malkuth, GOD, SOPHIA, ROCKMAM, memory, automation, opportunity discovery,
+continuous perception, and mission authorization exist as separate bounded
+modules. This README is not an authorization to merge those responsibilities.
+
+For reproducible validation, use the root `README.md`, `backend/TESTING.md`, and
+`../docs/RELEASE_CHECKLIST.md`.
