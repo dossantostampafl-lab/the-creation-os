@@ -8,7 +8,7 @@ from sqlalchemy import select, text
 from test_dispatch_integration import auth
 
 from app.agents.handlers import HandlerDefinition, HandlerRegistry, ObjectPayload, StructuredResult
-from app.core.domain import AuthorizationDenied, DomainError
+from app.core.domain import AuthorizationDenied
 from app.main import app
 from app.models.dispatch import DispatchItem
 from app.models.entities import Agent, Mission, Task
