@@ -165,6 +165,33 @@ export type AutomationExecution = {
   completed_at: string;
 };
 
+export type Opportunity = {
+  id: string;
+  title: string;
+  universe: string;
+  category: string;
+  status: string;
+  summary: string;
+  explanation: string;
+  confidence: number;
+  impact: number;
+  urgency: number;
+  risk: number;
+  priority_score: number;
+  recommended_action: string;
+  evidence: { observations?: Array<Record<string, unknown>> };
+  risks: Record<string, unknown>;
+  scoring: Record<string, unknown>;
+  detected_at: string;
+  expires_at: string;
+  reviewed_at: string | null;
+  reviewed_by: string | null;
+  rejection_reason: string | null;
+  inception_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type ChatItem = {
   id: string;
   role: "creator" | "god" | "trinity";

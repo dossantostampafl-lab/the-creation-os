@@ -66,6 +66,50 @@ Depois acesse a interface com:
 8. Confirme resposta da automation na interface.
 9. Para validar negacao, desabilite `Restricted REST Request` e execute novamente; o governance deve negar antes do connector.
 
+## Fluxo de oportunidades v1.1
+
+1. Faça login como Criador.
+2. Use a área `OPORTUNIDADES`.
+3. Execute `Descobrir` para enviar fixtures controladas ao backend.
+4. O backend valida a capability `opportunity.discovery.run` pelo `CapabilityGovernanceService`.
+5. Observações são normalizadas, deduplicadas e correlacionadas.
+6. Oportunidades são pontuadas com:
+
+```text
+priority_score =
+  confidence * 0.35
+  + impact * 0.30
+  + urgency * 0.20
+  + source_reliability * 0.15
+  - risk_penalty
+```
+
+7. O Criador pode aprovar ou rejeitar uma oportunidade.
+8. Somente oportunidade aprovada pode ser convertida em Inception.
+9. Nenhuma Mission ou operação financeira é criada automaticamente.
+
+Endpoints principais:
+
+- `GET /api/v1/observations`
+- `POST /api/v1/observations`
+- `GET /api/v1/opportunities`
+- `GET /api/v1/opportunities/{id}`
+- `GET /api/v1/opportunities/ranking`
+- `POST /api/v1/opportunities/discovery/run`
+- `POST /api/v1/opportunities/{id}/approve`
+- `POST /api/v1/opportunities/{id}/reject`
+- `POST /api/v1/opportunities/{id}/convert-to-inception`
+
+Capabilities registradas:
+
+- `opportunity.observation.collect`
+- `opportunity.observation.ingest`
+- `opportunity.discovery.run`
+- `opportunity.discovery.expire`
+- `opportunity.ranking.list`
+- `opportunity.review`
+- `opportunity.convert_to_inception`
+
 ## Testes
 
 Backend focado:
@@ -73,6 +117,8 @@ Backend focado:
 ```bash
 cd backend
 python -m pytest tests/test_capability_governance.py tests/test_capability_persistence.py tests/test_capabilities.py tests/test_automation.py -q
+python -m pytest tests/test_opportunities.py -q
+python -m pytest -m integration tests/test_opportunities_http.py -q
 ```
 
 Frontend:
@@ -111,3 +157,5 @@ Use `docker compose down -v` apenas quando desejar apagar volumes locais.
 - O connector REST restrito permite somente hosts e metodos definidos no registry.
 - Sem embeddings ou LLM externos obrigatorios neste MVP.
 - O frontend executa somente o fluxo principal de capabilities/automation; recursos avancados permanecem no backend.
+- O fluxo v1.1 usa execução manual e fixture controlada; não há scheduler recorrente nesta versão.
+- O universo financeiro é exclusivamente informativo e investigativo; não executa compra, venda, transferência ou movimentação de ativos.

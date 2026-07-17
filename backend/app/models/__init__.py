@@ -22,6 +22,7 @@ from app.models.execution import AgentExecution, AgentExecutionEvent
 from app.models.god import GodConversationInteraction
 from app.models.manifestation import MissionManifestation
 from app.models.memory import CreatorMemory
+from app.models.opportunity import Opportunity, OpportunityEvidence, OpportunityObservation
 from app.models.policy import MissionDecisionReasoning
 from app.models.rockmam import RockmamPossibilityAssessment
 from app.models.sophia import SophiaUnderstanding
@@ -48,6 +49,9 @@ __all__ = [
     "MissionDecisionReasoning",
     "MissionManifestation",
     "MissionPlan",
+    "Opportunity",
+    "OpportunityEvidence",
+    "OpportunityObservation",
     "RockmamPossibilityAssessment",
     "RegisteredCapability",
     "SophiaUnderstanding",

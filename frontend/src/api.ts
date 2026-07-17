@@ -8,6 +8,7 @@ import type {
   Inception,
   Mission,
   MissionManifestation,
+  Opportunity,
   Pulse,
   TokenResponse,
   TrinityResponse,
@@ -150,5 +151,73 @@ export const api = {
       },
       token,
     );
+  },
+
+  listOpportunities(token: string) {
+    return request<Opportunity[]>("/opportunities/ranking?limit=8", undefined, token);
+  },
+
+  runOpportunityDiscovery(token: string) {
+    return request<{ opportunities: Opportunity[] }>(
+      "/opportunities/discovery/run",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          observations: [
+            {
+              universe: "finance",
+              source: "fixture.market",
+              subject: "ACME",
+              event_type: "volume_anomaly",
+              title: "ACME volume anomaly",
+              summary: "Volume rose above the configured informational threshold.",
+              source_reliability: 0.82,
+              correlation_key: "acme:volume",
+              normalized_data: { percent_change: 8.4, volume_ratio: 2.7 },
+              evidence: { type: "controlled_fixture", financial_execution: false },
+            },
+            {
+              universe: "technology",
+              source: "fixture.trends",
+              subject: "Deterministic Agents",
+              event_type: "launch",
+              title: "Deterministic agent tooling launch",
+              summary: "Multiple technical sources indicate rising interest in deterministic agent tooling.",
+              source_reliability: 0.76,
+              correlation_key: "deterministic-agents:launch",
+              normalized_data: { activity_growth: 0.68 },
+              evidence: { type: "controlled_fixture" },
+            },
+          ],
+        }),
+      },
+      token,
+    );
+  },
+
+  approveOpportunity(token: string, opportunityId: string) {
+    return request<Opportunity>(
+      `/opportunities/${opportunityId}/approve`,
+      {
+        method: "POST",
+        body: JSON.stringify({ reason: "Creator approved investigation." }),
+      },
+      token,
+    );
+  },
+
+  rejectOpportunity(token: string, opportunityId: string) {
+    return request<Opportunity>(
+      `/opportunities/${opportunityId}/reject`,
+      {
+        method: "POST",
+        body: JSON.stringify({ reason: "Creator rejected the opportunity." }),
+      },
+      token,
+    );
+  },
+
+  convertOpportunity(token: string, opportunityId: string) {
+    return request<Opportunity>(`/opportunities/${opportunityId}/convert-to-inception`, { method: "POST" }, token);
   },
 };

@@ -173,8 +173,96 @@ def rest_capabilities() -> list[CapabilityDefinition]:
     ]
 
 
+def opportunity_capabilities() -> list[CapabilityDefinition]:
+    return [
+        CapabilityDefinition(
+            capability_id="opportunity.observation.collect",
+            name="Opportunity Observation Collector",
+            description="Collects deterministic observations from configured opportunity sources.",
+            version="1.0.0",
+            connector_id="opportunity",
+            connector_capability="collect_observations",
+            enabled=True,
+            permissions=(CapabilityPermission.READ,),
+            metadata={"provider": "opportunity", "financial_execution": "false"},
+        ),
+        CapabilityDefinition(
+            capability_id="opportunity.observation.ingest",
+            name="Opportunity Observation Ingestion",
+            description="Normalizes and persists opportunity observations.",
+            version="1.0.0",
+            connector_id="opportunity",
+            connector_capability="ingest_observation",
+            enabled=True,
+            permissions=(CapabilityPermission.WRITE,),
+            dependencies=("opportunity.observation.collect",),
+            metadata={"provider": "opportunity", "financial_execution": "false"},
+        ),
+        CapabilityDefinition(
+            capability_id="opportunity.discovery.run",
+            name="Opportunity Discovery Runner",
+            description="Runs deterministic opportunity discovery from persisted observations.",
+            version="1.0.0",
+            connector_id="opportunity",
+            connector_capability="run_discovery",
+            enabled=True,
+            permissions=(CapabilityPermission.STATUS,),
+            dependencies=("opportunity.observation.ingest",),
+            metadata={"provider": "opportunity", "financial_execution": "false"},
+        ),
+        CapabilityDefinition(
+            capability_id="opportunity.discovery.expire",
+            name="Opportunity Expiration",
+            description="Expires stale opportunities deterministically.",
+            version="1.0.0",
+            connector_id="opportunity",
+            connector_capability="expire_opportunities",
+            enabled=True,
+            permissions=(CapabilityPermission.STATUS,),
+            dependencies=("opportunity.discovery.run",),
+            metadata={"provider": "opportunity", "financial_execution": "false"},
+        ),
+        CapabilityDefinition(
+            capability_id="opportunity.ranking.list",
+            name="Opportunity Ranking",
+            description="Ranks opportunities for Creator review.",
+            version="1.0.0",
+            connector_id="opportunity",
+            connector_capability="rank_opportunities",
+            enabled=True,
+            permissions=(CapabilityPermission.READ,),
+            dependencies=("opportunity.discovery.run",),
+            metadata={"provider": "opportunity", "financial_execution": "false"},
+        ),
+        CapabilityDefinition(
+            capability_id="opportunity.review",
+            name="Opportunity Review",
+            description="Allows the Creator to approve or reject an opportunity.",
+            version="1.0.0",
+            connector_id="opportunity",
+            connector_capability="review_opportunity",
+            enabled=True,
+            permissions=(CapabilityPermission.WRITE,),
+            dependencies=("opportunity.ranking.list",),
+            metadata={"provider": "opportunity", "financial_execution": "false"},
+        ),
+        CapabilityDefinition(
+            capability_id="opportunity.convert_to_inception",
+            name="Opportunity To Inception Conversion",
+            description="Allows the Creator to convert an approved opportunity to a proposed Inception.",
+            version="1.0.0",
+            connector_id="opportunity",
+            connector_capability="convert_to_inception",
+            enabled=True,
+            permissions=(CapabilityPermission.WRITE,),
+            dependencies=("opportunity.review",),
+            metadata={"provider": "opportunity", "financial_execution": "false"},
+        ),
+    ]
+
+
 def default_capability_registry() -> CapabilityRegistry:
     registry = CapabilityRegistry()
-    for capability in [*github_capabilities(), *rest_capabilities()]:
+    for capability in [*github_capabilities(), *rest_capabilities(), *opportunity_capabilities()]:
         registry.register(capability)
     return registry

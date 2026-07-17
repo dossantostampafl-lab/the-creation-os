@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     embedding_provider: str = Field("fake", env="EMBEDDING_PROVIDER")
     embedding_model: str = Field("fake", env="EMBEDDING_MODEL")
     chronicle_embedding_dim: int = 8
+    opportunity_min_score: float = Field(0.45, env="OPPORTUNITY_MIN_SCORE")
+    opportunity_min_source_reliability: float = Field(0.5, env="OPPORTUNITY_MIN_SOURCE_RELIABILITY")
+    opportunity_expiration_hours: int = Field(72, env="OPPORTUNITY_EXPIRATION_HOURS")
+    opportunity_min_evidence: int = Field(1, env="OPPORTUNITY_MIN_EVIDENCE")
+    opportunity_enabled_universes: str = Field("finance,technology,business", env="OPPORTUNITY_ENABLED_UNIVERSES")
 
     class Config:
         env_file = os.path.join(os.path.dirname(__file__), "..", "..", ".env")

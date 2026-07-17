@@ -5,6 +5,7 @@ import { ChronicleRibbon } from "./components/ChronicleRibbon";
 import { GodChat } from "./components/GodChat";
 import { InceptionPanel } from "./components/InceptionPanel";
 import { LivingUniverse } from "./components/LivingUniverse";
+import { OpportunityPanel } from "./components/OpportunityPanel";
 import { PulseHeader } from "./components/PulseHeader";
 import type {
   Agent,
@@ -16,6 +17,7 @@ import type {
   Inception,
   Mission,
   MissionManifestation,
+  Opportunity,
   Pulse,
   Universe,
 } from "./types";
@@ -33,6 +35,7 @@ type WorkspaceCache = {
   chronicles: ChronicleEntry[];
   manifestations: MissionManifestation[];
   capabilities: CapabilityFramework[];
+  opportunities: Opportunity[];
   pulse: Pulse | null;
 };
 
@@ -60,6 +63,9 @@ export function App() {
   const [automationResult, setAutomationResult] = useState<AutomationExecution | null>(null);
   const [capabilityError, setCapabilityError] = useState<string | null>(null);
   const [capabilityBusy, setCapabilityBusy] = useState(false);
+  const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
+  const [opportunityBusy, setOpportunityBusy] = useState(false);
+  const [opportunityError, setOpportunityError] = useState<string | null>(null);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [universes, setUniverses] = useState<Universe[]>([]);
   const [chronicles, setChronicles] = useState<ChronicleEntry[]>([]);
@@ -98,6 +104,7 @@ export function App() {
       setChronicles(workspace.chronicles ?? []);
       setManifestations(workspace.manifestations ?? []);
       setCapabilities(workspace.capabilities ?? []);
+      setOpportunities(workspace.opportunities ?? []);
       setPulse(workspace.pulse ?? null);
     } catch {
       localStorage.removeItem(WORKSPACE_CACHE_KEY);
@@ -111,7 +118,16 @@ export function App() {
   async function refreshWorkspace(accessToken: string, showLoading: boolean) {
     if (showLoading) setLoadState("loading");
     setDataError(null);
-    const [loadedInceptions, loadedMissions, loadedAgents, loadedUniverses, loadedChronicles, loadedPulse, loadedCapabilities] =
+    const [
+      loadedInceptions,
+      loadedMissions,
+      loadedAgents,
+      loadedUniverses,
+      loadedChronicles,
+      loadedPulse,
+      loadedCapabilities,
+      loadedOpportunities,
+    ] =
       await Promise.allSettled([
         api.listInceptions(accessToken),
         api.listMissions(accessToken),
@@ -120,6 +136,7 @@ export function App() {
         api.listChronicles(accessToken),
         api.pulse(accessToken),
         api.listCapabilities(accessToken),
+        api.listOpportunities(accessToken),
       ]);
 
     const failures = [
@@ -130,6 +147,7 @@ export function App() {
       loadedChronicles,
       loadedPulse,
       loadedCapabilities,
+      loadedOpportunities,
     ].filter((result) => result.status === "rejected");
 
     const nextInceptions = loadedInceptions.status === "fulfilled" ? loadedInceptions.value : inceptions;
@@ -139,6 +157,7 @@ export function App() {
     const nextChronicles = loadedChronicles.status === "fulfilled" ? loadedChronicles.value : chronicles;
     const nextPulse = loadedPulse.status === "fulfilled" ? loadedPulse.value : pulse;
     const nextCapabilities = loadedCapabilities.status === "fulfilled" ? loadedCapabilities.value : capabilities;
+    const nextOpportunities = loadedOpportunities.status === "fulfilled" ? loadedOpportunities.value : opportunities;
 
     const manifestationResults = await Promise.allSettled(
       nextMissions.map((mission) => api.getMissionManifestation(accessToken, mission.id)),
@@ -153,6 +172,7 @@ export function App() {
     setPulse(nextPulse);
     setManifestations(nextManifestations);
     setCapabilities(nextCapabilities);
+    setOpportunities(nextOpportunities);
 
     if (failures.length > 0) {
       setLoadState("error");
@@ -167,12 +187,14 @@ export function App() {
       loadedUniverses.status === "fulfilled" &&
       loadedChronicles.status === "fulfilled" &&
       loadedCapabilities.status === "fulfilled" &&
+      loadedOpportunities.status === "fulfilled" &&
       (loadedInceptions.value.length > 0 ||
         loadedMissions.value.length > 0 ||
         loadedAgents.value.length > 0 ||
         loadedUniverses.value.length > 0 ||
         loadedChronicles.value.length > 0 ||
         loadedCapabilities.value.length > 0 ||
+        loadedOpportunities.value.length > 0 ||
         nextManifestations.length > 0);
     cacheWorkspace({
       inceptions: nextInceptions,
@@ -182,6 +204,7 @@ export function App() {
       chronicles: nextChronicles,
       manifestations: nextManifestations,
       capabilities: nextCapabilities,
+      opportunities: nextOpportunities,
       pulse: nextPulse,
     });
     setLoadState(hasData ? "ready" : "empty");
@@ -264,6 +287,62 @@ export function App() {
     }
   }
 
+  async function handleRunDiscovery() {
+    if (!token) return;
+    setOpportunityBusy(true);
+    setOpportunityError(null);
+    try {
+      await api.runOpportunityDiscovery(token);
+      await refreshWorkspace(token, false);
+    } catch (error) {
+      setOpportunityError(error instanceof ApiError ? error.message : "Falha ao executar descoberta.");
+    } finally {
+      setOpportunityBusy(false);
+    }
+  }
+
+  async function handleApproveOpportunity(opportunityId: string) {
+    if (!token) return;
+    setOpportunityBusy(true);
+    setOpportunityError(null);
+    try {
+      await api.approveOpportunity(token, opportunityId);
+      await refreshWorkspace(token, false);
+    } catch (error) {
+      setOpportunityError(error instanceof ApiError ? error.message : "Falha ao aprovar oportunidade.");
+    } finally {
+      setOpportunityBusy(false);
+    }
+  }
+
+  async function handleRejectOpportunity(opportunityId: string) {
+    if (!token) return;
+    setOpportunityBusy(true);
+    setOpportunityError(null);
+    try {
+      await api.rejectOpportunity(token, opportunityId);
+      await refreshWorkspace(token, false);
+    } catch (error) {
+      setOpportunityError(error instanceof ApiError ? error.message : "Falha ao rejeitar oportunidade.");
+    } finally {
+      setOpportunityBusy(false);
+    }
+  }
+
+  async function handleConvertOpportunity(opportunityId: string) {
+    if (!token) return;
+    setOpportunityBusy(true);
+    setOpportunityError(null);
+    try {
+      await api.convertOpportunity(token, opportunityId);
+      await refreshWorkspace(token, false);
+    } catch (error) {
+      setOpportunityError(error instanceof ApiError ? error.message : "Falha ao converter oportunidade.");
+    } finally {
+      setOpportunityBusy(false);
+    }
+  }
+
   async function handleSend(event: FormEvent) {
     event.preventDefault();
     if (!token || !message.trim()) return;
@@ -328,6 +407,17 @@ export function App() {
       <InceptionPanel inceptions={visibleInceptions} />
       {dataError ? <div className="api-state api-state-error">{dataError}</div> : null}
       {empty ? <div className="api-state api-state-empty">API conectada sem dados ativos.</div> : null}
+      {authenticated ? (
+        <OpportunityPanel
+          opportunities={opportunities}
+          loading={opportunityBusy}
+          error={opportunityError}
+          onDiscover={handleRunDiscovery}
+          onApprove={handleApproveOpportunity}
+          onReject={handleRejectOpportunity}
+          onConvert={handleConvertOpportunity}
+        />
+      ) : null}
       {authenticated ? (
         <CapabilityPanel
           capabilities={capabilities}

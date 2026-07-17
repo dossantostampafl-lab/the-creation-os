@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.automation.connectors.github import GitHubConnector
+from app.automation.connectors.opportunity import OpportunityConnector
 from app.automation.connectors.rest import RestrictedRestConnector
 from app.automation.contracts import Connector, ConnectorCapability, ConnectorRejected
 
@@ -47,4 +48,5 @@ def default_registry() -> ConnectorRegistry:
         )
     )
     registry.register(GitHubConnector())
+    registry.register(OpportunityConnector())
     return registry

@@ -9,7 +9,7 @@ from app.config import settings
 from app.db.session import get_session
 
 router = APIRouter()
-EXPECTED_ALEMBIC_REVISION = "0018_capability_persistence"
+EXPECTED_ALEMBIC_REVISION = "0019_opportunity_discovery"
 
 
 @router.get("/health/live")
