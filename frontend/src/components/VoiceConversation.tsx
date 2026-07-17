@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, X } from "lucide-react";
 import { ApiError, api } from "../api";
 import type { ChatItem, Mission, Opportunity } from "../types";
-import { buildContextualVoiceMessage, createBrowserSpeechRecognizer, type VoiceConversationState } from "../voice";
+import { buildContextualVoiceMessage, createBrowserSpeechRecognizer, stopAudioPlayback, type VoiceConversationState } from "../voice";
 import { VoiceButton } from "./VoiceButton";
 
 type VoiceConversationProps = {
@@ -102,15 +102,9 @@ export function VoiceConversation({ authenticated, busy, token, chat, missions, 
   }
 
   function stopAudio() {
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.src = "";
-      audioRef.current = null;
-    }
-    if (audioUrlRef.current) {
-      URL.revokeObjectURL(audioUrlRef.current);
-      audioUrlRef.current = null;
-    }
+    stopAudioPlayback(audioRef.current, audioUrlRef.current);
+    audioRef.current = null;
+    audioUrlRef.current = null;
   }
 
   function stopSpeaking() {

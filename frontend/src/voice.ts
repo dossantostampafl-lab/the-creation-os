@@ -102,3 +102,18 @@ export function buildContextualVoiceMessage(input: string, context: {
     `fala atual do Criador: ${normalized}`,
   ].join("\n");
 }
+
+export function stopAudioPlayback(
+  player: Pick<HTMLAudioElement, "pause" | "currentTime" | "src"> | null,
+  objectUrl: string | null,
+  revokeObjectUrl: (url: string) => void = URL.revokeObjectURL,
+) {
+  if (player) {
+    player.pause();
+    player.currentTime = 0;
+    player.src = "";
+  }
+  if (objectUrl) {
+    revokeObjectUrl(objectUrl);
+  }
+}
