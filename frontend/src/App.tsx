@@ -7,7 +7,6 @@ import { LivingDashboard } from "./components/LivingDashboard";
 import { MissionAuthorizationPanel } from "./components/MissionAuthorizationPanel";
 import { OpportunityPanel } from "./components/OpportunityPanel";
 import { PerceptionPanel } from "./components/PerceptionPanel";
-import { VoiceConversation } from "./components/VoiceConversation";
 import "./styles/living-dashboard.css";
 import type {
   Agent,
@@ -642,18 +641,6 @@ export function App() {
     await sendToGod(text).catch(() => undefined);
   }
 
-  const voiceControls = (
-    <VoiceConversation
-      authenticated={authenticated}
-      busy={busy}
-      token={token}
-      chat={chat}
-      missions={missions}
-      opportunities={opportunities}
-      onSendToGod={sendToGod}
-    />
-  );
-
   const demandPanel =
     authenticated && requestedPanel ? (
         <section className="deus-demand-panel" role="dialog" aria-modal="false" aria-label="Painel solicitado por DEUS">
@@ -763,9 +750,7 @@ export function App() {
         authError={authError}
         message={message}
         chat={chat}
-        pulse={pulse}
         demandPanel={demandPanel}
-        voiceControls={voiceControls}
         onMessage={setMessage}
         onSend={handleSend}
       />
