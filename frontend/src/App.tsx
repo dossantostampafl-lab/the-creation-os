@@ -1,13 +1,14 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError } from "./api";
 import { CapabilityPanel } from "./components/CapabilityPanel";
 import { ChronicleRibbon } from "./components/ChronicleRibbon";
 import { InceptionPanel } from "./components/InceptionPanel";
-import { LivingDashboard } from "./components/LivingDashboard";
+import { EntityActivityState, HotspotSummary, LivingDashboard } from "./components/LivingDashboard";
 import { MissionAuthorizationPanel } from "./components/MissionAuthorizationPanel";
 import { OpportunityPanel } from "./components/OpportunityPanel";
 import { PerceptionPanel } from "./components/PerceptionPanel";
 import "./styles/living-dashboard.css";
+import { buildContextualVoiceMessage, createBrowserSpeechRecognizer, stopAudioPlayback, type VoiceConversationState } from "./voice";
 import type {
   Agent,
   AutomationExecution,
@@ -101,10 +102,54 @@ export function App() {
   const [requestedPanel, setRequestedPanel] = useState<RequestedPanel>(null);
   const [busy, setBusy] = useState(false);
   const [silentAuthAttempted, setSilentAuthAttempted] = useState(false);
+  const [voiceState, setVoiceState] = useState<VoiceConversationState>("idle");
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioUrlRef = useRef<string | null>(null);
+  const voiceSubmittingRef = useRef(false);
 
   const authenticated = Boolean(token);
   const empty = loadState === "empty";
   const activeMission = missions[0] ?? null;
+  const lastGodReply = useMemo(() => [...chat].reverse().find((item) => item.role === "god")?.text ?? null, [chat]);
+  const voiceContext = useMemo(
+    () => ({
+      currentSubject: chat.at(-1)?.text.slice(0, 120) ?? null,
+      missionTitle: missions[0]?.title ?? null,
+      opportunityTitle: opportunities[0]?.title ?? null,
+      pendingDecision: inceptions.some(pendingInception) ? "inception_review" : opportunities[0] ? "opportunity_review" : null,
+      lastGodReply,
+    }),
+    [chat, inceptions, lastGodReply, missions, opportunities],
+  );
+  const recognizer = useMemo(
+    () =>
+      createBrowserSpeechRecognizer({
+        onStart: () => {
+          setVoiceError(null);
+          setVoiceState("listening");
+        },
+        onStop: () => {
+          setVoiceState((current) => (current === "listening" ? "idle" : current));
+        },
+        onTranscript: (text) => {
+          void submitVoice(text);
+        },
+        onError: (message) => {
+          setVoiceError(message);
+          setVoiceState("error");
+        },
+      }),
+    [voiceContext, token],
+  );
+  const universeSummaries = useMemo(
+    () => buildHotspotSummaries({ agents, universes, opportunities, notifications, missions, inceptions, chronicles }),
+    [agents, universes, opportunities, notifications, missions, inceptions, chronicles],
+  );
+  const activityStates = useMemo(
+    () => buildActivityStates({ busy, voiceState, loadState, pulse, agents, opportunities, notifications, chat }),
+    [busy, voiceState, loadState, pulse, agents, opportunities, notifications, chat],
+  );
 
   useEffect(() => {
     if (!token) {
@@ -140,6 +185,10 @@ export function App() {
     }
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
+  }, []);
+
+  useEffect(() => {
+    return () => stopVoiceAudio();
   }, []);
 
   function resetSession(message?: string) {
@@ -633,6 +682,79 @@ export function App() {
     }
   }
 
+  async function submitVoice(text: string) {
+    if (!token || busy || voiceSubmittingRef.current) return;
+    voiceSubmittingRef.current = true;
+    const contextual = buildContextualVoiceMessage(text, voiceContext);
+    setVoiceState("processing");
+    setVoiceError(null);
+    try {
+      const reply = await sendToGod(contextual);
+      await speakGodReply(reply);
+    } catch (error) {
+      setVoiceError(error instanceof Error ? error.message : "Falha na conversa por voz.");
+      setVoiceState("error");
+    } finally {
+      voiceSubmittingRef.current = false;
+    }
+  }
+
+  async function speakGodReply(text: string) {
+    if (!token || !text.trim()) {
+      setVoiceState("idle");
+      return;
+    }
+    try {
+      const audio = await api.synthesizeVoice(token, text);
+      stopVoiceAudio();
+      const url = URL.createObjectURL(audio);
+      audioUrlRef.current = url;
+      const player = new Audio(url);
+      audioRef.current = player;
+      player.onended = () => {
+        stopVoiceAudio();
+        setVoiceState("idle");
+      };
+      player.onerror = () => {
+        stopVoiceAudio();
+        setVoiceError("Audio indisponivel. Resposta de DEUS mantida em texto.");
+        setVoiceState("idle");
+      };
+      setVoiceState("speaking");
+      await player.play();
+    } catch (error) {
+      setVoiceError(error instanceof ApiError ? "Audio indisponivel. Resposta de DEUS mantida em texto." : "Voz indisponivel.");
+      setVoiceState("idle");
+    }
+  }
+
+  function stopVoiceAudio() {
+    stopAudioPlayback(audioRef.current, audioUrlRef.current);
+    audioRef.current = null;
+    audioUrlRef.current = null;
+  }
+
+  function handleVoiceListen() {
+    if (!recognizer.supported || voiceState === "listening" || voiceState === "processing") return;
+    try {
+      setVoiceError(null);
+      recognizer.start();
+    } catch (error) {
+      setVoiceError(error instanceof Error ? error.message : "Nao foi possivel iniciar o microfone.");
+      setVoiceState("error");
+    }
+  }
+
+  function handleVoiceStopListening() {
+    recognizer.stop();
+    setVoiceState("idle");
+  }
+
+  function handleVoiceStopSpeaking() {
+    stopVoiceAudio();
+    setVoiceState("idle");
+  }
+
   async function handleSend(event: FormEvent) {
     event.preventDefault();
     if (!token || !message.trim()) return;
@@ -750,14 +872,179 @@ export function App() {
         authError={authError}
         message={message}
         chat={chat}
+        pulse={pulse}
+        loadState={loadState}
+        notifications={notifications}
+        activityStates={activityStates}
+        hotspotSummaries={universeSummaries}
         demandPanel={demandPanel}
+        voiceState={voiceState}
+        voiceSupported={recognizer.supported}
+        voiceError={voiceError}
         onMessage={setMessage}
         onSend={handleSend}
+        onVoiceListen={handleVoiceListen}
+        onVoiceStopListening={handleVoiceStopListening}
+        onVoiceStopSpeaking={handleVoiceStopSpeaking}
+        onHotspotAction={(summary) => {
+          if (summary.panel) setRequestedPanel(summary.panel);
+        }}
+        onReadNotification={handleReadNotification}
       />
       {dataError ? <div className="api-state api-state-error">{dataError}</div> : null}
       {empty ? <div className="api-state api-state-empty">API conectada sem dados ativos.</div> : null}
     </>
   );
+}
+
+function buildActivityStates({
+  busy,
+  voiceState,
+  loadState,
+  pulse,
+  agents,
+  opportunities,
+  notifications,
+  chat,
+}: {
+  busy: boolean;
+  voiceState: VoiceConversationState;
+  loadState: LoadState;
+  pulse: Pulse | null;
+  agents: Agent[];
+  opportunities: Opportunity[];
+  notifications: CreatorNotification[];
+  chat: ChatItem[];
+}): Record<string, EntityActivityState> {
+  const offline = loadState === "error" || pulse?.status === "unhealthy";
+  const recentTrinity = [...chat].reverse().find((item) => item.role === "trinity");
+  const unreadNotifications = notifications.some((notification) => notification.status === "unread");
+  const activeByUniverse = new Set(
+    agents
+      .filter((agent) => agent.enabled && !["idle", "offline", "disabled"].includes(agent.status.toLowerCase()))
+      .map((agent) => normalizeEntityKey(agent.universe)),
+  );
+  const opportunityByUniverse = new Set(opportunities.map((opportunity) => normalizeEntityKey(opportunity.universe)));
+
+  const state: Record<string, EntityActivityState> = {
+    deus: offline ? "offline" : busy || voiceState === "processing" ? "processing" : voiceState === "listening" || voiceState === "speaking" ? "active" : unreadNotifications ? "active" : "idle",
+    sophia: busy ? "processing" : recentTrinity ? "completed" : "idle",
+    rockmam: recentTrinity ? "completed" : opportunities.some((item) => item.status === "approved") ? "active" : "idle",
+  };
+
+  const universeIds = ["eng", "jur", "fin", "seg", "neg", "cie", "con", "cri"];
+  for (const id of universeIds) {
+    if (offline) state[id] = "offline";
+    else if (activeByUniverse.has(id)) state[id] = "active";
+    else if (opportunityByUniverse.has(id)) state[id] = "warning";
+    else state[id] = "idle";
+  }
+  return state;
+}
+
+function buildHotspotSummaries({
+  agents,
+  universes,
+  opportunities,
+  notifications,
+  missions,
+  inceptions,
+  chronicles,
+}: {
+  agents: Agent[];
+  universes: Universe[];
+  opportunities: Opportunity[];
+  notifications: CreatorNotification[];
+  missions: Mission[];
+  inceptions: Inception[];
+  chronicles: ChronicleEntry[];
+}): Record<string, HotspotSummary> {
+  const pendingInceptions = inceptions.filter(pendingInception);
+  const pendingOpportunities = opportunities.filter((item) => item.status === "pending_creator_review");
+  const unreadNotifications = notifications.filter((item) => item.status === "unread");
+  const latestChronicle = chronicles[0];
+  const base: Record<string, HotspotSummary> = {
+    deus: {
+      id: "deus",
+      title: "DEUS",
+      subtitle: "Presenca central",
+      lines: [
+        missions[0] ? `Missao ativa: ${missions[0].title}` : "Nenhuma missao ativa retornada pela API.",
+        pendingInceptions.length > 0 ? `${pendingInceptions.length} Inception pendente.` : "Sem Inception pendente.",
+        unreadNotifications.length > 0 ? `${unreadNotifications.length} notificacao real nao lida.` : "Sem notificacao real nao lida.",
+      ],
+    },
+    sophia: {
+      id: "sophia",
+      title: "SOPHIA",
+      subtitle: "Compreensao",
+      lines: [
+        latestChronicle ? `Ultimo evento: ${latestChronicle.event_type}` : "Nenhum discernimento recente retornado pela API.",
+        "SOPHIA permanece somente na camada de compreensao.",
+      ],
+      actionLabel: "Ver Chronicle",
+      panel: "chronicle",
+    },
+    rockmam: {
+      id: "rockmam",
+      title: "ROCKMAM",
+      subtitle: "Possibilidade",
+      lines: [
+        pendingOpportunities[0] ? `Oportunidade: ${pendingOpportunities[0].title}` : "Nenhuma possibilidade pendente retornada pela API.",
+        "ROCKMAM nao executa, apenas avalia possibilidade.",
+      ],
+      actionLabel: "Ver oportunidades",
+      panel: "opportunities",
+    },
+  };
+
+  const universeMap: Record<string, { label: string; query: string[]; panel?: HotspotSummary["panel"] }> = {
+    eng: { label: "ENGENHARIA", query: ["eng", "engenharia", "engineering"], panel: "universes" },
+    jur: { label: "JURIDICO", query: ["jur", "juridico", "legal"], panel: "universes" },
+    fin: { label: "FINANCAS", query: ["fin", "finance", "financial", "financas"], panel: "opportunities" },
+    seg: { label: "SEGURANCA", query: ["seg", "seguranca", "security"], panel: "universes" },
+    neg: { label: "NEGOCIOS", query: ["neg", "negocios", "business"], panel: "opportunities" },
+    cie: { label: "CIENCIA", query: ["cie", "ciencia", "science"], panel: "universes" },
+    con: { label: "CONHECIMENTO", query: ["con", "conhecimento", "knowledge"], panel: "universes" },
+    cri: { label: "CRIACAO", query: ["cri", "criacao", "creation"], panel: "universes" },
+  };
+
+  for (const [id, config] of Object.entries(universeMap)) {
+    const relatedAgents = agents.filter((agent) => config.query.includes(normalizeEntityKey(agent.universe)));
+    const activeAgents = relatedAgents.filter((agent) => agent.enabled && !["idle", "offline", "disabled"].includes(agent.status.toLowerCase()));
+    const relatedUniverse = universes.find((universe) => config.query.includes(normalizeEntityKey(universe.code)) || config.query.includes(normalizeEntityKey(universe.name)));
+    const relatedOpportunities = opportunities.filter((opportunity) => config.query.includes(normalizeEntityKey(opportunity.universe)));
+    base[id] = {
+      id,
+      title: config.label,
+      subtitle: relatedUniverse?.active ? "Universo ativo" : "Universo",
+      lines: [
+        `${relatedAgents.length} agentes retornados pela API.`,
+        `${activeAgents.length} agentes ativos.`,
+        relatedOpportunities[0] ? `Oportunidade: ${relatedOpportunities[0].title}` : "Nenhuma oportunidade relacionada no ranking atual.",
+      ],
+      actionLabel: "Ver detalhes",
+      panel: config.panel,
+    };
+  }
+
+  return base;
+}
+
+function normalizeEntityKey(value: string) {
+  const normalized = value
+    .normalize("NFKD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase();
+  if (/engenharia|engineering|engineer|eng/.test(normalized)) return "eng";
+  if (/juridico|legal|jur/.test(normalized)) return "jur";
+  if (/finance|financial|financas|fin/.test(normalized)) return "fin";
+  if (/seguranca|security|seg/.test(normalized)) return "seg";
+  if (/negocios|business|neg/.test(normalized)) return "neg";
+  if (/ciencia|science|cie/.test(normalized)) return "cie";
+  if (/conhecimento|knowledge|con/.test(normalized)) return "con";
+  if (/criacao|creation|cri/.test(normalized)) return "cri";
+  return normalized;
 }
 
 function inferRequestedPanel(message: string): RequestedPanel {

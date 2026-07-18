@@ -14,7 +14,8 @@ body,
 }
 
 button,
-input {
+input,
+textarea {
   font: inherit;
 }
 
@@ -50,6 +51,69 @@ input {
   background:
     radial-gradient(circle at 50% 50%, transparent 0 38%, rgba(0, 0, 0, 0.05) 58%, rgba(0, 0, 0, 0.24) 100%),
     linear-gradient(0deg, rgba(0, 0, 0, 0.18), transparent 18%, transparent 82%, rgba(0, 0, 0, 0.14));
+}
+
+.universe-dynamic-effects-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.entity-activity-glow {
+  position: absolute;
+  left: var(--hotspot-x);
+  top: var(--hotspot-y);
+  width: calc(var(--hotspot-r) * 2.2);
+  height: calc(var(--hotspot-r) * 2.2);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  opacity: 0.28;
+  mix-blend-mode: screen;
+  filter: blur(1px);
+  animation: entity-breathe 2.6s ease-in-out infinite;
+}
+
+.entity-activity-glow::before,
+.entity-activity-glow::after {
+  content: "";
+  position: absolute;
+  inset: 18%;
+  border-radius: inherit;
+  border: 1px solid currentColor;
+  opacity: 0.45;
+}
+
+.entity-activity-glow::after {
+  inset: 4%;
+  opacity: 0.18;
+  animation: entity-ripple 2.6s ease-out infinite;
+}
+
+.entity-activity-glow.tone-gold {
+  color: rgba(255, 196, 88, 0.82);
+}
+
+.entity-activity-glow.tone-violet {
+  color: rgba(219, 91, 255, 0.78);
+}
+
+.entity-activity-glow.tone-blue {
+  color: rgba(74, 160, 255, 0.74);
+}
+
+.entity-activity-glow.tone-green {
+  color: rgba(76, 237, 176, 0.7);
+}
+
+.entity-activity-glow.tone-red {
+  color: rgba(255, 74, 74, 0.74);
+}
+
+.entity-activity-glow.state-offline,
+.entity-activity-glow.state-error {
+  animation-duration: 1.2s;
+  color: rgba(255, 80, 80, 0.64);
 }
 
 .universe-interaction-layer {
@@ -121,6 +185,111 @@ input {
   pointer-events: none;
 }
 
+.hotspot-popover {
+  position: fixed;
+  z-index: 12;
+  left: var(--popover-x);
+  top: var(--popover-y);
+  width: min(250px, calc(100vw - 40px));
+  padding: 13px 14px 14px;
+  transform: translate(20px, -50%);
+  border: 1px solid color-mix(in srgb, currentColor 34%, transparent);
+  border-radius: 18px;
+  color: rgba(255, 238, 205, 0.76);
+  background: rgba(0, 0, 0, 0.42);
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.58);
+  backdrop-filter: blur(14px);
+  animation: transient-in 180ms ease-out both;
+}
+
+.hotspot-popover.tone-gold {
+  color: rgba(255, 207, 127, 0.78);
+}
+
+.hotspot-popover.tone-violet {
+  color: rgba(225, 150, 255, 0.78);
+}
+
+.hotspot-popover.tone-blue {
+  color: rgba(145, 197, 255, 0.78);
+}
+
+.hotspot-popover.tone-green {
+  color: rgba(139, 248, 207, 0.78);
+}
+
+.hotspot-popover.tone-red {
+  color: rgba(255, 145, 145, 0.78);
+}
+
+.hotspot-popover > span {
+  display: block;
+  margin-bottom: 6px;
+  color: currentColor;
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.hotspot-popover strong {
+  display: block;
+  margin-bottom: 8px;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+}
+
+.hotspot-popover p {
+  margin: 5px 0;
+  color: rgba(255, 255, 255, 0.56);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.hotspot-popover button {
+  margin-top: 9px;
+  border: 1px solid rgba(255, 226, 166, 0.16);
+  border-radius: 999px;
+  color: rgba(255, 230, 190, 0.72);
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+}
+
+.hotspot-popover > button:last-child {
+  padding: 7px 10px;
+}
+
+.hotspot-popover-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 18px;
+  height: 18px;
+  overflow: hidden;
+  padding: 0;
+  text-indent: 999px;
+}
+
+.hotspot-popover-close::before,
+.hotspot-popover-close::after {
+  content: "";
+  position: absolute;
+  top: 8px;
+  left: 4px;
+  width: 10px;
+  height: 1px;
+  background: currentColor;
+}
+
+.hotspot-popover-close::before {
+  transform: rotate(45deg);
+}
+
+.hotspot-popover-close::after {
+  transform: rotate(-45deg);
+}
+
 .conversation-dock {
   position: fixed;
   z-index: 10;
@@ -163,17 +332,20 @@ input {
   animation: dock-pulse 700ms ease-in-out infinite alternate;
 }
 
-.conversation-dock input {
+.conversation-dock textarea {
   min-width: 0;
+  max-height: 38px;
+  resize: none;
   border: 0;
   outline: 0;
   color: rgba(255, 255, 255, 0.82);
   background: transparent;
   font-size: clamp(11px, 0.82vw, 13px);
+  line-height: 1.35;
   text-align: left;
 }
 
-.conversation-dock input::placeholder {
+.conversation-dock textarea::placeholder {
   color: transparent;
 }
 
@@ -221,6 +393,41 @@ input {
   pointer-events: none;
 }
 
+.transient-response button {
+  position: absolute;
+  top: 7px;
+  right: 8px;
+  width: 20px;
+  height: 20px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 50%;
+  color: rgba(255, 230, 190, 0.5);
+  background: transparent;
+  text-indent: 999px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.transient-response button::before,
+.transient-response button::after {
+  content: "";
+  position: absolute;
+  top: 9px;
+  left: 5px;
+  width: 10px;
+  height: 1px;
+  background: currentColor;
+}
+
+.transient-response button::before {
+  transform: rotate(45deg);
+}
+
+.transient-response button::after {
+  transform: rotate(-45deg);
+}
+
 .transient-response span {
   display: block;
   margin-bottom: 5px;
@@ -237,6 +444,117 @@ input {
   line-height: 1.45;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
+}
+
+.system-state-binding {
+  position: fixed;
+  z-index: 8;
+  top: 56px;
+  left: 26px;
+  display: grid;
+  gap: 3px;
+  padding: 6px 8px;
+  border: 1px solid rgba(255, 220, 145, 0.08);
+  border-radius: 999px;
+  color: rgba(255, 226, 166, 0.54);
+  background: rgba(0, 0, 0, 0.12);
+  backdrop-filter: blur(7px);
+  pointer-events: none;
+}
+
+.system-state-binding span {
+  font-size: 8px;
+  letter-spacing: 0.15em;
+}
+
+.system-state-binding small {
+  color: rgba(255, 255, 255, 0.34);
+  font-size: 7px;
+}
+
+.system-state-binding.state-error {
+  color: rgba(255, 120, 120, 0.68);
+}
+
+.real-notification-layer {
+  position: fixed;
+  z-index: 11;
+  top: 27%;
+  right: 20px;
+  display: grid;
+  gap: 14px;
+  width: min(270px, 25vw);
+  pointer-events: none;
+}
+
+.real-notification-layer article {
+  position: relative;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 223, 157, 0.14);
+  border-radius: 13px;
+  color: rgba(255, 255, 255, 0.68);
+  background: rgba(0, 0, 0, 0.36);
+  box-shadow: 0 18px 55px rgba(0, 0, 0, 0.48);
+  backdrop-filter: blur(12px);
+  animation: notification-in 240ms ease-out both;
+  pointer-events: auto;
+}
+
+.real-notification-layer span {
+  display: block;
+  margin-bottom: 7px;
+  color: rgba(255, 210, 112, 0.7);
+  font-size: 8px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.real-notification-layer strong {
+  display: block;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.real-notification-layer p {
+  margin: 7px 0 0;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.real-notification-layer button {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 16px;
+  height: 16px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 50%;
+  color: rgba(255, 255, 255, 0.42);
+  background: transparent;
+  text-indent: 999px;
+  cursor: pointer;
+}
+
+.real-notification-layer button::before,
+.real-notification-layer button::after {
+  content: "";
+  position: absolute;
+  top: 7px;
+  left: 4px;
+  width: 8px;
+  height: 1px;
+  background: currentColor;
+}
+
+.real-notification-layer button::before {
+  transform: rotate(45deg);
+}
+
+.real-notification-layer button::after {
+  transform: rotate(-45deg);
 }
 
 .on-demand-overlay-host {
@@ -267,9 +585,30 @@ input {
   }
 }
 
+@keyframes entity-breathe {
+  50% {
+    opacity: 0.48;
+    transform: translate(-50%, -50%) scale(1.08);
+  }
+}
+
+@keyframes entity-ripple {
+  to {
+    inset: -16%;
+    opacity: 0;
+  }
+}
+
 @keyframes transient-in {
   from {
     transform: translate(-50%, 10px);
+    opacity: 0;
+  }
+}
+
+@keyframes notification-in {
+  from {
+    transform: translateX(12px);
     opacity: 0;
   }
 }
@@ -283,6 +622,18 @@ input {
 
   .transient-response {
     bottom: 86px;
+  }
+
+  .real-notification-layer {
+    top: 90px;
+    right: 12px;
+    width: min(250px, calc(100vw - 24px));
+  }
+
+  .hotspot-popover {
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
   }
 }
 
