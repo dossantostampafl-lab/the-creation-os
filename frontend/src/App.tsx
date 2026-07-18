@@ -1,15 +1,14 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { api, ApiError } from "./api";
 import { CapabilityPanel } from "./components/CapabilityPanel";
 import { ChronicleRibbon } from "./components/ChronicleRibbon";
-import { GodChat } from "./components/GodChat";
 import { InceptionPanel } from "./components/InceptionPanel";
-import { LivingUniverse } from "./components/LivingUniverse";
+import { LivingDashboard } from "./components/LivingDashboard";
 import { MissionAuthorizationPanel } from "./components/MissionAuthorizationPanel";
 import { OpportunityPanel } from "./components/OpportunityPanel";
 import { PerceptionPanel } from "./components/PerceptionPanel";
-import { PulseHeader } from "./components/PulseHeader";
 import { VoiceConversation } from "./components/VoiceConversation";
+import "./styles/living-dashboard.css";
 import type {
   Agent,
   AutomationExecution,
@@ -29,9 +28,20 @@ import type {
 } from "./types";
 
 type LoadState = "idle" | "loading" | "ready" | "empty" | "error";
+type RequestedPanel =
+  | "inceptions"
+  | "missions"
+  | "opportunities"
+  | "perception"
+  | "chronicle"
+  | "capabilities"
+  | "universes"
+  | null;
 
 const REFRESH_INTERVAL_MS = 15000;
 const WORKSPACE_CACHE_KEY = "creator-interface-workspace-cache";
+const CREATOR_DEFAULT_USERNAME = import.meta.env.VITE_CREATOR_DEFAULT_USERNAME ?? "creator";
+const CREATOR_DEV_PASSWORD = import.meta.env.VITE_CREATOR_DEV_PASSWORD ?? "";
 
 type WorkspaceCache = {
   inceptions: Inception[];
@@ -56,20 +66,16 @@ function pendingInception(item: Inception) {
   return !["approved", "rejected", "cancelled"].includes(normalizeStatus(item.status));
 }
 
-function percent(value: number) {
-  return `${Math.round(value * 100)}%`;
-}
-
 export function App() {
-  const [username] = useState("creator");
-  const [password, setPassword] = useState("");
   const [token, setToken] = useState<string | null>(localStorage.getItem("creator-token"));
   const [conversation, setConversation] = useState<Conversation | null>(null);
   const [chat, setChat] = useState<ChatItem[]>([
-    { id: "intro", role: "god", text: "GOD esta presente. Aguardando a palavra do Criador.", meta: "local" },
+    { id: "intro", role: "god", text: "DEUS esta presente. Aguardando a palavra do Criador.", meta: "local" },
   ]);
   const [message, setMessage] = useState("");
   const [inceptions, setInceptions] = useState<Inception[]>([]);
+  const [inceptionBusy, setInceptionBusy] = useState(false);
+  const [inceptionError, setInceptionError] = useState<string | null>(null);
   const [missions, setMissions] = useState<Mission[]>([]);
   const [manifestations, setManifestations] = useState<MissionManifestation[]>([]);
   const [missionAuthorization, setMissionAuthorization] = useState<MissionAuthorization | null>(null);
@@ -92,96 +98,14 @@ export function App() {
   const [pulse, setPulse] = useState<Pulse | null>(null);
   const [loadState, setLoadState] = useState<LoadState>("idle");
   const [dataError, setDataError] = useState<string | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [requestedPanel, setRequestedPanel] = useState<RequestedPanel>(null);
   const [busy, setBusy] = useState(false);
+  const [silentAuthAttempted, setSilentAuthAttempted] = useState(false);
 
   const authenticated = Boolean(token);
-  const activeAgents = useMemo(() => agents.filter((agent) => agent.enabled), [agents]);
-  const visibleInceptions = inceptions.filter(pendingInception);
   const empty = loadState === "empty";
   const activeMission = missions[0] ?? null;
-  const topOpportunities = useMemo(
-    () => [...opportunities].sort((left, right) => right.priority_score - left.priority_score).slice(0, 3),
-    [opportunities],
-  );
-  const pendingDecisions = useMemo(() => {
-    const decisions: Array<{
-      id: string;
-      title: string;
-      detail: string;
-      action: string;
-      disabled?: boolean;
-      onClick?: () => void;
-    }> = [];
-
-    visibleInceptions.slice(0, 2).forEach((item) => {
-      decisions.push({
-        id: `inception-${item.id}`,
-        title: item.title,
-        detail: `Inception aguardando revisao do Criador (${item.status}).`,
-        action: "Analisar",
-      });
-    });
-
-    if (activeMission && (!missionAuthorization || missionAuthorization.status === "pending")) {
-      decisions.push({
-        id: `mission-auth-${activeMission.id}`,
-        title: "Autorizacao da missao",
-        detail: `${activeMission.title} exige autorizacao explicita do Criador.`,
-        action: missionAuthorization?.status === "pending" ? "Aprovar" : "Analisar",
-        disabled: missionAuthorizationBusy,
-        onClick:
-          missionAuthorization?.status === "pending"
-            ? () => handleApproveMissionAuthorization(activeMission.id)
-            : () => handleRequestMissionAuthorization(activeMission.id),
-      });
-    }
-
-    if (activeMission && missionAuthorization?.status === "suspended") {
-      decisions.push({
-        id: `mission-suspended-${activeMission.id}`,
-        title: "Missao suspensa",
-        detail: "A missao esta suspensa e exige decisao do Criador.",
-        action: "Analisar",
-      });
-    }
-
-    opportunities
-      .filter((item) => item.status === "pending_creator_review")
-      .slice(0, 2)
-      .forEach((item) => {
-        decisions.push({
-          id: `opportunity-${item.id}`,
-          title: item.title,
-          detail: `Oportunidade com score ${percent(item.priority_score)} aguardando aprovacao.`,
-          action: "Aprovar",
-          disabled: opportunityBusy,
-          onClick: () => window.confirm("Aprovar esta oportunidade?") && handleApproveOpportunity(item.id),
-        });
-      });
-
-    notifications
-      .filter((item) => item.status === "unread")
-      .slice(0, 2)
-      .forEach((item) => {
-        decisions.push({
-          id: `notification-${item.id}`,
-          title: item.title,
-          detail: item.message,
-          action: "Analisar",
-          onClick: () => handleReadNotification(item.id),
-        });
-      });
-
-    return decisions.slice(0, 5);
-  }, [
-    activeMission,
-    missionAuthorization,
-    missionAuthorizationBusy,
-    notifications,
-    opportunities,
-    opportunityBusy,
-    visibleInceptions,
-  ]);
 
   useEffect(() => {
     if (!token) {
@@ -195,6 +119,38 @@ export function App() {
     }, REFRESH_INTERVAL_MS);
     return () => window.clearInterval(interval);
   }, [token]);
+
+  useEffect(() => {
+    if (token || silentAuthAttempted || !CREATOR_DEV_PASSWORD) return;
+    setSilentAuthAttempted(true);
+    void api
+      .login(CREATOR_DEFAULT_USERNAME, CREATOR_DEV_PASSWORD)
+      .then((result) => {
+        localStorage.setItem("creator-token", result.access_token);
+        setToken(result.access_token);
+        setAuthError(null);
+      })
+      .catch((error) => {
+        setAuthError(error instanceof ApiError ? error.message : "Falha ao autenticar Criador.");
+      });
+  }, [silentAuthAttempted, token]);
+
+  useEffect(() => {
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setRequestedPanel(null);
+    }
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, []);
+
+  function resetSession(message?: string) {
+    localStorage.removeItem("creator-token");
+    setToken(null);
+    setConversation(null);
+    setLoadState("idle");
+    setDataError(null);
+    if (message) setAuthError(message);
+  }
 
   function restoreWorkspaceCache() {
     const cached = localStorage.getItem(WORKSPACE_CACHE_KEY);
@@ -262,6 +218,18 @@ export function App() {
       loadedPerceptionSources,
       loadedNotifications,
     ].filter((result) => result.status === "rejected");
+
+    if (
+      failures.some(
+        (result) =>
+          result.status === "rejected" &&
+          result.reason instanceof ApiError &&
+          result.reason.status === 401,
+      )
+    ) {
+      resetSession("Sessao expirada ou invalida. Autentique o Criador novamente.");
+      return;
+    }
 
     const nextInceptions = loadedInceptions.status === "fulfilled" ? loadedInceptions.value : inceptions;
     const nextMissions = loadedMissions.status === "fulfilled" ? loadedMissions.value : missions;
@@ -335,19 +303,6 @@ export function App() {
       pulse: nextPulse,
     });
     setLoadState(hasData ? "ready" : "empty");
-  }
-
-  async function handleLogin(event: FormEvent) {
-    event.preventDefault();
-    setBusy(true);
-    try {
-      const result = await api.login(username, password);
-      localStorage.setItem("creator-token", result.access_token);
-      setToken(result.access_token);
-      setPassword("");
-    } finally {
-      setBusy(false);
-    }
   }
 
   async function ensureConversation(accessToken: string) {
@@ -425,6 +380,62 @@ export function App() {
       setOpportunityError(error instanceof ApiError ? error.message : "Falha ao executar descoberta.");
     } finally {
       setOpportunityBusy(false);
+    }
+  }
+
+  async function handleSubmitInception(inceptionId: string) {
+    if (!token) return;
+    setInceptionBusy(true);
+    setInceptionError(null);
+    try {
+      await api.submitInception(token, inceptionId);
+      await refreshWorkspace(token, false);
+    } catch (error) {
+      setInceptionError(error instanceof ApiError ? error.message : "Falha ao enviar Inception.");
+    } finally {
+      setInceptionBusy(false);
+    }
+  }
+
+  async function handleApproveInception(inceptionId: string) {
+    if (!token) return;
+    setInceptionBusy(true);
+    setInceptionError(null);
+    try {
+      await api.approveInception(token, inceptionId);
+      await refreshWorkspace(token, false);
+    } catch (error) {
+      setInceptionError(error instanceof ApiError ? error.message : "Falha ao aprovar Inception.");
+    } finally {
+      setInceptionBusy(false);
+    }
+  }
+
+  async function handleRejectInception(inceptionId: string) {
+    if (!token) return;
+    setInceptionBusy(true);
+    setInceptionError(null);
+    try {
+      await api.rejectInception(token, inceptionId);
+      await refreshWorkspace(token, false);
+    } catch (error) {
+      setInceptionError(error instanceof ApiError ? error.message : "Falha ao negar Inception.");
+    } finally {
+      setInceptionBusy(false);
+    }
+  }
+
+  async function handleCreateMissionFromInception(inception: Inception) {
+    if (!token) return;
+    setInceptionBusy(true);
+    setInceptionError(null);
+    try {
+      await api.createMissionFromInception(token, inception);
+      await refreshWorkspace(token, false);
+    } catch (error) {
+      setInceptionError(error instanceof ApiError ? error.message : "Falha ao criar missao.");
+    } finally {
+      setInceptionBusy(false);
     }
   }
 
@@ -569,6 +580,9 @@ export function App() {
     const normalized = text.trim();
     setBusy(true);
     setChat((items) => [...items, { id: crypto.randomUUID(), role: "creator", text: normalized, meta: "Creator" }]);
+    if (shouldClosePanel(normalized)) setRequestedPanel(null);
+    const panelIntent = inferRequestedPanel(normalized);
+    if (panelIntent) setRequestedPanel(panelIntent);
     try {
       const current = await ensureConversation(token);
       const god = await api.sendGod(token, current.id, normalized);
@@ -601,6 +615,9 @@ export function App() {
       await refreshWorkspace(token, false);
       return spokenReply;
     } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        resetSession("Sessao expirada ou invalida. Autentique o Criador novamente.");
+      }
       const text = error instanceof ApiError ? error.message : "The channel failed without changing backend state.";
       setChat((items) => [
         ...items,
@@ -625,179 +642,172 @@ export function App() {
     await sendToGod(text).catch(() => undefined);
   }
 
+  const voiceControls = (
+    <VoiceConversation
+      authenticated={authenticated}
+      busy={busy}
+      token={token}
+      chat={chat}
+      missions={missions}
+      opportunities={opportunities}
+      onSendToGod={sendToGod}
+    />
+  );
+
+  const demandPanel =
+    authenticated && requestedPanel ? (
+        <section className="deus-demand-panel" role="dialog" aria-modal="false" aria-label="Painel solicitado por DEUS">
+          <header>
+            <strong>{panelTitle(requestedPanel)}</strong>
+            <button type="button" onClick={() => setRequestedPanel(null)}>
+              Fechar
+            </button>
+          </header>
+          <div className="creator-secondary-grid">
+            {requestedPanel === "inceptions" ? (
+              <InceptionPanel
+                inceptions={inceptions}
+                loading={inceptionBusy}
+                error={inceptionError}
+                onSubmit={handleSubmitInception}
+                onApprove={handleApproveInception}
+                onReject={handleRejectInception}
+                onCreateMission={handleCreateMissionFromInception}
+              />
+            ) : null}
+            {requestedPanel === "missions" ? (
+              <MissionAuthorizationPanel
+                mission={activeMission}
+                authorization={missionAuthorization}
+                loading={missionAuthorizationBusy}
+                error={missionAuthorizationError}
+                onRequest={handleRequestMissionAuthorization}
+                onApprove={handleApproveMissionAuthorization}
+                onRevoke={handleRevokeMissionAuthorization}
+              />
+            ) : null}
+            {requestedPanel === "opportunities" ? (
+              <OpportunityPanel
+                opportunities={opportunities}
+                loading={opportunityBusy}
+                error={opportunityError}
+                onDiscover={handleRunDiscovery}
+                onApprove={handleApproveOpportunity}
+                onReject={handleRejectOpportunity}
+                onConvert={handleConvertOpportunity}
+              />
+            ) : null}
+            {requestedPanel === "perception" ? (
+              <PerceptionPanel
+                sources={perceptionSources}
+                notifications={notifications}
+                loading={perceptionBusy}
+                error={perceptionError}
+                onEnable={handleEnablePerceptionSource}
+                onDisable={handleDisablePerceptionSource}
+                onRun={handleRunPerceptionSource}
+                onReadNotification={handleReadNotification}
+              />
+            ) : null}
+            {requestedPanel === "capabilities" ? (
+              <CapabilityPanel
+                capabilities={capabilities}
+                loading={capabilityBusy}
+                error={capabilityError}
+                result={automationResult}
+                onEnable={handleEnableCapability}
+                onDisable={handleDisableCapability}
+                onExecute={handleExecuteAutomation}
+              />
+            ) : null}
+            {requestedPanel === "chronicle" ? <ChronicleRibbon entries={chronicles} /> : null}
+            {requestedPanel === "universes" ? (
+              <section className="conversation-data-list" aria-label="Universos e agentes">
+                <header>
+                  <span>Universos</span>
+                  <strong>{universes.length}</strong>
+                </header>
+                {universes.length === 0 ? <p>Nenhum universo retornado pela API.</p> : null}
+                {universes.map((universe) => (
+                  <article key={universe.id}>
+                    <strong>{universe.name}</strong>
+                    <span>
+                      {universe.code} / {universe.active ? "ativo" : "inativo"}
+                    </span>
+                  </article>
+                ))}
+                <header>
+                  <span>Agentes</span>
+                  <strong>{agents.length}</strong>
+                </header>
+                {agents.length === 0 ? <p>Nenhum agente retornado pela API.</p> : null}
+                {agents.map((agent) => (
+                  <article key={agent.id}>
+                    <strong>{agent.name}</strong>
+                    <span>
+                      {agent.universe} / {agent.status} / {agent.description}
+                    </span>
+                  </article>
+                ))}
+              </section>
+            ) : null}
+          </div>
+        </section>
+      ) : null;
+
   return (
-    <main className="creator-interface-exact" data-load-state={loadState} data-missions={missions.length}>
-      <LivingUniverse
-        agents={activeAgents}
-        universes={universes}
-        missions={missions}
-        inceptions={visibleInceptions}
-        chronicles={chronicles}
-        manifestations={manifestations}
+    <>
+      <LivingDashboard
+        authenticated={authenticated}
+        busy={busy}
+        authError={authError}
+        message={message}
+        chat={chat}
         pulse={pulse}
+        demandPanel={demandPanel}
+        voiceControls={voiceControls}
+        onMessage={setMessage}
+        onSend={handleSend}
       />
-      <PulseHeader pulse={pulse} authenticated={authenticated} />
       {dataError ? <div className="api-state api-state-error">{dataError}</div> : null}
       {empty ? <div className="api-state api-state-empty">API conectada sem dados ativos.</div> : null}
-      <section className="creator-home" aria-label="Creator Interface principal">
-        <section className="creator-god-presence" aria-label="GOD e conversa">
-          <div className="god-presence-header">
-            <span>GOD</span>
-            <strong>{authenticated ? "Presente" : "Aguardando autenticacao"}</strong>
-            <em>{busy ? "processing" : "idle"}</em>
-          </div>
-          <p className="god-last-response">{chat.filter((item) => item.role === "god").at(-1)?.text ?? "GOD esta presente."}</p>
-          <div className="god-context-strip">
-            <span>{activeMission ? `Missao: ${activeMission.title}` : "Sem missao ativa"}</span>
-            <span>{topOpportunities[0] ? `Oportunidade: ${topOpportunities[0].title}` : "Sem oportunidade prioritaria"}</span>
-            <span>{pendingDecisions.length ? `${pendingDecisions.length} decisao pendente` : "Sem decisao pendente"}</span>
-          </div>
-          {authenticated ? (
-            <VoiceConversation
-              authenticated={authenticated}
-              busy={busy}
-              token={token}
-              chat={chat}
-              missions={missions}
-              opportunities={opportunities}
-              onSendToGod={sendToGod}
-            />
-          ) : (
-            <GodChat
-              authenticated={authenticated}
-              busy={busy}
-              message={message}
-              password={password}
-              onMessage={setMessage}
-              onPassword={setPassword}
-              onSend={handleSend}
-              onLogin={handleLogin}
-            />
-          )}
-        </section>
-
-        <section className="creator-focus-grid" aria-label="Prioridades do Criador">
-          <article className="creator-focus-card active-mission-card">
-            <header>
-              <span>Missao ativa</span>
-              <strong>{activeMission?.status ?? "sem missao"}</strong>
-            </header>
-            {activeMission ? (
-              <>
-                <h2>{activeMission.title}</h2>
-                <p>{activeMission.objective}</p>
-                <div className="mission-progress">
-                  <span style={{ width: missionAuthorization?.status === "authorized" ? "62%" : "18%" }} />
-                </div>
-                <dl>
-                  <div>
-                    <dt>Progresso</dt>
-                    <dd>{missionAuthorization?.status === "authorized" ? "em execucao autorizada" : "aguardando autorizacao"}</dd>
-                  </div>
-                  <div>
-                    <dt>Proxima acao</dt>
-                    <dd>{missionAuthorization?.status === "authorized" ? "acompanhar resultado" : "decisao do Criador"}</dd>
-                  </div>
-                  <div>
-                    <dt>Autorizacao</dt>
-                    <dd>{missionAuthorization?.status ?? "nao solicitada"}</dd>
-                  </div>
-                </dl>
-                <a href="#creator-secondary">Abrir detalhes</a>
-              </>
-            ) : (
-              <p>Nenhuma missao ativa retornada pela API.</p>
-            )}
-          </article>
-
-          <article className="creator-focus-card decisions-card">
-            <header>
-              <span>Decisoes pendentes</span>
-              <strong>{pendingDecisions.length}</strong>
-            </header>
-            {pendingDecisions.length === 0 ? <p>Nenhuma acao direta do Criador neste momento.</p> : null}
-            {pendingDecisions.map((item) => (
-              <div className="decision-item" key={item.id}>
-                <div>
-                  <strong>{item.title}</strong>
-                  <p>{item.detail}</p>
-                </div>
-                <button type="button" disabled={item.disabled} onClick={item.onClick}>
-                  {item.action}
-                </button>
-              </div>
-            ))}
-          </article>
-
-          <article className="creator-focus-card priority-opportunities-card">
-            <header>
-              <span>Oportunidades prioritarias</span>
-              <button type="button" disabled={opportunityBusy} onClick={handleRunDiscovery}>
-                Atualizar
-              </button>
-            </header>
-            {topOpportunities.length === 0 ? <p>Nenhuma oportunidade relevante detectada.</p> : null}
-            {topOpportunities.map((item) => (
-              <div className="priority-opportunity" key={item.id}>
-                <strong>{item.title}</strong>
-                <span>
-                  {item.universe} / score {percent(item.priority_score)}
-                </span>
-                <p>{item.summary}</p>
-                <a href="#creator-secondary">Analisar</a>
-              </div>
-            ))}
-            {opportunityError ? <p className="opportunity-error">{opportunityError}</p> : null}
-          </article>
-        </section>
-      </section>
-
-      {authenticated ? (
-        <details className="creator-secondary" id="creator-secondary">
-          <summary>Areas secundarias</summary>
-          <div className="creator-secondary-grid">
-            <InceptionPanel inceptions={visibleInceptions} />
-            <MissionAuthorizationPanel
-              mission={activeMission}
-              authorization={missionAuthorization}
-              loading={missionAuthorizationBusy}
-              error={missionAuthorizationError}
-              onRequest={handleRequestMissionAuthorization}
-              onApprove={handleApproveMissionAuthorization}
-              onRevoke={handleRevokeMissionAuthorization}
-            />
-            <OpportunityPanel
-              opportunities={opportunities}
-              loading={opportunityBusy}
-              error={opportunityError}
-              onDiscover={handleRunDiscovery}
-              onApprove={handleApproveOpportunity}
-              onReject={handleRejectOpportunity}
-              onConvert={handleConvertOpportunity}
-            />
-            <PerceptionPanel
-              sources={perceptionSources}
-              notifications={notifications}
-              loading={perceptionBusy}
-              error={perceptionError}
-              onEnable={handleEnablePerceptionSource}
-              onDisable={handleDisablePerceptionSource}
-              onRun={handleRunPerceptionSource}
-              onReadNotification={handleReadNotification}
-            />
-            <CapabilityPanel
-              capabilities={capabilities}
-              loading={capabilityBusy}
-              error={capabilityError}
-              result={automationResult}
-              onEnable={handleEnableCapability}
-              onDisable={handleDisableCapability}
-              onExecute={handleExecuteAutomation}
-            />
-          </div>
-        </details>
-      ) : null}
-      <ChronicleRibbon entries={chronicles} />
-    </main>
+    </>
   );
+}
+
+function inferRequestedPanel(message: string): RequestedPanel {
+  const normalized = message
+    .normalize("NFKD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase();
+  if (/(inception|inceptions|ideia|aprovacao)/.test(normalized)) return "inceptions";
+  if (/(missao|missoes|mission|projeto)/.test(normalized)) return "missions";
+  if (/(universo|universos|agente|agentes|engenharia|seguranca|infraestrutura|conhecimento|comunidade|evolucao)/.test(normalized)) {
+    return "universes";
+  }
+  if (/(oportunidade|oportunidades|analise|ranking)/.test(normalized)) return "opportunities";
+  if (/(percepcao|fonte|coleta|source|perception)/.test(normalized)) return "perception";
+  if (/(auditoria|chronicle|cronica|historico|log)/.test(normalized)) return "chronicle";
+  if (/(capability|capabilities|connector|automation|automacao)/.test(normalized)) return "capabilities";
+  return null;
+}
+
+function shouldClosePanel(message: string) {
+  const normalized = message
+    .normalize("NFKD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase();
+  return /(feche|fechar|volte para a conversa|voltar para a conversa|feche o painel|close)/.test(normalized);
+}
+
+function panelTitle(panel: Exclude<RequestedPanel, null>) {
+  return {
+    inceptions: "Inceptions",
+    missions: "Missao ativa",
+    opportunities: "Oportunidades",
+    perception: "Percepcao",
+    chronicle: "Chronicle",
+    capabilities: "Capabilities",
+    universes: "Universos e agentes",
+  }[panel];
 }

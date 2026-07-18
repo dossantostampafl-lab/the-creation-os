@@ -60,9 +60,11 @@ services:
     volumes:
       - ./frontend:/app
       - frontend_node_modules:/app/node_modules
-    command: ["sh", "-c", "npm ci && npm run dev -- --host 0.0.0.0"]
+    command: ["sh", "-c", "npm ci && npm run dev"]
     environment:
       VITE_API_BASE_URL: http://127.0.0.1:8000/api/v1
+      VITE_CREATOR_DEFAULT_USERNAME: creator
+      VITE_CREATOR_DEV_PASSWORD: local-development-password
     ports:
       - "5173:5173"
     depends_on:

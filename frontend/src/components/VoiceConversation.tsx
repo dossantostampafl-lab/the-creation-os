@@ -23,6 +23,8 @@ export function VoiceConversation({ authenticated, busy, token, chat, missions, 
   const [error, setError] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioUrlRef = useRef<string | null>(null);
+  const listeningTimeoutRef = useRef<number | null>(null);
+  const submittingRef = useRef(false);
 
   const lastGodReply = useMemo(() => [...chat].reverse().find((item) => item.role === "god")?.text ?? null, [chat]);
   const context = useMemo(
@@ -43,12 +45,17 @@ export function VoiceConversation({ authenticated, busy, token, chat, missions, 
           setError(null);
           setState("listening");
         },
-        onStop: () => setState((current) => (current === "listening" ? "idle" : current)),
+        onStop: () => {
+          clearListeningTimeout();
+          setState((current) => (current === "listening" ? "idle" : current));
+        },
         onTranscript: (text) => {
+          clearListeningTimeout();
           setTranscript(text);
           void submitVoice(text);
         },
         onError: (message) => {
+          clearListeningTimeout();
           setError(message);
           setState("error");
         },
@@ -57,11 +64,16 @@ export function VoiceConversation({ authenticated, busy, token, chat, missions, 
   );
 
   useEffect(() => {
-    return () => stopAudio();
+    return () => {
+      clearListeningTimeout();
+      stopAudio();
+    };
   }, []);
 
   async function submitVoice(text: string) {
     if (!authenticated || !token || busy) return;
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     const contextual = buildContextualVoiceMessage(text, context);
     setState("processing");
     setError(null);
@@ -72,11 +84,16 @@ export function VoiceConversation({ authenticated, busy, token, chat, missions, 
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha na conversa por voz.");
       setState("error");
+    } finally {
+      submittingRef.current = false;
     }
   }
 
   async function speak(text: string) {
-    if (!token) return;
+    if (!token) {
+      setState("idle");
+      return;
+    }
     try {
       const audio = await api.synthesizeVoice(token, text);
       stopAudio();
@@ -90,15 +107,44 @@ export function VoiceConversation({ authenticated, busy, token, chat, missions, 
       };
       player.onerror = () => {
         stopAudio();
-        setError("Falha ao reproduzir a voz de GOD.");
-        setState("error");
+        setError("Audio indisponivel. Resposta de DEUS mantida em texto.");
+        setState("idle");
       };
       setState("speaking");
       await player.play();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Voz indisponivel. Resposta mantida em texto.");
+      setError(err instanceof ApiError ? "Audio indisponivel. Resposta de DEUS mantida em texto." : "Voz indisponivel. Resposta mantida em texto.");
+      setState("idle");
+    }
+  }
+
+  function clearListeningTimeout() {
+    if (listeningTimeoutRef.current === null) return;
+    window.clearTimeout(listeningTimeoutRef.current);
+    listeningTimeoutRef.current = null;
+  }
+
+  function startListening() {
+    if (state === "listening" || state === "processing") return;
+    clearListeningTimeout();
+    setError(null);
+    try {
+      recognizer.start();
+      listeningTimeoutRef.current = window.setTimeout(() => {
+        recognizer.stop();
+        setError("Nao ouvi uma frase completa. Tente falar de novo ou use o texto.");
+        setState((current) => (current === "listening" ? "idle" : current));
+      }, 9000);
+    } catch (err) {
+      clearListeningTimeout();
+      setError(err instanceof Error ? err.message : "Nao foi possivel iniciar o microfone.");
       setState("error");
     }
+  }
+
+  function stopListening() {
+    clearListeningTimeout();
+    recognizer.stop();
   }
 
   function stopAudio() {
@@ -130,12 +176,12 @@ export function VoiceConversation({ authenticated, busy, token, chat, missions, 
           state={state}
           supported={recognizer.supported}
           disabled={busy || state === "processing"}
-          onListen={recognizer.start}
-          onStopListening={recognizer.stop}
+          onListen={startListening}
+          onStopListening={stopListening}
           onStopSpeaking={stopSpeaking}
         />
         <div>
-          <strong>VOZ COM GOD</strong>
+          <strong>VOZ COM DEUS</strong>
           <span>{state}</span>
         </div>
         {state === "error" ? (
@@ -150,14 +196,14 @@ export function VoiceConversation({ authenticated, busy, token, chat, missions, 
           <dd>{transcript || "Aguardando fala ou texto..."}</dd>
         </div>
         <div>
-          <dt>GOD</dt>
+          <dt>DEUS</dt>
           <dd>{godReply || lastGodReply || "Sem resposta nesta sessao."}</dd>
         </div>
       </dl>
       {error ? <p className="voice-error">{error}</p> : null}
       <form className="voice-text-fallback" onSubmit={handleTextSubmit}>
         <input value={textInput} onChange={(event) => setTextInput(event.target.value)} placeholder="Continuar por texto..." />
-        <button disabled={busy || state === "processing" || !textInput.trim()} type="submit" aria-label="Enviar texto para GOD">
+        <button disabled={busy || state === "processing" || !textInput.trim()} type="submit" aria-label="Enviar texto para DEUS">
           <ArrowRight size={16} />
         </button>
       </form>

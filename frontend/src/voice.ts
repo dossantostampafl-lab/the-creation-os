@@ -93,12 +93,12 @@ export function buildContextualVoiceMessage(input: string, context: {
   const referencesContext = /^(continue|explique melhor|volte|mostre|autorize|negue|resuma)\b/i.test(normalized);
   if (!referencesContext) return normalized;
   return [
-    "Contexto da conversa de voz com GOD:",
+    "Contexto da conversa de voz com DEUS:",
     `assunto atual: ${context.currentSubject ?? "nao definido"}`,
     `missao em analise: ${context.missionTitle ?? "nenhuma"}`,
     `oportunidade em analise: ${context.opportunityTitle ?? "nenhuma"}`,
     `decisao pendente: ${context.pendingDecision ?? "nenhuma"}`,
-    `ultima resposta de GOD: ${context.lastGodReply ?? "nenhuma"}`,
+    `ultima resposta de DEUS: ${context.lastGodReply ?? "nenhuma"}`,
     `fala atual do Criador: ${normalized}`,
   ].join("\n");
 }

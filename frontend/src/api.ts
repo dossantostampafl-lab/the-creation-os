@@ -110,6 +110,47 @@ export const api = {
     return request<Inception[]>("/inceptions", undefined, token);
   },
 
+  submitInception(token: string, inceptionId: string) {
+    return request<Inception>(`/inceptions/${inceptionId}/submit`, { method: "POST" }, token);
+  },
+
+  approveInception(token: string, inceptionId: string) {
+    return request<Inception>(
+      `/inceptions/${inceptionId}/approve`,
+      {
+        method: "POST",
+        body: JSON.stringify({ reason: "Creator approved Inception." }),
+      },
+      token,
+    );
+  },
+
+  rejectInception(token: string, inceptionId: string) {
+    return request<Inception>(
+      `/inceptions/${inceptionId}/reject`,
+      {
+        method: "POST",
+        body: JSON.stringify({ reason: "Creator rejected Inception." }),
+      },
+      token,
+    );
+  },
+
+  createMissionFromInception(token: string, inception: Inception) {
+    return request<Mission>(
+      "/missions",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          inception_id: inception.id,
+          title: inception.title,
+          objective: inception.description || inception.title,
+        }),
+      },
+      token,
+    );
+  },
+
   listMissions(token: string) {
     return request<Mission[]>("/missions", undefined, token);
   },

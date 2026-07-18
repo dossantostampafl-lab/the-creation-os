@@ -21,7 +21,7 @@ export function VoiceButton({ state, supported, disabled, onListen, onStopListen
 
   if (state === "speaking") {
     return (
-      <button className="voice-orb speaking" type="button" onClick={onStopSpeaking} aria-label="Interromper voz de GOD">
+      <button className="voice-orb speaking" type="button" onClick={onStopSpeaking} aria-label="Interromper voz de DEUS">
         <Volume2 size={19} />
       </button>
     );
