@@ -290,10 +290,7 @@ export function App() {
     const nextPerceptionSources = loadedPerceptionSources.status === "fulfilled" ? loadedPerceptionSources.value : perceptionSources;
     const nextNotifications = loadedNotifications.status === "fulfilled" ? loadedNotifications.value : notifications;
 
-    const manifestationResults = await Promise.allSettled(
-      nextMissions.map((mission) => api.getMissionManifestation(accessToken, mission.id)),
-    );
-    const nextManifestations = manifestationResults.flatMap((result) => (result.status === "fulfilled" ? [result.value] : []));
+    const nextManifestations = manifestations;
     const nextMissionAuthorization =
       nextMissions[0] ? await api.getMissionAuthorization(accessToken, nextMissions[0].id).catch(() => missionAuthorization) : null;
 
