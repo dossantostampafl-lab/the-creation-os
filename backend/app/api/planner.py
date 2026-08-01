@@ -70,6 +70,11 @@ async def patch(
     return response(await s.patch(actor.sub, str(task_id), body.model_dump(exclude_unset=True)))
 
 
+@router.post("/tasks/{task_id}/ready", response_model=TaskResponse)
+async def mark_ready(task_id: uuid.UUID, actor: TokenPayload = Depends(get_sovereign_creator), s: PlannerService = Depends(service)):
+    return response(await s.mark_ready(actor.sub, str(task_id)))
+
+
 @router.post("/tasks/{task_id}/dependencies", response_model=TaskResponse)
 async def add_dependency(
     task_id: uuid.UUID, body: DependencyCreate, actor: TokenPayload = Depends(get_sovereign_creator), s: PlannerService = Depends(service)

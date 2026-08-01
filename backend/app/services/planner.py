@@ -3,7 +3,7 @@ import uuid
 from sqlalchemy.exc import IntegrityError
 
 from app.core.domain import DomainError
-from app.core.task_graph import TaskState, topological_order
+from app.core.task_graph import TaskState, topological_order, transition_task
 from app.models.entities import Task, TaskDependency
 from app.repositories.planner import PlannerRepository
 from app.services.domain import NotFoundError
@@ -26,9 +26,9 @@ class PlannerService:
         return mission
 
     def _new_task(self, **values):
+        values.setdefault("input_json", {})
         return Task(
             status="PENDING",
-            input_json={},
             output_json={},
             error_json={},
             attempt_count=0,
@@ -63,6 +63,35 @@ class PlannerService:
             await self.repository.commit()
         except IntegrityError as exc:
             raise PlannerError("Duplicate or invalid Task") from exc
+        return task
+
+    async def mark_ready(self, creator_id, task_id, correlation_id=None):
+        """Completes the existing-but-never-invoked CREATED/PLANNED -> READY transition
+        (app.core.task_graph.transition_task) so a planned Task can actually be dispatched.
+        Requires every dependency to already be COMPLETED — same rule DispatchService
+        enforces again at enqueue time."""
+        task = await self.repository.task(task_id, lock=True)
+        if task is None:
+            raise NotFoundError("Task not found")
+        await self._mission(task.mission_id, creator_id, authorized=True)
+        if not await self.repository.dependencies_ready(task_id):
+            raise PlannerError("Task has unmet dependencies")
+        state = TaskState(task.state)
+        if state == TaskState.CREATED:
+            task.state = transition_task(task.state, TaskState.PLANNED)
+            state = TaskState.PLANNED
+        task.state = transition_task(state.value, TaskState.READY)
+        cid = correlation_id or str(uuid.uuid4())
+        await self.repository.add_event(
+            event_type="task_ready",
+            aggregate_type="task",
+            aggregate_id=task.id,
+            actor_id=creator_id,
+            actor_role="creator",
+            correlation_id=cid,
+            payload={"mission_id": task.mission_id},
+        )
+        await self.repository.commit()
         return task
 
     async def patch(self, creator_id, task_id, changes, correlation_id=None):

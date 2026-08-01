@@ -33,8 +33,14 @@ class TreeCoreService:
         return agent
 
     async def register_agent(self, name: str, description: str, universe: str, priority: int, enabled: bool) -> Agent:
+        # universe_id links to a governed Universe (see Universe model) only when the
+        # given free-text `universe` matches an existing Universe.code — any other
+        # string (legacy fixtures, ad-hoc Agents) keeps universe_id NULL exactly as
+        # before, so eligible_agents()'s active-Universe gate never applies to them.
+        governed = await self.repository.universe_by_code(universe.strip())
         agent = Agent(
             name=name.strip(), description=description, universe_name=universe.strip(), priority=priority,
+            universe_id=governed.id if governed else None,
             enabled=enabled, active=enabled, status="offline" if enabled else "disabled", version=1,
             capabilities_json={},
         )

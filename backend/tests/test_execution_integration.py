@@ -94,7 +94,15 @@ async def test_all_execution_http_endpoints_and_tree_core_result(execution_db):
         )
         assert run.status_code == 200 and run.json()["state"] == "succeeded"
         assert (await client.get("/api/v1/agents/executions")).status_code == 401
-        assert len((await client.get("/api/v1/agents/executions", headers=creator)).json()) == 1
+        listing = await client.get("/api/v1/agents/executions", headers=creator)
+        # len(...) == 1 alone would also pass on a 422 error body ({"detail": [...]}
+        # has exactly one key) if this route were ever shadowed again by tree_core's
+        # GET /agents/{agent_id} — assert the actual shape, not just a count that
+        # happens to coincide. See docs/AUDIT_v0.5.md section 10 for the router-order
+        # bug this masked until Lote 2.6 exercised the endpoint for real.
+        assert listing.status_code == 200
+        assert isinstance(listing.json(), list) and len(listing.json()) == 1
+        assert listing.json()[0]["id"] == execution_id
         assert (await client.get(f"/api/v1/agents/executions/{execution_id}", headers=creator)).status_code == 200
         events = await client.get(f"/api/v1/agents/executions/{execution_id}/events", headers=creator)
         assert [event["event_type"] for event in events.json()] == [

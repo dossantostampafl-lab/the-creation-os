@@ -10,9 +10,9 @@ from sqlalchemy import delete, func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.models.entities import Agent, AgentCapability, Capability
+from app.models.entities import Agent, AgentCapability, Capability, Universe
 from app.repositories.tree_core import TreeCoreRepository
-from app.services.tree_core import TreeCoreError, TreeCoreService
+from app.services.tree_core import HEARTBEAT_TTL, TreeCoreError, TreeCoreService
 
 pytestmark = pytest.mark.integration
 
@@ -141,3 +141,45 @@ async def test_concurrent_duplicate_capability_operations(tree_database):
                 return "conflict"
 
     assert sorted(await asyncio.gather(create_capability(), create_capability())) == ["conflict", "created"]
+
+
+@pytest.mark.asyncio
+async def test_agent_linked_to_inactive_universe_is_excluded_from_matching(tree_database):
+    """Universo inativo nunca recebe task: an Agent registered under a Universe.code
+    resolves universe_id (TreeCoreService.register_agent), and eligible_agents() —
+    the sole query DispatchService.enqueue() relies on to find a compatible agent —
+    excludes it while that Universe is inactive, without affecting Agents that
+    aren't linked to any of the 12 governed Universes (universe_id NULL)."""
+    async with tree_database() as session:
+        session.add(Universe(id=str(uuid.uuid4()), code="security", name="Seguranca", active=False))
+        await session.commit()
+
+    async with tree_database() as session:
+        universe = await session.scalar(select(Universe).where(Universe.code == "security"))
+        service = TreeCoreService(TreeCoreRepository(session))
+        governed = await service.register_agent("Security Agent", "test", "security", 0, True)
+        assert governed.universe_id == universe.id
+        ungoverned = await service.register_agent("Legacy Agent", "test", "central", 0, True)
+        assert ungoverned.universe_id is None
+        capability = await service.create_capability("security_review", "test")
+        await service.add_capability(governed.id, capability.id)
+        await service.add_capability(ungoverned.id, capability.id)
+        await service.heartbeat(governed.id)
+        await service.heartbeat(ungoverned.id)
+
+    async with tree_database() as session:
+        repository = TreeCoreRepository(session)
+        cutoff = datetime.now(timezone.utc) - HEARTBEAT_TTL
+        eligible = await repository.eligible_agents({"security_review"}, cutoff)
+        assert [item.name for item in eligible] == ["Legacy Agent"]
+
+    async with tree_database() as session:
+        row = await session.scalar(select(Universe).where(Universe.code == "security"))
+        row.active = True
+        await session.commit()
+
+    async with tree_database() as session:
+        repository = TreeCoreRepository(session)
+        cutoff = datetime.now(timezone.utc) - HEARTBEAT_TTL
+        eligible = await repository.eligible_agents({"security_review"}, cutoff)
+        assert sorted(item.name for item in eligible) == ["Legacy Agent", "Security Agent"]

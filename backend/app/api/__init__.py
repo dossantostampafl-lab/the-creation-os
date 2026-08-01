@@ -25,11 +25,17 @@ router.include_router(automation_router)
 router.include_router(health_router)
 router.include_router(creator_interface_router)
 router.include_router(living_core_router)
-router.include_router(tree_core_router)
 router.include_router(dispatch_router)
 router.include_router(planner_router)
 router.include_router(workers_router)
+# execution_router (prefix "/agents/executions") must be registered before
+# tree_core_router (owns "GET /agents/{agent_id}") — otherwise FastAPI's
+# route-matching order lets the single dynamic segment of tree_core's
+# GET /agents/{agent_id} swallow GET /agents/executions first, making the
+# execution-listing endpoint permanently unreachable (404/422 depending on
+# the id shape). See docs/AUDIT_v0.5.md section 10 for how this was found.
 router.include_router(execution_router)
+router.include_router(tree_core_router)
 router.include_router(central_core_router)
 router.include_router(malkuth_router)
 router.include_router(memory_router)

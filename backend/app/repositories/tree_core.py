@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.entities import Agent, Capability, Mission
+from app.models.entities import Agent, Capability, Mission, Universe
 
 
 class TreeCoreRepository:
@@ -16,6 +16,9 @@ class TreeCoreRepository:
     async def add(self, entity):
         self.session.add(entity)
         return entity
+
+    async def universe_by_code(self, code: str) -> Universe | None:
+        return await self.session.scalar(select(Universe).where(func.lower(Universe.code) == code.lower()))
 
     async def agent(self, agent_id: str) -> Agent | None:
         return await self.session.scalar(
@@ -50,12 +53,19 @@ class TreeCoreRepository:
         stmt = (
             select(Agent)
             .join(Agent.capabilities)
+            .outerjoin(Universe, Agent.universe_id == Universe.id)
             .where(
                 Agent.enabled.is_(True),
                 Agent.status == "idle",
                 Agent.heartbeat_at.is_not(None),
                 Agent.heartbeat_at >= heartbeat_cutoff,
                 func.lower(Capability.name).in_(normalized),
+                # Agents not linked to a governed Universe (universe_id NULL — the
+                # common case for pre-Lote-2.6 Agents/fixtures using an arbitrary
+                # free-text universe_name) stay eligible exactly as before. Only
+                # Agents actually linked to one of the 12 registered Universes are
+                # gated by that Universe's active flag.
+                or_(Agent.universe_id.is_(None), Universe.active.is_(True)),
             )
             .group_by(Agent.id)
             .having(func.count(func.distinct(func.lower(Capability.name))) == len(normalized))

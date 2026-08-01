@@ -48,6 +48,9 @@ class FakeTreeCoreRepository:
     async def mission(self, mission_id):
         return self.mission_items.get(mission_id)
 
+    async def universe_by_code(self, code):
+        return None
+
     async def eligible_agents(self, capability_names, heartbeat_cutoff):
         result = []
         for agent in self.agent_items.values():

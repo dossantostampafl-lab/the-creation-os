@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -18,6 +19,7 @@ class TaskCreate(Strict):
     retry_limit: int = Field(3, ge=0, le=100)
     timeout_seconds: int = Field(300, ge=1)
     estimated_duration: int | None = Field(None, ge=1)
+    input_json: dict[str, Any] = Field(default_factory=dict)
 
 
 class TaskPatch(Strict):
