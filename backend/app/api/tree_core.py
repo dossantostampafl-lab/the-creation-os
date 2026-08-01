@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Header, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_sovereign_creator
@@ -11,6 +11,7 @@ from app.models.consolidation import MissionConsolidation
 from app.models.entities import Agent, Capability
 from app.repositories.consolidation import ConsolidationRepository
 from app.repositories.tree_core import TreeCoreRepository
+from app.schemas.auth import TokenPayload
 from app.schemas.consolidation import MissionConsolidationResponse
 from app.schemas.tree_core import (
     AgentCapabilityRequest,
@@ -26,6 +27,10 @@ from app.services.consolidation import ConsolidationService
 from app.services.tree_core import TreeCoreService
 
 router = APIRouter(tags=["tree-core"], dependencies=[Depends(get_sovereign_creator)])
+
+
+def correlation_id(x_correlation_id: str | None = Header(None)) -> str:
+    return str(uuid.UUID(x_correlation_id)) if x_correlation_id else str(uuid.uuid4())
 
 
 def service(session: AsyncSession = Depends(get_session)) -> TreeCoreService:
@@ -140,9 +145,13 @@ async def match_agents(body: TreeCoreMatchRequest, s: TreeCoreService = Depends(
 async def consolidate_mission(
     mission_id: uuid.UUID,
     response: Response,
+    response_actor: TokenPayload = Depends(get_sovereign_creator),
+    cid: str = Depends(correlation_id),
     s: ConsolidationService = Depends(consolidation_service),
 ):
-    item, created = await s.consolidate(str(mission_id))
+    item, created = await s.consolidate(
+        str(mission_id), correlation_id=cid, actor_id=response_actor.sub, actor_role="creator"
+    )
     response.status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
     return consolidation_response(item)
 

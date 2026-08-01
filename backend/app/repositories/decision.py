@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.consolidation import MissionConsolidation
 from app.models.decision import MissionDecision
 from app.models.entities import Mission
+from app.repositories.domain import DomainRepository
 
 
 class DecisionRepository:
@@ -30,6 +31,11 @@ class DecisionRepository:
         self.session.add(item)
         await self.session.flush()
         return item
+
+    async def add_event(self, event_type, mission_id, actor_id, actor_role, correlation_id, payload=None, causation_id=None):
+        return await DomainRepository(self.session).add_event(
+            event_type, "mission", mission_id, actor_id, actor_role, correlation_id, payload, causation_id=causation_id
+        )
 
     async def commit(self) -> None:
         try:

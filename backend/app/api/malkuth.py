@@ -2,17 +2,22 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Header, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_sovereign_creator
 from app.db.session import get_session
 from app.models.manifestation import MissionManifestation
 from app.repositories.manifestation import ManifestationRepository
+from app.schemas.auth import TokenPayload
 from app.schemas.manifestation import MissionManifestationResponse
 from app.services.manifestation import ManifestationService
 
 router = APIRouter(tags=["malkuth"], dependencies=[Depends(get_sovereign_creator)])
+
+
+def correlation_id(x_correlation_id: str | None = Header(None)) -> str:
+    return str(uuid.UUID(x_correlation_id)) if x_correlation_id else str(uuid.uuid4())
 
 
 def service(session: AsyncSession = Depends(get_session)) -> ManifestationService:
@@ -41,9 +46,13 @@ def manifestation_response(item: MissionManifestation) -> MissionManifestationRe
 async def manifest_mission(
     mission_id: uuid.UUID,
     response: Response,
+    actor: TokenPayload = Depends(get_sovereign_creator),
+    cid: str = Depends(correlation_id),
     manifestation_service: ManifestationService = Depends(service),
 ):
-    item, created = await manifestation_service.manifest(str(mission_id))
+    item, created = await manifestation_service.manifest(
+        str(mission_id), correlation_id=cid, actor_id=actor.sub, actor_role="creator"
+    )
     response.status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
     return manifestation_response(item)
 

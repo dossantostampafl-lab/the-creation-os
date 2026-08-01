@@ -167,6 +167,13 @@ async def test_all_dispatch_endpoints_retry_dead_letter_and_security(dispatch_db
         assert (
             await c.post(f"/api/v1/dispatch/{item_id}/release", headers=h, json={"worker_id": "w1", "lease_token": token})
         ).status_code == 200
+        # Enqueue + cancel a second task while the Mission is still active (DISTRIBUTED at
+        # this point). Done here, before task1 is driven to dead-letter below, because once
+        # that happens the Mission goes FAILED and dispatch stops accepting new work for it
+        # (Guardrail 4) — re-asserted with a fresh enqueue attempt at the end of this test.
+        second = await c.post("/api/v1/dispatch", headers=h, json={"task_id": ids["task2"]})
+        second_id = second.json()["id"]
+        assert (await c.post(f"/api/v1/dispatch/{second_id}/cancel", headers=h)).json()["state"] == "cancelled"
         leased2 = await c.post("/api/v1/dispatch/lease", headers=h, json={"worker_id": "w1", "lease_seconds": 60})
         token2 = leased2.json()["lease_token"]
         assert token2 != token
@@ -188,9 +195,11 @@ async def test_all_dispatch_endpoints_retry_dead_letter_and_security(dispatch_db
         assert dead.json()["state"] == "dead_lettered"
         attempts = await c.get(f"/api/v1/dispatch/{item_id}/attempts", headers=h)
         assert attempts.status_code == 200 and len(attempts.json()) >= 5 and "lease_token_hash" not in attempts.text
-        second = await c.post("/api/v1/dispatch", headers=h, json={"task_id": ids["task2"]})
-        second_id = second.json()["id"]
-        assert (await c.post(f"/api/v1/dispatch/{second_id}/cancel", headers=h)).json()["state"] == "cancelled"
+        # task1's definitive failure fails the Mission (Guardrail 4). task2 is still "ready"
+        # (cancelling its earlier dispatch item above never touched Task.state), but dispatch
+        # must now refuse any new work for this Mission.
+        blocked = await c.post("/api/v1/dispatch", headers=h, json={"task_id": ids["task2"]})
+        assert blocked.status_code == 403
         assert (await c.get("/api/v1/dispatch/not-a-uuid", headers=h)).status_code == 422
 
 

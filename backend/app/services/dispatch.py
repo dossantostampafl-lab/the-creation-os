@@ -1,12 +1,13 @@
 import hashlib
 import hmac
 import secrets
+import uuid
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.exc import IntegrityError
 
 from app.core.dispatch_state_machine import DispatchState, retry_delay, transition_dispatch
-from app.core.domain import DomainError
+from app.core.domain import DomainError, InvalidStateTransition, MissionStatus, require_malkuth_authorized, transition
 from app.models.dispatch import DispatchAttempt, DispatchItem
 from app.repositories.dispatch import DispatchRepository
 from app.services.domain import NotFoundError
@@ -30,10 +31,11 @@ class DispatchService:
         task = await self.repository.task(task_id)
         if task is None:
             raise NotFoundError("Task not found")
-        mission = await self.repository.mission(task.mission_id)
+        mission = await self.repository.mission(task.mission_id, lock=True)
         if mission is None or mission.creator_id != creator_id:
             raise NotFoundError("Task not found")
-        if mission.status != "authorized" or task.state != "ready" or not await self.repository.dependencies_ready(task.id):
+        require_malkuth_authorized(mission.status)
+        if task.state != "ready" or not await self.repository.dependencies_ready(task.id):
             raise DispatchError("Task is not structurally eligible")
         capability = await self.repository.capability(task.required_capability_id)
         if capability is None:
@@ -56,6 +58,14 @@ class DispatchService:
         try:
             await self.repository.add(item)
             await self.repository.add(DispatchAttempt(dispatch_item_id=item.id, attempt_number=0, event_type="enqueued", metadata_json={}))
+            # First dispatch item for the mission: AUTHORIZED -> DISTRIBUTED. A concurrent
+            # enqueue for another task of the same mission sees status already DISTRIBUTED
+            # (row-locked above) and no-ops here.
+            if MissionStatus(mission.status) == MissionStatus.AUTHORIZED:
+                mission.status = transition("mission", MissionStatus.AUTHORIZED, MissionStatus.DISTRIBUTED)
+                await self.repository.add_event(
+                    "mission_distributed", mission.id, creator_id, "creator", str(uuid.uuid4()), {"task_id": task.id}
+                )
             await self.repository.commit()
         except IntegrityError as exc:
             raise DispatchError("Task already has an active dispatch") from exc
@@ -98,6 +108,12 @@ class DispatchService:
                 metadata_json={},
             )
         )
+        # First successful claim/lease for the mission: DISTRIBUTED -> EXECUTING. Same
+        # convergence point for both the manual /dispatch/lease route and worker claim().
+        mission = await self.repository.mission(item.mission_id, lock=True)
+        if mission is not None and MissionStatus(mission.status) == MissionStatus.DISTRIBUTED:
+            mission.status = transition("mission", MissionStatus.DISTRIBUTED, MissionStatus.EXECUTING)
+            await self.repository.add_event("mission_executing", mission.id, worker_id, "worker", item.id, {"dispatch_item_id": item.id})
         await self.repository.commit()
         return item, token
 
@@ -154,6 +170,19 @@ class DispatchService:
         item.state = transition_dispatch(item.state, target)
         if target == DispatchState.DEAD_LETTERED:
             item.dead_lettered_at = now
+            # Definitive task failure fails the mission outright — the tail orchestration
+            # (consolidate/decide/manifest) requires every task to have succeeded, so a
+            # dead-lettered task means this mission can never reach MANIFESTED anyway.
+            mission = await self.repository.mission(item.mission_id, lock=True)
+            if mission is not None and MissionStatus(mission.status) != MissionStatus.FAILED:
+                try:
+                    mission.status = transition("mission", MissionStatus(mission.status), MissionStatus.FAILED)
+                    await self.repository.add_event(
+                        "mission_failed", mission.id, worker, "worker", item.id,
+                        {"dispatch_item_id": item.id, "task_id": item.task_id, "error_code": code, "error_message": message},
+                    )
+                except InvalidStateTransition:
+                    pass
         else:
             item.available_at = now + timedelta(seconds=retry_delay(base, item.attempt_count, maximum))
         item.lease_owner = item.lease_token_hash = item.leased_at = item.lease_expires_at = None

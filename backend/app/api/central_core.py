@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Header, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_sovereign_creator
@@ -11,12 +11,17 @@ from app.models.decision import MissionDecision
 from app.models.policy import MissionDecisionReasoning
 from app.repositories.decision import DecisionRepository
 from app.repositories.policy import PolicyRepository
+from app.schemas.auth import TokenPayload
 from app.schemas.decision import MissionDecisionResponse
 from app.schemas.policy import MissionDecisionReasoningResponse
 from app.services.decision import DecisionService
 from app.services.policy import PolicyService
 
 router = APIRouter(tags=["central-core"], dependencies=[Depends(get_sovereign_creator)])
+
+
+def correlation_id(x_correlation_id: str | None = Header(None)) -> str:
+    return str(uuid.UUID(x_correlation_id)) if x_correlation_id else str(uuid.uuid4())
 
 
 def service(session: AsyncSession = Depends(get_session)) -> DecisionService:
@@ -64,9 +69,13 @@ def reasoning_response(item: MissionDecisionReasoning) -> MissionDecisionReasoni
 async def decide_mission(
     mission_id: uuid.UUID,
     response: Response,
+    actor: TokenPayload = Depends(get_sovereign_creator),
+    cid: str = Depends(correlation_id),
     decision_service: DecisionService = Depends(service),
 ):
-    item, created = await decision_service.decide(str(mission_id))
+    item, created = await decision_service.decide(
+        str(mission_id), correlation_id=cid, actor_id=actor.sub, actor_role="creator"
+    )
     response.status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
     return decision_response(item)
 

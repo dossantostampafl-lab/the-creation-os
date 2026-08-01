@@ -65,8 +65,10 @@ def build_consolidation(
     execution_list = list(executions)
     issues: list[ConsolidationIssue] = []
 
-    if mission.status != "authorized":
-        issues.append(_issue("mission_not_authorized", "mission", mission.id, "Mission must remain authorized"))
+    if mission.status not in {"authorized", "distributed", "executing"}:
+        issues.append(
+            _issue("mission_not_authorized", "mission", mission.id, "Mission must be authorized, distributed, or executing")
+        )
 
     task_map: dict[str, Any] = {}
     for task in task_list:

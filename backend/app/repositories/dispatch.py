@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.dispatch import DispatchAttempt, DispatchItem
 from app.models.entities import Capability, Mission, Task, TaskDependency
+from app.repositories.domain import DomainRepository
 
 
 class DispatchRepository:
@@ -12,7 +13,9 @@ class DispatchRepository:
     async def task(self, task_id):
         return await self.session.get(Task, task_id)
 
-    async def mission(self, mission_id):
+    async def mission(self, mission_id, lock=False):
+        if lock:
+            return await self.session.scalar(select(Mission).where(Mission.id == mission_id).with_for_update())
         return await self.session.get(Mission, mission_id)
 
     async def capability(self, capability_id):
@@ -91,3 +94,8 @@ class DispatchRepository:
 
     async def rollback(self):
         await self.session.rollback()
+
+    async def add_event(self, event_type, mission_id, actor_id, actor_role, correlation_id, payload=None, causation_id=None):
+        return await DomainRepository(self.session).add_event(
+            event_type, "mission", mission_id, actor_id, actor_role, correlation_id, payload, causation_id=causation_id
+        )

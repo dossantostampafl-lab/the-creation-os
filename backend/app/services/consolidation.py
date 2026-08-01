@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import uuid
+
 from sqlalchemy.exc import IntegrityError
 
 from app.core.consolidation import ConsolidationError, ConsolidationIssue, build_consolidation
+from app.core.domain import require_malkuth_authorized
 from app.models.consolidation import MissionConsolidation
 from app.repositories.consolidation import ConsolidationRepository
 from app.services.domain import NotFoundError
@@ -12,7 +15,16 @@ class ConsolidationService:
     def __init__(self, repository: ConsolidationRepository) -> None:
         self.repository = repository
 
-    async def consolidate(self, mission_id: str) -> tuple[MissionConsolidation, bool]:
+    async def consolidate(
+        self,
+        mission_id: str,
+        *,
+        correlation_id: str | None = None,
+        actor_id: str = "system",
+        actor_role: str = "system",
+        causation_id: str | None = None,
+    ) -> tuple[MissionConsolidation, bool]:
+        correlation_id = correlation_id or str(uuid.uuid4())
         mission = await self.repository.mission(mission_id, lock=True)
         if mission is None:
             await self.repository.rollback()
@@ -22,6 +34,12 @@ class ConsolidationService:
         if existing is not None:
             await self.repository.commit()
             return existing, False
+
+        # Only gates *new* consolidation attempts. An idempotent repeat for a mission that
+        # already consolidated (and has since moved on to DISTRIBUTED/EXECUTING/MANIFESTED
+        # via the tail chain) is handled by the existing-record return above; this guard
+        # only needs to stop FAILED/CANCELLED missions from starting fresh work.
+        require_malkuth_authorized(mission.status)
 
         try:
             tasks = await self.repository.tasks(mission_id)
@@ -40,6 +58,10 @@ class ConsolidationService:
                 fingerprint=document.fingerprint,
             )
             await self.repository.add(item)
+            await self.repository.add_event(
+                "mission_consolidated", mission.id, actor_id, actor_role, correlation_id,
+                {"consolidation_id": item.id, "fingerprint": item.fingerprint}, causation_id=causation_id,
+            )
             await self.repository.commit()
             return item, True
         except ConsolidationError:

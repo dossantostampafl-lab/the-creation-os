@@ -125,8 +125,8 @@ class TreeCoreService:
         mission = await self.repository.mission(mission_id)
         if mission is None:
             raise NotFoundError("Mission not found")
-        if mission.status != "authorized":
-            raise TreeCoreError("Tree Core only matches authorized Missions")
+        if mission.status not in {"authorized", "distributed", "executing"}:
+            raise TreeCoreError("Tree Core only matches authorized, distributed, or executing Missions")
         required = {name.strip().lower() for name in required_capabilities if name.strip()}
         if not required:
             raise TreeCoreError("At least one capability is required")

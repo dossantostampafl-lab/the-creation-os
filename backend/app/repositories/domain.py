@@ -93,6 +93,7 @@ class DomainRepository:
     async def add_event(
         self, event_type: str, aggregate_type: str, aggregate_id: str | None,
         actor_id: str, actor_role: str, correlation_id: str, payload: dict[str, Any] | None = None,
+        causation_id: str | None = None,
     ) -> Chronicle:
         # Serializes the empty-chain case as well as normal appends on PostgreSQL.
         if self.session.bind is not None and self.session.bind.dialect.name == "postgresql":
@@ -103,13 +104,15 @@ class DomainRepository:
         safe = sanitize(payload or {})
         created_at = datetime.now(timezone.utc)
         event_id = str(uuid.uuid4())
+        # causation_id is intentionally excluded from the hashed material: verify_chronicle()
+        # recomputes this same material shape, and it must stay unchanged for existing chains.
         material = {"event_id": event_id, "position": position, "event_type": event_type,
                     "aggregate_type": aggregate_type, "aggregate_id": aggregate_id, "actor_id": actor_id,
                     "actor_role": actor_role, "correlation_id": correlation_id, "payload": safe,
                     "created_at": created_at.isoformat()}
         event = Chronicle(
-            event_id=event_id, position=position, correlation_id=correlation_id, actor_type=actor_role,
-            actor_role=actor_role, actor_id=actor_id, event_type=event_type,
+            event_id=event_id, position=position, correlation_id=correlation_id, causation_id=causation_id,
+            actor_type=actor_role, actor_role=actor_role, actor_id=actor_id, event_type=event_type,
             aggregate_type=aggregate_type, aggregate_id=aggregate_id, payload_json=safe,
             payload_hash=event_hash(material, previous), previous_hash=previous, created_at=created_at,
         )

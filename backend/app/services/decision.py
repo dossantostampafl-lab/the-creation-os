@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import uuid
+
 from sqlalchemy.exc import IntegrityError
 
 from app.core.decision import evaluate_decision
-from app.core.domain import DomainError
+from app.core.domain import DomainError, require_malkuth_authorized
 from app.models.decision import MissionDecision
 from app.repositories.decision import DecisionRepository
 from app.services.domain import NotFoundError
@@ -17,7 +19,16 @@ class DecisionService:
     def __init__(self, repository: DecisionRepository) -> None:
         self.repository = repository
 
-    async def decide(self, mission_id: str) -> tuple[MissionDecision, bool]:
+    async def decide(
+        self,
+        mission_id: str,
+        *,
+        correlation_id: str | None = None,
+        actor_id: str = "system",
+        actor_role: str = "system",
+        causation_id: str | None = None,
+    ) -> tuple[MissionDecision, bool]:
+        correlation_id = correlation_id or str(uuid.uuid4())
         mission = await self.repository.mission(mission_id, lock=True)
         if mission is None:
             await self.repository.rollback()
@@ -27,6 +38,9 @@ class DecisionService:
         if existing is not None:
             await self.repository.commit()
             return existing, False
+
+        # Only gates *new* decisions — see the matching comment in ConsolidationService.consolidate.
+        require_malkuth_authorized(mission.status)
 
         try:
             consolidation = await self.repository.consolidation(mission_id)
@@ -39,6 +53,10 @@ class DecisionService:
                 consolidation_fingerprint=document.consolidation_fingerprint,
             )
             await self.repository.add(item)
+            await self.repository.add_event(
+                "mission_decided", mission.id, actor_id, actor_role, correlation_id,
+                {"decision_id": item.id, "decision": item.decision}, causation_id=causation_id,
+            )
             await self.repository.commit()
             return item, True
         except IntegrityError as exc:

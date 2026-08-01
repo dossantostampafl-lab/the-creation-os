@@ -13,7 +13,7 @@ from app.config import settings
 from app.db.session import get_session
 from app.models.entities import Agent, Chronicle, Inception, Mission, Task, Universe
 from app.repositories.domain import DomainRepository
-from app.schemas.chronicle import ChronicleResponse
+from app.schemas.chronicle import ChronicleResponse, ChronicleVerifyResponse
 from app.schemas.pulse import PulseResponse
 from app.schemas.tree_core import UniverseResponse
 
@@ -61,6 +61,17 @@ async def list_chronicles(
 ):
     result = await session.scalars(select(Chronicle).order_by(Chronicle.position.desc()).limit(limit))
     return [chronicle_response(item) for item in result.all()]
+
+
+@router.get("/chronicles/verify", response_model=ChronicleVerifyResponse)
+async def verify_chronicles(session: AsyncSession = Depends(get_session)):
+    integrity = await DomainRepository(session).verify_chronicle()
+    if integrity.valid:
+        return ChronicleVerifyResponse(valid=True, message="Chronicle chain verified with no adulteration detected.")
+    return ChronicleVerifyResponse(
+        valid=False,
+        message=f"Chronicle chain invalid at event {integrity.first_invalid_event_id}: {integrity.reason}",
+    )
 
 
 @router.get("/universes", response_model=list[UniverseResponse])

@@ -21,8 +21,8 @@ class PlannerService:
         mission = await self.repository.mission(mission_id, lock=lock)
         if mission is None or mission.creator_id != creator_id:
             raise NotFoundError("Mission not found")
-        if authorized and mission.status != "authorized":
-            raise PlannerError("Planner requires authorized Mission")
+        if authorized and mission.status not in {"authorized", "distributed", "executing"}:
+            raise PlannerError("Planner requires an authorized Mission")
         return mission
 
     def _new_task(self, **values):

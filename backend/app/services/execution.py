@@ -41,7 +41,7 @@ class AgentExecutionService:
         task = await self.repository.task(item.task_id)
         agent = await self.repository.agent(item.agent_id) if item.agent_id else None
         capability = await self.repository.capability(item.capability_id) if item.capability_id else None
-        if mission is None or mission.status != "authorized":
+        if mission is None or mission.status not in {"authorized", "distributed", "executing"}:
             raise AuthorizationDenied("Mission is not authorized")
         if task is None or task.mission_id != mission.id or task.state != "ready":
             raise AuthorizationDenied("Task is not executable")

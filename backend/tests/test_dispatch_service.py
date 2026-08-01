@@ -23,8 +23,11 @@ class Repo:
     async def task(self, value):
         return self.task_item if value == "task" else None
 
-    async def mission(self, value):
+    async def mission(self, value, lock=False):
         return self.mission_item if value == "mission" else None
+
+    async def add_event(self, *args, **kwargs):
+        return None
 
     async def capability(self, value):
         return self.capability_item if value == "cap" else None

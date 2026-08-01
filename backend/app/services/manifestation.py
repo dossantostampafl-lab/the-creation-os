@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import uuid
+
 from sqlalchemy.exc import IntegrityError
 
-from app.core.domain import DomainError
+from app.core.domain import DomainError, MissionStatus, require_malkuth_authorized, transition
 from app.core.manifestation import build_manifestation, is_valid_fingerprint
 from app.models.manifestation import MissionManifestation
 from app.repositories.manifestation import ManifestationRepository
@@ -17,7 +19,16 @@ class ManifestationService:
     def __init__(self, repository: ManifestationRepository) -> None:
         self.repository = repository
 
-    async def manifest(self, mission_id: str) -> tuple[MissionManifestation, bool]:
+    async def manifest(
+        self,
+        mission_id: str,
+        *,
+        correlation_id: str | None = None,
+        actor_id: str = "system",
+        actor_role: str = "system",
+        causation_id: str | None = None,
+    ) -> tuple[MissionManifestation, bool]:
+        correlation_id = correlation_id or str(uuid.uuid4())
         mission = await self.repository.mission(mission_id, lock=True)
         if mission is None:
             await self.repository.rollback()
@@ -27,6 +38,9 @@ class ManifestationService:
         if existing is not None:
             await self.repository.commit()
             return existing, False
+
+        # Only gates *new* manifestation — see the matching comment in ConsolidationService.consolidate.
+        require_malkuth_authorized(mission.status)
 
         try:
             decision = await self.repository.decision(mission_id)
@@ -47,6 +61,14 @@ class ManifestationService:
                 audit_metadata=document.audit_metadata,
             )
             await self.repository.add(item)
+            # Terminal status transition, same locked row/transaction as the manifestation
+            # insert above: a concurrent loser sees status already MANIFESTED and no-ops.
+            if MissionStatus(mission.status) != MissionStatus.MANIFESTED:
+                mission.status = transition("mission", MissionStatus(mission.status), MissionStatus.MANIFESTED)
+            await self.repository.add_event(
+                "mission_manifested", mission.id, actor_id, actor_role, correlation_id,
+                {"manifestation_id": item.id, "decision_id": decision.id}, causation_id=causation_id,
+            )
             await self.repository.commit()
             return item, True
         except IntegrityError as exc:

@@ -165,7 +165,7 @@ async def test_match_rejects_every_non_authorized_mission(tree_core, state):
     service, repository = tree_core
     mission = SimpleNamespace(id=str(uuid.uuid4()), status=state)
     repository.mission_items[mission.id] = mission
-    with pytest.raises(TreeCoreError, match="authorized Missions"):
+    with pytest.raises(TreeCoreError, match="authorized, distributed, or executing Missions"):
         await service.match(mission.id, ["analysis"])
 
 

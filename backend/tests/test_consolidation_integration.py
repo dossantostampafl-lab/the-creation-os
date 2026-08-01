@@ -164,7 +164,11 @@ async def consolidation_db(request):
                 creator_id=ids["creator"],
                 title="Mission",
                 objective="Consolidate deterministic results",
-                status="authorized",
+                # "executing", not "authorized": the fixture below seeds tasks that are
+                # already dispatched, acknowledged, and (unless testing the incomplete
+                # case) successfully executed — i.e. past DISTRIBUTED and into EXECUTING,
+                # which is the only state manifestation may legally transition out of.
+                status="executing",
                 authorization_json={},
             )
         )
