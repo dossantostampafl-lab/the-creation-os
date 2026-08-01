@@ -11,8 +11,8 @@ Agents, and Malkuth keep separate responsibilities.
 
 - Branch target: `main`
 - Release candidate target: `v1.0.0-rc1`
-- Alembic head expected by readiness health check: `0021_mission_authorization`
-- Backend: FastAPI, SQLAlchemy asyncio, Alembic, PostgreSQL 16, Redis
+- Alembic head expected by readiness health check: `0024_creator_singleton`
+- Backend: FastAPI, SQLAlchemy asyncio, Alembic, PostgreSQL 16 + pgvector, Redis
 - Frontend: React, Vite, TypeScript
 
 ## Architecture Rules
@@ -33,6 +33,8 @@ Agents, and Malkuth keep separate responsibilities.
 - Node.js 20 for local frontend work
 - Git
 
+Install backend development tooling with `python -m pip install -e "./backend[dev]"`.
+
 ## Environment
 
 Create local configuration from the example:
@@ -41,27 +43,69 @@ Create local configuration from the example:
 Copy-Item .env.example .env
 ```
 
-Required local changes:
+Generate the Git-ignored files in `secrets/` with the provided script (safe to
+re-run; it never overwrites an existing non-empty file unless `-Force` is
+passed):
 
-- Set `APP_SECRET_KEY` to a long random value.
-- Set `CREATOR_BOOTSTRAP_PASSWORD` to a strong local password.
+```powershell
+.\scripts\generate-secrets.ps1
+```
+
+This creates `app_secret_key.txt`, `creator_bootstrap_password.txt`,
+`postgres_password.txt`, and `database_url.txt` (built from the same
+PostgreSQL password, as required by `secrets/README.md`) with cryptographically
+random values, plus empty placeholders for the optional
+`elevenlabs_api_key.txt`, `github_token.txt`, and `llm_api_key.txt` — fill
+those in only when enabling the corresponding integration.
+
+For production, provision the declared Docker secret names from the deployment
+platform or an external secret manager instead of running the script. Do not
+bake secrets into images, Compose environment blocks, or `VITE_*` variables;
+Vite values are public browser data.
+
+Additional requirements:
+
 - Keep `TEST_DATABASE_URL` pointed at a disposable database whose name contains `test`.
 - Leave optional provider keys empty unless validating that connector.
 
 Never commit `.env`, SQL backups, logs, coverage files, caches, or local
 credential files.
 
-## Docker Startup
+## Docker Startup (reproducible from scratch)
+
+This is the exact sequence to bring the stack up from nothing — no manual
+database or secret steps beyond what is shown:
 
 ```powershell
+Copy-Item .env.example .env   # skip if .env already exists
+.\scripts\generate-secrets.ps1
 docker compose config
-docker compose build
-docker compose up -d --force-recreate
-docker compose ps
+docker compose down -v        # only if resetting an existing local volume
+docker compose up --build -d
+docker compose ps             # all four services must reach "healthy"
 ```
 
-The API container applies Alembic migrations on startup. The frontend container
-uses `npm ci` so the lockfile is not rewritten during container startup.
+The API image applies Alembic migrations through its default `CMD`
+(`python -m alembic upgrade head`) before starting `uvicorn` — there is no
+separate migration step to run by hand. To apply migrations against a
+different target manually, use the same single command from `backend/`:
+
+```powershell
+Set-Location backend
+$env:DATABASE_URL = (Get-Content ..\secrets\database_url.txt -Raw)
+python -m alembic upgrade head
+python -m alembic current      # must print 0024_creator_singleton (head)
+Set-Location ..
+```
+
+Verify the `vector` extension applied:
+
+```powershell
+docker compose exec postgres psql -U postgres -d the_creation_os -c "SELECT extname FROM pg_extension WHERE extname = 'vector';"
+```
+
+The frontend image uses a Node build stage and serves the compiled Vite assets
+from an unprivileged Nginx runtime on container port 8080.
 
 ## Health Checks
 
@@ -81,7 +125,7 @@ Readiness requires:
 
 - PostgreSQL reachable;
 - Redis reachable;
-- `alembic_version.version_num` equal to `0021_mission_authorization`.
+- `alembic_version.version_num` equal to `0024_creator_singleton`.
 
 ## Tests
 
@@ -156,6 +200,17 @@ docker compose logs frontend
 docker compose logs postgres
 docker compose logs redis
 ```
+
+For startup failures, include stopped containers and inspect their exit state:
+
+```powershell
+docker compose ps -a
+docker inspect (docker compose ps -aq) --format '{{.Name}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}} error={{.State.Error}}'
+docker compose logs --tail 200 api frontend postgres redis
+```
+
+Exit code 255 is not the conventional SIGKILL code (137). The inspect output
+above distinguishes an application exit from an OOM kill or Docker daemon error.
 
 ## Shutdown
 

@@ -79,7 +79,7 @@ support Creator review, but they do not authorize Mission and do not manifest.
 
 ## Release Candidate Boundary
 
-The release-candidate health boundary is Alembic `0021_mission_authorization`.
+The release-candidate health boundary is Alembic `0024_creator_singleton`.
 Readiness requires PostgreSQL, Redis, and the expected migration revision. This
 document records architecture only; it does not authorize new layers, engines,
 workers, endpoints, or responsibility shifts.

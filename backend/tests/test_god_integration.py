@@ -69,18 +69,16 @@ async def god_database():
             )
         )
     creator_id = str(uuid.uuid4())
+    # Not a real Creator row: creator.singleton (0024_creator_singleton) allows
+    # at most one row in the table, so "other" only exists as a JWT subject
+    # that must not match the sovereign Creator's id.
     other_id = str(uuid.uuid4())
     conversation_id = str(uuid.uuid4())
     async with factory() as session:
-        session.add_all(
-            [
-                Creator(id=creator_id, username="creator", password_hash="unused", is_active=True),
-                Creator(id=other_id, username="other", password_hash="unused", is_active=True),
-            ]
-        )
+        session.add(Creator(id=creator_id, username="creator", password_hash="unused", is_active=True))
         await session.commit()
     async with factory() as session:
-        session.add(Conversation(id=conversation_id, creator_id=creator_id, title="GOD", status="active"))
+        session.add(Conversation(id=conversation_id, creator_id=creator_id, title="DEUS", status="active"))
         await session.commit()
 
     async def override_session():
@@ -155,7 +153,7 @@ async def test_http_god_contract_idempotency_auth_and_no_inception(god_database)
     factory, ids = god_database
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         path = f"/api/v1/living-core/conversations/{ids['conversation']}/god"
-        body = {"message": "Quero criar um projeto interno", "idempotency_key": "god-key-1"}
+        body = {"message": "Quero criar um projeto interno", "idempotency_key": "DEUS-key-1"}
         assert (await client.post(path, json=body)).status_code == 401
         assert (await client.post(path, headers=auth(ids["other"]), json=body)).status_code == 403
 
@@ -217,7 +215,7 @@ async def test_http_same_key_different_payload_conflicts_without_side_effects(go
 @pytest.mark.parametrize(
     ("message", "interaction_type", "potential"),
     [
-        ("Ola GOD", "DIRECT_RESPONSE", False),
+        ("Ola DEUS", "DIRECT_RESPONSE", False),
         ("Nota para registro: contexto novo", "INFORMATIONAL", False),
         ("Criar um sistema", "POTENTIAL", True),
         ("Chame Malkuth para manifestar", "UNSUPPORTED", False),

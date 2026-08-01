@@ -18,8 +18,25 @@ async def restore_configured_creator() -> int:
         configured = await session.scalar(
             select(Creator).where(Creator.username == settings.creator_bootstrap_username)
         )
+        password = settings.creator_bootstrap_password.get_secret_value().encode("utf-8")
+        if len(password) > 72:
+            print(json.dumps({"restored": False, "reason": "password_exceeds_bcrypt_limit"}))
+            return 2
+
         if configured is not None:
-            print(json.dumps({"restored": False, "reason": "configured_creator_exists"}))
+            configured.password_hash = bcrypt.hashpw(password, bcrypt.gensalt()).decode("ascii")
+            await session.commit()
+            print(json.dumps({"restored": True, "reason": "configured_creator_updated"}))
+            return 0
+        if count == 0:
+            session.add(
+                Creator(
+                    username=settings.creator_bootstrap_username,
+                    password_hash=bcrypt.hashpw(password, bcrypt.gensalt()).decode("ascii"),
+                )
+            )
+            await session.commit()
+            print(json.dumps({"restored": True, "reason": "configured_creator_created"}))
             return 0
         if count != 1:
             print(json.dumps({"restored": False, "reason": "expected_exactly_one_creator"}))
@@ -29,11 +46,6 @@ async def restore_configured_creator() -> int:
         if creator is None:
             print(json.dumps({"restored": False, "reason": "creator_not_found"}))
             return 1
-
-        password = settings.creator_bootstrap_password.get_secret_value().encode("utf-8")
-        if len(password) > 72:
-            print(json.dumps({"restored": False, "reason": "password_exceeds_bcrypt_limit"}))
-            return 2
 
         creator.username = settings.creator_bootstrap_username
         creator.password_hash = bcrypt.hashpw(password, bcrypt.gensalt()).decode("ascii")

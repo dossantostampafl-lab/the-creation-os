@@ -108,7 +108,7 @@ Expected:
 
 - live returns `live`;
 - ready returns `ready`;
-- database revision is `0021_mission_authorization`;
+- database revision is `0024_creator_singleton`;
 - Redis responds.
 
 ## 8. Database Readiness
@@ -121,7 +121,7 @@ docker exec thecreationos-postgres-1 psql -U postgres -d the_creation_os -t -A -
 
 Expected:
 
-- `0021_mission_authorization`.
+- `0024_creator_singleton`.
 
 Do not truncate, seed, restore, or migrate the application database during
 release validation unless explicitly authorized.

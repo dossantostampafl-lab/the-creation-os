@@ -3,7 +3,7 @@
 ## Release Candidate Baseline
 
 The backend release-candidate baseline expects Alembic head
-`0021_mission_authorization`. The readiness endpoint verifies PostgreSQL, Redis,
+`0024_creator_singleton`. The readiness endpoint verifies PostgreSQL, Redis,
 and this exact migration revision before returning ready.
 
 Operational endpoints:

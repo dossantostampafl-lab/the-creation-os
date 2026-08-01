@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 
 from fastapi import Depends, HTTPException, status
 from jose import JWTError, jwt
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -27,8 +28,19 @@ class AuthService:
         existing = await self.repository.get_one()
         if existing is not None:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Creator already exists")
-        creator = await self.repository.create(username=username, password=password)
-        await self.session.commit()
+        # The check above is only a fast path — it cannot by itself prevent a
+        # second concurrent bootstrap from also observing "no Creator yet"
+        # before either transaction commits. The real guard is the
+        # `uq_creator_singleton` unique constraint (migration
+        # 0024_creator_singleton): at most one row can ever have
+        # `singleton = true`, so a second concurrent insert fails at the
+        # database level and is translated to the same 409 here.
+        try:
+            creator = await self.repository.create(username=username, password=password)
+            await self.session.commit()
+        except IntegrityError as exc:
+            await self.session.rollback()
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Creator already exists") from exc
         return creator
 
     async def login(self, username: str, password: str) -> Creator:

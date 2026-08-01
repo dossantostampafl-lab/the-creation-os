@@ -119,5 +119,26 @@ notifies but does not approve opportunity or create Mission automatically.
 
 ## 0021_mission_authorization
 
-Adds explicit Mission authorization scope. This is the expected release-candidate
-Alembic head and the revision enforced by `/api/v1/health/ready`.
+Adds explicit Mission authorization scope.
+
+## 0022_pgvector_extension
+
+Enables the PostgreSQL `vector` extension (`CREATE EXTENSION IF NOT EXISTS
+vector;`) ahead of the Conscious Memory pgvector column.
+
+## 0023_universe_agent_seed
+
+Seeds the 12 Universes (3 active: knowledge, engineering, security; 9
+inactive, registration only), 3 capabilities, and their 3 corresponding
+Agents, idempotently (`INSERT ... ON CONFLICT DO NOTHING`).
+
+## 0024_creator_singleton
+
+Adds a `singleton` boolean column to `creator` (`CHECK (singleton IS TRUE)`
++ `UNIQUE (singleton)`), so the database itself rejects a second Creator
+row regardless of application-level locking. Closes a real check-then-insert
+race in `AuthService.bootstrap()`: two concurrent `POST
+/api/v1/auth/bootstrap` requests with different usernames could previously
+both succeed, since the only prior guard was `UNIQUE(username)`. This is
+the expected release-candidate Alembic head and the revision enforced by
+`/api/v1/health/ready`.

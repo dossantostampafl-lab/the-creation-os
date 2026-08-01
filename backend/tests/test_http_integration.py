@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.config import settings
 from app.db.session import get_session
 from app.main import app
-from app.models.entities import Conversation, Creator
+from app.models.entities import Creator
 
 pytestmark = pytest.mark.integration
 
@@ -30,10 +30,13 @@ async def http_database():
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with engine.begin() as connection:
         await connection.execute(text("TRUNCATE chronicles, mission_plans, missions, inceptions, messages, conversations, creator RESTART IDENTITY CASCADE"))
-    creator_id, other_id = str(uuid.uuid4()), str(uuid.uuid4())
+    creator_id = str(uuid.uuid4())
+    # Not a real Creator row: creator.singleton (0024_creator_singleton) allows
+    # at most one row in the table, so "other" only exists as a JWT subject
+    # that must not match the sovereign Creator's id.
+    other_id = str(uuid.uuid4())
     async with factory() as session:
-        session.add_all([Creator(id=creator_id, username="creator", password_hash="unused", is_active=True),
-                         Creator(id=other_id, username="other", password_hash="unused", is_active=True)])
+        session.add(Creator(id=creator_id, username="creator", password_hash="unused", is_active=True))
         await session.commit()
 
     async def override_session():
@@ -131,14 +134,14 @@ async def test_rejection_path_and_unapproved_mission_block(client, http_database
 
 @pytest.mark.asyncio
 async def test_sovereign_creator_and_idor(client, http_database):
-    factory, creator_id, other_id = http_database
-    foreign_id = str(uuid.uuid4())
-    async with factory() as session:
-        session.add(Conversation(id=foreign_id, creator_id=other_id, title="Foreign", status="active"))
-        await session.commit()
-    assert (await client.get(f"/api/v1/conversations/{foreign_id}", headers=auth(creator_id))).status_code == 404
-    assert (await client.post(f"/api/v1/conversations/{foreign_id}/messages", headers=auth(creator_id),
-                              json={"content": "IDOR"})).status_code == 404
+    """Cross-creator IDOR (a resource owned by a *different* Creator) is no
+    longer representable: creator.singleton (0024_creator_singleton) allows
+    at most one row in `creator`, so there is never a second Creator whose
+    resource could leak. The remaining identity boundary is enforced purely
+    by token subject, verified below.
+    """
+    _, creator_id, other_id = http_database
+    assert (await client.get(f"/api/v1/conversations/{uuid.uuid4()}", headers=auth(creator_id))).status_code == 404
     assert (await client.get("/api/v1/conversations", headers=auth(other_id))).status_code == 403
 
 
