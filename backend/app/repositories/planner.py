@@ -39,6 +39,16 @@ class PlannerRepository:
         stmt = select(TaskDependency).join(Task, Task.id == TaskDependency.task_id).where(Task.mission_id == mission_id)
         return list((await self.session.scalars(stmt)).all())
 
+    async def dependencies_ready(self, task_id):
+        deps = list(
+            (
+                await self.session.scalars(
+                    select(Task).join(TaskDependency, Task.id == TaskDependency.dependency_id).where(TaskDependency.task_id == task_id)
+                )
+            ).all()
+        )
+        return all(item.state == "completed" for item in deps)
+
     async def delete_dependency(self, task_id, dependency_id):
         item = await self.session.get(TaskDependency, (task_id, dependency_id))
         if item:
