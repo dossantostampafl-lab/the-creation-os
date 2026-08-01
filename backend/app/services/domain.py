@@ -34,22 +34,22 @@ class LivingCoreService:
         return entity
 
     async def conversations(self, actor: Actor):
-        require_creator(actor, "control GOD")
+        require_creator(actor, "control DEUS")
         return await self.repo.list_for_creator(Conversation, actor.id)
 
     async def create_conversation(self, actor: Actor, title: str, correlation_id: str):
-        require_creator(actor, "control GOD")
+        require_creator(actor, "control DEUS")
         item = await self.repo.add(Conversation(creator_id=actor.id, title=title, status=ConversationStatus.ACTIVE.value))
         await self.repo.add_event("conversation_created", "conversation", item.id, actor.id, actor.role, correlation_id)
         await self.repo.commit()
         return item
 
     async def conversation(self, actor: Actor, entity_id: str):
-        require_creator(actor, "control GOD")
+        require_creator(actor, "control DEUS")
         return await self._owned(Conversation, entity_id, actor)
 
     async def add_message(self, actor: Actor, entity_id: str, content: str, metadata: dict[str, Any], correlation_id: str):
-        require_creator(actor, "speak directly with GOD")
+        require_creator(actor, "speak directly with DEUS")
         conversation = await self._owned(Conversation, entity_id, actor, lock=True)
         if conversation.status != ConversationStatus.ACTIVE.value:
             transition("conversation", ConversationStatus(conversation.status), ConversationStatus.ACTIVE)

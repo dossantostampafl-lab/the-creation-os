@@ -116,7 +116,7 @@ class MemoryService:
         min_importance: int = 1,
         limit: int = 5,
     ) -> list[MemoryContextItem]:
-        require_creator(actor, "read memory context for GOD")
+        require_creator(actor, "read memory context for DEUS")
         normalized_types = [MemoryType(item).value for item in memory_types] if memory_types is not None else None
         candidates = await self.repository.search(
             creator_id=actor.id,
