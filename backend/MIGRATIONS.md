@@ -80,12 +80,12 @@ boundary and remains separate from Central Core and Tree Core.
 
 ## 0013_god_conversation
 
-Adds GOD conversation orchestration records. GOD conversations do not create
+Adds DEUS conversation orchestration records. DEUS conversations do not create
 Mission records automatically.
 
 ## 0014_sophia_understanding
 
-Adds SOPHIA understanding records over GOD interactions. SOPHIA does not approve
+Adds SOPHIA understanding records over DEUS interactions. SOPHIA does not approve
 or execute Missions.
 
 ## 0015_rockmam_assessment

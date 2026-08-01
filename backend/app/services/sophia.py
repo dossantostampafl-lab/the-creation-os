@@ -27,7 +27,7 @@ class SophiaService:
         interaction = await self.repository.god_interaction(god_interaction_id, lock=True)
         if interaction is None:
             await self.repository.rollback()
-            raise NotFoundError("GOD interaction not found")
+            raise NotFoundError("DEUS interaction not found")
 
         existing = await self.repository.understanding(god_interaction_id)
         if existing is not None:

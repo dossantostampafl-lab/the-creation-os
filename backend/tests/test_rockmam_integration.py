@@ -141,7 +141,7 @@ async def rockmam_database():
                 understanding_payload={
                     "schema_version": "1.0",
                     "understanding_version": "v0.8.0",
-                    "source": "GOD",
+                    "source": "DEUS",
                     "god_interaction_id": god.id,
                     "conversation_id": conversation_id,
                     "interaction_type": "POTENTIAL",

@@ -93,11 +93,13 @@ def classify_message(message: str) -> GodInteractionType:
     return GodInteractionType.DIRECT_RESPONSE
 
 
-def build_reply(interaction_type: GodInteractionType) -> tuple[dict[str, Any], str, bool]:
+def build_reply(interaction_type: GodInteractionType, message: str) -> tuple[dict[str, Any], str, bool]:
+    normalized = normalize_creator_message(message)
+    summary = normalized[:180] if normalized else "mensagem recebida"
     if interaction_type == GodInteractionType.INFORMATIONAL:
         return (
             {
-                "message": "Informacao registrada na conversa sem iniciar fluxo de missao.",
+                "message": f"Registrei o contexto informado: {summary}. Nenhuma missao ou Inception foi criada automaticamente.",
                 "policy_version": GOD_CONVERSATION_POLICY_VERSION,
             },
             "record_context",
@@ -107,7 +109,7 @@ def build_reply(interaction_type: GodInteractionType) -> tuple[dict[str, Any], s
         return (
             {
                 "message": (
-                    "Potencial identificado. A proxima acao permitida e solicitar analise da Trindade; "
+                    f"Identifiquei potencial relacionado a: {summary}. Posso preparar a analise da Trindade para o Criador decidir; "
                     "nenhuma Inception foi criada automaticamente."
                 ),
                 "policy_version": GOD_CONVERSATION_POLICY_VERSION,
@@ -118,7 +120,7 @@ def build_reply(interaction_type: GodInteractionType) -> tuple[dict[str, Any], s
     if interaction_type == GodInteractionType.UNSUPPORTED:
         return (
             {
-                "message": "Solicitacao fora do contrato atual de GOD. Nenhuma acao operacional foi executada.",
+                "message": f"A solicitacao excede o contrato atual de DEUS: {summary}. Nenhuma acao operacional foi executada.",
                 "policy_version": GOD_CONVERSATION_POLICY_VERSION,
             },
             "unsupported_no_action",
@@ -126,7 +128,7 @@ def build_reply(interaction_type: GodInteractionType) -> tuple[dict[str, Any], s
         )
     return (
         {
-            "message": "GOD registrou sua mensagem e pode responder diretamente dentro do contrato atual.",
+            "message": f"Estou presente. Registrei: {summary}. Posso continuar a conversa ou aguardar uma decisao do Criador.",
             "policy_version": GOD_CONVERSATION_POLICY_VERSION,
         },
         "continue_conversation",
@@ -158,7 +160,7 @@ def build_god_interaction(
     memory_context: list[dict[str, Any]] | None = None,
 ) -> GodInteractionDocument:
     interaction_type = classify_message(message)
-    reply, next_action, potential_detected = build_reply(interaction_type)
+    reply, next_action, potential_detected = build_reply(interaction_type, message)
     resolved_memory_context = memory_context or []
     request_fingerprint = canonical_request_fingerprint(conversation_id, message, idempotency_key)
     fingerprint_payload = {

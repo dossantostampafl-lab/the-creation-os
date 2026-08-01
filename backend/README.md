@@ -52,7 +52,7 @@ Structured results return only to Tree Core.
 ## Central Core and Later Release-Candidate Scope
 
 Central Core records immutable decisions over Tree Core consolidations. Policy,
-Malkuth, GOD, SOPHIA, ROCKMAM, memory, automation, opportunity discovery,
+Malkuth, DEUS, SOPHIA, ROCKMAM, memory, automation, opportunity discovery,
 continuous perception, and mission authorization exist as separate bounded
 modules. This README is not an authorization to merge those responsibilities.
 

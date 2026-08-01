@@ -39,10 +39,10 @@ class TrinityOrchestrationService:
         interaction = await self.repository.god_interaction(god_interaction_id, lock=True)
         if interaction is None:
             await self.repository.rollback()
-            raise NotFoundError("GOD interaction not found")
+            raise NotFoundError("DEUS interaction not found")
         if interaction.interaction_type != "POTENTIAL":
             await self.repository.rollback()
-            raise TrinityError("Trinity orchestration requires a POTENTIAL GOD interaction")
+            raise TrinityError("Trinity orchestration requires a POTENTIAL DEUS interaction")
 
         try:
             understanding = await self.repository.understanding(interaction.id)

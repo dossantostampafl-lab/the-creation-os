@@ -27,13 +27,13 @@ def user():
     return Actor("00000000-0000-0000-0000-000000000002", "user")
 
 
-@pytest.mark.parametrize("action", ["control GOD", "approve Inception", "reject Inception", "authorize Mission"])
+@pytest.mark.parametrize("action", ["control DEUS", "approve Inception", "reject Inception", "authorize Mission"])
 def test_common_user_cannot_perform_creator_actions(user, action):
     with pytest.raises(AuthorizationDenied):
         require_creator(user, action)
 
 
-@pytest.mark.parametrize("action", ["control GOD", "approve Inception", "reject Inception", "authorize Mission"])
+@pytest.mark.parametrize("action", ["control DEUS", "approve Inception", "reject Inception", "authorize Mission"])
 def test_creator_can_perform_reserved_actions(creator, action):
     require_creator(creator, action)
 

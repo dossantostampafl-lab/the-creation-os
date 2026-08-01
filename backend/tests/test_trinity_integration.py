@@ -82,7 +82,7 @@ async def trinity_database():
                 actor_id="god",
                 role="god",
                 correlation_id=str(uuid.uuid4()),
-                content="GOD response",
+                content="DEUS response",
                 route="god",
                 metadata_json={"interaction_type": interaction_type},
             )
@@ -107,7 +107,7 @@ async def trinity_database():
                         "message_id": creator_message.id,
                         "god_message_id": god_message.id,
                         "interaction_type": interaction_type,
-                        "reply": {"message": "GOD response", "policy_version": "v0.7.0"},
+                        "reply": {"message": "DEUS response", "policy_version": "v0.7.0"},
                         "potential_detected": interaction_type == "POTENTIAL",
                         "next_action": "creator_may_request_trinity_analysis",
                         "fingerprint": "b" * 64,
@@ -145,7 +145,7 @@ async def test_trinity_orchestrates_potential_without_creating_domain_objects(tr
         assert payload["god_interaction_id"] == ids["potential"]
         assert payload["interaction_type"] == "POTENTIAL"
         assert payload["assessment_result"] == "REQUIRES_CREATOR"
-        assert payload["god_consolidated_result"]["received_by"] == "GOD"
+        assert payload["god_consolidated_result"]["received_by"] == "DEUS"
         assert payload["god_consolidated_result"]["creates_inception"] is False
         assert payload["god_consolidated_result"]["creates_mission"] is False
 

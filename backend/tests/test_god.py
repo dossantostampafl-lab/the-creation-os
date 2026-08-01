@@ -13,7 +13,7 @@ from app.services.god import GodConversationService
 
 
 def test_god_classification_is_deterministic_and_limited_to_contract():
-    assert classify_message("Ola GOD") == GodInteractionType.DIRECT_RESPONSE
+    assert classify_message("Ola DEUS") == GodInteractionType.DIRECT_RESPONSE
     assert classify_message("Nota: lembre este contexto") == GodInteractionType.INFORMATIONAL
     assert classify_message("Quero criar um projeto novo") == GodInteractionType.POTENTIAL
     assert classify_message("Execute agent e chame Malkuth") == GodInteractionType.UNSUPPORTED

@@ -4,7 +4,7 @@ Release-candidate baseline for the Creator-controlled operating layer.
 
 The project contains a FastAPI backend, PostgreSQL persistence, Redis
 infrastructure, and a React/Vite Creator Interface. The approved architecture is
-preserved: Creator, GOD, SOPHIA, ROCKMAM, Inception, Central Core, Tree Core,
+preserved: Creator, DEUS, SOPHIA, ROCKMAM, Inception, Central Core, Tree Core,
 Agents, and Malkuth keep separate responsibilities.
 
 ## Current Release Baseline
@@ -17,7 +17,7 @@ Agents, and Malkuth keep separate responsibilities.
 
 ## Architecture Rules
 
-- Only the Creator controls GOD.
+- Only the Creator controls DEUS.
 - Conversation does not create Mission.
 - Inception does not create Mission automatically.
 - Mission authorization remains explicit.
@@ -171,7 +171,7 @@ The detailed release checklist is maintained in
 
 ## Critical Flows To Validate
 
-- GOD Conversation
+- DEUS Conversation
 - Voice
 - Mission Authorization
 - Capability Governance

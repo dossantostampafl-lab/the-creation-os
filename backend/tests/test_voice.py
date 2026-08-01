@@ -33,7 +33,7 @@ class FakeVoiceRepository:
 class FakeVoiceService:
     async def synthesize(self, actor: Actor, text: str, correlation_id: str):
         assert actor.role == "creator"
-        assert text == "GOD presente"
+        assert text == "DEUS presente"
         assert correlation_id
         return b"audio-bytes", "audio/mpeg"
 
@@ -50,7 +50,7 @@ async def test_voice_synthesis_disabled_is_controlled(monkeypatch):
     monkeypatch.setattr("app.services.voice.settings.elevenlabs_enabled", False)
     service = VoiceSynthesisService(FakeVoiceRepository())  # type: ignore[arg-type]
     with pytest.raises(VOICE_SYNTHESIS_DISABLED):
-        await service.synthesize(Actor("creator-1", "creator"), "GOD presente", "c")
+        await service.synthesize(Actor("creator-1", "creator"), "DEUS presente", "c")
 
 
 @pytest.mark.asyncio
@@ -68,7 +68,7 @@ async def test_voice_synthesis_calls_elevenlabs_without_auditing_secret(monkeypa
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     service = VoiceSynthesisService(repository, client=client)  # type: ignore[arg-type]
 
-    audio, content_type = await service.synthesize(Actor("creator-1", "creator"), "GOD presente", "c")
+    audio, content_type = await service.synthesize(Actor("creator-1", "creator"), "DEUS presente", "c")
 
     await client.aclose()
     assert audio == b"audio"
@@ -89,7 +89,7 @@ async def test_voice_synthesis_provider_error_is_controlled(monkeypatch):
     service = VoiceSynthesisService(repository, client=client)  # type: ignore[arg-type]
 
     with pytest.raises(VOICE_PROVIDER_UNAVAILABLE):
-        await service.synthesize(Actor("creator-1", "creator"), "GOD presente", "c")
+        await service.synthesize(Actor("creator-1", "creator"), "DEUS presente", "c")
 
     await client.aclose()
     assert repository.events[-1][0] == "voice.synthesis.failed"
@@ -107,7 +107,7 @@ async def test_voice_synthesize_endpoint_returns_audio():
             response = await client.post(
                 "/api/v1/voice/synthesize",
                 headers={"Authorization": "Bearer test-token"},
-                json={"text": "GOD presente"},
+                json={"text": "DEUS presente"},
             )
     finally:
         app.dependency_overrides.clear()

@@ -56,7 +56,7 @@ def build_understanding(interaction: GodConversationInteraction) -> SophiaUnders
     payload = {
         "schema_version": "1.0",
         "understanding_version": SOPHIA_UNDERSTANDING_VERSION,
-        "source": "GOD",
+        "source": "DEUS",
         "god_interaction_id": interaction.id,
         "conversation_id": interaction.conversation_id,
         "interaction_type": interaction.interaction_type,

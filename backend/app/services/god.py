@@ -31,14 +31,14 @@ class GodConversationService:
         idempotency_key: str,
         correlation_id: str,
     ) -> tuple[GodConversationInteraction, bool]:
-        require_creator(actor, "speak with GOD")
+        require_creator(actor, "speak with DEUS")
         conversation = await self.repository.conversation(conversation_id, lock=True)
         if conversation is None or conversation.creator_id != actor.id:
             await self.repository.rollback()
             raise NotFoundError("Conversation not found")
         if conversation.status != ConversationStatus.ACTIVE.value:
             await self.repository.rollback()
-            raise GodConversationError("GOD conversation orchestration requires an active Conversation")
+            raise GodConversationError("DEUS conversation orchestration requires an active Conversation")
 
         existing = await self.repository.interaction(conversation_id, idempotency_key)
         if existing is not None:
@@ -130,7 +130,7 @@ class GodConversationService:
             if existing is not None:
                 self._ensure_same_request(existing, conversation_id, message, idempotency_key)
                 return existing, False
-            raise GodConversationError("GOD interaction could not be persisted atomically") from exc
+            raise GodConversationError("DEUS interaction could not be persisted atomically") from exc
         except Exception:
             await self.repository.rollback()
             raise
@@ -151,7 +151,7 @@ class GodConversationService:
                 str(existing.request_payload.get("idempotency_key", existing.idempotency_key)),
             )
         if persisted != incoming:
-            raise GodIdempotencyConflict("Idempotency key already used with a different GOD request payload")
+            raise GodIdempotencyConflict("Idempotency key already used with a different DEUS request payload")
 
     async def _memory_context(self, actor: Actor, message: str) -> list[dict]:
         candidates = await self.repository.memory.search(

@@ -28,7 +28,7 @@ Each contract fixes identity fields, schema versions, deadline, maximum duration
 and metadata before execution. The controlled context exposes only execution,
 Mission, Task, Agent, capability, and deadline identifiers. It contains no raw
 database session, credential, environment, filesystem, network, infrastructure,
-Creator, GOD, or Inception authority.
+Creator, DEUS, or Inception authority.
 
 ## Handler Registry
 

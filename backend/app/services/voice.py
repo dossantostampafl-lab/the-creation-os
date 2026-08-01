@@ -37,7 +37,7 @@ class VoiceSynthesisService:
         self.client = client
 
     async def synthesize(self, actor: Actor, text: str, correlation_id: str) -> tuple[bytes, str]:
-        require_creator(actor, "synthesize GOD voice")
+        require_creator(actor, "synthesize DEUS voice")
         normalized = " ".join(text.split())
         if not normalized:
             raise VOICE_SYNTHESIS_EMPTY_TEXT("Voice synthesis requires non-empty text")

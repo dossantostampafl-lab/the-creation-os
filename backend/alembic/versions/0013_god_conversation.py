@@ -1,4 +1,4 @@
-"""GOD conversation orchestration."""
+"""DEUS conversation orchestration."""
 
 import sqlalchemy as sa
 
@@ -37,7 +37,7 @@ def upgrade():
         """
         CREATE FUNCTION prevent_god_conversation_interaction_mutation() RETURNS trigger AS $$
         BEGIN
-            RAISE EXCEPTION 'god conversation interaction is immutable';
+            RAISE EXCEPTION 'DEUS conversation interaction is immutable';
         END;
         $$ LANGUAGE plpgsql
         """

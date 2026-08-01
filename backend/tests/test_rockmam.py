@@ -10,7 +10,7 @@ def understanding(understanding_type: str, payload_overrides: dict | None = None
     payload = {
         "schema_version": "1.0",
         "understanding_version": "v0.8.0",
-        "source": "GOD",
+        "source": "DEUS",
         "god_interaction_id": str(uuid.uuid4()),
         "conversation_id": str(uuid.uuid4()),
         "interaction_type": "POTENTIAL",

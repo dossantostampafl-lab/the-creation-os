@@ -42,7 +42,7 @@ def trinity_response(god_interaction_id: str, interaction_type: str, result: Tri
         assessment_created=result.assessment_created,
         god_consolidated_result={
             "source": "TRINITY",
-            "received_by": "GOD",
+            "received_by": "DEUS",
             "creator_approval_required": result.assessment.assessment_result == "REQUIRES_CREATOR",
             "creates_inception": False,
             "creates_mission": False,

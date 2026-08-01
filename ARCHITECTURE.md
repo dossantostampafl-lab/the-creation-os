@@ -3,7 +3,7 @@
 ## Immutable flow
 
 ```text
-Creator -> Creator Interface -> GOD / SOPHIA / ROCKMAM -> Inception
+Creator -> Creator Interface -> DEUS / SOPHIA / ROCKMAM -> Inception
         -> Central Core -> Tree Core -> Universes -> Agents
         -> Tree Core -> Central Core -> Malkuth
 ```
@@ -65,9 +65,9 @@ decisions. It does not change Mission, Task, DispatchItem, AgentExecution, or
 MissionConsolidation records. A recorded decision becomes available for later
 policy reasoning and Malkuth manifestation.
 
-## GOD, SOPHIA, ROCKMAM
+## DEUS, SOPHIA, ROCKMAM
 
-GOD conversation, SOPHIA understanding, and ROCKMAM assessment are separate
+DEUS conversation, SOPHIA understanding, and ROCKMAM assessment are separate
 bounded steps. They may interpret, understand, and assess, but they do not create
 Mission automatically and do not bypass Creator authorization.
 

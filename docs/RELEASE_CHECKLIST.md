@@ -130,7 +130,7 @@ release validation unless explicitly authorized.
 
 Validate through API tests and Creator Interface:
 
-- GOD Conversation;
+- DEUS Conversation;
 - Voice;
 - Mission Authorization;
 - Capability Governance;
