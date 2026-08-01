@@ -5,8 +5,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.requests import Request
 from fastapi.responses import JSONResponse
 
+from app.admin.creator import restore_configured_creator
+from app.admin.worker import restore_configured_worker
 from app.api import router as api_router
 from app.auth.routes import router as auth_router
+from app.config import settings
 from app.core.domain import AuthorizationDenied, DomainError
 from app.services.domain import NotFoundError
 
@@ -22,6 +25,18 @@ app.add_middleware(
 
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(api_router, prefix="/api/v1")
+
+
+@app.on_event("startup")
+async def ensure_development_creator() -> None:
+    if settings.app_env == "development":
+        await restore_configured_creator()
+
+
+@app.on_event("startup")
+async def ensure_development_worker() -> None:
+    if settings.app_env == "development":
+        await restore_configured_worker()
 
 
 @app.middleware("http")

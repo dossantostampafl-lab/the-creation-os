@@ -9,7 +9,7 @@ from app.config import settings
 from app.db.session import get_session
 
 router = APIRouter()
-EXPECTED_ALEMBIC_REVISION = "0021_mission_authorization"
+EXPECTED_ALEMBIC_REVISION = "0022_pgvector_extension"
 
 
 @router.get("/health/live")

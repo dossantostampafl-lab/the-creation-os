@@ -1,10 +1,41 @@
+x-backend-environment: &backend-environment
+  APP_ENV: ${APP_ENV:-development}
+  APP_SECRET_KEY_FILE: /run/secrets/app_secret_key
+  CREATOR_BOOTSTRAP_USERNAME: ${CREATOR_BOOTSTRAP_USERNAME:-creator}
+  CREATOR_BOOTSTRAP_PASSWORD_FILE: /run/secrets/creator_bootstrap_password
+  DATABASE_URL_FILE: /run/secrets/database_url
+  REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  LLM_PROVIDER: ${LLM_PROVIDER:-fake}
+  LLM_MODEL: ${LLM_MODEL:-fake}
+  LLM_API_KEY_FILE: /run/secrets/llm_api_key
+  EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-fake}
+  EMBEDDING_MODEL: ${EMBEDDING_MODEL:-fake}
+  GITHUB_TOKEN_FILE: /run/secrets/github_token
+  WORKER_CREDENTIAL_FILE: /run/secrets/worker_credential
+  ELEVENLABS_ENABLED: ${ELEVENLABS_ENABLED:-false}
+  ELEVENLABS_API_KEY_FILE: /run/secrets/elevenlabs_api_key
+  ELEVENLABS_VOICE_ID: ${ELEVENLABS_VOICE_ID:-configured-voice-id}
+  ELEVENLABS_MODEL_ID: ${ELEVENLABS_MODEL_ID:-eleven_multilingual_v2}
+  ELEVENLABS_TIMEOUT_SECONDS: ${ELEVENLABS_TIMEOUT_SECONDS:-12}
+  VOICE_SYNTHESIS_MAX_CHARS: ${VOICE_SYNTHESIS_MAX_CHARS:-1200}
+
+x-backend-secrets: &backend-secrets
+  - app_secret_key
+  - creator_bootstrap_password
+  - database_url
+  - elevenlabs_api_key
+  - github_token
+  - llm_api_key
+  - worker_credential
+
 services:
   api:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    env_file:
-      - .env
+    environment: *backend-environment
+    secrets: *backend-secrets
     ports:
       - "8000:8000"
     depends_on:
@@ -12,29 +43,29 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    volumes:
-      - ./backend:/app
-    command: ["sh", "-c", "python -m alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health/ready')"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 30s
     networks:
       - tco_net
 
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: the_creation_os
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_DB: ${POSTGRES_DB:-the_creation_os}
+    secrets:
+      - postgres_password
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -42,12 +73,12 @@ services:
       - tco_net
 
   redis:
-    image: redis:7
+    image: redis:7-alpine
     command: ["redis-server", "--save", "", "--appendonly", "yes"]
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -55,45 +86,70 @@ services:
       - tco_net
 
   frontend:
-    image: node:20-alpine
-    working_dir: /app
-    volumes:
-      - ./frontend:/app
-      - frontend_node_modules:/app/node_modules
-    command: ["sh", "-c", "npm ci && npm run dev"]
-    environment:
-      VITE_API_BASE_URL: http://127.0.0.1:8000/api/v1
-      VITE_CREATOR_DEFAULT_USERNAME: creator
-      VITE_CREATOR_DEV_PASSWORD: local-development-password
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://127.0.0.1:8000/api/v1}
+        VITE_CREATOR_DEFAULT_USERNAME: ${VITE_CREATOR_DEFAULT_USERNAME:-creator}
     ports:
-      - "5173:5173"
+      - "5173:8080"
     depends_on:
       api:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     networks:
       - tco_net
 
   worker:
-    profiles: ["future-runtime"]
     build:
       context: ./backend
       dockerfile: Dockerfile
-    env_file:
-      - .env
+    environment: *backend-environment
+    secrets: *backend-secrets
     depends_on:
+      api:
+        condition: service_healthy
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     command: ["python", "-m", "app.worker"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,sys,time; p='/tmp/worker-heartbeat'; sys.exit(0 if os.path.exists(p) and time.time()-os.path.getmtime(p)<90 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
     networks:
       - tco_net
 
 volumes:
   postgres_data:
   redis_data:
-  frontend_node_modules:
 
 networks:
   tco_net:
     driver: bridge
+
+secrets:
+  app_secret_key:
+    file: ./secrets/app_secret_key.txt
+  creator_bootstrap_password:
+    file: ./secrets/creator_bootstrap_password.txt
+  database_url:
+    file: ./secrets/database_url.txt
+  postgres_password:
+    file: ./secrets/postgres_password.txt
+  elevenlabs_api_key:
+    file: ./secrets/elevenlabs_api_key.txt
+  github_token:
+    file: ./secrets/github_token.txt
+  llm_api_key:
+    file: ./secrets/llm_api_key.txt
+  worker_credential:
+    file: ./secrets/worker_credential.txt

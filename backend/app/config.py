@@ -2,8 +2,43 @@ from __future__ import annotations
 
 import os
 from datetime import timedelta
+from pathlib import Path
 
+from dotenv import dotenv_values
 from pydantic.v1 import BaseSettings, Field, SecretStr, validator
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+ENV_FILE = PROJECT_ROOT / ".env"
+FILE_SECRET_ENV_VARS = {
+    "APP_SECRET_KEY": "APP_SECRET_KEY_FILE",
+    "CREATOR_BOOTSTRAP_PASSWORD": "CREATOR_BOOTSTRAP_PASSWORD_FILE",
+    "DATABASE_URL": "DATABASE_URL_FILE",
+    "ELEVENLABS_API_KEY": "ELEVENLABS_API_KEY_FILE",
+    "GITHUB_TOKEN": "GITHUB_TOKEN_FILE",
+    "LLM_API_KEY": "LLM_API_KEY_FILE",
+    "WORKER_CREDENTIAL": "WORKER_CREDENTIAL_FILE",
+}
+
+
+def load_file_secrets() -> None:
+    """Load Docker-style *_FILE settings without exposing values as image metadata."""
+    dotenv = dotenv_values(ENV_FILE)
+    for environment_name, file_environment_name in FILE_SECRET_ENV_VARS.items():
+        if environment_name in os.environ:
+            continue
+        configured_path = os.getenv(file_environment_name) or dotenv.get(file_environment_name)
+        if not configured_path:
+            continue
+        secret_path = Path(configured_path)
+        if not secret_path.is_absolute():
+            secret_path = PROJECT_ROOT / secret_path
+        try:
+            os.environ[environment_name] = secret_path.read_text(encoding="utf-8").rstrip("\r\n")
+        except OSError as exc:
+            raise RuntimeError(f"Unable to read secret file configured by {file_environment_name}") from exc
+
+
+load_file_secrets()
 
 
 class Settings(BaseSettings):
@@ -16,6 +51,7 @@ class Settings(BaseSettings):
     refresh_token_expire_minutes: int = Field(1440, env="REFRESH_TOKEN_EXPIRE_MINUTES")
     database_url: str = Field(..., env="DATABASE_URL")
     redis_url: str = Field(..., env="REDIS_URL")
+    worker_credential: SecretStr | None = Field(None, env="WORKER_CREDENTIAL")
     log_level: str = Field("INFO", env="LOG_LEVEL")
     llm_provider: str = Field("fake", env="LLM_PROVIDER")
     llm_model: str = Field("fake", env="LLM_MODEL")
@@ -51,7 +87,7 @@ class Settings(BaseSettings):
     voice_synthesis_max_chars: int = Field(1200, env="VOICE_SYNTHESIS_MAX_CHARS")
 
     class Config:
-        env_file = os.path.join(os.path.dirname(__file__), "..", "..", ".env")
+        env_file = str(ENV_FILE)
         env_file_encoding = "utf-8"
 
     @property

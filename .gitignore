@@ -2,6 +2,9 @@
 .env
 .env.*
 !.env.example
+secrets/*
+!secrets/README.md
+docker-compose.override.yml
 
 # Python
 **pycache**/
