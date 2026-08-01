@@ -112,6 +112,7 @@ textarea {
   transform: translate(-50%, 0);
   text-align: center;
   pointer-events: none;
+  animation: deus-label-breathe 7s ease-in-out infinite;
 }
 
 .deus-core-label strong {
@@ -194,6 +195,7 @@ textarea {
   font-size: 9px;
   letter-spacing: 0.12em;
   pointer-events: none;
+  animation: hotspot-tooltip-in 120ms ease-out both;
 }
 
 .hotspot-popover {
@@ -484,6 +486,11 @@ textarea {
   background: rgba(0, 0, 0, 0.12);
   backdrop-filter: blur(7px);
   pointer-events: none;
+  transition: color 300ms ease;
+}
+
+.system-state-binding.state-ready {
+  animation: system-pulse-breathe 5s ease-in-out infinite;
 }
 
 .system-state-binding span {
@@ -688,6 +695,53 @@ textarea {
   }
 }
 
+@keyframes deus-label-breathe {
+  0%,
+  100% {
+    opacity: 0.94;
+    transform: translate(-50%, 0) scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1.015);
+  }
+}
+
+@keyframes hotspot-tooltip-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes constellation-card-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.92);
+  }
+}
+
+@keyframes chronicle-dot-pulse {
+  0%,
+  100% {
+    opacity: 0.75;
+    box-shadow: 0 0 8px rgba(255, 190, 90, 0.6);
+  }
+  50% {
+    opacity: 1;
+    box-shadow: 0 0 14px rgba(255, 190, 90, 0.85);
+  }
+}
+
+@keyframes system-pulse-breathe {
+  0%,
+  100% {
+    opacity: 0.92;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
 @keyframes transient-in {
   from {
     transform: translate(-50%, 10px);
@@ -846,6 +900,10 @@ textarea {
   inset: 0;
 }
 
+.pulse-score svg circle:last-child {
+  transition: stroke-dasharray 600ms ease;
+}
+
 .pulse-score-text {
   position: relative;
   display: grid;
@@ -925,6 +983,7 @@ textarea {
   background: transparent;
   pointer-events: auto;
   cursor: default;
+  animation: constellation-card-in 420ms ease-out both;
 }
 
 .constellation-card strong {
@@ -1084,6 +1143,7 @@ textarea {
   border-radius: 50%;
   background: rgba(255, 210, 130, 0.75);
   box-shadow: 0 0 8px rgba(255, 190, 90, 0.6);
+  animation: chronicle-dot-pulse 2.6s ease-in-out infinite;
 }
 
 .chronicle-ticker-head strong {

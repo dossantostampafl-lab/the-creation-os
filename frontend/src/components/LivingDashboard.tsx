@@ -145,7 +145,8 @@ function LivingUniverseScene({
     const cnv = canvas;
     const ctx = context;
 
-    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    let reducedMotion = reducedMotionQuery.matches;
     particlesRef.current = createParticles(reducedMotion ? 160 : 340);
     let width = 0;
     let height = 0;
@@ -444,15 +445,22 @@ function LivingUniverseScene({
       };
     }
 
+    function handleReducedMotionChange(event: MediaQueryListEvent) {
+      reducedMotion = event.matches;
+      particlesRef.current = createParticles(reducedMotion ? 160 : 340);
+    }
+
     const observer = new ResizeObserver(resize);
     observer.observe(cnv);
     window.addEventListener("pointermove", handlePointerMove);
+    reducedMotionQuery.addEventListener("change", handleReducedMotionChange);
     resize();
     animationRef.current = requestAnimationFrame(draw);
 
     return () => {
       observer.disconnect();
       window.removeEventListener("pointermove", handlePointerMove);
+      reducedMotionQuery.removeEventListener("change", handleReducedMotionChange);
       if (animationRef.current) cancelAnimationFrame(animationRef.current);
     };
   }, []);

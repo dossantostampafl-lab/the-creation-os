@@ -83,3 +83,45 @@ The release-candidate health boundary is Alembic `0024_creator_singleton`.
 Readiness requires PostgreSQL, Redis, and the expected migration revision. This
 document records architecture only; it does not authorize new layers, engines,
 workers, endpoints, or responsibility shifts.
+
+## Creator Interface — Living Universe Motion
+
+The initial Creator Interface screen (`frontend/src/components/LivingDashboard.tsx`)
+renders the universe as a single `<canvas>` driven by one `requestAnimationFrame`
+loop (`LivingUniverseScene`), not a static image. This is the already-accepted
+direction on this branch (see commit history and `docs/AUDIT_v0.5.md`); the
+sidebar-vs-universe boundary the spec actually protects (no persistent
+sidebar/menu/dashboard-grid) remains untouched and is guarded by
+`frontend/src/components/LivingDashboard.frozenSpec.test.ts`.
+
+Taste calls made while adding continuous motion (all chosen for the most
+subtle, reversible value, per the batch's own instruction not to stop and ask):
+
+- **Canvas motion** (particle drift, hotspot orbit/breathing, constellation
+  twinkle, neural-path signal travel) was already implemented before this
+  batch; this batch only made `prefers-reduced-motion` reactive to a live OS
+  toggle instead of a mount-time-only check (a `MediaQueryList` `change`
+  listener updates a closured `reducedMotion` flag read by the existing draw
+  loop; cleaned up alongside the existing `ResizeObserver`/`pointermove`
+  cleanup).
+- **DOM finishing touches** added on top of already-existing elements only
+  (no new structural elements): a 7s opacity/scale breathing loop on the DEUS
+  label, a 2.6s pulse on the chronicle-ticker status dot, a 5s opacity
+  breathing loop on the system-state-binding pill (only while
+  `loadState === "ready"`, i.e. only when genuinely healthy), a 600ms
+  `stroke-dasharray` transition on the pulse-score ring so score changes
+  glide instead of snapping, a 120ms opacity fade on the hotspot tooltip, and
+  a 420ms fade/scale-in on constellation cards (covers a universe card
+  appearing when a universe goes active).
+- All new animations use `transform`/`opacity` (or, for the pulse-score ring,
+  an infrequent data-driven SVG attribute transition, not a per-frame one) —
+  no `width`/`height`/`top`/`left` animation was added.
+- All new CSS animations are covered by the existing global
+  `@media (prefers-reduced-motion: reduce)` rule
+  (`frontend/src/styles/living-dashboard.css`), which already zeroes
+  `animation-duration` for every element; no per-animation opt-out was
+  needed.
+- No new animation dependency was added. `@types/node` was added as a
+  dev-only dependency so the new frozen-spec regression test can read source
+  files with `node:fs`; it has no runtime/bundle effect (confirmed by
+  `npm run build` output).
