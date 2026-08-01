@@ -1,7 +1,7 @@
-export type VoiceConversationState = "idle" | "listening" | "processing" | "speaking" | "error";
+export type VoiceConversationState = "idle" | "listening" | "processing" | "responding" | "speaking" | "error";
 
 export type BrowserSpeechRecognizer = {
-  start: () => void;
+  start: () => Promise<void>;
   stop: () => void;
   supported: boolean;
 };
@@ -27,7 +27,11 @@ type SpeechRecognitionLike = {
   continuous: boolean;
   interimResults: boolean;
   lang: string;
+  maxAlternatives: number;
   onstart: (() => void) | null;
+  onaudiostart: (() => void) | null;
+  onspeechstart: (() => void) | null;
+  onspeechend: (() => void) | null;
   onend: (() => void) | null;
   onresult: ((event: SpeechRecognitionEventLike) => void) | null;
   onerror: ((event: SpeechRecognitionErrorEventLike) => void) | null;
@@ -53,18 +57,41 @@ export function createBrowserSpeechRecognizer(options: {
   if (!Recognition) {
     return {
       supported: false,
-      start: () => options.onError("Reconhecimento de voz indisponivel neste navegador."),
+      start: async () => options.onError("Reconhecimento de voz indisponivel neste navegador."),
       stop: options.onStop,
     };
   }
 
   const recognition = new Recognition();
+  let recognitionTimeout: number | null = null;
+  let receivedTranscript = false;
+  let recognitionFailed = false;
+  function clearRecognitionTimeout() {
+    if (recognitionTimeout === null) return;
+    window.clearTimeout(recognitionTimeout);
+    recognitionTimeout = null;
+  }
+  function releaseCapture() {
+    clearRecognitionTimeout();
+  }
   recognition.continuous = false;
   recognition.interimResults = true;
-  recognition.lang = navigator.language || "pt-BR";
+  recognition.lang = "pt-BR";
+  recognition.maxAlternatives = 1;
   recognition.onstart = options.onStart;
-  recognition.onend = options.onStop;
-  recognition.onerror = (event) => options.onError(`Falha no reconhecimento de voz: ${event.error}`);
+  recognition.onaudiostart = () => undefined;
+  recognition.onspeechstart = () => undefined;
+  recognition.onspeechend = () => undefined;
+  recognition.onend = () => {
+    releaseCapture();
+    if (!receivedTranscript && !recognitionFailed) options.onError("Nenhuma fala foi detectada.");
+    else options.onStop();
+  };
+  recognition.onerror = (event) => {
+    recognitionFailed = true;
+    releaseCapture();
+    options.onError(event.error === "no-speech" ? "Nenhuma fala detectada. Tente novamente." : `Falha no reconhecimento de voz: ${event.error}`);
+  };
   recognition.onresult = (event) => {
     let finalText = "";
     for (let index = event.resultIndex; index < event.results.length; index += 1) {
@@ -72,13 +99,43 @@ export function createBrowserSpeechRecognizer(options: {
       if (result.isFinal) finalText += result[0].transcript;
     }
     const normalized = finalText.trim();
-    if (normalized) options.onTranscript(normalized);
+    if (normalized) {
+      receivedTranscript = true;
+      clearRecognitionTimeout();
+      options.onTranscript(normalized);
+    }
   };
 
   return {
     supported: true,
-    start: () => recognition.start(),
-    stop: () => recognition.stop(),
+    start: async () => {
+      if (!navigator.mediaDevices?.enumerateDevices) {
+        options.onError("Este navegador nao oferece dispositivos de entrada de audio.");
+        return;
+      }
+      try {
+        receivedTranscript = false;
+        recognitionFailed = false;
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        if (!devices.some((device) => device.kind === "audioinput")) {
+          options.onError("Nenhum microfone foi encontrado.");
+          return;
+        }
+        recognitionTimeout = window.setTimeout(() => {
+          recognitionFailed = true;
+          releaseCapture();
+          recognition.stop();
+          options.onError("Nenhuma fala detectada. Tente novamente.");
+        }, 10000);
+        recognition.start();
+      } catch (error) {
+        releaseCapture();
+        options.onError(error instanceof DOMException && error.name === "NotAllowedError" ? "Permissao do microfone negada." : "Nao foi possivel iniciar o reconhecimento de voz.");
+      }
+    },
+    stop: () => {
+      recognition.stop();
+    },
   };
 }
 
