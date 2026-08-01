@@ -1,9 +1,21 @@
 import { FormEvent, KeyboardEvent, ReactNode, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import type { ChatItem, CreatorNotification, Pulse } from "../types";
+import type { Agent, ChatItem, ChronicleEntry, CreatorNotification, Pulse, Universe } from "../types";
 import type { VoiceConversationState } from "../voice";
+import { ChronicleTicker } from "./ChronicleTicker";
+import { SystemPulseHeader } from "./SystemPulseHeader";
+import { UniverseConstellationLabels } from "./UniverseConstellationLabels";
 
 export type EntityActivityState = "idle" | "active" | "processing" | "waiting" | "completed" | "warning" | "error" | "offline";
+
+function voiceStateLabel(state: VoiceConversationState) {
+  if (state === "listening") return "Ouvindo";
+  if (state === "processing") return "Processando";
+  if (state === "responding") return "Respondendo";
+  if (state === "speaking") return "Reproduzindo";
+  if (state === "error") return "Erro";
+  return "Pronto";
+}
 
 export type HotspotSummary = {
   id: string;
@@ -23,18 +35,27 @@ type LivingDashboardProps = {
   pulse: Pulse | null;
   loadState: "idle" | "loading" | "ready" | "empty" | "error";
   notifications: CreatorNotification[];
+  agents: Agent[];
+  universes: Universe[];
+  chronicles: ChronicleEntry[];
   activityStates: Record<string, EntityActivityState>;
   hotspotSummaries: Record<string, HotspotSummary>;
   demandPanel: ReactNode;
+  onSelectPanel: (panel: "universes" | "chronicle") => void;
   voiceState: VoiceConversationState;
   voiceSupported: boolean;
   voiceError: string | null;
+  authBusy: boolean;
+  username: string;
+  password: string;
+  onUsername: (value: string) => void;
+  onPassword: (value: string) => void;
+  onLogin: (event: FormEvent) => void;
   onMessage: (value: string) => void;
   onSend: (event: FormEvent) => void;
   onVoiceListen: () => void;
   onVoiceStopListening: () => void;
   onVoiceStopSpeaking: () => void;
-  onHotspotAction: (summary: HotspotSummary) => void;
   onReadNotification: (notificationId: string) => void;
 };
 
@@ -43,13 +64,12 @@ type VisualTone = "gold" | "violet" | "blue" | "green" | "red";
 type Hotspot = {
   id: string;
   label: string;
-  type: "core" | "universe";
+  type: "core";
   xPercent: number;
   yPercent: number;
   radiusPercent: number;
   hue: number;
   tone: VisualTone;
-  agents: number;
 };
 
 type Particle = {
@@ -63,17 +83,9 @@ type Particle = {
 };
 
 const hotspots: Hotspot[] = [
-  { id: "deus", label: "DEUS", type: "core", xPercent: 50.2, yPercent: 50.9, radiusPercent: 5.6, hue: 42, tone: "gold", agents: 0 },
-  { id: "sophia", label: "SOPHIA", type: "core", xPercent: 39.6, yPercent: 48.5, radiusPercent: 4.5, hue: 287, tone: "violet", agents: 0 },
-  { id: "rockmam", label: "ROCKMAM", type: "core", xPercent: 62.8, yPercent: 51.5, radiusPercent: 4.3, hue: 35, tone: "gold", agents: 0 },
-  { id: "eng", label: "ENGENHARIA", type: "universe", xPercent: 21.4, yPercent: 51.8, radiusPercent: 4.2, hue: 214, tone: "blue", agents: 9 },
-  { id: "jur", label: "JURIDICO", type: "universe", xPercent: 27.4, yPercent: 78.8, radiusPercent: 4.0, hue: 166, tone: "green", agents: 6 },
-  { id: "fin", label: "FINANCAS", type: "universe", xPercent: 79.5, yPercent: 47.7, radiusPercent: 4.1, hue: 148, tone: "green", agents: 8 },
-  { id: "seg", label: "SEGURANCA", type: "universe", xPercent: 69.2, yPercent: 75.4, radiusPercent: 3.8, hue: 4, tone: "red", agents: 6 },
-  { id: "neg", label: "NEGOCIOS", type: "universe", xPercent: 76.6, yPercent: 19.6, radiusPercent: 4.0, hue: 37, tone: "gold", agents: 7 },
-  { id: "cie", label: "CIENCIA", type: "universe", xPercent: 48.8, yPercent: 16.8, radiusPercent: 3.9, hue: 204, tone: "blue", agents: 8 },
-  { id: "con", label: "CONHECIMENTO", type: "universe", xPercent: 24.2, yPercent: 27.0, radiusPercent: 4.0, hue: 286, tone: "violet", agents: 7 },
-  { id: "cri", label: "CRIACAO", type: "universe", xPercent: 48.3, yPercent: 83.5, radiusPercent: 3.7, hue: 46, tone: "gold", agents: 5 },
+  { id: "deus", label: "DEUS", type: "core", xPercent: 50, yPercent: 45, radiusPercent: 5.2, hue: 42, tone: "gold" },
+  { id: "sophia", label: "SOPHIA", type: "core", xPercent: 39, yPercent: 43, radiusPercent: 3.4, hue: 287, tone: "violet" },
+  { id: "rockmam", label: "ROCKMAM", type: "core", xPercent: 61, yPercent: 47, radiusPercent: 3.4, hue: 35, tone: "gold" },
 ];
 
 function createParticles(count: number): Particle[] {
@@ -88,16 +100,43 @@ function createParticles(count: number): Particle[] {
   }));
 }
 
-function LivingUniverseScene({ activityStates }: { activityStates: Record<string, EntityActivityState> }) {
+function stableUnit(value: string, salt = 0) {
+  let hash = 2166136261 + salt;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) / 4294967295;
+}
+
+function LivingUniverseScene({
+  activityStates,
+  agents,
+  universes,
+}: {
+  activityStates: Record<string, EntityActivityState>;
+  agents: Agent[];
+  universes: Universe[];
+}) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const animationRef = useRef<number | null>(null);
   const particlesRef = useRef<Particle[]>([]);
   const pointerRef = useRef({ x: 0, y: 0 });
   const activityRef = useRef(activityStates);
+  const agentsRef = useRef(agents);
+  const universesRef = useRef(universes);
 
   useEffect(() => {
     activityRef.current = activityStates;
   }, [activityStates]);
+
+  useEffect(() => {
+    agentsRef.current = agents;
+  }, [agents]);
+
+  useEffect(() => {
+    universesRef.current = universes;
+  }, [universes]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -147,6 +186,88 @@ function LivingUniverseScene({ activityStates }: { activityStates: Record<string
       ctx.fill();
     }
 
+    function drawNeuralPath(
+      start: { x: number; y: number },
+      end: { x: number; y: number },
+      hue: number,
+      phase: number,
+      alpha: number,
+      time: number,
+    ) {
+      const bend = Math.sin(phase * 2.7) * Math.min(width, height) * 0.035;
+      const control = {
+        x: (start.x + end.x) / 2 + bend,
+        y: (start.y + end.y) / 2 - bend * 0.6,
+      };
+      ctx.beginPath();
+      ctx.moveTo(start.x, start.y);
+      ctx.quadraticCurveTo(control.x, control.y, end.x, end.y);
+      ctx.strokeStyle = `hsla(${hue}, 92%, 72%, ${alpha})`;
+      ctx.lineWidth = 0.45;
+      ctx.stroke();
+
+      const progress = reducedMotion ? 0.5 : (time * (0.07 + (phase % 5) * 0.009) + phase) % 1;
+      const inverse = 1 - progress;
+      const signalX = inverse * inverse * start.x + 2 * inverse * progress * control.x + progress * progress * end.x;
+      const signalY = inverse * inverse * start.y + 2 * inverse * progress * control.y + progress * progress * end.y;
+      drawGlow(signalX, signalY, Math.max(7, width * 0.007), hue, alpha * 1.8);
+      ctx.beginPath();
+      ctx.arc(signalX, signalY, 0.8, 0, Math.PI * 2);
+      ctx.fillStyle = `hsla(${hue}, 100%, 88%, ${Math.min(0.72, alpha * 3)})`;
+      ctx.fill();
+    }
+
+    // Deterministic star-cluster network around an entity point (SOPHIA/ROCKMAM/each
+    // active Universe), matching the reference image's constellation motif — every
+    // point/edge is a pure function of (seed, index) via stableUnit, not random per frame.
+    function drawConstellationCluster(cx: number, cy: number, hue: number, seed: string, radius: number, time: number) {
+      const count = 7;
+      const points = Array.from({ length: count }, (_, index) => {
+        const angle = stableUnit(seed, index * 7 + 1) * Math.PI * 2;
+        const dist = (0.35 + stableUnit(seed, index * 13 + 3) * 0.65) * radius;
+        return {
+          x: cx + Math.cos(angle) * dist,
+          y: cy + Math.sin(angle) * dist * 0.68,
+          phase: stableUnit(seed, index * 19 + 5) * Math.PI * 2,
+          speed: 0.6 + stableUnit(seed, index * 23 + 7) * 0.8,
+        };
+      });
+
+      ctx.strokeStyle = `hsla(${hue}, 85%, 75%, 0.15)`;
+      ctx.lineWidth = 0.5;
+      for (let index = 0; index < points.length; index += 1) {
+        const a = points[index];
+        const b = points[(index + 1) % points.length];
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+      }
+      for (let index = 0; index < 3; index += 1) {
+        const from = Math.floor(stableUnit(seed, index * 31 + 11) * points.length);
+        const to = Math.floor(stableUnit(seed, index * 37 + 17) * points.length);
+        if (from === to) continue;
+        ctx.beginPath();
+        ctx.moveTo(points[from].x, points[from].y);
+        ctx.lineTo(points[to].x, points[to].y);
+        ctx.stroke();
+      }
+      for (let index = 0; index < Math.min(3, points.length); index += 1) {
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(points[index].x, points[index].y);
+        ctx.stroke();
+      }
+
+      for (const star of points) {
+        const twinkle = reducedMotion ? 0.5 : (Math.sin(time * star.speed + star.phase) + 1) * 0.5;
+        ctx.beginPath();
+        ctx.arc(star.x, star.y, 0.9 + twinkle * 0.6, 0, Math.PI * 2);
+        ctx.fillStyle = `hsla(${hue}, 100%, 85%, ${0.32 + twinkle * 0.42})`;
+        ctx.fill();
+      }
+    }
+
     function draw(timeMs: number) {
       if (document.hidden) {
         lastTime = timeMs;
@@ -183,72 +304,134 @@ function LivingUniverseScene({ activityStates }: { activityStates: Record<string
         ctx.fill();
       }
 
-      const center = point(hotspots[0], t);
-      for (const hotspot of hotspots.slice(1)) {
-        const target = point(hotspot, t);
-        const state = activity[hotspot.id] ?? "idle";
-        const pulse = (Math.sin(t * 1.4 + hotspot.hue) + 1) * 0.5;
+      const corePoints = new Map(hotspots.map((hotspot) => [hotspot.id, point(hotspot, t)]));
+      const deus = corePoints.get("deus")!;
+      const sophia = corePoints.get("sophia")!;
+      const rockmam = corePoints.get("rockmam")!;
+
+      drawNeuralPath(deus, sophia, 287, 0.12, 0.18, t);
+      drawNeuralPath(deus, rockmam, 38, 0.62, 0.18, t);
+
+      const activeUniverses = universesRef.current.filter((universe) => universe.active);
+      const universePoints = activeUniverses.map((universe, index) => {
+        const angle = (Math.PI * 2 * index) / Math.max(1, activeUniverses.length) - Math.PI / 2;
+        const breathing = reducedMotion ? 0 : Math.sin(t * 0.08 + index * 1.7) * 0.012;
+        return {
+          id: universe.id,
+          x: width * (0.5 + Math.cos(angle) * (0.31 + breathing)),
+          y: height * (0.45 + Math.sin(angle) * (0.31 + breathing) * 0.72),
+          hue: [210, 278, 158, 34, 192, 326][index % 6],
+        };
+      });
+
+      for (let index = 0; index < universePoints.length; index += 1) {
+        const region = universePoints[index];
+        const regionPulse = (Math.sin(t * 0.42 + index * 1.9) + 1) * 0.5;
+        drawGlow(region.x, region.y, width * 0.105, region.hue, 0.025 + regionPulse * 0.018);
+        drawConstellationCluster(region.x, region.y, region.hue, region.id, width * 0.062, t);
         ctx.beginPath();
-        ctx.moveTo(center.x, center.y);
-        ctx.bezierCurveTo(
-          (center.x + target.x) / 2,
-          center.y + Math.sin(t + hotspot.hue) * height * 0.08,
-          (center.x + target.x) / 2,
-          target.y + Math.cos(t + hotspot.hue) * height * 0.08,
-          target.x,
-          target.y,
-        );
-        ctx.strokeStyle = `hsla(${hotspot.hue}, 95%, 70%, ${state === "idle" ? 0.11 : 0.24 + pulse * 0.16})`;
-        ctx.lineWidth = hotspot.type === "core" ? 1.2 : 0.7;
-        ctx.stroke();
+        ctx.arc(region.x, region.y, 0.8 + regionPulse * 0.6, 0, Math.PI * 2);
+        ctx.fillStyle = `hsla(${region.hue}, 90%, 78%, ${0.12 + regionPulse * 0.1})`;
+        ctx.fill();
+        drawNeuralPath(region, deus, region.hue, index * 0.17, 0.035, t);
       }
+
+      const visibleAgents = agentsRef.current.filter((agent) => agent.enabled).slice(0, 96);
+      visibleAgents.forEach((agent, index) => {
+        if (universePoints.length === 0) return;
+        const region = universePoints[Math.floor(stableUnit(agent.universe || agent.id, 7) * universePoints.length) % universePoints.length];
+        const angle = stableUnit(agent.id, 11) * Math.PI * 2;
+        const distance = width * (0.025 + stableUnit(agent.id, 23) * 0.075);
+        const drift = reducedMotion ? 0 : Math.sin(t * (0.11 + stableUnit(agent.id, 31) * 0.08) + index) * width * 0.006;
+        const node = {
+          x: region.x + Math.cos(angle) * distance + drift,
+          y: region.y + Math.sin(angle) * distance * 0.58 + drift * 0.35,
+        };
+        const operational = !["idle", "offline", "disabled"].includes(agent.status.toLowerCase());
+        const nodePulse = (Math.sin(t * (operational ? 1.8 : 0.72) + index * 1.37) + 1) * 0.5;
+        drawNeuralPath(node, region, region.hue, stableUnit(agent.id, 43), operational ? 0.09 : 0.035, t);
+        drawGlow(node.x, node.y, width * 0.012, region.hue, operational ? 0.13 + nodePulse * 0.08 : 0.055 + nodePulse * 0.035);
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, 0.75 + nodePulse * 0.7, 0, Math.PI * 2);
+        ctx.fillStyle = `hsla(${region.hue}, 100%, 86%, ${operational ? 0.68 : 0.34})`;
+        ctx.fill();
+      });
 
       for (const hotspot of hotspots) {
         const p = point(hotspot, t);
         const state = activity[hotspot.id] ?? "idle";
         const active = state !== "idle";
         const pulse = (Math.sin(t * (active ? 2.6 : 1.1) + hotspot.hue) + 1) * 0.5;
-        const baseRadius = width * hotspot.radiusPercent * 0.0048;
-        const glowRadius = baseRadius * (hotspot.type === "core" ? 13 : 10) * (active ? 1.22 : 1);
-        drawGlow(p.x, p.y, glowRadius, hotspot.hue, active ? 0.46 + pulse * 0.18 : 0.25 + pulse * 0.08);
+        const isDeus = hotspot.id === "deus";
+        // DEUS reads as the dominant sacred-geometry sun (per reference image); SOPHIA/ROCKMAM stay
+        // small orbiting points since their identity already has a persistent DOM card off to the side.
+        const baseRadius = width * (isDeus ? 0.026 : 0.0038);
+        drawGlow(p.x, p.y, width * (isDeus ? 0.13 : 0.05), hotspot.hue, active ? (isDeus ? 0.34 : 0.14) + pulse * 0.05 : (isDeus ? 0.24 : 0.065) + pulse * 0.035);
 
-        if (hotspot.type === "core") {
-          ctx.save();
-          ctx.translate(p.x, p.y);
-          ctx.rotate(t * (hotspot.id === "rockmam" ? -0.1 : 0.11));
-          for (let ring = 0; ring < (hotspot.id === "deus" ? 5 : 3); ring += 1) {
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(t * (hotspot.id === "rockmam" ? -0.08 : 0.08));
+        if (isDeus) {
+          for (let ring = 0; ring < 4; ring += 1) {
             ctx.beginPath();
-            ctx.ellipse(0, 0, baseRadius * (7 + ring * 2.5), baseRadius * (2.4 + ring * 0.8), ring * 0.36, 0, Math.PI * 2);
-            ctx.strokeStyle = `hsla(${hotspot.hue}, 90%, 72%, ${0.13 - ring * 0.018 + pulse * 0.03})`;
-            ctx.lineWidth = 1;
+            ctx.arc(0, 0, baseRadius * (0.55 + ring * 0.42), 0, Math.PI * 2);
+            ctx.strokeStyle = `hsla(${hotspot.hue}, 92%, 82%, ${0.34 - ring * 0.055 + pulse * 0.03})`;
+            ctx.lineWidth = 0.9;
             ctx.stroke();
           }
-          ctx.restore();
-        } else {
-          const count = Math.max(4, hotspot.agents);
-          for (let index = 0; index < count; index += 1) {
-            const angle = (Math.PI * 2 * index) / count + t * (reducedMotion ? 0 : 0.05) + hotspot.hue;
-            const distance = baseRadius * (5 + (index % 4));
-            const ax = p.x + Math.cos(angle) * distance;
-            const ay = p.y + Math.sin(angle) * distance * 0.72;
+          for (let index = 0; index < 6; index += 1) {
+            const angle = (Math.PI * 2 * index) / 6;
             ctx.beginPath();
-            ctx.moveTo(p.x, p.y);
-            ctx.lineTo(ax, ay);
-            ctx.strokeStyle = `hsla(${hotspot.hue}, 90%, 66%, ${0.12 + pulse * 0.08})`;
-            ctx.lineWidth = 0.45;
+            ctx.arc(Math.cos(angle) * baseRadius * 0.55, Math.sin(angle) * baseRadius * 0.55, baseRadius * 0.55, 0, Math.PI * 2);
+            ctx.strokeStyle = `hsla(${hotspot.hue}, 92%, 82%, 0.22)`;
+            ctx.lineWidth = 0.7;
             ctx.stroke();
-            drawGlow(ax, ay, baseRadius * 1.6, hotspot.hue, 0.25 + pulse * 0.12);
+          }
+        } else {
+          const rings = 2;
+          for (let ring = 0; ring < rings; ring += 1) {
+            ctx.beginPath();
+            ctx.ellipse(0, 0, baseRadius * (3.2 + ring * 1.7), baseRadius * (0.75 + ring * 0.35), ring * 0.42, 0, Math.PI * 2);
+            ctx.strokeStyle = `hsla(${hotspot.hue}, 90%, 78%, ${0.12 - ring * 0.03 + pulse * 0.025})`;
+            ctx.lineWidth = 0.5;
+            ctx.stroke();
+          }
+        }
+        ctx.restore();
+
+        if (!isDeus) {
+          drawConstellationCluster(p.x, p.y, hotspot.hue, hotspot.id, width * 0.05, t);
+          for (let index = 0; index < 3; index += 1) {
+            const angle = t * (hotspot.id === "rockmam" ? -0.12 : 0.12) + (Math.PI * 2 * index) / 3;
+            const orbitRadius = baseRadius * (3.4 + (index % 2) * 0.8);
+            const satellite = { x: p.x + Math.cos(angle) * orbitRadius * 1.8, y: p.y + Math.sin(angle) * orbitRadius * 0.58 };
+            drawGlow(satellite.x, satellite.y, baseRadius * 1.6, hotspot.hue, 0.07 + pulse * 0.04);
+            ctx.beginPath();
+            ctx.arc(satellite.x, satellite.y, 0.55, 0, Math.PI * 2);
+            ctx.fillStyle = `hsla(${hotspot.hue}, 100%, 86%, ${0.45 + pulse * 0.18})`;
+            ctx.fill();
           }
         }
 
         ctx.beginPath();
-        ctx.arc(p.x, p.y, baseRadius * (hotspot.id === "deus" ? 0.7 : 1.1), 0, Math.PI * 2);
-        ctx.fillStyle = hotspot.id === "deus" ? "rgba(255, 235, 190, 0.36)" : `hsla(${hotspot.hue}, 92%, 76%, 0.82)`;
+        ctx.arc(p.x, p.y, baseRadius * (isDeus ? 0.62 : 0.28), 0, Math.PI * 2);
+        if (isDeus) {
+          const core = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, baseRadius * 0.62);
+          core.addColorStop(0, "rgba(255, 250, 235, 0.95)");
+          core.addColorStop(0.5, `hsla(${hotspot.hue}, 100%, 72%, ${0.75 + pulse * 0.1})`);
+          core.addColorStop(1, `hsla(${hotspot.hue}, 100%, 55%, 0.35)`);
+          ctx.fillStyle = core;
+        } else {
+          ctx.fillStyle = `hsla(${hotspot.hue}, 92%, 76%, 0.64)`;
+        }
         ctx.fill();
-        ctx.font = hotspot.id === "deus" ? "500 7px Inter, sans-serif" : "500 10px Inter, sans-serif";
-        ctx.textBaseline = "middle";
-        ctx.fillStyle = hotspot.id === "deus" ? "rgba(255, 230, 185, 0.36)" : `hsla(${hotspot.hue}, 86%, 82%, 0.75)`;
-        ctx.fillText(hotspot.label, p.x + baseRadius * 1.8, p.y);
+
+        if (!isDeus) {
+          ctx.font = "500 7px Inter, sans-serif";
+          ctx.textBaseline = "middle";
+          ctx.fillStyle = `hsla(${hotspot.hue}, 86%, 82%, 0.42)`;
+          ctx.fillText(hotspot.label, p.x + baseRadius * 1.55, p.y - baseRadius * 0.12);
+        }
       }
 
       animationRef.current = requestAnimationFrame(draw);
@@ -277,13 +460,27 @@ function LivingUniverseScene({ activityStates }: { activityStates: Record<string
   return <canvas ref={canvasRef} className="living-universe-canvas" aria-label="Universo vivo funcional do The Creation" />;
 }
 
+const deusHotspot = hotspots.find((hotspot) => hotspot.id === "deus")!;
+
+function DeusCoreLabel() {
+  return (
+    <div
+      className="deus-core-label"
+      style={{ "--label-x": `${deusHotspot.xPercent}%`, "--label-y": `${deusHotspot.yPercent}%` } as CSSProperties}
+      aria-hidden="true"
+    >
+      <strong>DEUS</strong>
+      <span>CONSCIÊNCIA SUPREMA</span>
+      <span>FONTE E AUTORIDADE</span>
+    </div>
+  );
+}
+
 function UniverseInteractionLayer({
   hotspotSummaries,
-  onHotspotAction,
   onFocusConversation,
 }: {
   hotspotSummaries: Record<string, HotspotSummary>;
-  onHotspotAction: (summary: HotspotSummary) => void;
   onFocusConversation: () => void;
 }) {
   const [active, setActive] = useState<Hotspot | null>(null);
@@ -350,11 +547,6 @@ function UniverseInteractionLayer({
           {selectedSummary.lines.map((line) => (
             <p key={line}>{line}</p>
           ))}
-          {selectedSummary.actionLabel ? (
-            <button type="button" onClick={() => onHotspotAction(selectedSummary)}>
-              {selectedSummary.actionLabel}
-            </button>
-          ) : null}
         </aside>
       ) : null}
     </section>
@@ -415,9 +607,9 @@ function ConversationDock({
       <button
         className={`dock-microphone voice-state-${voiceState}`}
         type="button"
-        aria-label={voiceSupported ? `Voz de DEUS: ${voiceState}` : "Entrada por voz ainda indisponivel"}
-        title={voiceSupported ? `Voz de DEUS: ${voiceState}` : "Entrada por voz ainda indisponivel"}
-        disabled={!authenticated || busy || !voiceSupported || voiceState === "processing"}
+        aria-label={voiceSupported ? `Voz de DEUS: ${voiceStateLabel(voiceState)}` : "Entrada por voz ainda indisponivel"}
+        title={voiceSupported ? `Voz de DEUS: ${voiceStateLabel(voiceState)}` : "Entrada por voz ainda indisponivel"}
+        disabled={!authenticated || busy || !voiceSupported || voiceState === "processing" || voiceState === "responding"}
         onClick={handleVoice}
       >
         <span aria-hidden="true" />
@@ -429,27 +621,73 @@ function ConversationDock({
   );
 }
 
-function TransientGodResponse({ chat, busy, authError }: Pick<LivingDashboardProps, "chat" | "busy" | "authError">) {
+function CreatorAccess({
+  username,
+  password,
+  authBusy,
+  authError,
+  onUsername,
+  onPassword,
+  onLogin,
+}: Pick<
+  LivingDashboardProps,
+  "username" | "password" | "authBusy" | "authError" | "onUsername" | "onPassword" | "onLogin"
+>) {
+  return (
+    <form className="creator-access" onSubmit={onLogin} aria-label="Acesso do Criador">
+      <span>DEUS</span>
+      <input
+        value={username}
+        onChange={(event) => onUsername(event.target.value)}
+        aria-label="Identidade do Criador"
+        placeholder="Criador"
+        autoComplete="username"
+        disabled={authBusy}
+      />
+      <input
+        type="password"
+        value={password}
+        onChange={(event) => onPassword(event.target.value)}
+        aria-label="Senha do Criador"
+        placeholder="Presença reservada"
+        autoComplete="current-password"
+        disabled={authBusy}
+      />
+      <button type="submit" disabled={authBusy || !username.trim() || !password}>
+        {authBusy ? "Conectando" : "Entrar"}
+      </button>
+      {authError ? <p>{authError}</p> : <small>Canal direto do Criador</small>}
+    </form>
+  );
+}
+
+function TransientGodResponse({
+  chat,
+  busy,
+  alertMessage,
+}: Pick<LivingDashboardProps, "chat" | "busy"> & { alertMessage: string | null }) {
   const latest = [...chat].reverse().find((item) => item.role !== "creator");
   const [dismissedId, setDismissedId] = useState<string | null>(null);
+  const [trackedLatestId, setTrackedLatestId] = useState(latest?.id);
 
-  useEffect(() => {
-    if (latest) setDismissedId(null);
-  }, [latest?.id]);
+  if (latest?.id !== trackedLatestId) {
+    setTrackedLatestId(latest?.id);
+    setDismissedId(null);
+  }
 
-  if (authError && dismissedId !== "auth-error") {
+  if (alertMessage && dismissedId !== "voice-error") {
     return (
       <section className="transient-response" aria-live="polite">
-        <button type="button" onClick={() => setDismissedId("auth-error")} aria-label="Recolher resposta">
+        <button type="button" onClick={() => setDismissedId("voice-error")} aria-label="Recolher resposta">
           Fechar
         </button>
         <span>DEUS</span>
-        <p>{authError}</p>
+        <p>{alertMessage}</p>
       </section>
     );
   }
 
-  if (busy) {
+  if (busy && dismissedId !== "busy") {
     return (
       <section className="transient-response" aria-live="polite">
         <button type="button" onClick={() => setDismissedId("busy")} aria-label="Recolher resposta">
@@ -530,52 +768,76 @@ function NotificationLayer({
 export function LivingDashboard({
   authenticated,
   busy,
+  authBusy,
   authError,
+  username,
+  password,
   message,
   chat,
   pulse,
   loadState,
   notifications,
+  agents,
+  universes,
+  chronicles,
   activityStates,
   hotspotSummaries,
   demandPanel,
+  onSelectPanel,
   voiceState,
   voiceSupported,
   voiceError,
+  onUsername,
+  onPassword,
+  onLogin,
   onMessage,
   onSend,
   onVoiceListen,
   onVoiceStopListening,
   onVoiceStopSpeaking,
-  onHotspotAction,
   onReadNotification,
 }: LivingDashboardProps) {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
   return (
     <main className="creator-interface-living" data-authenticated={authenticated}>
-      <LivingUniverseScene activityStates={activityStates} />
+      <LivingUniverseScene activityStates={activityStates} agents={agents} universes={universes} />
+      <DeusCoreLabel />
       <UniverseInteractionLayer
         hotspotSummaries={hotspotSummaries}
-        onHotspotAction={onHotspotAction}
         onFocusConversation={() => inputRef.current?.focus()}
       />
+      <SystemPulseHeader pulse={pulse} authenticated={authenticated} />
+      <UniverseConstellationLabels agents={agents} universes={universes} onSelectPanel={onSelectPanel} />
       <SystemStateBindingLayer pulse={pulse} loadState={loadState} authenticated={authenticated} />
-      <TransientGodResponse chat={chat} busy={busy} authError={authError ?? voiceError} />
+      <TransientGodResponse chat={chat} busy={busy} alertMessage={authenticated ? voiceError : null} />
       <NotificationLayer notifications={notifications} onReadNotification={onReadNotification} />
-      <ConversationDock
-        authenticated={authenticated}
-        busy={busy}
-        message={message}
-        onMessage={onMessage}
-        onSend={onSend}
-        inputRef={inputRef}
-        voiceState={voiceState}
-        voiceSupported={voiceSupported}
-        onVoiceListen={onVoiceListen}
-        onVoiceStopListening={onVoiceStopListening}
-        onVoiceStopSpeaking={onVoiceStopSpeaking}
-      />
+      <ChronicleTicker entries={chronicles} onOpenFull={() => onSelectPanel("chronicle")} />
+      {authenticated ? (
+        <ConversationDock
+          authenticated={authenticated}
+          busy={busy}
+          message={message}
+          onMessage={onMessage}
+          onSend={onSend}
+          inputRef={inputRef}
+          voiceState={voiceState}
+          voiceSupported={voiceSupported}
+          onVoiceListen={onVoiceListen}
+          onVoiceStopListening={onVoiceStopListening}
+          onVoiceStopSpeaking={onVoiceStopSpeaking}
+        />
+      ) : (
+        <CreatorAccess
+          username={username}
+          password={password}
+          authBusy={authBusy}
+          authError={authError}
+          onUsername={onUsername}
+          onPassword={onPassword}
+          onLogin={onLogin}
+        />
+      )}
       <section className="on-demand-overlay-host" aria-label="Overlay sob demanda">
         {demandPanel}
       </section>

@@ -9,7 +9,6 @@ import type {
   Inception,
   Mission,
   MissionAuthorization,
-  MissionManifestation,
   Opportunity,
   PerceptionRun,
   PerceptionRunResult,
@@ -225,10 +224,6 @@ export const api = {
 
   pulse(token: string) {
     return request<Pulse>("/pulse", undefined, token);
-  },
-
-  getMissionManifestation(token: string, missionId: string) {
-    return request<MissionManifestation>(`/malkuth/missions/${missionId}/manifestation`, undefined, token);
   },
 
   listCapabilities(token: string) {

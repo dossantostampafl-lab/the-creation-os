@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError } from "./api";
+import { inferRequestedPanel, panelTitle, pendingInception, shouldClosePanel, normalizeEntityKey, type RequestedPanel } from "./appLogic";
 import { CapabilityPanel } from "./components/CapabilityPanel";
 import { ChronicleRibbon } from "./components/ChronicleRibbon";
 import { InceptionPanel } from "./components/InceptionPanel";
@@ -20,7 +21,6 @@ import type {
   Inception,
   Mission,
   MissionAuthorization,
-  MissionManifestation,
   Opportunity,
   PerceptionSource,
   Pulse,
@@ -28,15 +28,6 @@ import type {
 } from "./types";
 
 type LoadState = "idle" | "loading" | "ready" | "empty" | "error";
-type RequestedPanel =
-  | "inceptions"
-  | "missions"
-  | "opportunities"
-  | "perception"
-  | "chronicle"
-  | "capabilities"
-  | "universes"
-  | null;
 
 const REFRESH_INTERVAL_MS = 15000;
 const WORKSPACE_CACHE_KEY = "creator-interface-workspace-cache";
@@ -49,7 +40,6 @@ type WorkspaceCache = {
   agents: Agent[];
   universes: Universe[];
   chronicles: ChronicleEntry[];
-  manifestations: MissionManifestation[];
   capabilities: CapabilityFramework[];
   opportunities: Opportunity[];
   perceptionSources: PerceptionSource[];
@@ -58,16 +48,11 @@ type WorkspaceCache = {
   pulse: Pulse | null;
 };
 
-function normalizeStatus(value: string) {
-  return value.toLowerCase();
-}
-
-function pendingInception(item: Inception) {
-  return !["approved", "rejected", "cancelled"].includes(normalizeStatus(item.status));
-}
-
 export function App() {
   const [token, setToken] = useState<string | null>(localStorage.getItem("creator-token"));
+  const [username, setUsername] = useState(CREATOR_DEFAULT_USERNAME);
+  const [password, setPassword] = useState("");
+  const [authBusy, setAuthBusy] = useState(false);
   const [conversation, setConversation] = useState<Conversation | null>(null);
   const [chat, setChat] = useState<ChatItem[]>([
     { id: "intro", role: "god", text: "DEUS esta presente. Aguardando a palavra do Criador.", meta: "local" },
@@ -77,7 +62,6 @@ export function App() {
   const [inceptionBusy, setInceptionBusy] = useState(false);
   const [inceptionError, setInceptionError] = useState<string | null>(null);
   const [missions, setMissions] = useState<Mission[]>([]);
-  const [manifestations, setManifestations] = useState<MissionManifestation[]>([]);
   const [missionAuthorization, setMissionAuthorization] = useState<MissionAuthorization | null>(null);
   const [missionAuthorizationBusy, setMissionAuthorizationBusy] = useState(false);
   const [missionAuthorizationError, setMissionAuthorizationError] = useState<string | null>(null);
@@ -107,6 +91,7 @@ export function App() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioUrlRef = useRef<string | null>(null);
   const voiceSubmittingRef = useRef(false);
+  const submitVoiceRef = useRef<(text: string) => Promise<void>>(async () => undefined);
 
   const authenticated = Boolean(token);
   const empty = loadState === "empty";
@@ -133,14 +118,15 @@ export function App() {
           setVoiceState((current) => (current === "listening" ? "idle" : current));
         },
         onTranscript: (text) => {
-          void submitVoice(text);
+          setMessage(text);
+          void submitVoiceRef.current(text);
         },
         onError: (message) => {
           setVoiceError(message);
           setVoiceState("error");
         },
       }),
-    [voiceContext, token],
+    [],
   );
   const universeSummaries = useMemo(
     () => buildHotspotSummaries({ agents, universes, opportunities, notifications, missions, inceptions, chronicles }),
@@ -153,6 +139,8 @@ export function App() {
 
   useEffect(() => {
     if (!token) {
+      // Resets local state when the workspace polling subscription below stops, not derived UI state.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setLoadState("idle");
       return undefined;
     }
@@ -166,6 +154,8 @@ export function App() {
 
   useEffect(() => {
     if (token || silentAuthAttempted || !CREATOR_DEV_PASSWORD) return;
+    // Guards the one-time silent-login network call below, not derived UI state.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSilentAuthAttempted(true);
     void api
       .login(CREATOR_DEFAULT_USERNAME, CREATOR_DEV_PASSWORD)
@@ -200,6 +190,23 @@ export function App() {
     if (message) setAuthError(message);
   }
 
+  async function handleLogin(event: FormEvent) {
+    event.preventDefault();
+    if (!username.trim() || !password || authBusy) return;
+    setAuthBusy(true);
+    setAuthError(null);
+    try {
+      const result = await api.login(username.trim(), password);
+      localStorage.setItem("creator-token", result.access_token);
+      setToken(result.access_token);
+      setPassword("");
+    } catch (error) {
+      setAuthError(error instanceof ApiError ? error.message : "Falha ao autenticar o Criador.");
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
   function restoreWorkspaceCache() {
     const cached = localStorage.getItem(WORKSPACE_CACHE_KEY);
     if (!cached) return;
@@ -210,7 +217,6 @@ export function App() {
       setAgents(workspace.agents ?? []);
       setUniverses(workspace.universes ?? []);
       setChronicles(workspace.chronicles ?? []);
-      setManifestations(workspace.manifestations ?? []);
       setMissionAuthorization(workspace.missionAuthorization ?? null);
       setCapabilities(workspace.capabilities ?? []);
       setOpportunities(workspace.opportunities ?? []);
@@ -290,7 +296,6 @@ export function App() {
     const nextPerceptionSources = loadedPerceptionSources.status === "fulfilled" ? loadedPerceptionSources.value : perceptionSources;
     const nextNotifications = loadedNotifications.status === "fulfilled" ? loadedNotifications.value : notifications;
 
-    const nextManifestations = manifestations;
     const nextMissionAuthorization =
       nextMissions[0] ? await api.getMissionAuthorization(accessToken, nextMissions[0].id).catch(() => missionAuthorization) : null;
 
@@ -300,7 +305,6 @@ export function App() {
     setUniverses(nextUniverses);
     setChronicles(nextChronicles);
     setPulse(nextPulse);
-    setManifestations(nextManifestations);
     setMissionAuthorization(nextMissionAuthorization);
     setCapabilities(nextCapabilities);
     setOpportunities(nextOpportunities);
@@ -331,15 +335,13 @@ export function App() {
         loadedCapabilities.value.length > 0 ||
         loadedOpportunities.value.length > 0 ||
         loadedPerceptionSources.value.length > 0 ||
-        loadedNotifications.value.length > 0 ||
-        nextManifestations.length > 0);
+        loadedNotifications.value.length > 0);
     cacheWorkspace({
       inceptions: nextInceptions,
       missions: nextMissions,
       agents: nextAgents,
       universes: nextUniverses,
       chronicles: nextChronicles,
-      manifestations: nextManifestations,
       missionAuthorization: nextMissionAuthorization,
       capabilities: nextCapabilities,
       opportunities: nextOpportunities,
@@ -679,9 +681,14 @@ export function App() {
     }
   }
 
+  useEffect(() => {
+    submitVoiceRef.current = submitVoice;
+  });
+
   async function submitVoice(text: string) {
     if (!token || busy || voiceSubmittingRef.current) return;
     voiceSubmittingRef.current = true;
+    setMessage(text);
     const contextual = buildContextualVoiceMessage(text, voiceContext);
     setVoiceState("processing");
     setVoiceError(null);
@@ -693,6 +700,7 @@ export function App() {
       setVoiceState("error");
     } finally {
       voiceSubmittingRef.current = false;
+      setMessage(text);
     }
   }
 
@@ -702,6 +710,7 @@ export function App() {
       return;
     }
     try {
+      setVoiceState("responding");
       const audio = await api.synthesizeVoice(token, text);
       stopVoiceAudio();
       const url = URL.createObjectURL(audio);
@@ -731,11 +740,11 @@ export function App() {
     audioUrlRef.current = null;
   }
 
-  function handleVoiceListen() {
-    if (!recognizer.supported || voiceState === "listening" || voiceState === "processing") return;
+  async function handleVoiceListen() {
+    if (!recognizer.supported || voiceState === "listening" || voiceState === "processing" || voiceState === "responding") return;
     try {
       setVoiceError(null);
-      recognizer.start();
+      await recognizer.start();
     } catch (error) {
       setVoiceError(error instanceof Error ? error.message : "Nao foi possivel iniciar o microfone.");
       setVoiceState("error");
@@ -866,26 +875,33 @@ export function App() {
       <LivingDashboard
         authenticated={authenticated}
         busy={busy}
+        authBusy={authBusy}
         authError={authError}
+        username={username}
+        password={password}
         message={message}
         chat={chat}
         pulse={pulse}
         loadState={loadState}
         notifications={notifications}
+        agents={agents}
+        universes={universes}
+        chronicles={chronicles}
         activityStates={activityStates}
         hotspotSummaries={universeSummaries}
         demandPanel={demandPanel}
+        onSelectPanel={setRequestedPanel}
         voiceState={voiceState}
         voiceSupported={recognizer.supported}
         voiceError={voiceError}
+        onUsername={setUsername}
+        onPassword={setPassword}
+        onLogin={handleLogin}
         onMessage={setMessage}
         onSend={handleSend}
         onVoiceListen={handleVoiceListen}
         onVoiceStopListening={handleVoiceStopListening}
         onVoiceStopSpeaking={handleVoiceStopSpeaking}
-        onHotspotAction={(summary) => {
-          if (summary.panel) setRequestedPanel(summary.panel);
-        }}
         onReadNotification={handleReadNotification}
       />
       {dataError ? <div className="api-state api-state-error">{dataError}</div> : null}
@@ -1026,57 +1042,4 @@ function buildHotspotSummaries({
   }
 
   return base;
-}
-
-function normalizeEntityKey(value: string) {
-  const normalized = value
-    .normalize("NFKD")
-    .replace(/\p{Diacritic}/gu, "")
-    .toLowerCase();
-  if (/engenharia|engineering|engineer|eng/.test(normalized)) return "eng";
-  if (/juridico|legal|jur/.test(normalized)) return "jur";
-  if (/finance|financial|financas|fin/.test(normalized)) return "fin";
-  if (/seguranca|security|seg/.test(normalized)) return "seg";
-  if (/negocios|business|neg/.test(normalized)) return "neg";
-  if (/ciencia|science|cie/.test(normalized)) return "cie";
-  if (/conhecimento|knowledge|con/.test(normalized)) return "con";
-  if (/criacao|creation|cri/.test(normalized)) return "cri";
-  return normalized;
-}
-
-function inferRequestedPanel(message: string): RequestedPanel {
-  const normalized = message
-    .normalize("NFKD")
-    .replace(/\p{Diacritic}/gu, "")
-    .toLowerCase();
-  if (/(inception|inceptions|ideia|aprovacao)/.test(normalized)) return "inceptions";
-  if (/(missao|missoes|mission|projeto)/.test(normalized)) return "missions";
-  if (/(universo|universos|agente|agentes|engenharia|seguranca|infraestrutura|conhecimento|comunidade|evolucao)/.test(normalized)) {
-    return "universes";
-  }
-  if (/(oportunidade|oportunidades|analise|ranking)/.test(normalized)) return "opportunities";
-  if (/(percepcao|fonte|coleta|source|perception)/.test(normalized)) return "perception";
-  if (/(auditoria|chronicle|cronica|historico|log)/.test(normalized)) return "chronicle";
-  if (/(capability|capabilities|connector|automation|automacao)/.test(normalized)) return "capabilities";
-  return null;
-}
-
-function shouldClosePanel(message: string) {
-  const normalized = message
-    .normalize("NFKD")
-    .replace(/\p{Diacritic}/gu, "")
-    .toLowerCase();
-  return /(feche|fechar|volte para a conversa|voltar para a conversa|feche o painel|close)/.test(normalized);
-}
-
-function panelTitle(panel: Exclude<RequestedPanel, null>) {
-  return {
-    inceptions: "Inceptions",
-    missions: "Missao ativa",
-    opportunities: "Oportunidades",
-    perception: "Percepcao",
-    chronicle: "Chronicle",
-    capabilities: "Capabilities",
-    universes: "Universos e agentes",
-  }[panel];
 }
