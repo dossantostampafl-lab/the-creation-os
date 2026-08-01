@@ -94,6 +94,19 @@ sidebar-vs-universe boundary the spec actually protects (no persistent
 sidebar/menu/dashboard-grid) remains untouched and is guarded by
 `frontend/src/components/LivingDashboard.frozenSpec.test.ts`.
 
+**Documentation debt resolved (2026-07-31):** `docs/CREATOR_INTERFACE_FROZEN_SPEC.md`
+previously described a static-image base (`frontend/public/creator-interface-approved-universe.png`)
+and explicitly forbade a procedural Canvas — text left over from commit
+`398835d`, never updated when `0fc8821` ("restore functional living universe")
+made the canvas the accepted implementation. The spec's Source Of Truth,
+Initial State, and Acceptance Criteria sections were rewritten to describe the
+canvas/`requestAnimationFrame`/`prefers-reduced-motion` behavior actually in
+place, and a Changelog section was added to the spec itself so this reasoning
+stays traceable there going forward. The Permanent Elements and Forbidden
+Elements sections (the actual sidebar/menu/dashboard-grid boundary) were left
+byte-for-byte unchanged — this was a documentation-only fix, no design
+decision was reopened.
+
 Taste calls made while adding continuous motion (all chosen for the most
 subtle, reversible value, per the batch's own instruction not to stop and ask):
 
