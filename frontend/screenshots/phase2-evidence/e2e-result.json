@@ -1,0 +1,44 @@
+{
+  "godReply": "A solicitacao excede o contrato atual de DEUS: deus, mostre o estado de sophia.. Nenhuma acao operacional foi executada.",
+  "godResponses": [
+    {
+      "status": 201,
+      "url": "http://127.0.0.1:8000/api/v1/living-core/conversations/7c495f3c-d1a8-4c7a-9bdf-c11e01190171/god",
+      "body": {
+        "id": "b84dcb60-5832-4ea0-9951-fbb757b9924c",
+        "conversation_id": "7c495f3c-d1a8-4c7a-9bdf-c11e01190171",
+        "message_id": "0569ed33-10ea-4e97-88a5-3b23d1676b2c",
+        "god_message_id": "67aef867-ff1e-494d-88ff-4185b44d3586",
+        "interaction_type": "UNSUPPORTED",
+        "reply": {
+          "message": "A solicitacao excede o contrato atual de DEUS: deus, mostre o estado de sophia.. Nenhuma acao operacional foi executada.",
+          "policy_version": "v0.7.0"
+        },
+        "potential_detected": false,
+        "next_action": "unsupported_no_action",
+        "memory_context": [],
+        "fingerprint": "c6cb6cf19da100e9d4de2c0418de5407e68dcfa661cf4e9227a4cd72194c913b",
+        "created_at": "2026-07-19T00:16:35.654363Z",
+        "completed_at": "2026-07-19T00:16:35.654363Z"
+      }
+    }
+  ],
+  "sophiaText": "Fechar\nCOMPREENSAO\nSOPHIA\n\nUltimo evento: god_conversation_interaction_completed\n\nSOPHIA permanece somente na camada de compreensao.\n\nVer Chronicle",
+  "rockmamText": "Fechar\nPOSSIBILIDADE\nROCKMAM\n\nOportunidade: openai/openai-python: opportunity signal\n\nROCKMAM nao executa, apenas avalia possibilidade.\n\nVer oportunidades",
+  "engineeringText": "Fechar\nUNIVERSO\nENGENHARIA\n\n0 agentes retornados pela API.\n\n0 agentes ativos.\n\nNenhuma oportunidade relacionada no ranking atual.\n\nVer detalhes",
+  "consoleErrors": [],
+  "failedRequests": [],
+  "api404": [],
+  "canvasPixels": {
+    "nonBlack": 13916,
+    "width": 1366,
+    "height": 768
+  },
+  "evidenceDir": "C:\\Users\\dossa\\OneDrive\\Área de Trabalho\\THE CREATION OS\\frontend\\screenshots\\phase2-evidence",
+  "videos": [
+    "C:\\Users\\dossa\\OneDrive\\Área de Trabalho\\THE CREATION OS\\frontend\\screenshots\\phase2-evidence\\67c38f2550466e7ddc850ee081478b99.webm",
+    "C:\\Users\\dossa\\OneDrive\\Área de Trabalho\\THE CREATION OS\\frontend\\screenshots\\phase2-evidence\\72221453ea1775f9ecba74a52569e0e0.webm",
+    "C:\\Users\\dossa\\OneDrive\\Área de Trabalho\\THE CREATION OS\\frontend\\screenshots\\phase2-evidence\\93d8c95391a4d03febee110e9d7e9391.webm",
+    "C:\\Users\\dossa\\OneDrive\\Área de Trabalho\\THE CREATION OS\\frontend\\screenshots\\phase2-evidence\\fbaca0fae19095dc4566fb8b4b48bf16.webm"
+  ]
+}

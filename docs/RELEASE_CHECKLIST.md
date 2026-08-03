@@ -108,7 +108,10 @@ Expected:
 
 - live returns `live`;
 - ready returns `ready`;
-- database revision is `0024_creator_singleton`;
+- database revision is the current Alembic head (`/health/ready` resolves
+  this dynamically from `alembic/versions/` on every check — see
+  `backend/app/db/alembic_utils.py` — not a fixed revision; confirm the
+  actual head with `alembic heads`, run from `backend/`);
 - Redis responds.
 
 ## 8. Database Readiness
@@ -121,7 +124,9 @@ docker exec thecreationos-postgres-1 psql -U postgres -d the_creation_os -t -A -
 
 Expected:
 
-- `0024_creator_singleton`.
+- the same revision `alembic heads` (run from `backend/`) reports as the
+  current head — not a fixed value; it changes every time a migration is
+  added.
 
 Do not truncate, seed, restore, or migrate the application database during
 release validation unless explicitly authorized.

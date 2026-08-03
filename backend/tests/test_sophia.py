@@ -54,3 +54,6 @@ def test_sophia_maps_all_god_interaction_types():
     assert build_understanding(god_interaction("UNSUPPORTED")).understanding_type == (
         SophiaUnderstandingType.UNSUPPORTED_UNDERSTANDING
     )
+    assert build_understanding(god_interaction("SYSTEM_QUERY")).understanding_type == (
+        SophiaUnderstandingType.SYSTEM_QUERY_UNDERSTANDING
+    )

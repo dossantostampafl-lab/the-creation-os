@@ -1,14 +1,23 @@
 from __future__ import annotations
 
+from typing import Any
+
 from sqlalchemy.exc import IntegrityError
 
 from app.core.domain import Actor, ConversationStatus, DomainError, require_creator
-from app.core.god import build_god_interaction, canonical_request_fingerprint
-from app.core.memory import MemoryType, normalize_memory_text, select_memory_context
+from app.core.god import (
+    GodInteractionType,
+    build_god_interaction,
+    canonical_request_fingerprint,
+    classify_message,
+    classify_system_query_topic,
+)
+from app.core.memory import MemoryType, select_memory_context
 from app.models.entities import Message
 from app.models.god import GodConversationInteraction
 from app.repositories.god import GodConversationRepository
 from app.services.domain import NotFoundError
+from app.services.pulse import build_pulse_snapshot
 
 
 class GodConversationError(DomainError):
@@ -48,7 +57,10 @@ class GodConversationService:
 
         try:
             memory_context = await self._memory_context(actor, message)
-            document = build_god_interaction(conversation_id, message, idempotency_key, memory_context)
+            system_snapshot = None
+            if classify_message(message) == GodInteractionType.SYSTEM_QUERY:
+                system_snapshot = await self.system_snapshot(actor, message)
+            document = build_god_interaction(conversation_id, message, idempotency_key, memory_context, system_snapshot)
             creator_message = await self.repository.add_message(Message(
                 conversation_id=conversation_id,
                 actor_id=actor.id,
@@ -154,9 +166,12 @@ class GodConversationService:
             raise GodIdempotencyConflict("Idempotency key already used with a different DEUS request payload")
 
     async def _memory_context(self, actor: Actor, message: str) -> list[dict]:
-        candidates = await self.repository.memory.search(
-            creator_id=actor.id,
-            query=normalize_memory_text(message),
+        # Lote: Convergência de memória de conversa — reads from
+        # conversation_memory (Lote 2.5 layer), not CreatorMemory anymore.
+        # CreatorMemory/MemoryRepository are deprecated for this flow; see
+        # app/models/memory.py and app/repositories/memory.py docstrings.
+        candidates = await self.repository.conversation_memory_candidates(
+            actor.id,
             memory_types=[item.value for item in MemoryType],
             min_importance=1,
             limit=50,
@@ -173,3 +188,29 @@ class GodConversationService:
             }
             for item in select_memory_context(candidates, query=message, limit=5)
         ]
+
+    async def system_snapshot(self, actor: Actor, message: str) -> dict[str, Any]:
+        """Resolved outside app.core.god (a pure/deterministic module, same
+        pattern as _memory_context above and as Lote 2.5's memory injection):
+        real data queried here, then handed to build_god_interaction() to format.
+        Public (not _system_snapshot) since Lote: DEUS inicia conversa
+        automaticamente após login also calls this directly to build the
+        login greeting's content — see app/services/greeting.py.
+        """
+        topic = classify_system_query_topic(message)
+        if topic == "pulse" or topic == "general":
+            data = await build_pulse_snapshot(self.repository.session)
+            # JSON columns (response_payload, and the fingerprint's json.dumps)
+            # can't carry a raw datetime.
+            data = {**data, "timestamp": data["timestamp"].isoformat()}
+        elif topic == "missions":
+            data = await self.repository.mission_counts(actor.id)
+        elif topic == "inceptions":
+            data = {"pending": await self.repository.pending_inception_count(actor.id)}
+        elif topic == "universes":
+            data = await self.repository.universe_counts()
+        elif topic == "agents":
+            data = await self.repository.agent_counts()
+        else:
+            data = await self.repository.memory_item_counts(actor.id)
+        return {"topic": topic, "data": data}

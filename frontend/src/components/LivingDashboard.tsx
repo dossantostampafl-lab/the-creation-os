@@ -1,10 +1,23 @@
 import { FormEvent, KeyboardEvent, ReactNode, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
+import type { RequestedPanel } from "../appLogic";
 import type { Agent, ChatItem, ChronicleEntry, CreatorNotification, Pulse, Universe } from "../types";
 import type { VoiceConversationState } from "../voice";
 import { ChronicleTicker } from "./ChronicleTicker";
 import { SystemPulseHeader } from "./SystemPulseHeader";
 import { UniverseConstellationLabels } from "./UniverseConstellationLabels";
+
+export type OpenPanel = Exclude<RequestedPanel, null>;
+
+const SHORTCUT_PILLS: { label: string; panel: OpenPanel }[] = [
+  { label: "Mostrar Inceptions", panel: "inceptions" },
+  { label: "Mostrar Missoes", panel: "missions" },
+  { label: "Mostrar Oportunidades", panel: "opportunities" },
+  { label: "Abrir Universo", panel: "universes" },
+  { label: "Mostrar Percepcao", panel: "perception" },
+  { label: "Mostrar Capabilities", panel: "capabilities" },
+  { label: "Mostrar Auditoria", panel: "chronicle" },
+];
 
 export type EntityActivityState = "idle" | "active" | "processing" | "waiting" | "completed" | "warning" | "error" | "offline";
 
@@ -23,7 +36,7 @@ export type HotspotSummary = {
   subtitle: string;
   lines: string[];
   actionLabel?: string;
-  panel?: "inceptions" | "missions" | "opportunities" | "perception" | "chronicle" | "capabilities" | "universes";
+  panel?: OpenPanel;
 };
 
 type LivingDashboardProps = {
@@ -41,7 +54,8 @@ type LivingDashboardProps = {
   activityStates: Record<string, EntityActivityState>;
   hotspotSummaries: Record<string, HotspotSummary>;
   demandPanel: ReactNode;
-  onSelectPanel: (panel: "universes" | "chronicle") => void;
+  onSelectPanel: (panel: OpenPanel) => void;
+  unreadNotificationCount: number;
   voiceState: VoiceConversationState;
   voiceSupported: boolean;
   voiceError: string | null;
@@ -82,10 +96,18 @@ type Particle = {
   radius: number;
 };
 
+const NEBULA_PATCHES: { xPercent: number; yPercent: number; radius: number; hue: number; alpha: number; phase: number }[] = [
+  { xPercent: 0.22, yPercent: 0.32, radius: 0.55, hue: 280, alpha: 0.05, phase: 0 },
+  { xPercent: 0.8, yPercent: 0.4, radius: 0.5, hue: 208, alpha: 0.045, phase: 1.6 },
+  { xPercent: 0.5, yPercent: 0.42, radius: 0.35, hue: 40, alpha: 0.05, phase: 3.1 },
+  { xPercent: 0.35, yPercent: 0.72, radius: 0.4, hue: 165, alpha: 0.03, phase: 4.4 },
+  { xPercent: 0.5, yPercent: 0.98, radius: 0.55, hue: 28, alpha: 0.045, phase: 2.2 },
+];
+
 const hotspots: Hotspot[] = [
   { id: "deus", label: "DEUS", type: "core", xPercent: 50, yPercent: 45, radiusPercent: 5.2, hue: 42, tone: "gold" },
   { id: "sophia", label: "SOPHIA", type: "core", xPercent: 39, yPercent: 43, radiusPercent: 3.4, hue: 287, tone: "violet" },
-  { id: "rockmam", label: "ROCKMAM", type: "core", xPercent: 61, yPercent: 47, radiusPercent: 3.4, hue: 35, tone: "gold" },
+  { id: "rockmam", label: "ROCKMAM", type: "core", xPercent: 61, yPercent: 47, radiusPercent: 3.4, hue: 208, tone: "blue" },
 ];
 
 function createParticles(count: number): Particle[] {
@@ -291,6 +313,26 @@ function LivingUniverseScene({
       ctx.fillStyle = coreGradient;
       ctx.fillRect(0, 0, width, height);
 
+      // Ambient nebula clouds behind the constellation network, matching the reference
+      // image's richer cosmic backdrop (violet near SOPHIA, blue near ROCKMAM, gold at
+      // the core, teal/green for depth, warm glow near MALKUTH at the bottom). Purely
+      // decorative background painting, same canvas the living universe already owns —
+      // not a new element, no interactivity, no fixed panel.
+      ctx.globalCompositeOperation = "lighter";
+      for (const nebula of NEBULA_PATCHES) {
+        const nx = width * nebula.xPercent;
+        const ny = height * nebula.yPercent;
+        const radius = Math.min(width, height) * nebula.radius;
+        const drift = reducedMotion ? 0 : Math.sin(t * 0.03 + nebula.phase) * radius * 0.04;
+        const cloud = ctx.createRadialGradient(nx + drift, ny, 0, nx + drift, ny, radius);
+        cloud.addColorStop(0, `hsla(${nebula.hue}, 85%, 55%, ${nebula.alpha})`);
+        cloud.addColorStop(0.5, `hsla(${nebula.hue}, 80%, 40%, ${nebula.alpha * 0.4})`);
+        cloud.addColorStop(1, `hsla(${nebula.hue}, 80%, 30%, 0)`);
+        ctx.fillStyle = cloud;
+        ctx.fillRect(0, 0, width, height);
+      }
+      ctx.globalCompositeOperation = "source-over";
+
       for (const particle of particlesRef.current) {
         if (!reducedMotion) {
           particle.x += Math.sin(t * particle.speed + particle.phase) * dt * 0.0016 * particle.depth;
@@ -311,7 +353,7 @@ function LivingUniverseScene({
       const rockmam = corePoints.get("rockmam")!;
 
       drawNeuralPath(deus, sophia, 287, 0.12, 0.18, t);
-      drawNeuralPath(deus, rockmam, 38, 0.62, 0.18, t);
+      drawNeuralPath(deus, rockmam, 208, 0.62, 0.18, t);
 
       const activeUniverses = universesRef.current.filter((universe) => universe.active);
       const universePoints = activeUniverses.map((universe, index) => {
@@ -484,6 +526,41 @@ function DeusCoreLabel() {
   );
 }
 
+// Ambient labels for real architecture concepts already named in ARCHITECTURE.md's
+// immutable flow (Inception -> Central Core -> Tree Core -> Universes -> Agents ->
+// Central Core -> Malkuth) plus the Pulse/Conscious Memory/Mission Planner/Genesis
+// concepts already documented elsewhere in this project. Purely decorative — same
+// treatment as DeusCoreLabel (aria-hidden, pointer-events: none, no click target,
+// no new data fetch) — visually enriches the living universe per the reference
+// image without adding any interactive or fixed element.
+const CONCEPT_LABELS: { id: string; label: string; sublabel: string; xPercent: number; yPercent: number }[] = [
+  { id: "pulse", label: "PULSE", sublabel: "Monitoramento Vital", xPercent: 50, yPercent: 15 },
+  { id: "conscious-memory", label: "CONSCIOUS MEMORY", sublabel: "Memória Viva", xPercent: 19, yPercent: 14 },
+  { id: "geneses", label: "GÊNESES", sublabel: "Origem e Propósito", xPercent: 81, yPercent: 14 },
+  { id: "mission-planner", label: "MISSION PLANNER", sublabel: "Planejamento de Missões", xPercent: 23, yPercent: 58 },
+  { id: "tree-core", label: "TREE CORE", sublabel: "Distribuição e Conexão", xPercent: 77, yPercent: 58 },
+  { id: "central-core", label: "CENTRAL CORE", sublabel: "Orquestração e Decisão", xPercent: 30, yPercent: 74 },
+  { id: "inception", label: "INCEPTION", sublabel: "Potencial → Revelação", xPercent: 70, yPercent: 74 },
+  { id: "malkuth", label: "MALKUTH", sublabel: "Manifestação Material", xPercent: 50, yPercent: 76 },
+];
+
+function ArchitectureConceptLabels() {
+  return (
+    <div className="concept-labels" aria-hidden="true">
+      {CONCEPT_LABELS.map((concept) => (
+        <div
+          key={concept.id}
+          className="concept-label"
+          style={{ "--concept-x": `${concept.xPercent}%`, "--concept-y": `${concept.yPercent}%` } as CSSProperties}
+        >
+          <strong>{concept.label}</strong>
+          <span>{concept.sublabel}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function UniverseInteractionLayer({
   hotspotSummaries,
   onFocusConversation,
@@ -573,7 +650,8 @@ function ConversationDock({
   onVoiceListen,
   onVoiceStopListening,
   onVoiceStopSpeaking,
-}: Pick<LivingDashboardProps, "authenticated" | "busy" | "message" | "onMessage" | "onSend"> & {
+  onSelectPanel,
+}: Pick<LivingDashboardProps, "authenticated" | "busy" | "message" | "onMessage" | "onSend" | "onSelectPanel"> & {
   inputRef: React.RefObject<HTMLTextAreaElement | null>;
   voiceState: VoiceConversationState;
   voiceSupported: boolean;
@@ -600,32 +678,43 @@ function ConversationDock({
   }
 
   return (
-    <form className="conversation-dock" onSubmit={onSend} aria-label="Conversa com DEUS">
-      <span className={`dock-processing-dot ${busy ? "is-processing" : ""}`} aria-hidden="true" />
-      <textarea
-        ref={inputRef}
-        value={message}
-        onChange={(event) => onMessage(event.target.value)}
-        onKeyDown={handleKeyDown}
-        placeholder="Fale com DEUS..."
-        aria-label="Fale com DEUS"
-        rows={1}
-        disabled={busy || !authenticated}
-      />
-      <button
-        className={`dock-microphone voice-state-${voiceState}`}
-        type="button"
-        aria-label={voiceSupported ? `Voz de DEUS: ${voiceStateLabel(voiceState)}` : "Entrada por voz ainda indisponivel"}
-        title={voiceSupported ? `Voz de DEUS: ${voiceStateLabel(voiceState)}` : "Entrada por voz ainda indisponivel"}
-        disabled={!authenticated || busy || !voiceSupported || voiceState === "processing" || voiceState === "responding"}
-        onClick={handleVoice}
-      >
-        <span aria-hidden="true" />
-      </button>
-      <button className="dock-send" type="submit" aria-label="Enviar mensagem" disabled={busy || !authenticated || !message.trim()}>
-        <span aria-hidden="true">Enviar</span>
-      </button>
-    </form>
+    <div className="conversation-dock-wrap">
+      <form className="conversation-dock" onSubmit={onSend} aria-label="Conversa com DEUS">
+        <span className={`dock-processing-dot ${busy ? "is-processing" : ""}`} aria-hidden="true" />
+        <textarea
+          ref={inputRef}
+          value={message}
+          onChange={(event) => onMessage(event.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Fale com DEUS..."
+          aria-label="Fale com DEUS"
+          rows={1}
+          disabled={busy || !authenticated}
+        />
+        <button
+          className={`dock-microphone voice-state-${voiceState}`}
+          type="button"
+          aria-label={voiceSupported ? `Voz de DEUS: ${voiceStateLabel(voiceState)}` : "Entrada por voz ainda indisponivel"}
+          title={voiceSupported ? `Voz de DEUS: ${voiceStateLabel(voiceState)}` : "Entrada por voz ainda indisponivel"}
+          disabled={!authenticated || busy || !voiceSupported || voiceState === "processing" || voiceState === "responding"}
+          onClick={handleVoice}
+        >
+          <span aria-hidden="true" />
+        </button>
+        <button className="dock-send" type="submit" aria-label="Enviar mensagem" disabled={busy || !authenticated || !message.trim()}>
+          <span aria-hidden="true">Enviar</span>
+        </button>
+      </form>
+      {authenticated ? (
+        <div className="dock-shortcut-pills" role="group" aria-label="Atalhos de painel">
+          {SHORTCUT_PILLS.map((pill) => (
+            <button key={pill.panel} type="button" className="dock-shortcut-pill" onClick={() => onSelectPanel(pill.panel)}>
+              {pill.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -792,6 +881,7 @@ export function LivingDashboard({
   hotspotSummaries,
   demandPanel,
   onSelectPanel,
+  unreadNotificationCount,
   voiceState,
   voiceSupported,
   voiceError,
@@ -811,11 +901,18 @@ export function LivingDashboard({
     <main className="creator-interface-living" data-authenticated={authenticated}>
       <LivingUniverseScene activityStates={activityStates} agents={agents} universes={universes} />
       <DeusCoreLabel />
+      <ArchitectureConceptLabels />
       <UniverseInteractionLayer
         hotspotSummaries={hotspotSummaries}
         onFocusConversation={() => inputRef.current?.focus()}
       />
-      <SystemPulseHeader pulse={pulse} authenticated={authenticated} />
+      <SystemPulseHeader
+        pulse={pulse}
+        authenticated={authenticated}
+        unreadNotificationCount={unreadNotificationCount}
+        onOpenSearch={() => onSelectPanel("search")}
+        onOpenNotifications={() => onSelectPanel("notifications")}
+      />
       <UniverseConstellationLabels agents={agents} universes={universes} onSelectPanel={onSelectPanel} />
       <SystemStateBindingLayer pulse={pulse} loadState={loadState} authenticated={authenticated} />
       <TransientGodResponse chat={chat} busy={busy} alertMessage={authenticated ? voiceError : null} />
@@ -834,6 +931,7 @@ export function LivingDashboard({
           onVoiceListen={onVoiceListen}
           onVoiceStopListening={onVoiceStopListening}
           onVoiceStopSpeaking={onVoiceStopSpeaking}
+          onSelectPanel={onSelectPanel}
         />
       ) : (
         <CreatorAccess

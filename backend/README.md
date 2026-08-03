@@ -2,9 +2,10 @@
 
 ## Release Candidate Baseline
 
-The backend release-candidate baseline expects Alembic head
-`0024_creator_singleton`. The readiness endpoint verifies PostgreSQL, Redis,
-and this exact migration revision before returning ready.
+The readiness endpoint verifies PostgreSQL, Redis, and that the applied
+Alembic revision matches the real head — resolved dynamically from
+`alembic/versions/` on every check (`app/api/health.py`), not a fixed
+revision hardcoded here.
 
 Operational endpoints:
 

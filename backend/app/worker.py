@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import os
 import signal
 import sys
 import time
@@ -44,12 +45,35 @@ logger = logging.getLogger("app.worker")
 
 HEARTBEAT_INTERVAL_SECONDS = 30
 POLL_INTERVAL_SECONDS = 2
-LEASE_SECONDS = 60
+
+# All three below default to the production values below (60s lease, 30s/3600s
+# backoff base/maximum — identical to DispatchService.fail()'s own defaults)
+# unless explicitly overridden by environment variable. This exists so
+# integration tests can exercise the *real* lease-expiry and retry/backoff
+# mechanisms end-to-end (real wall-clock waits, real Postgres rows) with
+# practical, still-nonzero timings, instead of either (a) waiting through
+# production-length delays (60s lease, 30s/60s/120s.../backoff — impractical
+# for a test suite) or (b) silently shrinking a hardcoded constant in a way
+# that would drift from production without anyone noticing. See
+# ARCHITECTURE.md, Lote: P4/P5 — concorrência real de worker.
+WORKER_UUID = os.environ.get("WORKER_UUID", SYSTEM_WORKER_UUID)
+LEASE_SECONDS = int(os.environ.get("WORKER_LEASE_SECONDS", "60"))
+DISPATCH_RETRY_BASE_SECONDS = int(os.environ.get("DISPATCH_RETRY_BASE_SECONDS", "30"))
+DISPATCH_RETRY_MAXIMUM_SECONDS = int(os.environ.get("DISPATCH_RETRY_MAXIMUM_SECONDS", "3600"))
+
 LIVENESS_FILE = "/tmp/worker-heartbeat"
 LIVENESS_MAX_AGE_SECONDS = HEARTBEAT_INTERVAL_SECONDS * 3
 
 
 def _credential() -> str:
+    # WORKER_CREDENTIAL_OVERRIDE lets a test authenticate this process as a
+    # freshly `WorkerService.register()`-ed identity (its own worker_uuid +
+    # plaintext token), distinct from the single deployed SYSTEM_WORKER_UUID
+    # identity — needed to run two independent worker processes against the
+    # same database without one clobbering the other's `Worker.status` row.
+    override = os.environ.get("WORKER_CREDENTIAL_OVERRIDE")
+    if override:
+        return override
     if settings.worker_credential is None:
         raise RuntimeError("WORKER_CREDENTIAL_FILE is not configured; nothing for the worker to authenticate with")
     return settings.worker_credential.get_secret_value()
@@ -58,7 +82,12 @@ def _credential() -> str:
 def _services(session):
     dispatch = DispatchService(DispatchRepository(session), TreeCoreService(TreeCoreRepository(session)))
     workers = WorkerService(WorkerRepository(session), dispatch)
-    execution = AgentExecutionService(ExecutionRepository(session), dispatch)
+    execution = AgentExecutionService(
+        ExecutionRepository(session),
+        dispatch,
+        retry_base_seconds=DISPATCH_RETRY_BASE_SECONDS,
+        retry_maximum_seconds=DISPATCH_RETRY_MAXIMUM_SECONDS,
+    )
     return dispatch, workers, execution
 
 
@@ -71,13 +100,13 @@ def _touch_liveness() -> None:
 async def _authenticate():
     async with AsyncSessionLocal() as session:
         _, workers, _ = _services(session)
-        return await workers.authenticate(SYSTEM_WORKER_UUID, _credential())
+        return await workers.authenticate(WORKER_UUID, _credential())
 
 
 async def _heartbeat(status: str) -> None:
     async with AsyncSessionLocal() as session:
         _, workers, _ = _services(session)
-        worker = await workers.authenticate(SYSTEM_WORKER_UUID, _credential())
+        worker = await workers.authenticate(WORKER_UUID, _credential())
         await workers.heartbeat(worker, SYSTEM_WORKER_VERSION, status)
     _touch_liveness()
 
@@ -85,7 +114,7 @@ async def _heartbeat(status: str) -> None:
 async def _claim():
     async with AsyncSessionLocal() as session:
         _, workers, _ = _services(session)
-        worker = await workers.authenticate(SYSTEM_WORKER_UUID, _credential())
+        worker = await workers.authenticate(WORKER_UUID, _credential())
         result = await workers.claim(worker, LEASE_SECONDS)
         if result is None:
             return None
@@ -104,13 +133,33 @@ async def _execute(dispatch_id: str, mission_id: str, token: str, capability_nam
     runs for its own capability. See docs/AUDIT_v0.5.md section 10, decision 3."""
     async with AsyncSessionLocal() as session:
         _, workers, execution_service = _services(session)
-        worker = await workers.authenticate(SYSTEM_WORKER_UUID, _credential())
+        worker = await workers.authenticate(WORKER_UUID, _credential())
         try:
             handler = default_registry.resolve_by_capability(capability_name)
         except HandlerError as exc:
             logger.warning("no handler registered for capability %s: %s", capability_name, exc)
+            # A missing handler is not transient like a lease race — it means this
+            # capability can never succeed until an operator registers one. Route it
+            # through fail() (not release()) so it consumes an attempt, ultimately
+            # dead-letters, and fails the Mission instead of being immediately
+            # reclaimed and looping forever silently. See docs/AUDIT_v0.5.md.
+            #
+            # Through `workers.fail()`, not `dispatch.fail()` directly: only
+            # the former also resets this worker's own `status` back to
+            # "available". Calling dispatch.fail() directly (as this used to)
+            # left the worker permanently stuck at "busy" from its earlier
+            # claim() — status is a WorkerService-level concern, not
+            # DispatchService's — so the worker could never claim anything
+            # again, including its own next retry of this very item.
+            # Confirmed by direct reproduction with a real `python -m
+            # app.worker` process; see ARCHITECTURE.md, Lote: P4/P5 —
+            # concorrência real de worker.
             with contextlib.suppress(Exception):
-                await workers.release(worker, dispatch_id, token)
+                await workers.fail(
+                    worker, dispatch_id, token, "no_handler_registered",
+                    f"No handler registered for capability {capability_name!r}",
+                    base=DISPATCH_RETRY_BASE_SECONDS, maximum=DISPATCH_RETRY_MAXIMUM_SECONDS,
+                )
             return None
         try:
             execution = await execution_service.create(worker, dispatch_id, token, handler.name, handler.version)
@@ -188,6 +237,7 @@ class WorkerProcess:
 
                 claimed = await _claim()
                 if claimed is None:
+                    logger.debug("no claimable dispatch item, sleeping %ss", POLL_INTERVAL_SECONDS)
                     await asyncio.sleep(POLL_INTERVAL_SECONDS)
                     continue
 
@@ -218,7 +268,7 @@ class WorkerProcess:
         try:
             async with AsyncSessionLocal() as session:
                 _, workers, _ = _services(session)
-                worker = await workers.authenticate(SYSTEM_WORKER_UUID, _credential())
+                worker = await workers.authenticate(WORKER_UUID, _credential())
                 await workers.shutdown(worker)
             logger.info("worker retired cleanly")
         except Exception as exc:  # best-effort on the way out; never mask the real shutdown

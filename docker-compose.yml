@@ -72,6 +72,46 @@ services:
     networks:
       - tco_net
 
+  # Test-only Postgres, isolated from the "postgres" service above (separate
+  # image instance, separate named volume, separate port). Data here is
+  # disposable and fully recreated per test session (conftest.py's
+  # session-scoped `alembic upgrade head` fixture) — never used for
+  # dev/prod data — so it is safe to trade durability for speed:
+  # fsync/synchronous_commit/full_page_writes=off skip the WAL fsync each
+  # TRUNCATE/commit would otherwise wait on. See ARCHITECTURE.md, "Lote:
+  # Investigação da lentidão da suíte" for the measured raw-disk evidence
+  # (a `dd ... oflag=dsync` fsync benchmark took ~300ms per write on this
+  # Docker Desktop/WSL2 host) that motivated this, and never apply these
+  # flags to the "postgres" service above.
+  postgres-test:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_DB: the_creation_os_test
+    secrets:
+      - postgres_password
+    command:
+      [
+        "postgres",
+        "-c", "fsync=off",
+        "-c", "synchronous_commit=off",
+        "-c", "full_page_writes=off",
+      ]
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - tco_net
+    profiles:
+      - test
+
   redis:
     image: redis:7-alpine
     command: ["redis-server", "--save", "", "--appendonly", "yes"]
@@ -130,6 +170,7 @@ services:
 
 volumes:
   postgres_data:
+  postgres_test_data:
   redis_data:
 
 networks:

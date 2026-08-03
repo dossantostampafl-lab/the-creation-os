@@ -149,7 +149,8 @@ Nada disso substitui execução real. Rode tudo de novo do zero.
    - `docker compose config`, `docker compose build`,
      `docker compose up -d --force-recreate`, `docker compose ps`;
    - `GET /api/v1/health/live` e `GET /api/v1/health/ready`;
-   - conferir `alembic_version.version_num` = `0024_creator_singleton`;
+   - conferir `alembic_version.version_num` contra a head real reportada
+     por `alembic heads` (rodado em `backend/`) — não uma revisão fixa;
    - revisão dos fluxos críticos listados na seção 9 do checklist;
    - security gate (seção 10).
 4. Corrija qualquer falha real encontrada, seguindo o mesmo padrão de

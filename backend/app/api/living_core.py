@@ -92,6 +92,14 @@ async def add_message(entity_id: uuid.UUID, body: MessageRequest, a: Actor = Dep
     return ConversationMessageResponse(**{name: getattr(item, name) for name in ConversationMessageResponse.model_fields})
 
 
+@router.get("/conversations/{entity_id}/messages", response_model=list[ConversationMessageResponse])
+async def list_conversation_messages(entity_id: uuid.UUID, a: Actor = Depends(actor), s: LivingCoreService = Depends(service)):
+    return [
+        ConversationMessageResponse(**{name: getattr(item, name) for name in ConversationMessageResponse.model_fields})
+        for item in await s.messages(a, str(entity_id))
+    ]
+
+
 @router.post(
     "/living-core/conversations/{entity_id}/god",
     response_model=GodConversationResponse,

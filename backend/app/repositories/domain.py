@@ -76,6 +76,10 @@ class DomainRepository:
             Message.id == message_id, Message.conversation_id == conversation_id
         ))
 
+    async def list_messages(self, conversation_id: str) -> list[Message]:
+        stmt = select(Message).where(Message.conversation_id == conversation_id).order_by(Message.created_at, Message.id)
+        return list((await self.session.scalars(stmt)).all())
+
     async def mission_for_inception(self, inception_id: str, lock: bool = False) -> Mission | None:
         stmt = select(Mission).where(Mission.inception_id == inception_id)
         if lock:

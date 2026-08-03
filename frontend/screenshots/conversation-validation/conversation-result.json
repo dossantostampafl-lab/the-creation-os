@@ -1,0 +1,30 @@
+{
+  "endpoint": "http://127.0.0.1:8000/api/v1/living-core/conversations/e916bafa-fb44-4110-a1ff-7181e1b99456/god",
+  "statusHTTP": 201,
+  "payloadEnviado": {
+    "message": "DEUS, confirme pela interface que a conversa esta funcionando.",
+    "idempotency_key": "bad75108-cea5-42f2-91eb-6231177888dd"
+  },
+  "respostaRecebida": {
+    "id": "0ff7902e-4a83-4dbf-9c42-d90a5ea9ae33",
+    "conversation_id": "e916bafa-fb44-4110-a1ff-7181e1b99456",
+    "message_id": "2595bf6c-c50b-438e-a4d4-76ca1013176b",
+    "god_message_id": "d6a5bc37-d1ae-456a-90bc-6eec8bf3c0b0",
+    "interaction_type": "DIRECT_RESPONSE",
+    "reply": {
+      "message": "Estou presente. Registrei: deus, confirme pela interface que a conversa esta funcionando.. Posso continuar a conversa ou aguardar uma decisao do Criador.",
+      "policy_version": "v0.7.0"
+    },
+    "potential_detected": false,
+    "next_action": "continue_conversation",
+    "memory_context": [],
+    "fingerprint": "3f50aeb85c13085e225d1575cc41a7824c499ad98009878f2d1b0153554da66f",
+    "created_at": "2026-07-19T00:38:16.199556Z",
+    "completed_at": "2026-07-19T00:38:16.199556Z"
+  },
+  "displayedText": "Estou presente. Registrei: deus, confirme pela interface que a conversa esta funcionando.. Posso continuar a conversa ou aguardar uma decisao do Criador.",
+  "screenshot": "C:\\Users\\dossa\\OneDrive\\Área de Trabalho\\THE CREATION OS\\frontend\\screenshots\\conversation-validation\\deus-conversation-response.png",
+  "consoleErrors": [],
+  "failedRequests": [],
+  "api404": []
+}

@@ -13,6 +13,15 @@ class MemoryError(DomainError):
 
 
 class MemoryService:
+    """`remember`/`search` still back the active POST/GET /memory HTTP
+    routes (app/api/memory.py) — not deprecated. `context_for_god` below
+    IS deprecated (Lote: Convergência de memória de conversa, 2026-08-01):
+    GodConversationService never actually called it (it inlined equivalent
+    logic against CreatorMemory directly); GOD's real memory-context
+    resolution now lives in
+    GodConversationRepository.conversation_memory_candidates()
+    (app/repositories/god.py), reading conversation_memory instead."""
+
     def __init__(self, repository: MemoryRepository) -> None:
         self.repository = repository
 

@@ -20,7 +20,7 @@ from app.config import settings
 from app.core.domain import Actor
 from app.main import app
 from app.models.decision import MissionDecision
-from app.models.entities import Chronicle, Conversation, Creator, Inception, Message
+from app.models.entities import Chronicle, Conversation, ConversationMemory, Creator, Inception, Message, Mission
 from app.models.execution import AgentExecution
 from app.models.god import GodConversationInteraction
 from app.models.manifestation import MissionManifestation
@@ -219,6 +219,7 @@ async def test_http_same_key_different_payload_conflicts_without_side_effects(go
         ("Nota para registro: contexto novo", "INFORMATIONAL", False),
         ("Criar um sistema", "POTENTIAL", True),
         ("Chame Malkuth para manifestar", "UNSUPPORTED", False),
+        ("Quantas missoes existem?", "SYSTEM_QUERY", False),
     ],
 )
 async def test_service_interaction_types(god_database, message, interaction_type, potential):
@@ -234,6 +235,189 @@ async def test_service_interaction_types(god_database, message, interaction_type
         assert created
         assert item.interaction_type == interaction_type
         assert item.potential_detected is potential
+
+
+@pytest.mark.asyncio
+async def test_memory_context_reads_conversation_memory_creator_wide_not_creator_memory(god_database):
+    """Lote: Convergência de memória de conversa. Proves two things CreatorMemory
+    used to provide and conversation_memory must now provide identically:
+    (1) recall is Creator-wide, not scoped to the single active Conversation
+    — the seeded memory lives in a *different* Conversation than the one
+    the interaction happens in, and is still found; (2) relevance ranking
+    still favors the memory whose content overlaps the query terms over an
+    unrelated high-importance one, exactly like
+    app.core.memory.select_memory_context already did for CreatorMemory."""
+    factory, ids = god_database
+
+    async with factory() as session:
+        other_conversation_id = str(uuid.uuid4())
+        session.add(Conversation(id=other_conversation_id, creator_id=ids["creator"], title="other", status="active"))
+        await session.commit()
+        session.add_all(
+            [
+                ConversationMemory(
+                    conversation_id=other_conversation_id,
+                    key="b" * 64,
+                    value_json={
+                        "memory_type": "SEMANTIC",
+                        "source": "knowledge",
+                        "content": "Sistema legado sem relacao com a pergunta.",
+                        "normalized_content": "sistema legado sem relacao com a pergunta.",
+                        "importance": 9,
+                        "memory_fingerprint": "b" * 64,
+                    },
+                ),
+                ConversationMemory(
+                    conversation_id=other_conversation_id,
+                    key="a" * 64,
+                    value_json={
+                        "memory_type": "CREATOR",
+                        "source": "creator_rule",
+                        "content": "Criador prefere respostas objetivas sobre orcamento.",
+                        "normalized_content": "criador prefere respostas objetivas sobre orcamento.",
+                        "importance": 4,
+                        "memory_fingerprint": "a" * 64,
+                    },
+                ),
+            ]
+        )
+        await session.commit()
+
+    async with factory() as session:
+        item, created = await GodConversationService(GodConversationRepository(session)).interact(
+            Actor(ids["creator"], "creator"),
+            ids["conversation"],
+            "Nota: lembre sobre orcamento",
+            str(uuid.uuid4()),
+            str(uuid.uuid4()),
+        )
+
+    assert created is True
+    memory_context = item.response_payload["memory_context"]
+    assert memory_context, "expected the other Conversation's memory to be found (Creator-wide recall)"
+    fingerprints = {entry["fingerprint"] for entry in memory_context}
+    assert "a" * 64 in fingerprints, "the query-relevant memory, seeded in a different Conversation, must be found"
+    relevant = next(entry for entry in memory_context if entry["fingerprint"] == "a" * 64)
+    assert "orcamento" in relevant["content"].lower()
+    assert relevant["importance"] == 4
+
+
+@pytest.mark.asyncio
+async def test_system_query_missions_reflects_real_database_count_not_a_fixed_string(god_database):
+    """AUDITORIA: SYSTEM_QUERY, section 5's core requirement: the answer must
+    come from data queried at ask-time, not static text. Create 2 real
+    Missions for this Creator, ask, confirm the reply mentions 2 — then add a
+    3rd and ask again, confirming the reply changes to 3."""
+    factory, ids = god_database
+
+    async def create_mission(title: str) -> None:
+        async with factory() as session:
+            message_id = str(uuid.uuid4())
+            session.add(
+                Message(
+                    id=message_id, conversation_id=ids["conversation"], role="creator", actor_id=ids["creator"],
+                    correlation_id=str(uuid.uuid4()), content=title, route="central", metadata_json={},
+                )
+            )
+            await session.commit()
+            inception_id = str(uuid.uuid4())
+            session.add(
+                Inception(
+                    id=inception_id, conversation_id=ids["conversation"], source_message_id=message_id,
+                    title=title, description=title, status="approved", trinity_assessment_json={},
+                )
+            )
+            await session.commit()
+            session.add(
+                Mission(
+                    id=str(uuid.uuid4()), inception_id=inception_id, creator_id=ids["creator"], title=title,
+                    objective=title, status="authorized", authorization_json={},
+                )
+            )
+            await session.commit()
+
+    await create_mission("Mission One")
+    await create_mission("Mission Two")
+
+    async with factory() as session:
+        item, _ = await GodConversationService(GodConversationRepository(session)).interact(
+            Actor(ids["creator"], "creator"), ids["conversation"], "Quantas missoes existem?", str(uuid.uuid4()), str(uuid.uuid4()),
+        )
+    assert item.interaction_type == "SYSTEM_QUERY"
+    assert item.response_payload["reply"]["system_query"] == {"topic": "missions", "data": {"total": 2, "running": 2}}
+    assert "2" in item.response_payload["reply"]["message"]
+
+    await create_mission("Mission Three")
+
+    async with factory() as session:
+        second_item, _ = await GodConversationService(GodConversationRepository(session)).interact(
+            Actor(ids["creator"], "creator"), ids["conversation"], "Quantas missoes existem?", str(uuid.uuid4()), str(uuid.uuid4()),
+        )
+    assert second_item.response_payload["reply"]["system_query"]["data"] == {"total": 3, "running": 3}
+    assert "3" in second_item.response_payload["reply"]["message"]
+
+
+@pytest.mark.asyncio
+async def test_system_query_inceptions_and_agents_reflect_real_data(god_database):
+    factory, ids = god_database
+
+    async with factory() as session:
+        pending = await GodConversationService(GodConversationRepository(session)).interact(
+            Actor(ids["creator"], "creator"), ids["conversation"], "Quantas Inceptions pendentes existem?", str(uuid.uuid4()), str(uuid.uuid4()),
+        )
+    assert pending[0].response_payload["reply"]["system_query"] == {"topic": "inceptions", "data": {"pending": 0}}
+
+    async with factory() as session:
+        message_id = str(uuid.uuid4())
+        session.add(
+            Message(
+                id=message_id, conversation_id=ids["conversation"], role="creator", actor_id=ids["creator"],
+                correlation_id=str(uuid.uuid4()), content="pending", route="central", metadata_json={},
+            )
+        )
+        await session.commit()
+        session.add(
+            Inception(
+                id=str(uuid.uuid4()), conversation_id=ids["conversation"], source_message_id=message_id,
+                title="Pending", description="Pending", status="proposed", trinity_assessment_json={},
+            )
+        )
+        await session.commit()
+
+    async with factory() as session:
+        pending_again = await GodConversationService(GodConversationRepository(session)).interact(
+            Actor(ids["creator"], "creator"), ids["conversation"], "Quantas Inceptions pendentes existem?", str(uuid.uuid4()), str(uuid.uuid4()),
+        )
+    assert pending_again[0].response_payload["reply"]["system_query"] == {"topic": "inceptions", "data": {"pending": 1}}
+
+    async with factory() as session:
+        agents = await GodConversationService(GodConversationRepository(session)).interact(
+            Actor(ids["creator"], "creator"), ids["conversation"], "Quais agentes disponiveis existem?", str(uuid.uuid4()), str(uuid.uuid4()),
+        )
+    assert agents[0].interaction_type == "SYSTEM_QUERY"
+    data = agents[0].response_payload["reply"]["system_query"]["data"]
+    assert set(data) == {"total", "available"}
+    assert isinstance(data["total"], int) and isinstance(data["available"], int)
+
+
+@pytest.mark.asyncio
+async def test_system_query_pulse_and_general_reuse_the_real_pulse_snapshot(god_database):
+    """Confirms GOD's "pulse"/"general" topics call the same
+    build_pulse_snapshot() the GET /api/v1/pulse endpoint calls, instead of a
+    duplicated/parallel implementation."""
+    factory, ids = god_database
+
+    async with factory() as session:
+        item, _ = await GodConversationService(GodConversationRepository(session)).interact(
+            Actor(ids["creator"], "creator"), ids["conversation"], "Qual o Pulse do sistema?", str(uuid.uuid4()), str(uuid.uuid4()),
+        )
+    data = item.response_payload["reply"]["system_query"]["data"]
+    assert set(data) >= {"status", "database", "redis", "chronicles_chain", "active_universes", "active_agents", "running_missions", "pending_inceptions"}
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/api/v1/pulse", headers=auth(ids["creator"]))
+    assert response.status_code == 200
+    assert response.json()["active_universes"] == data["active_universes"]
 
 
 @pytest.mark.asyncio

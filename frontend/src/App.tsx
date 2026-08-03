@@ -1,13 +1,25 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError } from "./api";
-import { inferRequestedPanel, panelTitle, pendingInception, shouldClosePanel, normalizeEntityKey, type RequestedPanel } from "./appLogic";
+import {
+  conversationMessageToChatItem,
+  inferRequestedPanel,
+  missionProgressFraction,
+  panelTitle,
+  pendingInception,
+  shouldClosePanel,
+  normalizeEntityKey,
+  type RequestedPanel,
+} from "./appLogic";
 import { CapabilityPanel } from "./components/CapabilityPanel";
 import { ChronicleRibbon } from "./components/ChronicleRibbon";
 import { InceptionPanel } from "./components/InceptionPanel";
 import { EntityActivityState, HotspotSummary, LivingDashboard } from "./components/LivingDashboard";
 import { MissionAuthorizationPanel } from "./components/MissionAuthorizationPanel";
+import { NotificationsPanel } from "./components/NotificationsPanel";
 import { OpportunityPanel } from "./components/OpportunityPanel";
+import { OverlayStatsRow } from "./components/OverlayStatsRow";
 import { PerceptionPanel } from "./components/PerceptionPanel";
+import { SearchPanel } from "./components/SearchPanel";
 import "./styles/living-dashboard.css";
 import { buildContextualVoiceMessage, createBrowserSpeechRecognizer, stopAudioPlayback, type VoiceConversationState } from "./voice";
 import type {
@@ -24,6 +36,7 @@ import type {
   Opportunity,
   PerceptionSource,
   Pulse,
+  TokenResponse,
   Universe,
 } from "./types";
 
@@ -31,6 +44,7 @@ type LoadState = "idle" | "loading" | "ready" | "empty" | "error";
 
 const REFRESH_INTERVAL_MS = 15000;
 const WORKSPACE_CACHE_KEY = "creator-interface-workspace-cache";
+const CONVERSATION_ID_CACHE_KEY = "creator-conversation-id";
 const CREATOR_DEFAULT_USERNAME = import.meta.env.VITE_CREATOR_DEFAULT_USERNAME ?? "creator";
 const CREATOR_DEV_PASSWORD = import.meta.env.VITE_CREATOR_DEV_PASSWORD ?? "";
 
@@ -96,6 +110,13 @@ export function App() {
   const authenticated = Boolean(token);
   const empty = loadState === "empty";
   const activeMission = missions[0] ?? null;
+  const onlineAgentCount = agents.filter(
+    (agent) => agent.enabled && !["idle", "offline", "disabled"].includes(agent.status.toLowerCase()),
+  ).length;
+  const activeCapabilityCount = capabilities.filter((capability) => capability.enabled).length;
+  const enabledPerceptionSourceCount = perceptionSources.filter((source) => source.enabled).length;
+  const pendingInceptionCount = inceptions.filter(pendingInception).length;
+  const unreadNotificationCount = notifications.filter((notification) => notification.status === "unread").length;
   const lastGodReply = useMemo(() => [...chat].reverse().find((item) => item.role === "god")?.text ?? null, [chat]);
   const voiceContext = useMemo(
     () => ({
@@ -152,6 +173,37 @@ export function App() {
     return () => window.clearInterval(interval);
   }, [token]);
 
+  // Lote: DEUS inicia conversa automaticamente após login. Loads the
+  // Creator's anchor DEUS conversation (and its real message history,
+  // including the automatic greeting the login request just persisted
+  // server-side) whenever a token is present — a fresh login and a plain
+  // page reload with an already-cached token both land here, so the
+  // greeting appears without any action from the Creator either way.
+  useEffect(() => {
+    if (!token) return undefined;
+    const cachedId = localStorage.getItem(CONVERSATION_ID_CACHE_KEY);
+    if (!cachedId) return undefined;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [loadedConversation, loadedMessages] = await Promise.all([
+          api.getConversation(token, cachedId),
+          api.listConversationMessages(token, cachedId),
+        ]);
+        if (cancelled) return;
+        setConversation(loadedConversation);
+        if (loadedMessages.length > 0) setChat(loadedMessages.map(conversationMessageToChatItem));
+      } catch {
+        // Best-effort hydration: the local intro placeholder and
+        // ensureConversation()'s own fallback keep the chat usable even if
+        // this fails (offline, or a cached id from a wiped Creator).
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
   useEffect(() => {
     if (token || silentAuthAttempted || !CREATOR_DEV_PASSWORD) return;
     // Guards the one-time silent-login network call below, not derived UI state.
@@ -160,8 +212,7 @@ export function App() {
     void api
       .login(CREATOR_DEFAULT_USERNAME, CREATOR_DEV_PASSWORD)
       .then((result) => {
-        localStorage.setItem("creator-token", result.access_token);
-        setToken(result.access_token);
+        applyLoginResult(result);
         setAuthError(null);
       })
       .catch((error) => {
@@ -183,11 +234,24 @@ export function App() {
 
   function resetSession(message?: string) {
     localStorage.removeItem("creator-token");
+    localStorage.removeItem(CONVERSATION_ID_CACHE_KEY);
     setToken(null);
     setConversation(null);
     setLoadState("idle");
     setDataError(null);
     if (message) setAuthError(message);
+  }
+
+  // Lote: DEUS inicia conversa automaticamente após login. /auth/login now
+  // returns the Creator's anchor DEUS conversation id (created, and greeted
+  // into, server-side) — cached the same way the token already is, so a
+  // plain page reload can resolve "which conversation is this Creator's"
+  // without a fresh login. Shared by handleLogin and the silent dev-login
+  // effect below so both paths stay in sync.
+  function applyLoginResult(result: TokenResponse) {
+    localStorage.setItem("creator-token", result.access_token);
+    if (result.conversation_id) localStorage.setItem(CONVERSATION_ID_CACHE_KEY, result.conversation_id);
+    setToken(result.access_token);
   }
 
   async function handleLogin(event: FormEvent) {
@@ -197,8 +261,7 @@ export function App() {
     setAuthError(null);
     try {
       const result = await api.login(username.trim(), password);
-      localStorage.setItem("creator-token", result.access_token);
-      setToken(result.access_token);
+      applyLoginResult(result);
       setPassword("");
     } catch (error) {
       setAuthError(error instanceof ApiError ? error.message : "Falha ao autenticar o Criador.");
@@ -354,6 +417,17 @@ export function App() {
 
   async function ensureConversation(accessToken: string) {
     if (conversation) return conversation;
+    // Falls back to the cached anchor id (from login/localStorage) rather
+    // than always minting a fresh Conversation — the anchor-hydration effect
+    // below may not have resolved yet, and using the same id here is what
+    // keeps a message sent right after login landing in the same thread as
+    // DEUS's automatic greeting instead of forking a new, empty one.
+    const cachedId = localStorage.getItem(CONVERSATION_ID_CACHE_KEY);
+    if (cachedId) {
+      const existing = await api.getConversation(accessToken, cachedId);
+      setConversation(existing);
+      return existing;
+    }
     const created = await api.createConversation(accessToken, "Creator Interface");
     setConversation(created);
     return created;
@@ -791,15 +865,31 @@ export function App() {
               />
             ) : null}
             {requestedPanel === "missions" ? (
-              <MissionAuthorizationPanel
-                mission={activeMission}
-                authorization={missionAuthorization}
-                loading={missionAuthorizationBusy}
-                error={missionAuthorizationError}
-                onRequest={handleRequestMissionAuthorization}
-                onApprove={handleApproveMissionAuthorization}
-                onRevoke={handleRevokeMissionAuthorization}
-              />
+              <>
+                <OverlayStatsRow
+                  stats={[
+                    { label: "Missoes ativas", value: missions.length },
+                    { label: "Oportunidades", value: opportunities.length },
+                    { label: "Agentes online", value: onlineAgentCount },
+                    { label: "Capabilities ativas", value: activeCapabilityCount },
+                    { label: "Percepcao ativa", value: `${enabledPerceptionSourceCount}/${perceptionSources.length}` },
+                  ]}
+                  focus={
+                    activeMission
+                      ? { label: `Foco atual: ${activeMission.title}`, fraction: missionProgressFraction(activeMission.status) }
+                      : undefined
+                  }
+                />
+                <MissionAuthorizationPanel
+                  mission={activeMission}
+                  authorization={missionAuthorization}
+                  loading={missionAuthorizationBusy}
+                  error={missionAuthorizationError}
+                  onRequest={handleRequestMissionAuthorization}
+                  onApprove={handleApproveMissionAuthorization}
+                  onRevoke={handleRevokeMissionAuthorization}
+                />
+              </>
             ) : null}
             {requestedPanel === "opportunities" ? (
               <OpportunityPanel
@@ -835,7 +925,31 @@ export function App() {
                 onExecute={handleExecuteAutomation}
               />
             ) : null}
-            {requestedPanel === "chronicle" ? <ChronicleRibbon entries={chronicles} /> : null}
+            {requestedPanel === "chronicle" ? (
+              <>
+                <OverlayStatsRow
+                  stats={[
+                    { label: "Inceptions aguardando", value: pendingInceptionCount },
+                    { label: "Missao aguardando autorizacao", value: missionAuthorization?.status === "pending" ? 1 : 0 },
+                    { label: "Notificacoes nao lidas", value: unreadNotificationCount },
+                  ]}
+                />
+                <ChronicleRibbon entries={chronicles} />
+              </>
+            ) : null}
+            {requestedPanel === "notifications" ? (
+              <NotificationsPanel notifications={notifications} onReadNotification={handleReadNotification} />
+            ) : null}
+            {requestedPanel === "search" ? (
+              <SearchPanel
+                missions={missions}
+                inceptions={inceptions}
+                opportunities={opportunities}
+                agents={agents}
+                universes={universes}
+                onOpenPanel={setRequestedPanel}
+              />
+            ) : null}
             {requestedPanel === "universes" ? (
               <section className="conversation-data-list" aria-label="Universos e agentes">
                 <header>
@@ -856,14 +970,18 @@ export function App() {
                   <strong>{agents.length}</strong>
                 </header>
                 {agents.length === 0 ? <p>Nenhum agente retornado pela API.</p> : null}
-                {agents.map((agent) => (
-                  <article key={agent.id}>
-                    <strong>{agent.name}</strong>
-                    <span>
-                      {agent.universe} / {agent.status} / {agent.description}
-                    </span>
-                  </article>
-                ))}
+                {agents.map((agent) => {
+                  const online = agent.enabled && !["idle", "offline", "disabled"].includes(agent.status.toLowerCase());
+                  return (
+                    <article key={agent.id}>
+                      <strong>{agent.name}</strong>
+                      <span>
+                        <span className="agent-status-dot" data-online={online} aria-hidden="true" />
+                        {agent.universe} / {agent.status} / {agent.description}
+                      </span>
+                    </article>
+                  );
+                })}
               </section>
             ) : null}
           </div>
@@ -891,6 +1009,7 @@ export function App() {
         hotspotSummaries={universeSummaries}
         demandPanel={demandPanel}
         onSelectPanel={setRequestedPanel}
+        unreadNotificationCount={unreadNotificationCount}
         voiceState={voiceState}
         voiceSupported={recognizer.supported}
         voiceError={voiceError}

@@ -83,6 +83,23 @@ class DispatchService:
             expired.state = transition_dispatch(expired.state, DispatchState.QUEUED)
             expired.lease_owner = expired.lease_token_hash = expired.leased_at = expired.lease_expires_at = None
             expired.version += 1
+        # Commit the sweep before acquiring: with autoflush enabled (every
+        # existing test's session) the acquire() SELECT below would see
+        # these in-memory changes anyway, which is exactly why this was
+        # never caught by a single-process test. Production's real
+        # app/db/session.AsyncSessionLocal disables autoflush, so without
+        # this commit the swept rows are invisible to acquire()'s own
+        # SELECT, acquire() finds nothing, lease() returns (None, None)
+        # without ever committing, and the sweep itself gets rolled back —
+        # meaning an expired lease could never actually be reclaimed by any
+        # real worker. Confirmed by direct reproduction with two real
+        # `python -m app.worker` processes; see ARCHITECTURE.md, Lote:
+        # P4/P5 — concorrência real de worker. Committing here regardless
+        # of whether *this* worker's capabilities end up matching the swept
+        # item is also strictly better than leaving it to roll back: the
+        # requeue becomes durable and visible immediately, for this or any
+        # other worker's next poll, instead of being silently redone.
+        await self.repository.commit()
         item = (
             await self.repository.acquire(now)
             if capability_ids is None

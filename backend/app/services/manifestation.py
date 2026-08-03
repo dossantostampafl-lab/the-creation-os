@@ -7,7 +7,9 @@ from sqlalchemy.exc import IntegrityError
 from app.core.domain import DomainError, MissionStatus, require_malkuth_authorized, transition
 from app.core.manifestation import build_manifestation, is_valid_fingerprint
 from app.models.manifestation import MissionManifestation
+from app.repositories.conscious_memory import ConsciousMemoryRepository
 from app.repositories.manifestation import ManifestationRepository
+from app.services.conscious_memory import ConsciousMemoryService
 from app.services.domain import NotFoundError
 
 
@@ -68,6 +70,14 @@ class ManifestationService:
             await self.repository.add_event(
                 "mission_manifested", mission.id, actor_id, actor_role, correlation_id,
                 {"manifestation_id": item.id, "decision_id": decision.id}, causation_id=causation_id,
+            )
+            # Trigger (i) of Lote 2.5's two permitted Conscious Memory consolidation
+            # paths: a mission just reached MANIFESTED, for the first time, in this
+            # same transaction (never on the idempotent-return path above). Shares
+            # this session so a rollback below also rolls back the consolidated
+            # memory — consolidate_from_mission does not commit on its own.
+            await ConsciousMemoryService(ConsciousMemoryRepository(self.repository.session)).consolidate_from_mission(
+                mission, correlation_id=correlation_id
             )
             await self.repository.commit()
             return item, True

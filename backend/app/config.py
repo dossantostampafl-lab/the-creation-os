@@ -47,8 +47,20 @@ class Settings(BaseSettings):
     creator_bootstrap_username: str = Field(..., env="CREATOR_BOOTSTRAP_USERNAME")
     creator_bootstrap_password: SecretStr = Field(..., env="CREATOR_BOOTSTRAP_PASSWORD")
     sovereign_creator_id: str | None = Field(None, env="SOVEREIGN_CREATOR_ID")
+    # Comma-separated list of allowed browser origins for CORSMiddleware
+    # (app/main.py). Optional here — validated below to be mandatory when
+    # app_env == "production" (no silent fallback to a wildcard) — with a
+    # Python-level default covering the real local frontend dev origin
+    # (frontend/vite.config.ts's configured port 5173) when unset outside
+    # production. See ARCHITECTURE.md, Lote: CORS por ambiente + rate
+    # limiting no login.
+    cors_allowed_origins: str | None = Field(None, env="CORS_ALLOWED_ORIGINS")
     access_token_expire_minutes: int = Field(15, env="ACCESS_TOKEN_EXPIRE_MINUTES")
     refresh_token_expire_minutes: int = Field(1440, env="REFRESH_TOKEN_EXPIRE_MINUTES")
+    # Login rate limiting (app/auth/routes.py) — a single-Creator system, so
+    # this is about friction against automated guessing, not throughput.
+    login_rate_limit_attempts: int = Field(10, env="LOGIN_RATE_LIMIT_ATTEMPTS")
+    login_rate_limit_window_seconds: int = Field(60, env="LOGIN_RATE_LIMIT_WINDOW_SECONDS")
     database_url: str = Field(..., env="DATABASE_URL")
     redis_url: str = Field(..., env="REDIS_URL")
     worker_credential: SecretStr | None = Field(None, env="WORKER_CREDENTIAL")
@@ -58,7 +70,13 @@ class Settings(BaseSettings):
     llm_api_key: SecretStr | None = Field(None, env="LLM_API_KEY")
     embedding_provider: str = Field("fake", env="EMBEDDING_PROVIDER")
     embedding_model: str = Field("fake", env="EMBEDDING_MODEL")
-    chronicle_embedding_dim: int = 8
+    # Was named chronicle_embedding_dim and never bound to an env var or read
+    # anywhere (dead constant since it was first added) — Chronicles don't use
+    # embeddings at all; this is conscious_memory's vector dimension, renamed
+    # and given a real env binding for Lote 2.5. FakeEmbeddingModel.embed()
+    # always returns 8 floats, so this must stay 8 unless embedding_provider
+    # is also switched to a real provider with a matching dimension.
+    conscious_memory_embedding_dim: int = Field(8, env="CONSCIOUS_MEMORY_EMBEDDING_DIM")
     opportunity_min_score: float = Field(0.45, env="OPPORTUNITY_MIN_SCORE")
     opportunity_min_source_reliability: float = Field(0.5, env="OPPORTUNITY_MIN_SOURCE_RELIABILITY")
     opportunity_expiration_hours: int = Field(72, env="OPPORTUNITY_EXPIRATION_HOURS")
@@ -98,11 +116,47 @@ class Settings(BaseSettings):
     def refresh_token_expires(self) -> timedelta:
         return timedelta(minutes=self.refresh_token_expire_minutes)
 
+    @property
+    def cors_allowed_origins_list(self) -> list[str]:
+        if not self.cors_allowed_origins:
+            # Only reachable outside production — validate_cors_allowed_origins
+            # below requires a real value in production. Matches the confirmed
+            # real local dev origin (frontend/vite.config.ts: server.port =
+            # 5173; docker-compose.yml maps the frontend container's Nginx to
+            # host port 5173 too) — both host forms, since browsers treat
+            # localhost and 127.0.0.1 as distinct origins.
+            return ["http://localhost:5173", "http://127.0.0.1:5173"]
+        return [origin.strip() for origin in self.cors_allowed_origins.split(",") if origin.strip()]
+
     @validator("app_env")
     def validate_env(cls, value: str) -> str:
         if value not in {"development", "test", "production"}:
             raise ValueError("APP_ENV must be development, test, or production")
         return value
+
+    @validator("cors_allowed_origins", always=True)
+    def validate_cors_allowed_origins(cls, value: str | None, values: dict) -> str | None:
+        if values.get("app_env") == "production" and not value:
+            raise ValueError(
+                "CORS_ALLOWED_ORIGINS must be set in production — no silent fallback to a "
+                "permissive default. Set it to the real deployed frontend origin(s), comma-separated."
+            )
+        return value
+
+
+def resolve_cors_middleware_kwargs(origins: list[str]) -> dict:
+    """allow_credentials must never coexist with a literal wildcard origin —
+    if "*" is present, degrade to no-credentials instead of allowing the
+    dangerous combination silently. A pure function (no FastAPI/Settings
+    dependency) specifically so this rule is unit-testable on its own,
+    independent of the app's one-time import-time CORSMiddleware wiring
+    in app/main.py."""
+    return {
+        "allow_origins": origins,
+        "allow_credentials": "*" not in origins,
+        "allow_methods": ["*"],
+        "allow_headers": ["*"],
+    }
 
 
 # Instantiated from environment at runtime; mypy flags missing constructor args.

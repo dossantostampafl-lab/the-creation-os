@@ -106,8 +106,8 @@ class WorkerService:
         await self.repository.commit()
         return item
 
-    async def fail(self, worker: Worker, dispatch_id: str, token: str, code: str, message: str):
-        item = await self.dispatch.fail(dispatch_id, worker.worker_uuid, token, code, message)
+    async def fail(self, worker: Worker, dispatch_id: str, token: str, code: str, message: str, base=30, maximum=3600):
+        item = await self.dispatch.fail(dispatch_id, worker.worker_uuid, token, code, message, base=base, maximum=maximum)
         worker.status = "available"
         await self.repository.commit()
         return item

@@ -19,4 +19,11 @@ class PulseResponse(BaseModel):
     pending_tasks: int
     failed_tasks: int
     error_count: int
+    approved_inceptions: int
+    total_missions_created: int
+    dispatch_items_acknowledged: int
+    dispatch_queue_depth: int
+    http_requests_total: int
+    http_errors_total: int
+    http_average_latency_ms: float
     timestamp: datetime

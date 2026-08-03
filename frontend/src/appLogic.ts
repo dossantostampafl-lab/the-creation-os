@@ -1,4 +1,4 @@
-import type { Inception } from "./types";
+import type { ChatItem, ConversationMessage, Inception } from "./types";
 
 export type RequestedPanel =
   | "inceptions"
@@ -8,6 +8,8 @@ export type RequestedPanel =
   | "chronicle"
   | "capabilities"
   | "universes"
+  | "notifications"
+  | "search"
   | null;
 
 export function normalizeStatus(value: string) {
@@ -39,7 +41,13 @@ export function inferRequestedPanel(message: string): RequestedPanel {
     .normalize("NFKD")
     .replace(/\p{Diacritic}/gu, "")
     .toLowerCase();
-  if (!/(?:^|\b)(mostrar|mostre|abrir|abra|exibir|exiba|visualizar|ver)(?:\b|$)/.test(normalized)) return null;
+  if (
+    !/(?:^|\b)(mostrar|mostre|abrir|abra|exibir|exiba|visualizar|ver|buscar|pesquisar|procurar)(?:\b|$)/.test(normalized)
+  ) {
+    return null;
+  }
+  if (/(buscar|pesquisar|procurar|busca|pesquisa)/.test(normalized)) return "search";
+  if (/(notificacao|notificacoes|alerta|alertas)/.test(normalized)) return "notifications";
   if (/(inception|inceptions|ideia|aprovacao)/.test(normalized)) return "inceptions";
   if (/(missao|missoes|mission|projeto)/.test(normalized)) return "missions";
   if (/(universo|universos|agente|agentes|engenharia|seguranca|infraestrutura|conhecimento|comunidade|evolucao)/.test(normalized)) {
@@ -69,5 +77,28 @@ export function panelTitle(panel: Exclude<RequestedPanel, null>) {
     chronicle: "Chronicle",
     capabilities: "Capabilities",
     universes: "Universos e agentes",
+    notifications: "Notificacoes",
+    search: "Busca",
   }[panel];
+}
+
+// Lote: DEUS inicia conversa automaticamente após login. Converts a
+// persisted Message row (fetched from GET /conversations/{id}/messages)
+// into the same ChatItem shape the live sendToGod() flow already appends —
+// "trinity" is a frontend-only synthetic role never persisted as a Message,
+// so any role besides "creator" is treated as "god".
+export function conversationMessageToChatItem(item: ConversationMessage): ChatItem {
+  const role: ChatItem["role"] = item.role === "creator" ? "creator" : "god";
+  if (role === "creator") return { id: item.id, role, text: item.content, meta: "Creator" };
+  const isGreeting = item.metadata_json?.greeting === true;
+  const nextAction = item.metadata_json?.next_action;
+  const meta = isGreeting ? "greeting" : typeof nextAction === "string" ? nextAction : "history";
+  return { id: item.id, role, text: item.content, meta };
+}
+
+export function missionProgressFraction(status: string): number {
+  const stages = ["drafted", "planned", "validated", "authorized", "distributed", "executing", "manifested"];
+  const index = stages.indexOf(normalizeStatus(status));
+  if (index < 0) return 0;
+  return (index + 1) / stages.length;
 }

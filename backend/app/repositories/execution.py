@@ -21,6 +21,14 @@ class ExecutionRepository:
             stmt = stmt.with_for_update()
         return await self.session.scalar(stmt)
 
+    async def for_attempt(self, dispatch_item_id: str, attempt_number: int, lock=False):
+        stmt = select(AgentExecution).where(
+            AgentExecution.dispatch_item_id == dispatch_item_id, AgentExecution.attempt_number == attempt_number
+        )
+        if lock:
+            stmt = stmt.with_for_update()
+        return await self.session.scalar(stmt)
+
     async def list(self, limit=100, offset=0):
         return list(
             (

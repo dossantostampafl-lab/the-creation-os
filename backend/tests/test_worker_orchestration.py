@@ -18,24 +18,34 @@ import pytest
 from db_safety import create_isolated_test_engine
 from httpx import ASGITransport, AsyncClient
 from jose import jwt
+from pydantic import SecretStr
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from test_consolidation_integration import consolidation_db  # noqa: F401  (reused fixture)
 
+import app.worker as worker_module
+from app.admin.worker import SYSTEM_WORKER_UUID
 from app.config import settings
 from app.core.domain import AuthorizationDenied
 from app.db.session import get_session
 from app.main import app
 from app.models.consolidation import MissionConsolidation
 from app.models.decision import MissionDecision
+from app.models.dispatch import DispatchItem
 from app.models.entities import Agent, AgentCapability, Capability, Chronicle, Conversation, Creator, Inception, Message, Mission, Task
 from app.models.manifestation import MissionManifestation
 from app.repositories.consolidation import ConsolidationRepository
 from app.repositories.decision import DecisionRepository
+from app.repositories.dispatch import DispatchRepository
 from app.repositories.manifestation import ManifestationRepository
+from app.repositories.tree_core import TreeCoreRepository
+from app.repositories.workers import WorkerRepository
 from app.services.consolidation import ConsolidationError, ConsolidationService
 from app.services.decision import DecisionService
+from app.services.dispatch import DispatchService
 from app.services.manifestation import ManifestationError, ManifestationService
+from app.services.tree_core import TreeCoreService
+from app.services.workers import WorkerService
 
 pytestmark = pytest.mark.integration
 
@@ -122,6 +132,122 @@ async def undispatched_mission_db():
     yield factory, ids
     app.dependency_overrides.clear()
     await engine.dispose()
+
+
+@pytest.fixture
+async def unregistered_capability_mission_db():
+    """Same shape as undispatched_mission_db, but the Task requires a capability
+    ("no_handler_capability") that is a real, worker-claimable Capability row with
+    no HandlerRegistry entry in app.agents.handlers.default_registry — exercising
+    the AUDITORIA: TREE CORE gap where app.worker._execute() used to release() a
+    dispatch item back to the queue on HandlerError instead of fail()ing it,
+    looping forever without ever reflecting the failure onto the Mission."""
+    engine = create_isolated_test_engine()
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with engine.begin() as connection:
+        await connection.execute(
+            text(
+                "TRUNCATE dispatch_attempts, dispatch_items, task_dependencies, tasks, worker_capabilities, workers, "
+                "agent_capabilities, capabilities, agents, universes, chronicles, mission_plans, missions, inceptions, "
+                "messages, conversations, creator RESTART IDENTITY CASCADE"
+            )
+        )
+    ids = {key: str(uuid.uuid4()) for key in ("creator", "conversation", "message", "inception", "mission", "capability", "agent", "task")}
+    now = datetime.now(timezone.utc)
+    async with factory() as session:
+        session.add(Creator(id=ids["creator"], username="creator", password_hash="unused", is_active=True))
+        await session.commit()
+        session.add(Conversation(id=ids["conversation"], creator_id=ids["creator"], title="worker", status="active"))
+        await session.commit()
+        session.add(
+            Message(
+                id=ids["message"], conversation_id=ids["conversation"], role="creator", actor_id=ids["creator"],
+                correlation_id=str(uuid.uuid4()), content="x", route="central", metadata_json={},
+            )
+        )
+        await session.commit()
+        session.add(
+            Inception(
+                id=ids["inception"], conversation_id=ids["conversation"], source_message_id=ids["message"],
+                title="Worker", description="Missing handler gap", status="approved", trinity_assessment_json={},
+            )
+        )
+        await session.commit()
+        session.add(
+            Mission(
+                id=ids["mission"], inception_id=ids["inception"], creator_id=ids["creator"], title="Mission",
+                objective="Exercise the missing-handler failure path", status="authorized", authorization_json={},
+            )
+        )
+        session.add(Capability(id=ids["capability"], name="no_handler_capability", description=""))
+        session.add(
+            Agent(
+                id=ids["agent"], name="agent", description="", universe_name="central", active=True,
+                capabilities_json={}, priority=1, status="idle", version=1, heartbeat_at=now, enabled=True,
+            )
+        )
+        await session.commit()
+        session.add(AgentCapability(agent_id=ids["agent"], capability_id=ids["capability"]))
+        session.add(
+            Task(
+                id=ids["task"], mission_id=ids["mission"], name="Only", description="Only", required_capability_id=ids["capability"],
+                priority=1, state="ready", retry_limit=1, retry_count=0, timeout_seconds=30, status="PENDING",
+                input_json={}, output_json={}, error_json={}, attempt_count=0, max_attempts=1, idempotency_key=str(uuid.uuid4()),
+            )
+        )
+        await session.commit()
+
+    async def override():
+        async with factory() as session:
+            yield session
+
+    app.dependency_overrides[get_session] = override
+    yield factory, ids
+    app.dependency_overrides.clear()
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_worker_execute_fails_gracefully_when_no_handler_is_registered(unregistered_capability_mission_db, monkeypatch):
+    """The fix: app.worker._execute() must route a HandlerError (no handler
+    registered for the Task's capability) through DispatchService.fail(), not
+    release() — consuming an attempt so the item eventually dead-letters and
+    fails the Mission, instead of being released back to QUEUED and silently
+    reclaimed forever."""
+    factory, ids = unregistered_capability_mission_db
+    h = auth(ids["creator"])
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        created = await c.post("/api/v1/dispatch", headers=h, json={"task_id": ids["task"], "priority": 1, "max_attempts": 1})
+        assert created.status_code == 201
+
+    async with factory() as session:
+        worker, token = await WorkerService(WorkerRepository(session), DispatchService(DispatchRepository(session), TreeCoreService(TreeCoreRepository(session)))).register(
+            SYSTEM_WORKER_UUID, "system-worker", "1.0", ["no_handler_capability"]
+        )
+        await WorkerService(WorkerRepository(session), DispatchService(DispatchRepository(session), TreeCoreService(TreeCoreRepository(session)))).heartbeat(
+            worker, "1.0", "available"
+        )
+
+    monkeypatch.setattr(worker_module, "AsyncSessionLocal", factory)
+    monkeypatch.setattr(settings, "worker_credential", SecretStr(token))
+
+    claimed = await worker_module._claim()
+    assert claimed is not None
+    dispatch_id, mission_id, _task_id, lease_token, capability_name = claimed
+    assert capability_name == "no_handler_capability"
+
+    state = await worker_module._execute(dispatch_id, mission_id, lease_token, capability_name)
+    assert state is None  # no handler to run, so no terminal execution state
+
+    assert await mission_status(factory, ids["mission"]) == "failed"
+    async with factory() as session:
+        item = await session.get(DispatchItem, dispatch_id)
+        assert item.state == "dead_lettered"
+        assert item.attempt_count == 1
+        assert item.last_error_code == "no_handler_registered"
+        event_types = (await session.scalars(select(Chronicle.event_type).where(Chronicle.aggregate_id == ids["mission"]))).all()
+    assert "mission_failed" in set(event_types)
 
 
 @pytest.mark.asyncio

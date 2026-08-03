@@ -12,7 +12,7 @@ class GodConversationInteraction(Base):
     __table_args__ = (
         UniqueConstraint("conversation_id", "idempotency_key", name="uq_god_interaction_conversation_idempotency"),
         CheckConstraint(
-            "interaction_type IN ('DIRECT_RESPONSE','INFORMATIONAL','POTENTIAL','UNSUPPORTED')",
+            "interaction_type IN ('DIRECT_RESPONSE','INFORMATIONAL','POTENTIAL','SYSTEM_QUERY','UNSUPPORTED')",
             name="ck_god_interaction_type",
         ),
         CheckConstraint("char_length(fingerprint) = 64", name="ck_god_interaction_fingerprint"),

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import Depends, HTTPException, status
 from jose import JWTError, jwt
@@ -50,7 +50,7 @@ class AuthService:
         return creator
 
     def create_token(self, subject: str, token_type: str, expires_delta: timedelta) -> str:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         payload = {
             "sub": subject,
             "type": token_type,

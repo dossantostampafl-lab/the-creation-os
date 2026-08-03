@@ -4,6 +4,7 @@ import type {
   CapabilityFramework,
   ChronicleEntry,
   Conversation,
+  ConversationMessage,
   CreatorNotification,
   GodResponse,
   Inception,
@@ -106,6 +107,14 @@ export const api = {
       },
       token,
     );
+  },
+
+  getConversation(token: string, conversationId: string) {
+    return request<Conversation>(`/conversations/${conversationId}`, undefined, token);
+  },
+
+  listConversationMessages(token: string, conversationId: string) {
+    return request<ConversationMessage[]>(`/conversations/${conversationId}/messages`, undefined, token);
   },
 
   sendGod(token: string, conversationId: string, message: string) {

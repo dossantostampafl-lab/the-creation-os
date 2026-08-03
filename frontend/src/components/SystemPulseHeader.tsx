@@ -1,8 +1,12 @@
+import type { ReactNode } from "react";
 import type { Pulse } from "../types";
 
 type SystemPulseHeaderProps = {
   pulse: Pulse | null;
   authenticated: boolean;
+  unreadNotificationCount: number;
+  onOpenSearch: () => void;
+  onOpenNotifications: () => void;
 };
 
 /**
@@ -62,7 +66,26 @@ function PulseWave({ healthy }: { healthy: boolean }) {
   );
 }
 
-export function SystemPulseHeader({ pulse, authenticated }: SystemPulseHeaderProps) {
+function HeaderIconButton({
+  label,
+  onClick,
+  badge,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  badge?: number;
+  children: ReactNode;
+}) {
+  return (
+    <button type="button" className="header-icon-button" aria-label={label} title={label} onClick={onClick}>
+      {children}
+      {badge && badge > 0 ? <span className="header-icon-badge">{badge > 9 ? "9+" : badge}</span> : null}
+    </button>
+  );
+}
+
+export function SystemPulseHeader({ pulse, authenticated, unreadNotificationCount, onOpenSearch, onOpenNotifications }: SystemPulseHeaderProps) {
   const score = computePulseScore(pulse);
   const healthy = pulse?.status === "live";
 
@@ -101,21 +124,40 @@ export function SystemPulseHeader({ pulse, authenticated }: SystemPulseHeaderPro
         </div>
       </div>
 
-      <div className="creator-badge" aria-hidden={!authenticated}>
+      <div className="header-right">
         {authenticated ? (
-          <>
-            <div className="creator-badge-text">
-              <strong>CRIADOR</strong>
-              <span>ACESSO TOTAL</span>
-            </div>
-            <span className="creator-badge-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.4">
-                <circle cx="12" cy="8" r="3.6" />
-                <path d="M4.5 20c1.4-4 4-6 7.5-6s6.1 2 7.5 6" strokeLinecap="round" />
+          <div className="header-actions">
+            <HeaderIconButton label="Buscar" onClick={onOpenSearch}>
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+                <circle cx="11" cy="11" r="7" />
+                <path d="M21 21l-4.3-4.3" strokeLinecap="round" />
               </svg>
-            </span>
-          </>
+            </HeaderIconButton>
+            <HeaderIconButton label="Notificacoes" onClick={onOpenNotifications} badge={unreadNotificationCount}>
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+                <path d="M6 10a6 6 0 1 1 12 0c0 4 1.5 5.5 1.5 5.5H4.5S6 14 6 10Z" strokeLinejoin="round" />
+                <path d="M10 18.5a2 2 0 0 0 4 0" strokeLinecap="round" />
+              </svg>
+            </HeaderIconButton>
+          </div>
         ) : null}
+
+        <div className="creator-badge" aria-hidden={!authenticated}>
+          {authenticated ? (
+            <>
+              <div className="creator-badge-text">
+                <strong>CRIADOR</strong>
+                <span>ACESSO TOTAL</span>
+              </div>
+              <span className="creator-badge-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.4">
+                  <circle cx="12" cy="8" r="3.6" />
+                  <path d="M4.5 20c1.4-4 4-6 7.5-6s6.1 2 7.5 6" strokeLinecap="round" />
+                </svg>
+              </span>
+            </>
+          ) : null}
+        </div>
       </div>
     </header>
   );

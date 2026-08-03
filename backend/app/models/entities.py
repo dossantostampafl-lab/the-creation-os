@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -269,7 +270,11 @@ class ConsciousMemory(Base):
     source_id: Mapped[str] = mapped_column(String(36), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     metadata_json: Mapped[dict] = mapped_column(JSON, nullable=False, server_default=text("'{}'"))
-    embedding: Mapped[list[float]] = mapped_column(JSON, nullable=False)
+    # 0001_initial created this column as psql.ARRAY(psql.REAL()) (real[]); Lote:
+    # busca ANN real via pgvector (migration 0026) converted it to a native
+    # pgvector `vector(8)` column with an HNSW cosine index — see
+    # ARCHITECTURE.md. 8 must match settings.conscious_memory_embedding_dim.
+    embedding: Mapped[list[float]] = mapped_column(Vector(8), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
 
 

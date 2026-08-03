@@ -1,4 +1,5 @@
 import asyncio
+import os
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime
@@ -92,6 +93,26 @@ class HandlerRegistry:
 
 async def structured_echo(context: ExecutionContext, payload: dict) -> dict:
     await asyncio.sleep(0)
+    return {"status": "succeeded", "output": payload, "metrics": {"fields": len(payload)}, "warnings": [], "error": None}
+
+
+async def concurrency_test_echo(context: ExecutionContext, payload: dict) -> dict:
+    """Test-only handler (Lote: P4/P5 — concorrência real de worker). Never
+    resolved by any real production capability — "concurrency_test" is not
+    among SYSTEM_WORKER_CAPABILITIES or any migration-seeded capability, so
+    no real task can ever route here by accident.
+
+    Exists because structured_echo (the closest real handler) completes a
+    full claim-to-acknowledge cycle in under 150ms locally, faster than any
+    practical poll interval can reliably observe a dispatch item mid-flight
+    (state=="leased") — a real integration test that spawns an actual
+    worker process and kills it needs a reliable window to do that in,
+    not a race against an effectively-instantaneous handler. The delay is
+    zero unless a test explicitly opts in via env var, so this changes
+    nothing for any real deployment."""
+    delay_seconds = float(os.environ.get("CONCURRENCY_TEST_HANDLER_DELAY_SECONDS", "0"))
+    if delay_seconds > 0:
+        await asyncio.sleep(delay_seconds)
     return {"status": "succeeded", "output": payload, "metrics": {"fields": len(payload)}, "warnings": [], "error": None}
 
 
@@ -223,6 +244,17 @@ default_registry = HandlerRegistry(
             deterministic=True,
             side_effect_policy="none",
             function=structured_echo,
+        ),
+        HandlerDefinition(
+            name="concurrency_test_echo",
+            version="1.0",
+            capability="concurrency_test",
+            input_schema=ObjectPayload,
+            output_schema=StructuredResult,
+            timeout_seconds=30,
+            deterministic=True,
+            side_effect_policy="none",
+            function=concurrency_test_echo,
         ),
         HandlerDefinition(
             name="knowledge_research",

@@ -16,7 +16,8 @@ dependencies = [
   "redis>=5.4.0",
   "httpx>=0.26.0",
   "loguru>=0.7.0",
-  "psycopg[binary]>=3.2.0"
+  "psycopg[binary]>=3.2.0",
+  "pgvector>=0.3.0"
 ]
 
 [project.optional-dependencies]
@@ -24,6 +25,7 @@ dev = [
   "pytest>=8.0.0",
   "pytest-asyncio>=0.22.0",
   "pytest-cov>=5.0.0",
+  "pytest-randomly>=3.15.0",
   "ruff>=0.6.0",
   "mypy>=1.10.0"
 ]
@@ -40,7 +42,11 @@ minversion = "7.0"
 addopts = "-q"
 testpaths = ["tests"]
 asyncio_mode = "auto"
-markers = ["integration: requires a real PostgreSQL database"]
+markers = [
+    "integration: requires a real PostgreSQL database",
+    "concurrency: spawns real OS subprocesses and waits on real wall-clock timing (slow); exclude with -m \"not concurrency\"",
+    "benchmark: generates large synthetic data volumes and measures real timing (slow); exclude with -m \"not benchmark\"",
+]
 
 [tool.ruff]
 line-length = 140

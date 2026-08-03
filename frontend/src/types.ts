@@ -3,6 +3,7 @@ export type TokenResponse = {
   refresh_token: string;
   token_type: "bearer";
   expires_in: number;
+  conversation_id: string | null;
 };
 
 export type Conversation = {
@@ -12,6 +13,18 @@ export type Conversation = {
   status: string;
   created_at: string;
   updated_at: string;
+};
+
+export type ConversationMessage = {
+  id: string;
+  conversation_id: string;
+  actor_id: string;
+  role: string;
+  content: string;
+  route: string;
+  metadata_json: Record<string, unknown>;
+  correlation_id: string;
+  created_at: string;
 };
 
 export type GodResponse = {

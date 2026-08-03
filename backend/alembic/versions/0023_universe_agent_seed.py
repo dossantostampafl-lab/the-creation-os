@@ -3,6 +3,38 @@
 Revision ID: 0023_universe_agent_seed
 Revises: 0022_pgvector_extension
 Create Date: 2026-07-20 00:00:00.000000
+
+Fix (2026-08-01, Lote: fechar gap de POST /memory + corrigir bug de
+migration 0023): the four inserts below originally used unqualified
+`ON CONFLICT DO NOTHING`, which matches a conflict on *any* unique
+constraint, not just the primary key. `universes.code` and
+`capabilities.name` both have their own UNIQUE constraints — if a row
+with the same code/name already exists under a *different* id (e.g. a
+test fixture inserting `Universe(id=uuid4(), code="knowledge", ...)`
+directly, bypassing this migration's canonical static ids), the insert
+of this migration's canonical row silently no-ops instead of erring,
+leaving that canonical id absent from the table — then the `agents`
+insert two loops below, whose `universe_id` FK references that now-
+missing canonical id, fails with a confusing FK violation instead of a
+clear conflict error at the real point of the problem. Reproduced in
+isolation: `alembic upgrade head` from empty, `alembic downgrade 0022`,
+`alembic upgrade head` again — the pure migration round trip alone does
+NOT reproduce this (proven before writing this fix); it only manifests
+once something outside the migration framework has already inserted a
+same-code/name row under a non-canonical id. Fixed by qualifying every
+`ON CONFLICT` with its real target column(s) (`id` for
+universes/capabilities/agents, the composite PK for
+agent_capabilities), so the *intended* idempotent case (this exact
+canonical row already present) still no-ops silently, while a genuine
+code/name collision under a different id now raises a loud, immediate
+`UniqueViolation` instead of a delayed, confusing FK error. Edited in
+place rather than added as a new migration: the bug is in this
+migration's own `upgrade()` logic, so no later migration could fix it
+retroactively; and for every environment that already applied 0023
+cleanly (the normal case, with no colliding rows), this change produces
+the exact same end state — it only changes behavior in the anomalous
+conflict case, which was already effectively broken (just failing
+later, less clearly). See ARCHITECTURE.md.
 """
 
 from __future__ import annotations
@@ -96,7 +128,7 @@ def upgrade() -> None:
         conn.execute(
             sa.text(
                 "INSERT INTO universes (id, code, name, active) "
-                "VALUES (:id, :code, :name, :active) ON CONFLICT DO NOTHING"
+                "VALUES (:id, :code, :name, :active) ON CONFLICT (id) DO NOTHING"
             ),
             {"id": universe_id, "code": code, "name": name, "active": active},
         )
@@ -105,7 +137,7 @@ def upgrade() -> None:
         conn.execute(
             sa.text(
                 "INSERT INTO capabilities (id, name, description) "
-                "VALUES (:id, :name, :description) ON CONFLICT DO NOTHING"
+                "VALUES (:id, :name, :description) ON CONFLICT (id) DO NOTHING"
             ),
             {"id": capability_id, "name": name, "description": description},
         )
@@ -116,7 +148,7 @@ def upgrade() -> None:
                 "INSERT INTO agents "
                 "(id, code, name, description, universe, universe_id, enabled, active, status, version) "
                 "VALUES (:id, :code, :name, :description, :universe, :universe_id, true, true, 'offline', 1) "
-                "ON CONFLICT DO NOTHING"
+                "ON CONFLICT (id) DO NOTHING"
             ),
             {
                 "id": agent_id,
@@ -130,7 +162,7 @@ def upgrade() -> None:
         conn.execute(
             sa.text(
                 "INSERT INTO agent_capabilities (agent_id, capability_id) "
-                "VALUES (:agent_id, :capability_id) ON CONFLICT DO NOTHING"
+                "VALUES (:agent_id, :capability_id) ON CONFLICT (agent_id, capability_id) DO NOTHING"
             ),
             {"agent_id": agent_id, "capability_id": capability_id},
         )

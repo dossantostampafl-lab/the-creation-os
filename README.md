@@ -11,7 +11,9 @@ Agents, and Malkuth keep separate responsibilities.
 
 - Branch target: `main`
 - Release candidate target: `v1.0.0-rc1`
-- Alembic head expected by readiness health check: `0024_creator_singleton`
+- Alembic head expected by readiness health check: resolved dynamically from
+  `alembic/versions/` at request time (see `backend/app/api/health.py`), not a
+  fixed revision — no need to keep this line in sync with new migrations.
 - Backend: FastAPI, SQLAlchemy asyncio, Alembic, PostgreSQL 16 + pgvector, Redis
 - Frontend: React, Vite, TypeScript
 
@@ -94,7 +96,7 @@ different target manually, use the same single command from `backend/`:
 Set-Location backend
 $env:DATABASE_URL = (Get-Content ..\secrets\database_url.txt -Raw)
 python -m alembic upgrade head
-python -m alembic current      # must print 0024_creator_singleton (head)
+python -m alembic current      # must print the current head (see alembic/versions/)
 Set-Location ..
 ```
 
@@ -125,7 +127,8 @@ Readiness requires:
 
 - PostgreSQL reachable;
 - Redis reachable;
-- `alembic_version.version_num` equal to `0024_creator_singleton`.
+- `alembic_version.version_num` equal to the real Alembic head, resolved
+  dynamically from `alembic/versions/` on every check (not a fixed revision).
 
 ## Tests
 
@@ -147,6 +150,12 @@ python -m pytest backend/tests -q
 python -m ruff check backend
 git diff --check
 ```
+
+For a much faster local test run, use the isolated `postgres-test` Compose
+service (relaxed durability, disposable data only — never for
+dev/production) instead of the main `postgres` service on port 5432. See
+[`docs/testing.md`](docs/testing.md) for the exact commands and the
+investigation behind it.
 
 ## Release Readiness Command Set
 

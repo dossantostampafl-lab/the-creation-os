@@ -8,7 +8,7 @@ type CoreDefinition = {
   description: string;
   xPercent: number;
   yPercent: number;
-  tone: "violet" | "gold";
+  tone: "violet" | "gold" | "blue";
   icon: "leaf" | "infinity";
 };
 
@@ -17,7 +17,7 @@ type CoreDefinition = {
 // line is shown for them so nothing here is a fabricated number.
 const CORES: CoreDefinition[] = [
   { id: "sophia", label: "SOPHIA", role: "SABEDORIA", description: "Compreende o contexto", xPercent: 24, yPercent: 19, tone: "violet", icon: "leaf" },
-  { id: "rockmam", label: "ROCKMAM", role: "POSSIBILIDADE", description: "Avalia o que pode ser", xPercent: 76, yPercent: 19, tone: "gold", icon: "infinity" },
+  { id: "rockmam", label: "ROCKMAM", role: "POSSIBILIDADE", description: "Avalia o que pode ser", xPercent: 76, yPercent: 19, tone: "blue", icon: "infinity" },
 ];
 
 // Kept to the left/right columns (12%/88%) so cards never enter the

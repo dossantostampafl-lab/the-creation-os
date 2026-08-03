@@ -8,6 +8,11 @@ from app.repositories.domain import DomainRepository
 
 
 class MemoryRepository:
+    """DEPRECATED for DEUS's memory recall (Lote: Convergência de memória de
+    conversa, 2026-08-01) — see app/models/memory.py::CreatorMemory.
+    Still backs app/services/memory.py (MemoryService) and the POST/GET
+    /memory HTTP routes (app/api/memory.py), which remain active."""
+
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
         self.domain = DomainRepository(session)

@@ -6,13 +6,40 @@ from types import SimpleNamespace
 import pytest
 
 from app.core.domain import Actor
-from app.core.god import GodInteractionType, build_god_interaction, classify_message
+from app.core.god import GodInteractionType, build_god_interaction, classify_message, classify_system_query_topic
 from app.models.entities import Message
 from app.models.god import GodConversationInteraction
 from app.services.god import GodConversationService
 
 
 def test_god_classification_is_deterministic_and_limited_to_contract():
+    assert classify_message("Ola DEUS") == GodInteractionType.DIRECT_RESPONSE
+    assert classify_message("Nota: lembre este contexto") == GodInteractionType.INFORMATIONAL
+    assert classify_message("Quero criar um projeto novo") == GodInteractionType.POTENTIAL
+    assert classify_message("Execute agent e chame Malkuth") == GodInteractionType.UNSUPPORTED
+
+
+@pytest.mark.parametrize(
+    ("message", "topic"),
+    [
+        ("Qual o Pulse do sistema agora?", "pulse"),
+        ("Quantas missoes existem?", "missions"),
+        ("Quantas Inceptions pendentes existem?", "inceptions"),
+        ("Quanta memoria esta armazenada?", "memory"),
+        ("Quantos Universos ativos existem?", "universes"),
+        ("Quais agentes disponiveis existem agora?", "agents"),
+        ("Qual o estado do sistema?", "general"),
+    ],
+)
+def test_god_recognizes_all_seven_system_query_topics_without_regressing_other_routes(message, topic):
+    # SYSTEM_QUERY is checked before INFORMATIONAL/POTENTIAL specifically
+    # because several of these phrases contain words ("missao", "sistema")
+    # that would otherwise match POTENTIAL_TERMS.
+    assert classify_message(message) == GodInteractionType.SYSTEM_QUERY
+    assert classify_system_query_topic(message) == topic
+
+
+def test_system_query_never_shadows_the_other_four_categories():
     assert classify_message("Ola DEUS") == GodInteractionType.DIRECT_RESPONSE
     assert classify_message("Nota: lembre este contexto") == GodInteractionType.INFORMATIONAL
     assert classify_message("Quero criar um projeto novo") == GodInteractionType.POTENTIAL
@@ -53,40 +80,57 @@ def test_god_interaction_fingerprint_audits_memory_context():
     assert without_memory.fingerprint != with_memory.fingerprint
 
 
-class FakeGodMemoryRepository:
-    def __init__(self, memories: list[SimpleNamespace]) -> None:
-        self.memories = memories
+def test_system_query_reply_reflects_the_injected_snapshot_not_a_static_string():
+    conversation_id = str(uuid.uuid4())
+    snapshot = {"topic": "missions", "data": {"total": 2, "running": 1}}
 
-    async def search(self, **kwargs):
-        assert kwargs["creator_id"] == "creator-1"
-        assert kwargs["min_importance"] == 1
-        return self.memories
+    document = build_god_interaction(
+        conversation_id, "Quantas missoes existem?", "same-key", None, snapshot
+    )
+
+    assert document.interaction_type == GodInteractionType.SYSTEM_QUERY
+    assert document.next_action == "system_query_answered"
+    assert document.potential_detected is False
+    assert "2" in document.reply["message"] and "1" in document.reply["message"]
+    assert document.reply["system_query"] == snapshot
+
+    # Same message, different real data -> different reply text and fingerprint,
+    # proving the answer is built from the injected snapshot, not hardcoded.
+    other_snapshot = {"topic": "missions", "data": {"total": 7, "running": 3}}
+    other_document = build_god_interaction(
+        conversation_id, "Quantas missoes existem?", "same-key", None, other_snapshot
+    )
+    assert other_document.reply["message"] != document.reply["message"]
+    assert other_document.fingerprint != document.fingerprint
+    assert other_document.request_fingerprint == document.request_fingerprint
 
 
 class FakeGodRepository:
+    """Lote: Convergência de memória de conversa — conversation_memory_candidates
+    replaces the old .memory.search() seam (CreatorMemory), same call site
+    in GodConversationService._memory_context()."""
+
     def __init__(self) -> None:
-        self.memory = FakeGodMemoryRepository(
-            [
-                SimpleNamespace(
-                    id="memory-low",
-                    memory_type="SEMANTIC",
-                    source="knowledge",
-                    content="Sistema legado",
-                    normalized_content="sistema legado",
-                    importance=3,
-                    memory_fingerprint="b" * 64,
-                ),
-                SimpleNamespace(
-                    id="memory-high",
-                    memory_type="CREATOR",
-                    source="creator_rule",
-                    content="Criador prefere respostas objetivas sobre sistema interno.",
-                    normalized_content="criador prefere respostas objetivas sobre sistema interno",
-                    importance=9,
-                    memory_fingerprint="a" * 64,
-                ),
-            ]
-        )
+        self.memory_candidates = [
+            SimpleNamespace(
+                id="memory-low",
+                memory_type="SEMANTIC",
+                source="knowledge",
+                content="Sistema legado",
+                normalized_content="sistema legado",
+                importance=3,
+                memory_fingerprint="b" * 64,
+            ),
+            SimpleNamespace(
+                id="memory-high",
+                memory_type="CREATOR",
+                source="creator_rule",
+                content="Criador prefere respostas objetivas sobre sistema interno.",
+                normalized_content="criador prefere respostas objetivas sobre sistema interno",
+                importance=9,
+                memory_fingerprint="a" * 64,
+            ),
+        ]
         self.events: list[dict] = []
         self.messages: list[Message] = []
         self.interaction_item: GodConversationInteraction | None = None
@@ -95,6 +139,11 @@ class FakeGodRepository:
     async def conversation(self, conversation_id: str, *, lock: bool = False):
         assert lock is True
         return SimpleNamespace(id=conversation_id, creator_id="creator-1", status="active")
+
+    async def conversation_memory_candidates(self, creator_id, **kwargs):
+        assert creator_id == "creator-1"
+        assert kwargs["min_importance"] == 1
+        return self.memory_candidates
 
     async def interaction(self, conversation_id: str, idempotency_key: str):
         return self.interaction_item
@@ -138,5 +187,5 @@ async def test_god_service_includes_deterministic_memory_context_without_creatin
     assert item.request_payload["memory_ids"] == ["memory-high", "memory-low"]
     assert repository.events[0]["memory_ids"] == ["memory-high", "memory-low"]
     assert repository.messages[1].metadata_json["memory_context"] == memory_context
-    assert len(repository.memory.memories) == 2
+    assert len(repository.memory_candidates) == 2
     assert repository.committed is True

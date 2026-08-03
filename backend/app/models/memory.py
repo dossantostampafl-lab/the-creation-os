@@ -10,6 +10,18 @@ from app.models.entities import uuid_string
 
 
 class CreatorMemory(Base):
+    """DEPRECATED (Lote: Convergência de memória de conversa, 2026-08-01):
+    GodConversationService no longer reads from this table — see
+    app/repositories/god.py's conversation_memory_candidates() and
+    ARCHITECTURE.md. The table, model, and app/repositories/memory.py /
+    app/services/memory.py / the POST+GET /memory HTTP routes
+    (app/api/memory.py) all remain fully functional and are not removed in
+    this lote; physical removal is a separate future cleanup lote, only
+    after confirming the convergence works in production with no
+    regression. Any new memory written here via POST /memory is presently
+    NOT visible to GOD — see the pendência in ARCHITECTURE.md.
+    """
+
     __tablename__ = "creator_memories"
     __table_args__ = (
         CheckConstraint(
