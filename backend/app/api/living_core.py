@@ -2,17 +2,20 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, Header, status
+from fastapi import APIRouter, Depends, Header, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_sovereign_creator
 from app.core.domain import Actor, InceptionStatus, MissionStatus
 from app.db.session import get_session
+from app.observability.probes import database_probe, redis_probes
 from app.repositories.domain import DomainRepository
 from app.schemas.auth import TokenPayload
+from app.schemas.chronicle import ChronicleResponse, ChronicleVerifyResponse
 from app.schemas.conversation import ConversationCreateRequest, ConversationMessageResponse, ConversationResponse, MessageRequest
 from app.schemas.inception import InceptionCreateRequest, InceptionDecisionRequest, InceptionResponse
 from app.schemas.mission import MissionCreateRequest, MissionPlanRequest, MissionResponse
+from app.schemas.pulse import PulseResponse
 from app.services.domain import LivingCoreService
 
 router = APIRouter()
@@ -154,3 +157,26 @@ async def authorize_mission(entity_id: uuid.UUID, a: Actor = Depends(actor), cid
 @router.post("/missions/{entity_id}/cancel", response_model=MissionResponse)
 async def cancel_mission(entity_id: uuid.UUID, a: Actor = Depends(actor), cid: str = Depends(correlation_id), s: LivingCoreService = Depends(service)):
     return await mission_action(entity_id, MissionStatus.CANCELLED, None, a, cid, s)
+
+
+@router.get("/chronicles", response_model=list[ChronicleResponse])
+async def list_chronicles(limit: int = Query(100, ge=1, le=500), offset: int = Query(0, ge=0),
+                          a: Actor = Depends(actor), s: LivingCoreService = Depends(service)):
+    return [ChronicleResponse(**{name: getattr(x, name) for name in ChronicleResponse.model_fields})
+            for x in await s.chronicles(a, limit, offset)]
+
+
+@router.get("/chronicles/verify", response_model=ChronicleVerifyResponse)
+async def verify_chronicles(a: Actor = Depends(actor), s: LivingCoreService = Depends(service)):
+    integrity = await s.chronicle_integrity(a)
+    if integrity.valid:
+        return ChronicleVerifyResponse(valid=True, message="Chronicle chain is intact")
+    return ChronicleVerifyResponse(valid=False, message=f"{integrity.reason} at event {integrity.first_invalid_event_id}")
+
+
+@router.get("/pulse", response_model=PulseResponse)
+async def pulse(a: Actor = Depends(actor), session: AsyncSession = Depends(get_session),
+                s: LivingCoreService = Depends(service)):
+    database = await database_probe(session)
+    redis, redis_streams = await redis_probes()
+    return PulseResponse(**await s.pulse(a, database, redis, redis_streams))

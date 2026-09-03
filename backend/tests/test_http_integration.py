@@ -161,6 +161,48 @@ async def test_configured_sovereign_creator_id_is_enforced(client, http_database
 
 
 @pytest.mark.asyncio
+async def test_chronicles_and_pulse(client, http_database):
+    _, creator_id, other_id = http_database
+    headers = auth(creator_id)
+    conversation = (await client.post("/api/v1/conversations", headers=headers, json={"title": "Observability"})).json()
+    await client.post(f"/api/v1/conversations/{conversation['id']}/messages", headers=headers, json={"content": "Intent"})
+
+    chronicles = await client.get("/api/v1/chronicles", headers=headers)
+    assert chronicles.status_code == 200
+    assert [event["event_type"] for event in chronicles.json()] == ["conversation_created", "conversation_message_added"]
+    assert chronicles.json()[0]["previous_hash"] is None
+    assert (await client.get("/api/v1/chronicles?limit=1&offset=1", headers=headers)).json()[0]["event_type"] == "conversation_message_added"
+
+    verified = await client.get("/api/v1/chronicles/verify", headers=headers)
+    assert verified.status_code == 200
+    assert verified.json()["valid"] is True
+
+    pulse = await client.get("/api/v1/pulse", headers=headers)
+    assert pulse.status_code == 200
+    body = pulse.json()
+    assert body["status"] == "healthy"
+    assert body["database"]["available"] is True
+    assert body["chronicles_chain"]["valid"] is True
+    assert body["pending_inceptions"] == 0
+
+    for path in ("/api/v1/chronicles", "/api/v1/chronicles/verify", "/api/v1/pulse"):
+        assert (await client.get(path, headers=auth(other_id))).status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_chronicles_verify_detects_tampering(client, http_database):
+    factory, creator_id, _ = http_database
+    headers = auth(creator_id)
+    await client.post("/api/v1/conversations", headers=headers, json={"title": "Tampered"})
+    async with factory() as session:
+        await session.execute(text("UPDATE chronicles SET payload_json = '{\"injected\": true}'"))
+        await session.commit()
+    verified = await client.get("/api/v1/chronicles/verify", headers=headers)
+    assert verified.json()["valid"] is False
+    assert "invalid event hash" in verified.json()["message"]
+
+
+@pytest.mark.asyncio
 async def test_future_states_have_no_public_routes(client, http_database):
     _, creator_id, _ = http_database
     headers = auth(creator_id)

@@ -7,11 +7,11 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, TypeVar, cast
 
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.domain import ConversationStatus, InceptionStatus, InvalidOrigin, MissionStatus
-from app.models.entities import Chronicle, Conversation, Inception, Message, Mission
+from app.models.entities import Agent, Chronicle, Conversation, Inception, Message, Mission, Task, Universe
 
 T = TypeVar("T")
 
@@ -114,6 +114,34 @@ class DomainRepository:
             payload_hash=event_hash(material, previous), previous_hash=previous, created_at=created_at,
         )
         return await self.add(event)
+
+    async def list_chronicles(self, limit: int, offset: int) -> list[Chronicle]:
+        stmt = select(Chronicle).order_by(Chronicle.position).limit(limit).offset(offset)
+        return list((await self.session.scalars(stmt)).all())
+
+    async def count_where(self, model: type, column: str, values: set[str]) -> int:
+        stmt = select(func.count()).select_from(model).where(getattr(model, column).in_(values))
+        return int(await self.session.scalar(cast(Any, stmt)) or 0)
+
+    async def pulse_counters(self) -> dict[str, int]:
+        active_universes = await self.session.scalar(select(func.count()).select_from(Universe).where(Universe.active.is_(True)))
+        active_agents = await self.session.scalar(select(func.count()).select_from(Agent).where(Agent.active.is_(True)))
+        error_count = await self.session.scalar(
+            select(func.count()).select_from(Chronicle).where(Chronicle.event_type.like("%failed%"))
+        )
+        return {
+            "active_universes": int(active_universes or 0),
+            "active_agents": int(active_agents or 0),
+            "running_missions": await self.count_where(
+                Mission, "status", {MissionStatus.DISTRIBUTED.value, MissionStatus.EXECUTING.value}
+            ),
+            "pending_inceptions": await self.count_where(
+                Inception, "status", {InceptionStatus.PROPOSED.value, InceptionStatus.AWAITING_CREATOR_DECISION.value}
+            ),
+            "pending_tasks": await self.count_where(Task, "status", {"PENDING", "RUNNING"}),
+            "failed_tasks": await self.count_where(Task, "status", {"FAILED"}),
+            "error_count": int(error_count or 0),
+        }
 
     async def verify_chronicle(self) -> ChronicleIntegrity:
         events = list((await self.session.scalars(select(Chronicle).order_by(Chronicle.position))).all())

@@ -127,6 +127,30 @@ class LivingCoreService:
         await self.repo.commit()
         return item
 
+    async def chronicles(self, actor: Actor, limit: int, offset: int):
+        require_creator(actor, "read the Chronicle")
+        return await self.repo.list_chronicles(limit, offset)
+
+    async def chronicle_integrity(self, actor: Actor):
+        require_creator(actor, "verify the Chronicle")
+        return await self.repo.verify_chronicle()
+
+    async def pulse(self, actor: Actor, database: dict[str, Any], redis: dict[str, Any], redis_streams: dict[str, Any]):
+        require_creator(actor, "read the Pulse")
+        counters = await self.repo.pulse_counters()
+        integrity = await self.repo.verify_chronicle()
+        degraded = not (database["available"] and redis["available"] and integrity.valid)
+        return {
+            "status": "degraded" if degraded else "healthy",
+            "database": database,
+            "redis": redis,
+            "redis_streams": redis_streams,
+            "chronicles_chain": {"valid": integrity.valid, "first_invalid_event_id": integrity.first_invalid_event_id,
+                                 "reason": integrity.reason},
+            "timestamp": datetime.now(timezone.utc),
+            **counters,
+        }
+
     async def missions(self, actor: Actor):
         require_creator(actor, "view Missions")
         return await self.repo.list_for_creator(Mission, actor.id)

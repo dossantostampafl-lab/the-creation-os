@@ -59,12 +59,19 @@ curl -X POST http://localhost:8000/api/v1/auth/login \
 - `POST /api/v1/inceptions/{id}/approve`
 - `POST /api/v1/inceptions/{id}/reject`
 - `GET /api/v1/pulse`
-- `GET /api/v1/chronicles`
+- `GET /api/v1/chronicles?limit=100&offset=0`
 - `GET /api/v1/chronicles/verify`
 
 ## Testes
 
+Os testes de integração exigem PostgreSQL e Redis acessíveis em `localhost`.
+
 ```bash
+docker compose up -d postgres redis
 cd backend
-pytest
+pip install ".[dev]"
+DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/the_creation_os \
+  REDIS_URL=redis://localhost:6379/0 pytest
 ```
+
+Para rodar apenas os testes unitários: `pytest -m "not integration"`.
