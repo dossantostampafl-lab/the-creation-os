@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     sovereign_creator_id: str | None = Field(None, env="SOVEREIGN_CREATOR_ID")
     access_token_expire_minutes: int = Field(15, env="ACCESS_TOKEN_EXPIRE_MINUTES")
     refresh_token_expire_minutes: int = Field(1440, env="REFRESH_TOKEN_EXPIRE_MINUTES")
+    login_max_failures: int = Field(10, env="LOGIN_MAX_FAILURES")
+    login_failure_window_seconds: int = Field(300, env="LOGIN_FAILURE_WINDOW_SECONDS")
     database_url: str = Field(..., env="DATABASE_URL")
     redis_url: str = Field(..., env="REDIS_URL")
     log_level: str = Field("INFO", env="LOG_LEVEL")
