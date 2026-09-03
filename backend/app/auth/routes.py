@@ -26,7 +26,7 @@ async def bootstrap(request: BootstrapRequest, auth_service = Depends(get_auth_s
 async def login(request: LoginRequest, auth_service = Depends(get_auth_service)) -> TokenResponse:
     creator = await auth_service.login(request.username, request.password.get_secret_value())
     access_token = auth_service.create_access_token(creator.id)
-    refresh_token = auth_service.create_refresh_token(creator.id)
+    refresh_token = await auth_service.issue_refresh_token(creator.id)
     return TokenResponse(access_token=access_token, refresh_token=refresh_token, expires_in=settings.access_token_expire_minutes)
 
 
@@ -48,6 +48,11 @@ async def me(token_payload = Depends(get_current_creator), auth_service = Depend
 async def refresh(token_payload: TokenPayload = Depends(get_current_token), auth_service = Depends(get_auth_service)) -> TokenResponse:
     if token_payload.type != "refresh":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type")
+    refresh_token = await auth_service.rotate_refresh_token(token_payload)
     access_token = auth_service.create_access_token(token_payload.sub)
-    refresh_token = auth_service.create_refresh_token(token_payload.sub)
     return TokenResponse(access_token=access_token, refresh_token=refresh_token, expires_in=settings.access_token_expire_minutes)
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout(token_payload: TokenPayload = Depends(get_current_creator), auth_service = Depends(get_auth_service)) -> None:
+    await auth_service.revoke_refresh_tokens(token_payload.sub)

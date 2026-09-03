@@ -53,6 +53,8 @@ curl -X POST http://localhost:8000/api/v1/auth/login \
 ## Endpoints principais
 
 - `POST /api/v1/auth/login`
+- `POST /api/v1/auth/refresh` (rotaciona o refresh token; o token usado é invalidado)
+- `POST /api/v1/auth/logout` (revoga todos os refresh tokens do Criador)
 - `POST /api/v1/conversations`
 - `POST /api/v1/conversations/{id}/messages`
 - `GET /api/v1/inceptions`
