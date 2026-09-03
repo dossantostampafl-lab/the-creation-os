@@ -143,6 +143,24 @@ async def test_sovereign_creator_and_idor(client, http_database):
 
 
 @pytest.mark.asyncio
+async def test_me_returns_the_authenticated_creator(client, http_database):
+    _, creator_id, _ = http_database
+    response = await client.get("/api/v1/auth/me", headers=auth(creator_id))
+    assert response.status_code == 200
+    assert response.json()["id"] == creator_id
+    assert response.json()["username"] == "creator"
+
+
+@pytest.mark.asyncio
+async def test_configured_sovereign_creator_id_is_enforced(client, http_database):
+    _, creator_id, other_id = http_database
+    settings.sovereign_creator_id = other_id
+    assert (await client.get("/api/v1/conversations", headers=auth(creator_id))).status_code == 403
+    assert (await client.get("/api/v1/conversations", headers=auth(other_id))).status_code == 200
+    settings.sovereign_creator_id = creator_id
+
+
+@pytest.mark.asyncio
 async def test_future_states_have_no_public_routes(client, http_database):
     _, creator_id, _ = http_database
     headers = auth(creator_id)

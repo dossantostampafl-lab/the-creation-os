@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 
 from app.api import router as api_router
 from app.auth.routes import router as auth_router
+from app.config import settings
 from app.core.domain import AuthorizationDenied, DomainError
 from app.services.domain import NotFoundError
 
@@ -14,7 +15,7 @@ app = FastAPI(title="The Creation OS", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

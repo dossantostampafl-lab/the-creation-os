@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     database_url: str = Field(..., env="DATABASE_URL")
     redis_url: str = Field(..., env="REDIS_URL")
     log_level: str = Field("INFO", env="LOG_LEVEL")
+    cors_allow_origins: str = Field("", env="CORS_ALLOW_ORIGINS")
     llm_provider: str = Field("fake", env="LLM_PROVIDER")
     llm_model: str = Field("fake", env="LLM_MODEL")
     llm_api_key: SecretStr | None = Field(None, env="LLM_API_KEY")
@@ -27,6 +28,10 @@ class Settings(BaseSettings):
     class Config:
         env_file = os.path.join(os.path.dirname(__file__), "..", "..", ".env")
         env_file_encoding = "utf-8"
+
+    @property
+    def cors_origins(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_allow_origins.split(",") if origin.strip()]
 
     @property
     def access_token_expires(self) -> timedelta:
