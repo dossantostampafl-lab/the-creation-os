@@ -60,6 +60,10 @@ curl -X POST http://localhost:8000/api/v1/auth/login \
 - `GET /api/v1/inceptions`
 - `POST /api/v1/inceptions/{id}/approve`
 - `POST /api/v1/inceptions/{id}/reject`
+- `GET /api/v1/universes` · `POST /api/v1/universes` · `POST /api/v1/universes/{id}/activate|deactivate`
+- `GET /api/v1/agents?universe_id=` · `POST /api/v1/agents` · `POST /api/v1/agents/{id}/activate|deactivate`
+- `GET|PUT /api/v1/memory/{conversation|mission|universe}/{scope_id}`
+- `GET|POST /api/v1/memory/conscious`
 - `GET /api/v1/pulse`
 - `GET /api/v1/chronicles?limit=100&offset=0`
 - `GET /api/v1/chronicles/verify`

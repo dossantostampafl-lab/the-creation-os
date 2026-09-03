@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from app.ai.fake import FakeEmbeddingModel
 from app.core.domain import (
     Actor,
     ConversationStatus,
@@ -12,8 +13,8 @@ from app.core.domain import (
     require_creator,
     transition,
 )
-from app.models.entities import Conversation, Inception, Message, Mission, MissionPlan
-from app.repositories.domain import DomainRepository
+from app.models.entities import Agent, ConsciousMemory, Conversation, Inception, Message, Mission, MissionPlan, Universe
+from app.repositories.domain import MEMORY_LAYERS, DomainRepository
 
 
 class NotFoundError(Exception):
@@ -23,6 +24,7 @@ class NotFoundError(Exception):
 class LivingCoreService:
     def __init__(self, repository: DomainRepository) -> None:
         self.repo = repository
+        self.embeddings = FakeEmbeddingModel()
 
     async def _owned(self, model, entity_id: str, actor: Actor, lock: bool = False):
         entity = await (self.repo.get_for_update(model, entity_id) if lock else self.repo.get(model, entity_id))
@@ -150,6 +152,103 @@ class LivingCoreService:
             "timestamp": datetime.now(timezone.utc),
             **counters,
         }
+
+    async def universes(self, actor: Actor):
+        require_creator(actor, "view Universes")
+        return await self.repo.list_all(Universe)
+
+    async def create_universe(self, actor: Actor, code: str, name: str, correlation_id: str):
+        require_creator(actor, "create Universes")
+        if await self.repo.get_by_code(Universe, code) is not None:
+            raise InvalidOrigin(f"Universe {code} already exists")
+        item = await self.repo.add(Universe(code=code, name=name, active=False))
+        await self.repo.add_event("universe_created", "universe", item.id, actor.id, actor.role, correlation_id,
+                                  {"code": code})
+        await self.repo.commit()
+        return item
+
+    async def set_universe_active(self, actor: Actor, entity_id: str, active: bool, correlation_id: str):
+        require_creator(actor, "activate Universes")
+        item = await self.repo.get_for_update(Universe, entity_id)
+        if item is None:
+            raise NotFoundError("Universe not found")
+        item.active = active
+        await self.repo.add_event("universe_activated" if active else "universe_deactivated", "universe", item.id,
+                                  actor.id, actor.role, correlation_id)
+        await self.repo.commit()
+        return item
+
+    async def agents(self, actor: Actor, universe_id: str | None = None):
+        require_creator(actor, "view Agents")
+        return await self.repo.list_agents(universe_id)
+
+    async def create_agent(self, actor: Actor, code: str, name: str, universe_id: str,
+                           capabilities: dict[str, Any], correlation_id: str):
+        require_creator(actor, "create Agents")
+        universe = await self.repo.get(Universe, universe_id)
+        if universe is None:
+            raise NotFoundError("Universe not found")
+        if await self.repo.get_by_code(Agent, code) is not None:
+            raise InvalidOrigin(f"Agent {code} already exists")
+        item = await self.repo.add(Agent(code=code, name=name, universe_id=universe.id, active=True,
+                                         capabilities_json=capabilities))
+        await self.repo.add_event("agent_created", "agent", item.id, actor.id, actor.role, correlation_id,
+                                  {"code": code, "universe_id": universe.id})
+        await self.repo.commit()
+        return item
+
+    async def set_agent_active(self, actor: Actor, entity_id: str, active: bool, correlation_id: str):
+        require_creator(actor, "activate Agents")
+        item = await self.repo.get_for_update(Agent, entity_id)
+        if item is None:
+            raise NotFoundError("Agent not found")
+        item.active = active
+        await self.repo.add_event("agent_activated" if active else "agent_deactivated", "agent", item.id,
+                                  actor.id, actor.role, correlation_id)
+        await self.repo.commit()
+        return item
+
+    async def _memory_scope(self, actor: Actor, layer: str, scope_id: str) -> str:
+        """Conversation and Mission memory stay behind ownership; Universe memory is global to the Creator."""
+        if layer not in MEMORY_LAYERS:
+            raise NotFoundError("Unknown memory layer")
+        if layer == "conversation":
+            return (await self._owned(Conversation, scope_id, actor)).id
+        if layer == "mission":
+            return (await self._owned(Mission, scope_id, actor)).id
+        universe = await self.repo.get(Universe, scope_id)
+        if universe is None:
+            raise NotFoundError("Universe not found")
+        return universe.id
+
+    async def memory(self, actor: Actor, layer: str, scope_id: str):
+        require_creator(actor, "read memory")
+        return await self.repo.list_memory(layer, await self._memory_scope(actor, layer, scope_id))
+
+    async def remember(self, actor: Actor, layer: str, scope_id: str, key: str, value: dict[str, Any],
+                       correlation_id: str):
+        require_creator(actor, "write memory")
+        scope = await self._memory_scope(actor, layer, scope_id)
+        entry = await self.repo.upsert_memory(layer, scope, key, value)
+        await self.repo.add_event(f"{layer}_memory_written", f"{layer}_memory", entry.id, actor.id, actor.role,
+                                  correlation_id, {"scope_id": scope, "key": key})
+        await self.repo.commit()
+        return entry
+
+    async def conscious_memories(self, actor: Actor, source_type: str | None, limit: int, offset: int):
+        require_creator(actor, "read conscious memory")
+        return await self.repo.list_conscious_memory(source_type, limit, offset)
+
+    async def record_conscious_memory(self, actor: Actor, source_type: str, source_id: str, content: str,
+                                      metadata: dict[str, Any], correlation_id: str):
+        require_creator(actor, "write conscious memory")
+        item = await self.repo.add(ConsciousMemory(source_type=source_type, source_id=source_id, content=content,
+                                                   metadata_json=metadata,
+                                                   embedding=await self.embeddings.embed(content)))
+        await self.repo.add_event("conscious_memory_recorded", "conscious_memory", item.id, actor.id, actor.role,
+                                  correlation_id, {"source_type": source_type, "source_id": source_id})
+        await self.repo.commit()
+        return item
 
     async def missions(self, actor: Actor):
         require_creator(actor, "view Missions")
