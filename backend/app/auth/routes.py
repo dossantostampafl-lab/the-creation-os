@@ -32,7 +32,7 @@ async def login(request: LoginRequest, auth_service = Depends(get_auth_service))
 
 @router.get("/me", response_model=CreatorResponse)
 async def me(token_payload = Depends(get_current_creator), auth_service = Depends(get_auth_service)) -> CreatorResponse:
-    creator = await auth_service.repository.get_by_username(token_payload.sub)
+    creator = await auth_service.repository.get_by_id(token_payload.sub)
     if creator is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Creator not found")
     return CreatorResponse(
