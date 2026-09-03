@@ -11,7 +11,26 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.domain import ConversationStatus, InceptionStatus, InvalidOrigin, MissionStatus
-from app.models.entities import Agent, Chronicle, Conversation, Inception, Message, Mission, Task, Universe
+from app.models.entities import (
+    Agent,
+    Chronicle,
+    ConsciousMemory,
+    Conversation,
+    ConversationMemory,
+    Inception,
+    Message,
+    Mission,
+    MissionMemory,
+    Task,
+    Universe,
+    UniverseMemory,
+)
+
+MEMORY_LAYERS: dict[str, tuple[type, str]] = {
+    "conversation": (ConversationMemory, "conversation_id"),
+    "mission": (MissionMemory, "mission_id"),
+    "universe": (UniverseMemory, "universe_id"),
+}
 
 T = TypeVar("T")
 
@@ -117,6 +136,43 @@ class DomainRepository:
 
     async def list_chronicles(self, limit: int, offset: int) -> list[Chronicle]:
         stmt = select(Chronicle).order_by(Chronicle.position).limit(limit).offset(offset)
+        return list((await self.session.scalars(stmt)).all())
+
+    async def list_all(self, model: type[T], order_by: str = "created_at") -> list[T]:
+        stmt = select(model).order_by(getattr(model, order_by))
+        return cast(list[T], (await self.session.scalars(cast(Any, stmt))).all())
+
+    async def get_by_code(self, model: type[T], code: str) -> T | None:
+        stmt = select(model).where(getattr(model, 'code') == code)
+        return cast(T | None, await self.session.scalar(cast(Any, stmt)))
+
+    async def list_agents(self, universe_id: str | None) -> list[Agent]:
+        stmt = select(Agent).order_by(Agent.created_at)
+        if universe_id is not None:
+            stmt = stmt.where(Agent.universe_id == universe_id)
+        return list((await self.session.scalars(stmt)).all())
+
+    async def list_memory(self, layer: str, scope_id: str) -> list[Any]:
+        model, scope_column = MEMORY_LAYERS[layer]
+        stmt: Any = select(model).where(getattr(model, scope_column) == scope_id).order_by(getattr(model, 'key'))
+        return list((await self.session.scalars(cast(Any, stmt))).all())
+
+    async def upsert_memory(self, layer: str, scope_id: str, key: str, value: dict[str, Any]) -> Any:
+        model, scope_column = MEMORY_LAYERS[layer]
+        stmt: Any = select(model).where(getattr(model, scope_column) == scope_id, getattr(model, 'key') == key).with_for_update()
+        entry = await self.session.scalar(cast(Any, stmt))
+        if entry is None:
+            entry = model(**{scope_column: scope_id}, key=key, value_json=value)
+            return await self.add(entry)
+        entry.value_json = value
+        entry.updated_at = datetime.now(timezone.utc)
+        await self.session.flush()
+        return entry
+
+    async def list_conscious_memory(self, source_type: str | None, limit: int, offset: int) -> list[ConsciousMemory]:
+        stmt = select(ConsciousMemory).order_by(ConsciousMemory.created_at.desc()).limit(limit).offset(offset)
+        if source_type is not None:
+            stmt = stmt.where(ConsciousMemory.source_type == source_type)
         return list((await self.session.scalars(stmt)).all())
 
     async def count_where(self, model: type, column: str, values: set[str]) -> int:

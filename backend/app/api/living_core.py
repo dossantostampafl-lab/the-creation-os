@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from enum import StrEnum
 
 from fastapi import APIRouter, Depends, Header, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,11 +15,24 @@ from app.schemas.auth import TokenPayload
 from app.schemas.chronicle import ChronicleResponse, ChronicleVerifyResponse
 from app.schemas.conversation import ConversationCreateRequest, ConversationMessageResponse, ConversationResponse, MessageRequest
 from app.schemas.inception import InceptionCreateRequest, InceptionDecisionRequest, InceptionResponse
+from app.schemas.memory import (
+    ConsciousMemoryCreateRequest,
+    ConsciousMemoryResponse,
+    MemoryResponse,
+    MemoryUpsertRequest,
+)
 from app.schemas.mission import MissionCreateRequest, MissionPlanRequest, MissionResponse
 from app.schemas.pulse import PulseResponse
+from app.schemas.universe import AgentCreateRequest, AgentResponse, UniverseCreateRequest, UniverseResponse
 from app.services.domain import LivingCoreService
 
 router = APIRouter()
+
+
+class MemoryLayer(StrEnum):
+    CONVERSATION = "conversation"
+    MISSION = "mission"
+    UNIVERSE = "universe"
 
 
 def correlation_id(x_correlation_id: str | None = Header(None)) -> str:
@@ -48,6 +62,24 @@ def inception_response(item) -> InceptionResponse:
 
 def mission_response(item) -> MissionResponse:
     return MissionResponse(**{name: getattr(item, name) for name in MissionResponse.model_fields})
+
+
+def universe_response(item) -> UniverseResponse:
+    return UniverseResponse(**{name: getattr(item, name) for name in UniverseResponse.model_fields})
+
+
+def agent_response(item) -> AgentResponse:
+    return AgentResponse(**{name: getattr(item, name) for name in AgentResponse.model_fields})
+
+
+def memory_response(layer: str, item) -> MemoryResponse:
+    scope_column = {"conversation": "conversation_id", "mission": "mission_id", "universe": "universe_id"}[layer]
+    return MemoryResponse(id=item.id, scope_id=getattr(item, scope_column), key=item.key, value=item.value_json,
+                          created_at=item.created_at, updated_at=item.updated_at)
+
+
+def conscious_memory_response(item) -> ConsciousMemoryResponse:
+    return ConsciousMemoryResponse(**{name: getattr(item, name) for name in ConsciousMemoryResponse.model_fields})
 
 
 @router.post("/conversations", response_model=ConversationResponse, status_code=status.HTTP_201_CREATED)
@@ -157,6 +189,68 @@ async def authorize_mission(entity_id: uuid.UUID, a: Actor = Depends(actor), cid
 @router.post("/missions/{entity_id}/cancel", response_model=MissionResponse)
 async def cancel_mission(entity_id: uuid.UUID, a: Actor = Depends(actor), cid: str = Depends(correlation_id), s: LivingCoreService = Depends(service)):
     return await mission_action(entity_id, MissionStatus.CANCELLED, None, a, cid, s)
+
+
+@router.get("/universes", response_model=list[UniverseResponse])
+async def list_universes(a: Actor = Depends(actor), s: LivingCoreService = Depends(service)):
+    return [universe_response(x) for x in await s.universes(a)]
+
+
+@router.post("/universes", response_model=UniverseResponse, status_code=201)
+async def create_universe(body: UniverseCreateRequest, a: Actor = Depends(actor), cid: str = Depends(correlation_id), s: LivingCoreService = Depends(service)):
+    return universe_response(await s.create_universe(a, body.code, body.name, cid))
+
+
+@router.post("/universes/{entity_id}/activate", response_model=UniverseResponse)
+async def activate_universe(entity_id: uuid.UUID, a: Actor = Depends(actor), cid: str = Depends(correlation_id), s: LivingCoreService = Depends(service)):
+    return universe_response(await s.set_universe_active(a, str(entity_id), True, cid))
+
+
+@router.post("/universes/{entity_id}/deactivate", response_model=UniverseResponse)
+async def deactivate_universe(entity_id: uuid.UUID, a: Actor = Depends(actor), cid: str = Depends(correlation_id), s: LivingCoreService = Depends(service)):
+    return universe_response(await s.set_universe_active(a, str(entity_id), False, cid))
+
+
+@router.get("/agents", response_model=list[AgentResponse])
+async def list_agents(universe_id: uuid.UUID | None = None, a: Actor = Depends(actor), s: LivingCoreService = Depends(service)):
+    return [agent_response(x) for x in await s.agents(a, str(universe_id) if universe_id else None)]
+
+
+@router.post("/agents", response_model=AgentResponse, status_code=201)
+async def create_agent(body: AgentCreateRequest, a: Actor = Depends(actor), cid: str = Depends(correlation_id), s: LivingCoreService = Depends(service)):
+    return agent_response(await s.create_agent(a, body.code, body.name, body.universe_id, body.capabilities, cid))
+
+
+@router.post("/agents/{entity_id}/activate", response_model=AgentResponse)
+async def activate_agent(entity_id: uuid.UUID, a: Actor = Depends(actor), cid: str = Depends(correlation_id), s: LivingCoreService = Depends(service)):
+    return agent_response(await s.set_agent_active(a, str(entity_id), True, cid))
+
+
+@router.post("/agents/{entity_id}/deactivate", response_model=AgentResponse)
+async def deactivate_agent(entity_id: uuid.UUID, a: Actor = Depends(actor), cid: str = Depends(correlation_id), s: LivingCoreService = Depends(service)):
+    return agent_response(await s.set_agent_active(a, str(entity_id), False, cid))
+
+
+@router.get("/memory/conscious", response_model=list[ConsciousMemoryResponse])
+async def list_conscious_memory(source_type: str | None = Query(None, max_length=64), limit: int = Query(100, ge=1, le=500),
+                                offset: int = Query(0, ge=0), a: Actor = Depends(actor), s: LivingCoreService = Depends(service)):
+    return [conscious_memory_response(x) for x in await s.conscious_memories(a, source_type, limit, offset)]
+
+
+@router.post("/memory/conscious", response_model=ConsciousMemoryResponse, status_code=201)
+async def record_conscious_memory(body: ConsciousMemoryCreateRequest, a: Actor = Depends(actor), cid: str = Depends(correlation_id), s: LivingCoreService = Depends(service)):
+    item = await s.record_conscious_memory(a, body.source_type, body.source_id, body.content, body.metadata, cid)
+    return conscious_memory_response(item)
+
+
+@router.get("/memory/{layer}/{scope_id}", response_model=list[MemoryResponse])
+async def list_memory(layer: MemoryLayer, scope_id: uuid.UUID, a: Actor = Depends(actor), s: LivingCoreService = Depends(service)):
+    return [memory_response(layer.value, x) for x in await s.memory(a, layer.value, str(scope_id))]
+
+
+@router.put("/memory/{layer}/{scope_id}", response_model=MemoryResponse)
+async def write_memory(layer: MemoryLayer, scope_id: uuid.UUID, body: MemoryUpsertRequest, a: Actor = Depends(actor), cid: str = Depends(correlation_id), s: LivingCoreService = Depends(service)):
+    return memory_response(layer.value, await s.remember(a, layer.value, str(scope_id), body.key, body.value, cid))
 
 
 @router.get("/chronicles", response_model=list[ChronicleResponse])
