@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from app.core.domain import Actor, MissionStatus, require_creator
+from app.core.domain import Actor, InvalidOrigin, MissionStatus, require_creator
 from app.models.entities import Mission
 from app.repositories.domain import DomainRepository
 from app.services.domain import NotFoundError
@@ -22,12 +22,12 @@ async def set_mission_authorization(
     if mission is None or mission.creator_id != actor.id:
         raise NotFoundError("Mission not found")
     if mission.status != MissionStatus.AUTHORIZED.value:
-        raise ValueError("Mission authorization scope can only be set while Mission is AUTHORIZED")
+        raise InvalidOrigin("Mission authorization scope can only be set while Mission is AUTHORIZED")
 
     previous_version = int((mission.authorization_json or {}).get("version", 0))
     requested_version = int(authorization.get("version", 1))
     if requested_version <= previous_version:
-        raise ValueError("Mission authorization version must increase")
+        raise InvalidOrigin("Mission authorization version must increase")
 
     mission.authorization_json = {
         "allowed_capabilities": list(authorization.get("allowed_capabilities", [])),
