@@ -29,7 +29,10 @@ async def http_database():
     engine = create_async_engine(os.environ["DATABASE_URL"])
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with engine.begin() as connection:
-        await connection.execute(text("TRUNCATE chronicles, mission_plans, missions, inceptions, messages, conversations, creator RESTART IDENTITY CASCADE"))
+        await connection.execute(text(
+            "TRUNCATE chronicles, agent_executions, tasks, mission_steps, mission_plans, missions, inceptions, "
+            "messages, conversations, agents, universes, creator RESTART IDENTITY CASCADE"
+        ))
     creator_id, other_id = str(uuid.uuid4()), str(uuid.uuid4())
     async with factory() as session:
         session.add_all([Creator(id=creator_id, username="creator", password_hash="unused", is_active=True),
@@ -61,6 +64,22 @@ async def client(http_database):
 
 def auth(creator_id: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token(creator_id)}", "X-Correlation-ID": str(uuid.uuid4())}
+
+
+def executable_plan() -> dict:
+    return {
+        "strategy": "Central Core plan",
+        "steps": [{
+            "step_key": "prove_http",
+            "title": "Prove HTTP",
+            "description": "Validate the governed HTTP lifecycle",
+            "universe": "engineering",
+            "position": 1,
+            "depends_on": [],
+            "completion_criteria": {"done": True},
+        }],
+        "completion_criteria": {"done": True},
+    }
 
 
 @pytest.mark.asyncio
@@ -104,7 +123,7 @@ async def test_all_living_core_http_actions(client, http_database):
     assert (await client.get("/api/v1/missions", headers=headers)).status_code == 200
     assert (await client.get(f"/api/v1/missions/{mission_id}", headers=headers)).status_code == 200
     assert (await client.post(f"/api/v1/missions/{mission_id}/plan", headers=headers,
-                              json={"strategy": "Central Core plan", "completion_criteria": {"done": True}})).status_code == 200
+                              json=executable_plan())).status_code == 200
     assert (await client.post(f"/api/v1/missions/{mission_id}/validate", headers=headers)).status_code == 200
     assert (await client.post(f"/api/v1/missions/{mission_id}/authorize", headers=headers)).status_code == 200
     assert (await client.post(f"/api/v1/missions/{mission_id}/cancel", headers=headers)).status_code == 200
@@ -203,8 +222,10 @@ async def test_chronicles_verify_detects_tampering(client, http_database):
 
 
 @pytest.mark.asyncio
-async def test_future_states_have_no_public_routes(client, http_database):
+async def test_kernel_routes_are_registered_and_guard_missing_missions(client, http_database):
     _, creator_id, _ = http_database
     headers = auth(creator_id)
-    for action in ("distribute", "execute", "manifest"):
-        assert (await client.post(f"/api/v1/missions/{uuid.uuid4()}/{action}", headers=headers)).status_code == 404
+    missing = uuid.uuid4()
+    for action in ("distribute", "execute", "manifest", "fail"):
+        assert (await client.post(f"/api/v1/missions/{missing}/{action}", headers=headers)).status_code == 404
+    assert (await client.get(f"/api/v1/missions/{missing}/tasks", headers=headers)).status_code == 404
