@@ -1,0 +1,63 @@
+name: Real Provider Gauntlet
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  real-provider-mission:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      APP_ENV: test
+      APP_SECRET_KEY: real-provider-gauntlet-secret-key-at-least-32-characters
+      CREATOR_BOOTSTRAP_USERNAME: creator
+      CREATOR_BOOTSTRAP_PASSWORD: real-provider-gauntlet-password
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/the_creation_os
+      REDIS_URL: redis://localhost:6379/0
+      REAL_PROVIDER_TEST: "1"
+      LLM_PROVIDER: openai
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+      LLM_MODEL: ${{ secrets.LLM_MODEL }}
+      EMBEDDING_PROVIDER: fake
+      EMBEDDING_MODEL: fake
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: the_creation_os
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Require real provider credentials
+        run: |
+          test -n "$LLM_API_KEY" || { echo "LLM_API_KEY repository secret is required"; exit 1; }
+          test -n "$LLM_MODEL" || { echo "LLM_MODEL repository secret is required"; exit 1; }
+      - run: pip install --upgrade pip && pip install ".[dev]"
+      - run: python -m alembic upgrade head
+      - name: Execute real-provider sovereign mission
+        run: pytest -q tests/test_real_provider_mission.py
