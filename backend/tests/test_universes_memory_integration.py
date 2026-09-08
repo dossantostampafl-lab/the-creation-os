@@ -4,9 +4,9 @@ import os
 import uuid
 from datetime import datetime, timedelta, timezone
 
+import jwt
 import pytest
 from httpx import ASGITransport, AsyncClient
-from jose import jwt
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
