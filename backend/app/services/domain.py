@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from sqlalchemy import select
+
 from app.ai.fake import FakeEmbeddingModel
 from app.core.domain import (
     Actor,
@@ -13,7 +15,19 @@ from app.core.domain import (
     require_creator,
     transition,
 )
-from app.models.entities import Agent, ConsciousMemory, Conversation, Inception, Message, Mission, MissionPlan, Universe
+from app.kernel.distributor import validate_distribution
+from app.models.entities import (
+    Agent,
+    ConsciousMemory,
+    Conversation,
+    Inception,
+    Message,
+    Mission,
+    MissionPlan,
+    MissionStep,
+    Task,
+    Universe,
+)
 from app.repositories.domain import MEMORY_LAYERS, DomainRepository
 
 
@@ -36,28 +50,28 @@ class LivingCoreService:
         return entity
 
     async def conversations(self, actor: Actor):
-        require_creator(actor, "control GOD")
+        require_creator(actor, "control DEUS")
         return await self.repo.list_for_creator(Conversation, actor.id)
 
     async def create_conversation(self, actor: Actor, title: str, correlation_id: str):
-        require_creator(actor, "control GOD")
+        require_creator(actor, "control DEUS")
         item = await self.repo.add(Conversation(creator_id=actor.id, title=title, status=ConversationStatus.ACTIVE.value))
         await self.repo.add_event("conversation_created", "conversation", item.id, actor.id, actor.role, correlation_id)
         await self.repo.commit()
         return item
 
     async def conversation(self, actor: Actor, entity_id: str):
-        require_creator(actor, "control GOD")
+        require_creator(actor, "control DEUS")
         return await self._owned(Conversation, entity_id, actor)
 
     async def add_message(self, actor: Actor, entity_id: str, content: str, metadata: dict[str, Any], correlation_id: str):
-        require_creator(actor, "speak directly with GOD")
+        require_creator(actor, "speak directly with DEUS")
         conversation = await self._owned(Conversation, entity_id, actor, lock=True)
         if conversation.status != ConversationStatus.ACTIVE.value:
             transition("conversation", ConversationStatus(conversation.status), ConversationStatus.ACTIVE)
         message = await self.repo.add(Message(
             conversation_id=entity_id, actor_id=actor.id, role=actor.role, content=content,
-            route="god", metadata_json=metadata, correlation_id=correlation_id,
+            route="deus", metadata_json=metadata, correlation_id=correlation_id,
         ))
         await self.repo.add_event("conversation_message_added", "conversation", entity_id, actor.id, actor.role,
                                   correlation_id, {"message_id": message.id})
@@ -209,7 +223,6 @@ class LivingCoreService:
         return item
 
     async def _memory_scope(self, actor: Actor, layer: str, scope_id: str) -> str:
-        """Conversation and Mission memory stay behind ownership; Universe memory is global to the Creator."""
         if layer not in MEMORY_LAYERS:
             raise NotFoundError("Unknown memory layer")
         if layer == "conversation":
@@ -271,20 +284,131 @@ class LivingCoreService:
         await self.repo.commit()
         return item
 
+    async def _plan_for_mission(self, mission_id: str) -> tuple[MissionPlan, list[MissionStep]]:
+        plan = await self.repo.session.scalar(select(MissionPlan).where(MissionPlan.mission_id == mission_id))
+        if plan is None:
+            raise InvalidOrigin("Mission requires a persisted plan")
+        steps = list((await self.repo.session.scalars(
+            select(MissionStep).where(MissionStep.plan_id == plan.id).order_by(MissionStep.position)
+        )).all())
+        if not steps:
+            raise InvalidOrigin("Mission plan requires executable steps")
+        return plan, steps
+
+    async def _distribute(self, item: Mission, actor: Actor, correlation_id: str) -> None:
+        _, steps = await self._plan_for_mission(item.id)
+        validate_distribution(mission_status=item.status, step_count=len(steps))
+        for step in steps:
+            universe = await self.repo.get_by_code(Universe, step.universe)
+            if universe is None or not universe.active:
+                raise InvalidOrigin(f"Universe {step.universe} is unavailable for distribution")
+            agents = [agent for agent in await self.repo.list_agents(universe.id) if agent.active]
+            if not agents:
+                raise InvalidOrigin(f"Universe {step.universe} has no active Agent")
+            idempotency_key = f"{item.id}:{step.step_key}"
+            existing = await self.repo.session.scalar(select(Task).where(Task.idempotency_key == idempotency_key))
+            if existing is not None:
+                continue
+            task_status = "READY" if not step.depends_on_json else "PENDING"
+            await self.repo.add(Task(
+                mission_id=item.id,
+                step_id=step.id,
+                universe_id=universe.id,
+                agent_id=agents[0].id,
+                status=task_status,
+                input_json={
+                    "mission_objective": item.objective,
+                    "step_key": step.step_key,
+                    "description": step.description,
+                    "completion_criteria": step.completion_criteria_json,
+                },
+                output_json={},
+                error_json={},
+                attempt_count=0,
+                max_attempts=3,
+                idempotency_key=idempotency_key,
+            ))
+        await self.repo.add_event(
+            "mission_distributed", "mission", item.id, actor.id, actor.role, correlation_id,
+            {"task_count": len(steps)},
+        )
+
     async def transition_mission(self, actor: Actor, entity_id: str, target: MissionStatus,
                                  correlation_id: str, plan: dict[str, Any] | None = None):
         item = await self._owned(Mission, entity_id, actor, lock=True)
+        current = MissionStatus(item.status)
         if target == MissionStatus.AUTHORIZED:
             require_creator(actor, "authorize Mission")
-        item.status = transition("mission", MissionStatus(item.status), target)
+
         if target == MissionStatus.PLANNED:
-            await self.repo.add(MissionPlan(mission_id=item.id, strategy=(plan or {}).get("strategy", ""),
-                                            completion_criteria_json=(plan or {}).get("completion_criteria", {})))
-        if target == MissionStatus.AUTHORIZED:
-            item.authorization_json = {"authorized_by": actor.id, "authorized_at": datetime.now(timezone.utc).isoformat(),
-                                       "correlation_id": correlation_id}
-        event = {MissionStatus.PLANNED: "mission_planned", MissionStatus.VALIDATED: "mission_validated",
-                 MissionStatus.AUTHORIZED: "mission_authorized", MissionStatus.CANCELLED: "mission_cancelled"}[target]
-        await self.repo.add_event(event, "mission", item.id, actor.id, actor.role, correlation_id)
+            plan_data = plan or {}
+            steps_data = plan_data.get("steps", [])
+            if not steps_data:
+                raise InvalidOrigin("Mission plan requires executable steps")
+            item.status = transition("mission", current, target)
+            persisted_plan = await self.repo.add(MissionPlan(
+                mission_id=item.id,
+                strategy=plan_data.get("strategy", ""),
+                completion_criteria_json=plan_data.get("completion_criteria", {}),
+            ))
+            for raw_step in steps_data:
+                await self.repo.add(MissionStep(
+                    plan_id=persisted_plan.id,
+                    step_key=raw_step["step_key"],
+                    title=raw_step["title"],
+                    description=raw_step["description"],
+                    universe=raw_step["universe"],
+                    position=raw_step["position"],
+                    depends_on_json=raw_step.get("depends_on", []),
+                    completion_criteria_json=raw_step.get("completion_criteria", {}),
+                    status="PENDING",
+                ))
+            event = "mission_planned"
+        elif target == MissionStatus.VALIDATED:
+            await self._plan_for_mission(item.id)
+            item.status = transition("mission", current, target)
+            event = "mission_validated"
+        elif target == MissionStatus.AUTHORIZED:
+            await self._plan_for_mission(item.id)
+            item.status = transition("mission", current, target)
+            item.authorization_json = {
+                "authorized_by": actor.id,
+                "authorized_at": datetime.now(timezone.utc).isoformat(),
+                "correlation_id": correlation_id,
+            }
+            event = "mission_authorized"
+        elif target == MissionStatus.DISTRIBUTED:
+            if current != MissionStatus.AUTHORIZED:
+                transition("mission", current, target)
+            await self._distribute(item, actor, correlation_id)
+            item.status = transition("mission", current, target)
+            event = None
+        elif target == MissionStatus.EXECUTING:
+            tasks = list((await self.repo.session.scalars(select(Task).where(Task.mission_id == item.id))).all())
+            if not tasks:
+                raise InvalidOrigin("Distributed Mission requires Tasks before execution")
+            item.status = transition("mission", current, target)
+            item.started_at = item.started_at or datetime.now(timezone.utc)
+            event = "mission_execution_started"
+        elif target == MissionStatus.MANIFESTED:
+            tasks = list((await self.repo.session.scalars(select(Task).where(Task.mission_id == item.id))).all())
+            if not tasks or any(task.status != "SUCCEEDED" for task in tasks):
+                raise InvalidOrigin("Mission cannot manifest before all Tasks succeed")
+            item.status = transition("mission", current, target)
+            item.completed_at = datetime.now(timezone.utc)
+            event = "mission_manifested"
+        elif target == MissionStatus.FAILED:
+            item.status = transition("mission", current, target)
+            item.completed_at = datetime.now(timezone.utc)
+            event = "mission_failed"
+        elif target == MissionStatus.CANCELLED:
+            item.status = transition("mission", current, target)
+            event = "mission_cancelled"
+        else:
+            item.status = transition("mission", current, target)
+            event = f"mission_{target.value}"
+
+        if event is not None:
+            await self.repo.add_event(event, "mission", item.id, actor.id, actor.role, correlation_id)
         await self.repo.commit()
         return item

@@ -23,7 +23,10 @@ async def database():
     engine = create_async_engine(DATABASE_URL)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with engine.begin() as connection:
-        await connection.execute(text("TRUNCATE chronicles, mission_plans, missions, inceptions, messages, conversations, creator RESTART IDENTITY CASCADE"))
+        await connection.execute(text(
+            "TRUNCATE chronicles, agent_executions, tasks, mission_steps, mission_plans, missions, inceptions, "
+            "messages, conversations, agents, universes, creator RESTART IDENTITY CASCADE"
+        ))
     yield factory
     await engine.dispose()
 
@@ -35,6 +38,22 @@ async def creator(database):
         session.add(Creator(id=creator_id, username="creator", password_hash="unused", is_active=True))
         await session.commit()
     return Actor(creator_id, "creator")
+
+
+def executable_plan(strategy: str = "central plan") -> dict:
+    return {
+        "strategy": strategy,
+        "steps": [{
+            "step_key": "step_1",
+            "title": "Step 1",
+            "description": "Persist the executable plan",
+            "universe": "engineering",
+            "position": 1,
+            "depends_on": [],
+            "completion_criteria": {"done": True},
+        }],
+        "completion_criteria": {"done": True},
+    }
 
 
 async def build_approved(service, actor, correlation_id):
@@ -53,8 +72,7 @@ async def test_complete_persistence_flow_and_session_restart(database, creator):
         service = LivingCoreService(DomainRepository(session))
         conversation, message, inception = await build_approved(service, creator, cid)
         mission = await service.create_mission(creator, inception.id, "Mission", "Objective", cid)
-        await service.transition_mission(creator, mission.id, MissionStatus.PLANNED, cid,
-                                         {"strategy": "central plan", "completion_criteria": {"done": True}})
+        await service.transition_mission(creator, mission.id, MissionStatus.PLANNED, cid, executable_plan())
         await service.transition_mission(creator, mission.id, MissionStatus.VALIDATED, cid)
         await service.transition_mission(creator, mission.id, MissionStatus.AUTHORIZED, cid)
         await service.close_conversation(creator, conversation.id, cid)
@@ -110,8 +128,7 @@ async def test_inception_cancel_cascades_pre_authorized_mission_atomically(datab
         service = LivingCoreService(DomainRepository(session))
         _, _, inception = await build_approved(service, creator, cid)
         mission = await service.create_mission(creator, inception.id, "Mission", "Objective", cid)
-        await service.transition_mission(creator, mission.id, MissionStatus.PLANNED, cid,
-                                         {"strategy": "plan", "completion_criteria": {}})
+        await service.transition_mission(creator, mission.id, MissionStatus.PLANNED, cid, executable_plan("plan"))
         await service.transition_inception(creator, inception.id, InceptionStatus.CANCELLED, cid, "withdrawn")
         assert inception.status == mission.status == "cancelled"
     async with database() as session:
@@ -126,7 +143,7 @@ async def test_authorized_mission_blocks_inception_cancel(database, creator):
         service = LivingCoreService(DomainRepository(session))
         _, _, inception = await build_approved(service, creator, cid)
         mission = await service.create_mission(creator, inception.id, "Mission", "Objective", cid)
-        await service.transition_mission(creator, mission.id, MissionStatus.PLANNED, cid, {"strategy": "p"})
+        await service.transition_mission(creator, mission.id, MissionStatus.PLANNED, cid, executable_plan("p"))
         await service.transition_mission(creator, mission.id, MissionStatus.VALIDATED, cid)
         await service.transition_mission(creator, mission.id, MissionStatus.AUTHORIZED, cid)
         with pytest.raises(InvalidOrigin):

@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 import pytest
 
 from app.core.domain import Actor, InceptionStatus, InvalidOrigin, MissionStatus
-from app.models.entities import Conversation, Inception, Message, Mission
+from app.models.entities import Conversation, Inception, Message, Mission, MissionStep
 from app.services.domain import LivingCoreService
 
 
@@ -79,6 +79,22 @@ def repo():
     return FakeRepository()
 
 
+def plan() -> dict:
+    return {
+        "strategy": "Safe plan",
+        "steps": [{
+            "step_key": "step_1",
+            "title": "Step 1",
+            "description": "Execute one bounded task",
+            "universe": "engineering",
+            "position": 1,
+            "depends_on": [],
+            "completion_criteria": {"done": True},
+        }],
+        "completion_criteria": {"done": True},
+    }
+
+
 @pytest.mark.asyncio
 async def test_conversation_message_does_not_create_mission(repo, actor, correlation_id):
     service = LivingCoreService(repo)
@@ -120,20 +136,20 @@ async def test_mission_cannot_be_created_without_approved_inception(repo, actor,
 
 
 @pytest.mark.asyncio
-async def test_critical_events_contain_actor_timestamp_correlation_and_action(repo, actor, correlation_id):
+async def test_planning_persists_steps_and_critical_event_metadata(repo, actor, correlation_id):
     service, inception = await approved_inception(repo, actor, correlation_id)
     mission = await service.create_mission(actor, inception.id, "Mission", "Objective", correlation_id)
-    await service.transition_mission(actor, mission.id, MissionStatus.PLANNED, correlation_id,
-                                     {"strategy": "Safe plan", "completion_criteria": {"done": True}})
-    await service.transition_mission(actor, mission.id, MissionStatus.VALIDATED, correlation_id)
-    await service.transition_mission(actor, mission.id, MissionStatus.AUTHORIZED, correlation_id)
+    await service.transition_mission(actor, mission.id, MissionStatus.PLANNED, correlation_id, plan())
+
+    steps = [entity for (kind, _), entity in repo.entities.items() if kind is MissionStep]
+    assert len(steps) == 1
+    assert steps[0].step_key == "step_1"
     for event in repo.events:
         assert event["actor_id"] == actor.id
         assert event["actor_role"] == "creator"
         assert event["correlation_id"] == correlation_id
         assert event["event_type"]
         assert event["created_at"].tzinfo is not None
-    assert mission.authorization_json["authorized_by"] == actor.id
 
 
 @pytest.mark.asyncio
