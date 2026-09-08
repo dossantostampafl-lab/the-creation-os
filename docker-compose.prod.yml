@@ -31,10 +31,10 @@ services:
       DATABASE_URL: postgresql+asyncpg://creation:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/the_creation_os
       REDIS_URL: redis://redis:6379/0
       LLM_PROVIDER: ${LLM_PROVIDER:-openai}
-      LLM_MODEL: ${LLM_MODEL:-gpt-5.6}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:?LLM_MODEL is required}
+      LLM_API_KEY: ${LLM_API_KEY:?LLM_API_KEY is required}
       EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-openai}
-      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:?EMBEDDING_MODEL is required}
     depends_on:
       postgres:
         condition: service_healthy
@@ -71,10 +71,10 @@ services:
       DATABASE_URL: postgresql+asyncpg://creation:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/the_creation_os
       REDIS_URL: redis://redis:6379/0
       LLM_PROVIDER: ${LLM_PROVIDER:-openai}
-      LLM_MODEL: ${LLM_MODEL:-gpt-5.6}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:?LLM_MODEL is required}
+      LLM_API_KEY: ${LLM_API_KEY:?LLM_API_KEY is required}
       EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-openai}
-      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:?EMBEDDING_MODEL is required}
     depends_on:
       api:
         condition: service_healthy
