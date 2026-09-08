@@ -42,77 +42,103 @@ async def running_attempt(database, *, at_most_once: bool) -> tuple[str, str, st
     invocation_id = str(uuid.uuid4()) if at_most_once else None
 
     async with database() as session:
-        session.add_all([
-            Creator(id=creator_id, username="creator", password_hash="unused", is_active=True),
-            Conversation(id=conversation_id, creator_id=creator_id, title="Restart", status="active"),
-            Message(
-                id=message_id,
-                conversation_id=conversation_id,
-                role="creator",
-                actor_id=creator_id,
-                correlation_id=str(uuid.uuid4()),
-                content="restart",
-                route="deus",
-                metadata_json={},
-            ),
-            Inception(
-                id=inception_id,
-                conversation_id=conversation_id,
-                source_message_id=message_id,
-                title="Restart",
-                description="Restart",
-                status="approved",
-                trinity_assessment_json={},
-            ),
-            Mission(
-                id=mission_id,
-                inception_id=inception_id,
-                creator_id=creator_id,
-                title="Restart",
-                objective="Recover",
-                status="executing",
-                authorization_json={"authorized_by": creator_id, "authorized_at": "2026-09-08T00:00:00Z"},
-            ),
-            MissionPlan(id=plan_id, mission_id=mission_id, strategy="recover", completion_criteria_json={}),
-            MissionStep(
-                id=step_id,
-                plan_id=plan_id,
-                step_key="recover",
-                title="Recover",
-                description="Recover",
-                universe="engineering",
-                position=1,
-                depends_on_json=[],
-                completion_criteria_json={},
-                status="PENDING",
-            ),
-            Universe(id=universe_id, code="engineering", name="Engineering", active=True),
-            Agent(id=agent_id, code="worker", name="Worker", universe_id=universe_id, active=True, capabilities_json={}),
-            Task(
-                id=task_id,
-                mission_id=mission_id,
-                step_id=step_id,
-                universe_id=universe_id,
-                agent_id=agent_id,
-                status="RUNNING",
-                input_json={},
-                output_json={},
-                error_json={},
-                attempt_count=1,
-                max_attempts=3,
-                idempotency_key=f"{mission_id}:recover",
-            ),
-            AgentExecution(
-                id=execution_id,
-                task_id=task_id,
-                agent_id=agent_id,
-                attempt=1,
-                status="RUNNING",
-                input_json={},
-                output_json={},
-                error_json={},
-            ),
-        ])
+        # These fixtures use explicit foreign-key identifiers instead of ORM
+        # relationships, so make the dependency order deterministic for
+        # PostgreSQL rather than relying on SQLAlchemy to infer it.
+        session.add(Creator(id=creator_id, username="creator", password_hash="unused", is_active=True))
+        await session.flush()
+
+        session.add(Conversation(id=conversation_id, creator_id=creator_id, title="Restart", status="active"))
+        session.add(Universe(id=universe_id, code="engineering", name="Engineering", active=True))
+        await session.flush()
+
+        session.add(Message(
+            id=message_id,
+            conversation_id=conversation_id,
+            role="creator",
+            actor_id=creator_id,
+            correlation_id=str(uuid.uuid4()),
+            content="restart",
+            route="deus",
+            metadata_json={},
+        ))
+        session.add(Agent(
+            id=agent_id,
+            code="worker",
+            name="Worker",
+            universe_id=universe_id,
+            active=True,
+            capabilities_json={},
+        ))
+        await session.flush()
+
+        session.add(Inception(
+            id=inception_id,
+            conversation_id=conversation_id,
+            source_message_id=message_id,
+            title="Restart",
+            description="Restart",
+            status="approved",
+            trinity_assessment_json={},
+        ))
+        await session.flush()
+
+        session.add(Mission(
+            id=mission_id,
+            inception_id=inception_id,
+            creator_id=creator_id,
+            title="Restart",
+            objective="Recover",
+            status="executing",
+            authorization_json={"authorized_by": creator_id, "authorized_at": "2026-09-08T00:00:00Z"},
+        ))
+        await session.flush()
+
+        session.add(MissionPlan(id=plan_id, mission_id=mission_id, strategy="recover", completion_criteria_json={}))
+        await session.flush()
+
+        session.add(MissionStep(
+            id=step_id,
+            plan_id=plan_id,
+            step_key="recover",
+            title="Recover",
+            description="Recover",
+            universe="engineering",
+            position=1,
+            depends_on_json=[],
+            completion_criteria_json={},
+            status="PENDING",
+        ))
+        await session.flush()
+
+        session.add(Task(
+            id=task_id,
+            mission_id=mission_id,
+            step_id=step_id,
+            universe_id=universe_id,
+            agent_id=agent_id,
+            status="RUNNING",
+            input_json={},
+            output_json={},
+            error_json={},
+            attempt_count=1,
+            max_attempts=3,
+            idempotency_key=f"{mission_id}:recover",
+        ))
+        await session.flush()
+
+        session.add(AgentExecution(
+            id=execution_id,
+            task_id=task_id,
+            agent_id=agent_id,
+            attempt=1,
+            status="RUNNING",
+            input_json={},
+            output_json={},
+            error_json={},
+        ))
+        await session.flush()
+
         if invocation_id is not None:
             session.add(CapabilityInvocation(
                 id=invocation_id,
