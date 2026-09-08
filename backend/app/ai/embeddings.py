@@ -4,9 +4,13 @@ from typing import Any
 
 import httpx
 
-from app.ai.fake import FakeEmbeddingModel
 from app.ai.interfaces import EmbeddingModel
 from app.config import settings
+
+
+class DeterministicTestEmbeddingModel:
+    async def embed(self, text: str) -> list[float]:
+        return [float(ord(c) % 10) for c in text[:8]] + [0.0] * max(0, 8 - len(text[:8]))
 
 
 class OpenAIEmbeddingModel:
@@ -34,7 +38,7 @@ def build_embedding_model() -> EmbeddingModel:
     if provider == "fake":
         if settings.app_env == "production":
             raise RuntimeError("fake embedding provider is forbidden in production")
-        return FakeEmbeddingModel()
+        return DeterministicTestEmbeddingModel()
     if provider == "openai":
         if settings.llm_api_key is None:
             raise RuntimeError("OpenAI embedding provider requires LLM_API_KEY")
