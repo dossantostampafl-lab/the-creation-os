@@ -87,3 +87,28 @@ async def test_at_most_once_requires_idempotency_key() -> None:
             ),
             authorization(),
         )
+
+
+@pytest.mark.asyncio
+async def test_scope_restricts_action_and_resource() -> None:
+    gateway = CapabilityGateway()
+    gateway.register(EchoAdapter())
+    scoped = authorization(scope={"actions": {"echo": ["say"]}, "resources": ["project:alpha"]})
+    with pytest.raises(CapabilityDenied, match="action not authorized"):
+        await gateway.execute(CapabilityIntent(capability="echo", action="delete"), scoped)
+    with pytest.raises(CapabilityDenied, match="resource not authorized"):
+        await gateway.execute(
+            CapabilityIntent(capability="echo", action="say", resource="project:beta"),
+            scoped,
+        )
+
+
+@pytest.mark.asyncio
+async def test_expired_authorization_is_denied() -> None:
+    gateway = CapabilityGateway()
+    gateway.register(EchoAdapter())
+    with pytest.raises(CapabilityDenied, match="expired"):
+        await gateway.execute(
+            CapabilityIntent(capability="echo", action="say"),
+            authorization(expires_at="2020-01-01T00:00:00Z"),
+        )
