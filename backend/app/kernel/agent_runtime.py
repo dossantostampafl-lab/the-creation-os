@@ -79,7 +79,11 @@ class AgentRuntime:
                 preferred_provider=str(preferred_provider),
                 fallback_providers=[str(name) for name in fallback_providers],
             ),
-            metadata={"task_id": task_id, "mission_id": mission_id},
+            metadata={
+                "task_id": task_id,
+                "mission_id": mission_id,
+                "enable_capability_intents": self.capability_runtime is not None,
+            },
         )
 
         try:
