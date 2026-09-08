@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from app.config import settings
 
 
@@ -13,9 +15,9 @@ class FakeLanguageModel:
 
 
 class FakeEmbeddingModel:
-    def __init__(self) -> None:
-        if settings.app_env == "production":
-            raise RuntimeError("fake embedding model is forbidden in production")
+    """Legacy compatibility constructor; provider selection is centralized in ai.embeddings."""
 
-    async def embed(self, text: str) -> list[float]:
-        return [float(ord(c) % 10) for c in text[:8]] + [0.0] * max(0, 8 - len(text[:8]))
+    def __new__(cls) -> Any:
+        from app.ai.embeddings import build_embedding_model
+
+        return build_embedding_model()
