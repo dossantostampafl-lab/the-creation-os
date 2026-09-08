@@ -7,13 +7,33 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.living_core import actor, correlation_id, mission_response, service
+from app.capabilities.mission_authorization import set_mission_authorization
 from app.core.domain import Actor, MissionStatus
 from app.db.session import get_session
 from app.models.entities import Task
-from app.schemas.mission import MissionResponse, TaskResponse
+from app.repositories.domain import DomainRepository
+from app.schemas.mission import MissionAuthorizationRequest, MissionResponse, TaskResponse
 from app.services.domain import LivingCoreService
 
 router = APIRouter(tags=["creation-kernel"])
+
+
+@router.put("/missions/{entity_id}/authorization", response_model=MissionResponse)
+async def scope_mission_authorization(
+    entity_id: uuid.UUID,
+    body: MissionAuthorizationRequest,
+    a: Actor = Depends(actor),
+    cid: str = Depends(correlation_id),
+    session: AsyncSession = Depends(get_session),
+):
+    mission = await set_mission_authorization(
+        DomainRepository(session),
+        actor=a,
+        mission_id=str(entity_id),
+        authorization=body.model_dump(mode="json"),
+        correlation_id=cid,
+    )
+    return mission_response(mission)
 
 
 @router.post("/missions/{entity_id}/distribute", response_model=MissionResponse)
