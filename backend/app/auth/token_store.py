@@ -9,6 +9,13 @@ from app.config import settings
 
 REFRESH_PREFIX = "auth:refresh"
 LOGIN_FAILURE_PREFIX = "auth:login-failures"
+_LOGIN_FAILURE_SCRIPT = """
+local value = redis.call('INCR', KEYS[1])
+if value == 1 then
+  redis.call('EXPIRE', KEYS[1], ARGV[1])
+end
+return value
+"""
 
 
 @asynccontextmanager
@@ -44,10 +51,8 @@ async def revoke_refresh_tokens(subject: str) -> int:
 async def register_login_failure(username: str) -> int:
     async with _client() as redis:
         key = f"{LOGIN_FAILURE_PREFIX}:{username}"
-        failures = int(await redis.incr(key))
-        if failures == 1:
-            await redis.expire(key, settings.login_failure_window_seconds)
-        return failures
+        result = await redis.eval(_LOGIN_FAILURE_SCRIPT, 1, key, settings.login_failure_window_seconds)
+        return int(result)
 
 
 async def clear_login_failures(username: str) -> None:
