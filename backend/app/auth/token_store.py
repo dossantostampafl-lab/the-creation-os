@@ -31,6 +31,12 @@ def _refresh_key(subject: str, jti: str) -> str:
     return f"{REFRESH_PREFIX}:{subject}:{jti}"
 
 
+def _login_failure_key(username: str, source: str) -> str:
+    normalized_username = username.strip().casefold()
+    normalized_source = source.strip() or "unknown"
+    return f"{LOGIN_FAILURE_PREFIX}:{normalized_username}:{normalized_source}"
+
+
 async def register_refresh_token(subject: str, jti: str) -> None:
     async with _client() as redis:
         await redis.set(_refresh_key(subject, jti), "1", ex=int(settings.refresh_token_expires.total_seconds()))
@@ -48,19 +54,19 @@ async def revoke_refresh_tokens(subject: str) -> int:
         return int(await redis.delete(*keys)) if keys else 0
 
 
-async def register_login_failure(username: str) -> int:
+async def register_login_failure(username: str, source: str) -> int:
     async with _client() as redis:
-        key = f"{LOGIN_FAILURE_PREFIX}:{username}"
+        key = _login_failure_key(username, source)
         result = await redis.eval(_LOGIN_FAILURE_SCRIPT, 1, key, settings.login_failure_window_seconds)
         return int(result)
 
 
-async def clear_login_failures(username: str) -> None:
+async def clear_login_failures(username: str, source: str) -> None:
     async with _client() as redis:
-        await redis.delete(f"{LOGIN_FAILURE_PREFIX}:{username}")
+        await redis.delete(_login_failure_key(username, source))
 
 
-async def login_is_blocked(username: str) -> bool:
+async def login_is_blocked(username: str, source: str) -> bool:
     async with _client() as redis:
-        failures = await redis.get(f"{LOGIN_FAILURE_PREFIX}:{username}")
+        failures = await redis.get(_login_failure_key(username, source))
         return failures is not None and int(failures) >= settings.login_max_failures
