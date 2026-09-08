@@ -4,8 +4,8 @@ import hmac
 import uuid
 from datetime import datetime, timedelta, timezone
 
+import jwt
 from fastapi import Depends, HTTPException, status
-from jose import JWTError, jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import token_store
@@ -90,7 +90,7 @@ class AuthService:
         try:
             payload = jwt.decode(token, settings.secret_key.get_secret_value(), algorithms=["HS256"])
             return TokenPayload(**payload)
-        except JWTError as exc:
+        except jwt.PyJWTError as exc:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token") from exc
 
 
