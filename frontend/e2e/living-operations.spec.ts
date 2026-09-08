@@ -85,7 +85,7 @@ test("renders the Living Operations Terminal from projection-backed state", asyn
   await expect(page.locator(".deus")).toHaveText("DEUS");
   await expect(page.locator(".orbit-a span")).toHaveText("SOPHIA");
   await expect(page.locator(".orbit-b span")).toHaveText("ROCKMAM");
-  await expect(page.getByText("Manifest Gate D", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Manifest Gate D" })).toBeVisible();
   await expect(page.getByText("Engineering", { exact: true })).toBeVisible();
   await expect(page.getByText("Builder", { exact: true })).toBeVisible();
   await expect(page.getByText("mission_distributed", { exact: true })).toBeVisible();
