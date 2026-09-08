@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.db.session import get_session
 from app.observability.security import log_blocked_action
 from app.schemas.auth import TokenPayload
@@ -32,11 +33,11 @@ async def get_sovereign_creator(
     x_correlation_id: str | None = Header(None),
 ) -> TokenPayload:
     auth_service = await get_auth_service(session)
-    creator = await auth_service.repository.get_one()
-    # sovereign creator id can be set via environment/config
-    configured_id = None
+    configured_id = settings.sovereign_creator_id or None
+    creator = await (auth_service.repository.get_by_id(configured_id) if configured_id
+                     else auth_service.repository.get_one())
     sovereign_id = configured_id or (creator.id if creator is not None else None)
-    if creator is None or not creator.is_active or token_payload.sub != sovereign_id or creator.id != sovereign_id:
+    if creator is None or not creator.is_active or token_payload.sub != sovereign_id:
         log_blocked_action(actor_id=token_payload.sub, action="assume_sovereign_creator_authority",
                            resource="living_core", correlation_id=x_correlation_id or "missing",
                            reason="subject is not the configured sovereign Creator")

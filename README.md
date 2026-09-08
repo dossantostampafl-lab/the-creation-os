@@ -53,18 +53,31 @@ curl -X POST http://localhost:8000/api/v1/auth/login \
 ## Endpoints principais
 
 - `POST /api/v1/auth/login`
+- `POST /api/v1/auth/refresh` (rotaciona o refresh token; o token usado é invalidado)
+- `POST /api/v1/auth/logout` (revoga todos os refresh tokens do Criador)
 - `POST /api/v1/conversations`
 - `POST /api/v1/conversations/{id}/messages`
 - `GET /api/v1/inceptions`
 - `POST /api/v1/inceptions/{id}/approve`
 - `POST /api/v1/inceptions/{id}/reject`
+- `GET /api/v1/universes` · `POST /api/v1/universes` · `POST /api/v1/universes/{id}/activate|deactivate`
+- `GET /api/v1/agents?universe_id=` · `POST /api/v1/agents` · `POST /api/v1/agents/{id}/activate|deactivate`
+- `GET|PUT /api/v1/memory/{conversation|mission|universe}/{scope_id}`
+- `GET|POST /api/v1/memory/conscious`
 - `GET /api/v1/pulse`
-- `GET /api/v1/chronicles`
+- `GET /api/v1/chronicles?limit=100&offset=0`
 - `GET /api/v1/chronicles/verify`
 
 ## Testes
 
+Os testes de integração exigem PostgreSQL e Redis acessíveis em `localhost`.
+
 ```bash
+docker compose up -d postgres redis
 cd backend
-pytest
+pip install ".[dev]"
+DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/the_creation_os \
+  REDIS_URL=redis://localhost:6379/0 pytest
 ```
+
+Para rodar apenas os testes unitários: `pytest -m "not integration"`.

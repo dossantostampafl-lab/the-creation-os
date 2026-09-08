@@ -7,11 +7,30 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, TypeVar, cast
 
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.domain import ConversationStatus, InceptionStatus, InvalidOrigin, MissionStatus
-from app.models.entities import Chronicle, Conversation, Inception, Message, Mission
+from app.models.entities import (
+    Agent,
+    Chronicle,
+    ConsciousMemory,
+    Conversation,
+    ConversationMemory,
+    Inception,
+    Message,
+    Mission,
+    MissionMemory,
+    Task,
+    Universe,
+    UniverseMemory,
+)
+
+MEMORY_LAYERS: dict[str, tuple[type, str]] = {
+    "conversation": (ConversationMemory, "conversation_id"),
+    "mission": (MissionMemory, "mission_id"),
+    "universe": (UniverseMemory, "universe_id"),
+}
 
 T = TypeVar("T")
 
@@ -114,6 +133,71 @@ class DomainRepository:
             payload_hash=event_hash(material, previous), previous_hash=previous, created_at=created_at,
         )
         return await self.add(event)
+
+    async def list_chronicles(self, limit: int, offset: int) -> list[Chronicle]:
+        stmt = select(Chronicle).order_by(Chronicle.position).limit(limit).offset(offset)
+        return list((await self.session.scalars(stmt)).all())
+
+    async def list_all(self, model: type[T], order_by: str = "created_at") -> list[T]:
+        stmt = select(model).order_by(getattr(model, order_by))
+        return cast(list[T], (await self.session.scalars(cast(Any, stmt))).all())
+
+    async def get_by_code(self, model: type[T], code: str) -> T | None:
+        stmt = select(model).where(getattr(model, 'code') == code)
+        return cast(T | None, await self.session.scalar(cast(Any, stmt)))
+
+    async def list_agents(self, universe_id: str | None) -> list[Agent]:
+        stmt = select(Agent).order_by(Agent.created_at)
+        if universe_id is not None:
+            stmt = stmt.where(Agent.universe_id == universe_id)
+        return list((await self.session.scalars(stmt)).all())
+
+    async def list_memory(self, layer: str, scope_id: str) -> list[Any]:
+        model, scope_column = MEMORY_LAYERS[layer]
+        stmt: Any = select(model).where(getattr(model, scope_column) == scope_id).order_by(getattr(model, 'key'))
+        return list((await self.session.scalars(cast(Any, stmt))).all())
+
+    async def upsert_memory(self, layer: str, scope_id: str, key: str, value: dict[str, Any]) -> Any:
+        model, scope_column = MEMORY_LAYERS[layer]
+        stmt: Any = select(model).where(getattr(model, scope_column) == scope_id, getattr(model, 'key') == key).with_for_update()
+        entry = await self.session.scalar(cast(Any, stmt))
+        if entry is None:
+            entry = model(**{scope_column: scope_id}, key=key, value_json=value)
+            return await self.add(entry)
+        entry.value_json = value
+        entry.updated_at = datetime.now(timezone.utc)
+        await self.session.flush()
+        return entry
+
+    async def list_conscious_memory(self, source_type: str | None, limit: int, offset: int) -> list[ConsciousMemory]:
+        stmt = select(ConsciousMemory).order_by(ConsciousMemory.created_at.desc()).limit(limit).offset(offset)
+        if source_type is not None:
+            stmt = stmt.where(ConsciousMemory.source_type == source_type)
+        return list((await self.session.scalars(stmt)).all())
+
+    async def count_where(self, model: type, column: str, values: set[str]) -> int:
+        stmt = select(func.count()).select_from(model).where(getattr(model, column).in_(values))
+        return int(await self.session.scalar(cast(Any, stmt)) or 0)
+
+    async def pulse_counters(self) -> dict[str, int]:
+        active_universes = await self.session.scalar(select(func.count()).select_from(Universe).where(Universe.active.is_(True)))
+        active_agents = await self.session.scalar(select(func.count()).select_from(Agent).where(Agent.active.is_(True)))
+        error_count = await self.session.scalar(
+            select(func.count()).select_from(Chronicle).where(Chronicle.event_type.like("%failed%"))
+        )
+        return {
+            "active_universes": int(active_universes or 0),
+            "active_agents": int(active_agents or 0),
+            "running_missions": await self.count_where(
+                Mission, "status", {MissionStatus.DISTRIBUTED.value, MissionStatus.EXECUTING.value}
+            ),
+            "pending_inceptions": await self.count_where(
+                Inception, "status", {InceptionStatus.PROPOSED.value, InceptionStatus.AWAITING_CREATOR_DECISION.value}
+            ),
+            "pending_tasks": await self.count_where(Task, "status", {"PENDING", "RUNNING"}),
+            "failed_tasks": await self.count_where(Task, "status", {"FAILED"}),
+            "error_count": int(error_count or 0),
+        }
 
     async def verify_chronicle(self) -> ChronicleIntegrity:
         events = list((await self.session.scalars(select(Chronicle).order_by(Chronicle.position))).all())
