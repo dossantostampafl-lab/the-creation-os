@@ -7,8 +7,8 @@ import pytest
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.core.domain import Actor, InceptionStatus, MissionStatus
-from app.models.entities import Agent, Creator, MissionStep, Task, Universe
+from app.core.domain import Actor, InceptionStatus, InvalidOrigin, InvalidStateTransition, MissionStatus
+from app.models.entities import Creator, MissionStep, Task
 from app.repositories.domain import DomainRepository
 from app.services.domain import LivingCoreService
 
@@ -97,9 +97,8 @@ async def test_plan_steps_are_persisted_and_distribution_is_idempotent(database,
         assert len({task.idempotency_key for task in tasks}) == 2
         assert all(task.agent_id for task in tasks)
 
-        # Distribution is an exactly-once state transition; repeated calls cannot create duplicate tasks.
         service = LivingCoreService(DomainRepository(session))
-        with pytest.raises(Exception):
+        with pytest.raises(InvalidStateTransition):
             await service.transition_mission(creator, mission_id, MissionStatus.DISTRIBUTED, cid)
         await session.rollback()
 
@@ -114,7 +113,7 @@ async def test_mission_cannot_manifest_until_all_tasks_succeed(database, creator
         service = LivingCoreService(DomainRepository(session))
         await service.transition_mission(creator, mission_id, MissionStatus.DISTRIBUTED, cid)
         await service.transition_mission(creator, mission_id, MissionStatus.EXECUTING, cid)
-        with pytest.raises(Exception, match="all Tasks succeed"):
+        with pytest.raises(InvalidOrigin, match="all Tasks succeed"):
             await service.transition_mission(creator, mission_id, MissionStatus.MANIFESTED, cid)
         await session.rollback()
 
