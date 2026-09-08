@@ -8,11 +8,26 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.core.domain import Actor, InceptionStatus, InvalidOrigin, InvalidStateTransition, MissionStatus
+from app.inference.contracts import InferenceRequest, InferenceResponse, ProviderHealth
+from app.inference.registry import ProviderRegistry
+from app.inference.router import ModelRouter
+from app.kernel.agent_runtime import AgentRuntime
 from app.models.entities import Creator, MissionStep, Task
+from app.models.execution import AgentExecution
 from app.repositories.domain import DomainRepository
 from app.services.domain import LivingCoreService
 
 pytestmark = pytest.mark.integration
+
+
+class StubProvider:
+    name = "stub"
+
+    async def generate(self, request: InferenceRequest) -> InferenceResponse:
+        return InferenceResponse(provider=self.name, model=request.model or "stub-model", content="completed")
+
+    async def health(self) -> ProviderHealth:
+        return ProviderHealth(provider=self.name, available=True)
 
 
 @pytest.fixture
@@ -21,9 +36,9 @@ async def database():
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with engine.begin() as connection:
         await connection.execute(text(
-            "TRUNCATE chronicles, conscious_memory, universe_memory, mission_memory, conversation_memory, tasks, "
-            "mission_steps, mission_plans, missions, inceptions, messages, conversations, agents, universes, creator "
-            "RESTART IDENTITY CASCADE"
+            "TRUNCATE chronicles, conscious_memory, universe_memory, mission_memory, conversation_memory, "
+            "agent_executions, tasks, mission_steps, mission_plans, missions, inceptions, messages, conversations, "
+            "agents, universes, creator RESTART IDENTITY CASCADE"
         ))
     yield factory
     await engine.dispose()
@@ -50,7 +65,14 @@ async def authorized_mission(database, creator):
         mission = await service.create_mission(creator, inception.id, "Kernel", "Close Gate A", cid)
         universe = await service.create_universe(creator, "engineering", "Engineering", cid)
         await service.set_universe_active(creator, universe.id, True, cid)
-        await service.create_agent(creator, "engineer", "Engineer", universe.id, {"execute": True}, cid)
+        await service.create_agent(
+            creator,
+            "engineer",
+            "Engineer",
+            universe.id,
+            {"execute": True, "inference_provider": "stub", "model": "stub-model"},
+            cid,
+        )
         await service.transition_mission(creator, mission.id, MissionStatus.PLANNED, cid, {
             "strategy": "deterministic",
             "steps": [
@@ -120,3 +142,30 @@ async def test_mission_cannot_manifest_until_all_tasks_succeed(database, creator
     async with database() as session:
         tasks = list((await session.scalars(select(Task).where(Task.mission_id == mission_id))).all())
         assert len(tasks) == 2
+
+
+@pytest.mark.asyncio
+async def test_agent_runtime_executes_dependency_order_and_allows_manifestation(database, creator):
+    mission_id, cid = await authorized_mission(database, creator)
+    async with database() as session:
+        service = LivingCoreService(DomainRepository(session))
+        await service.transition_mission(creator, mission_id, MissionStatus.DISTRIBUTED, cid)
+        await service.transition_mission(creator, mission_id, MissionStatus.EXECUTING, cid)
+
+    registry = ProviderRegistry()
+    registry.register(StubProvider())
+    runtime = AgentRuntime(database, ModelRouter(registry))
+
+    assert await runtime.run_next(mission_id) is True
+    assert await runtime.run_next(mission_id) is True
+    assert await runtime.run_next(mission_id) is False
+
+    async with database() as session:
+        tasks = list((await session.scalars(select(Task).where(Task.mission_id == mission_id).order_by(Task.created_at))).all())
+        executions = list((await session.scalars(select(AgentExecution).order_by(AgentExecution.started_at))).all())
+        assert [task.status for task in tasks] == ["SUCCEEDED", "SUCCEEDED"]
+        assert [execution.status for execution in executions] == ["SUCCEEDED", "SUCCEEDED"]
+        service = LivingCoreService(DomainRepository(session))
+        mission = await service.transition_mission(creator, mission_id, MissionStatus.MANIFESTED, cid)
+        assert mission.status == "manifested"
+        assert mission.completed_at is not None
