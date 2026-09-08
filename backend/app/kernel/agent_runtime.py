@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -8,6 +9,7 @@ from app.capabilities.contracts import CapabilityIntent, MissionAuthorization
 from app.capabilities.runtime import CapabilityRuntime
 from app.inference.contracts import InferenceRequest, ModelRequirements, ProviderUnavailable
 from app.inference.router import ModelRouter
+from app.kernel.completion_engine import MissionCompletionEngine
 from app.kernel.orchestrator import claim_next_ready_task, finish_task_attempt
 from app.models.entities import Agent, Mission
 
@@ -18,12 +20,14 @@ class AgentRuntime:
         session_factory: async_sessionmaker[AsyncSession],
         router: ModelRouter,
         capability_runtime: CapabilityRuntime | None = None,
+        completion_engine: MissionCompletionEngine | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.router = router
         self.capability_runtime = capability_runtime
+        self.completion_engine = completion_engine
 
-    async def run_next(self, mission_id: str) -> bool:
+    async def run_next(self, mission_id: str, correlation_id: str | None = None) -> bool:
         async with self.session_factory() as session:
             claimed = await claim_next_ready_task(session, mission_id)
             if claimed is None:
@@ -31,13 +35,18 @@ class AgentRuntime:
                 return False
             task, execution = claimed
             agent = await session.get(Agent, task.agent_id)
+            mission = await session.get(Mission, mission_id)
             if agent is None or not agent.active:
                 await session.rollback()
                 raise ValueError("active Agent not found for claimed Task")
+            if mission is None:
+                await session.rollback()
+                raise ValueError("Mission not found for claimed Task")
             task_id = task.id
             execution_id = execution.id
             input_payload = dict(task.input_json or {})
             capabilities = dict(agent.capabilities_json or {})
+            mission_correlation_id = correlation_id or str((mission.authorization_json or {}).get("correlation_id") or uuid.uuid4())
             await session.commit()
 
         preferred_provider = capabilities.get("inference_provider")
@@ -45,6 +54,8 @@ class AgentRuntime:
         model = capabilities.get("model")
         if not preferred_provider:
             await self._finish_failure(
+                mission_id,
+                mission_correlation_id,
                 task_id,
                 execution_id,
                 {"code": "PROVIDER_UNAVAILABLE", "detail": "Agent has no inference_provider"},
@@ -75,6 +86,8 @@ class AgentRuntime:
             response = await self.router.generate(request)
         except ProviderUnavailable as exc:
             await self._finish_failure(
+                mission_id,
+                mission_correlation_id,
                 task_id,
                 execution_id,
                 {"code": exc.code, "provider": exc.provider, "detail": str(exc)},
@@ -82,6 +95,8 @@ class AgentRuntime:
             return True
         except Exception as exc:
             await self._finish_failure(
+                mission_id,
+                mission_correlation_id,
                 task_id,
                 execution_id,
                 {"code": "INFERENCE_ERROR", "detail": exc.__class__.__name__},
@@ -93,6 +108,8 @@ class AgentRuntime:
         if capability_payload is not None:
             if self.capability_runtime is None:
                 await self._finish_failure(
+                    mission_id,
+                    mission_correlation_id,
                     task_id,
                     execution_id,
                     {"code": "CAPABILITY_GATEWAY_UNAVAILABLE"},
@@ -110,6 +127,8 @@ class AgentRuntime:
                 )
             except Exception as exc:
                 await self._finish_failure(
+                    mission_id,
+                    mission_correlation_id,
                     task_id,
                     execution_id,
                     {"code": "CAPABILITY_EXECUTION_REJECTED", "detail": exc.__class__.__name__},
@@ -133,6 +152,7 @@ class AgentRuntime:
                 model=response.model,
             )
             await session.commit()
+        await self._evaluate_completion(mission_id, mission_correlation_id)
         return True
 
     async def _mission_authorization(self, mission_id: str) -> MissionAuthorization:
@@ -143,7 +163,14 @@ class AgentRuntime:
             payload = dict(mission.authorization_json or {})
         return MissionAuthorization.model_validate(payload)
 
-    async def _finish_failure(self, task_id: str, execution_id: str, error: dict[str, Any]) -> None:
+    async def _finish_failure(
+        self,
+        mission_id: str,
+        correlation_id: str,
+        task_id: str,
+        execution_id: str,
+        error: dict[str, Any],
+    ) -> None:
         async with self.session_factory() as session:
             await finish_task_attempt(
                 session,
@@ -153,6 +180,11 @@ class AgentRuntime:
                 error=error,
             )
             await session.commit()
+        await self._evaluate_completion(mission_id, correlation_id)
+
+    async def _evaluate_completion(self, mission_id: str, correlation_id: str) -> None:
+        if self.completion_engine is not None:
+            await self.completion_engine.evaluate(mission_id, correlation_id)
 
     @staticmethod
     def _render_task(payload: dict[str, Any]) -> str:
