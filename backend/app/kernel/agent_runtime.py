@@ -4,16 +4,24 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.capabilities.contracts import CapabilityIntent, MissionAuthorization
+from app.capabilities.runtime import CapabilityRuntime
 from app.inference.contracts import InferenceRequest, ModelRequirements, ProviderUnavailable
 from app.inference.router import ModelRouter
 from app.kernel.orchestrator import claim_next_ready_task, finish_task_attempt
-from app.models.entities import Agent
+from app.models.entities import Agent, Mission
 
 
 class AgentRuntime:
-    def __init__(self, session_factory: async_sessionmaker[AsyncSession], router: ModelRouter) -> None:
+    def __init__(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        router: ModelRouter,
+        capability_runtime: CapabilityRuntime | None = None,
+    ) -> None:
         self.session_factory = session_factory
         self.router = router
+        self.capability_runtime = capability_runtime
 
     async def run_next(self, mission_id: str) -> bool:
         async with self.session_factory() as session:
@@ -47,7 +55,11 @@ class AgentRuntime:
             messages=[
                 {
                     "role": "system",
-                    "content": "Execute the authorized task within its supplied scope. Return only the task result.",
+                    "content": (
+                        "Execute the authorized task within its supplied scope. "
+                        "Do not perform external actions directly. If a capability is needed, emit a normalized "
+                        "capability_intent through the provider tool-call metadata."
+                    ),
                 },
                 {"role": "user", "content": self._render_task(input_payload)},
             ],
@@ -76,18 +88,60 @@ class AgentRuntime:
             )
             return True
 
+        output: dict[str, Any]
+        capability_payload = response.metadata.get("capability_intent")
+        if capability_payload is not None:
+            if self.capability_runtime is None:
+                await self._finish_failure(
+                    task_id,
+                    execution_id,
+                    {"code": "CAPABILITY_GATEWAY_UNAVAILABLE"},
+                )
+                return True
+            try:
+                intent = CapabilityIntent.model_validate(capability_payload)
+                authorization = await self._mission_authorization(mission_id)
+                capability_result = await self.capability_runtime.execute(
+                    mission_id=mission_id,
+                    task_id=task_id,
+                    agent_execution_id=execution_id,
+                    intent=intent,
+                    authorization=authorization,
+                )
+            except Exception as exc:
+                await self._finish_failure(
+                    task_id,
+                    execution_id,
+                    {"code": "CAPABILITY_EXECUTION_REJECTED", "detail": exc.__class__.__name__},
+                )
+                return True
+            output = {
+                "content": response.content,
+                "capability_result": capability_result.model_dump(mode="json"),
+            }
+        else:
+            output = {"content": response.content, "metadata": response.metadata}
+
         async with self.session_factory() as session:
             await finish_task_attempt(
                 session,
                 task_id=task_id,
                 execution_id=execution_id,
                 succeeded=True,
-                output={"content": response.content, "metadata": response.metadata},
+                output=output,
                 provider=response.provider,
                 model=response.model,
             )
             await session.commit()
         return True
+
+    async def _mission_authorization(self, mission_id: str) -> MissionAuthorization:
+        async with self.session_factory() as session:
+            mission = await session.get(Mission, mission_id)
+            if mission is None:
+                raise ValueError("Mission not found")
+            payload = dict(mission.authorization_json or {})
+        return MissionAuthorization.model_validate(payload)
 
     async def _finish_failure(self, task_id: str, execution_id: str, error: dict[str, Any]) -> None:
         async with self.session_factory() as session:
