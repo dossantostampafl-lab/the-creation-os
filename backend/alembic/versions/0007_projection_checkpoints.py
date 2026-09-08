@@ -6,6 +6,7 @@ Revises: 0006_capability_invocations
 from __future__ import annotations
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision = "0007_projection_checkpoints"
