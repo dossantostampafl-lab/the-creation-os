@@ -22,8 +22,9 @@ async def database():
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with engine.begin() as connection:
         await connection.execute(text(
-            "TRUNCATE capability_invocations, agent_executions, chronicles, tasks, mission_steps, mission_plans, "
-            "missions, inceptions, messages, conversations, agents, universes, creator RESTART IDENTITY CASCADE"
+            "TRUNCATE projection_checkpoints, capability_invocations, agent_executions, chronicles, tasks, "
+            "mission_steps, mission_plans, missions, inceptions, messages, conversations, agents, universes, "
+            "creator RESTART IDENTITY CASCADE"
         ))
     yield factory
     await engine.dispose()
