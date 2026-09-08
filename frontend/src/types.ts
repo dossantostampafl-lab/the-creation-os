@@ -83,6 +83,22 @@ export type ChronicleEvent = {
   created_at: string;
 };
 
+export type ChronicleRecord = {
+  id: string;
+  event_id: string;
+  correlation_id: string;
+  causation_id: string | null;
+  actor_type: string;
+  actor_id: string | null;
+  event_type: string;
+  aggregate_type: string;
+  aggregate_id: string | null;
+  payload_json: Record<string, unknown>;
+  payload_hash: string;
+  previous_hash: string | null;
+  created_at: string;
+};
+
 export type ProjectionStatus = {
   chronicle_head: number;
   projections: Array<{
