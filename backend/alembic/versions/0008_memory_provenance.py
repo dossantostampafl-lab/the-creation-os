@@ -39,7 +39,7 @@ def upgrade() -> None:
         DECLARE
             source_exists boolean := false;
         BEGIN
-            IF NEW.metadata_json ?| ARRAY[
+            IF NEW.metadata_json::jsonb ?| ARRAY[
                 'authorized', 'authorization', 'authority', 'permission', 'permissions',
                 'allowed_capabilities', 'denied_capabilities', 'creator_approval'
             ] THEN
