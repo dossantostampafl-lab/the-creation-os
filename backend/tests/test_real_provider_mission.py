@@ -17,7 +17,14 @@ from app.models.execution import AgentExecution
 from app.repositories.domain import DomainRepository
 from app.services.domain import LivingCoreService
 
-pytestmark = [pytest.mark.integration, pytest.mark.real_provider]
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.real_provider,
+    pytest.mark.skipif(
+        os.getenv("REAL_PROVIDER_TEST") != "1",
+        reason="real provider mission requires explicit REAL_PROVIDER_TEST=1",
+    ),
+]
 
 
 @pytest.fixture
