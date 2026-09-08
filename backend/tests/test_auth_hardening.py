@@ -8,6 +8,7 @@ from redis.asyncio import Redis
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from app.auth import token_store
 from app.config import settings
 from app.db.session import get_session
 from app.main import app
@@ -83,6 +84,19 @@ async def test_login_is_blocked_after_repeated_failures(auth_client):
         blocked = await auth_client.post("/api/v1/auth/login", json=CREDENTIALS)
         assert blocked.status_code == 429
         assert blocked.json()["detail"] == "Too many failed login attempts"
+    finally:
+        settings.login_max_failures = previous
+
+
+@pytest.mark.asyncio
+async def test_failed_login_from_other_origin_cannot_lock_creator_out(auth_client):
+    previous = settings.login_max_failures
+    settings.login_max_failures = 3
+    try:
+        for _ in range(3):
+            await token_store.register_login_failure(CREDENTIALS["username"], "203.0.113.9")
+        assert await token_store.login_is_blocked(CREDENTIALS["username"], "203.0.113.9") is True
+        assert (await auth_client.post("/api/v1/auth/login", json=CREDENTIALS)).status_code == 200
     finally:
         settings.login_max_failures = previous
 
