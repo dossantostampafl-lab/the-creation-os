@@ -40,7 +40,10 @@ minversion = "7.0"
 addopts = "-q"
 testpaths = ["tests"]
 asyncio_mode = "auto"
-markers = ["integration: requires a real PostgreSQL database"]
+markers = [
+  "integration: requires a real PostgreSQL database",
+  "real_provider: performs an explicitly enabled live inference-provider call",
+]
 
 [tool.ruff]
 line-length = 140
