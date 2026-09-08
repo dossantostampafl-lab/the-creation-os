@@ -6,17 +6,48 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.entities import Agent, Chronicle, Mission, Task, Universe
+from app.models.entities import (
+    Agent,
+    Chronicle,
+    ConsciousMemory,
+    ConversationMemory,
+    Mission,
+    MissionMemory,
+    PulseMetric,
+    Task,
+    Universe,
+    UniverseMemory,
+)
+from app.projections.checkpoints import save_checkpoint
+
+SYSTEM_PROJECTION = "system"
 
 
-async def system_snapshot(session: AsyncSession) -> dict[str, Any]:
+async def system_snapshot(session: AsyncSession, *, persist: bool = True) -> dict[str, Any]:
     missions = list((await session.scalars(select(Mission).order_by(Mission.created_at, Mission.id))).all())
     tasks = list((await session.scalars(select(Task).order_by(Task.created_at, Task.id))).all())
     universes = list((await session.scalars(select(Universe).order_by(Universe.code))).all())
     agents = list((await session.scalars(select(Agent).order_by(Agent.code))).all())
     position = int(await session.scalar(select(func.max(Chronicle.position))) or 0)
 
-    return {
+    conversation_memory = int(await session.scalar(select(func.count()).select_from(ConversationMemory)) or 0)
+    mission_memory = int(await session.scalar(select(func.count()).select_from(MissionMemory)) or 0)
+    universe_memory = int(await session.scalar(select(func.count()).select_from(UniverseMemory)) or 0)
+    conscious_memory = int(await session.scalar(select(func.count()).select_from(ConsciousMemory)) or 0)
+
+    pulse_rows = list((await session.scalars(
+        select(PulseMetric).order_by(PulseMetric.created_at.desc(), PulseMetric.id.desc()).limit(200)
+    )).all())
+    pulse: dict[str, Any] = {}
+    for metric in pulse_rows:
+        if metric.metric_name not in pulse:
+            pulse[metric.metric_name] = {
+                "value": metric.metric_value_json,
+                "observed_at": metric.created_at.isoformat(),
+            }
+
+    snapshot: dict[str, Any] = {
+        "projection": SYSTEM_PROJECTION,
         "position": position,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "missions": [
@@ -57,6 +88,14 @@ async def system_snapshot(session: AsyncSession) -> dict[str, Any]:
             }
             for agent in agents
         ],
+        "memory": {
+            "conversation": conversation_memory,
+            "mission": mission_memory,
+            "universe": universe_memory,
+            "conscious": conscious_memory,
+            "total": conversation_memory + mission_memory + universe_memory + conscious_memory,
+        },
+        "pulse": pulse,
         "counts": {
             "missions": len(missions),
             "running_missions": sum(mission.status in {"distributed", "executing"} for mission in missions),
@@ -68,3 +107,12 @@ async def system_snapshot(session: AsyncSession) -> dict[str, Any]:
             "active_agents": sum(agent.active for agent in agents),
         },
     }
+    if persist:
+        await save_checkpoint(
+            session,
+            projection_name=SYSTEM_PROJECTION,
+            position=position,
+            state=snapshot,
+        )
+        await session.commit()
+    return snapshot
