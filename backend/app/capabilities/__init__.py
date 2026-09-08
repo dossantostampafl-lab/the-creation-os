@@ -6,6 +6,7 @@ from app.capabilities.contracts import (
 )
 from app.capabilities.gateway import CapabilityAdapter, CapabilityGateway
 from app.capabilities.policy import CapabilityDenied, authorize_capability
+from app.capabilities.runtime import CapabilityRuntime
 
 __all__ = [
     "CapabilityAdapter",
@@ -13,6 +14,7 @@ __all__ = [
     "CapabilityGateway",
     "CapabilityIntent",
     "CapabilityResult",
+    "CapabilityRuntime",
     "IdempotencyClass",
     "MissionAuthorization",
     "authorize_capability",
