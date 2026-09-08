@@ -90,7 +90,7 @@ test("renders the Living Operations Terminal from projection-backed state", asyn
   await expect(page.getByText("Builder", { exact: true })).toBeVisible();
   await expect(page.getByText("mission_distributed", { exact: true })).toBeVisible();
   await expect(page.getByText("kernel_health", { exact: true })).toBeVisible();
-  await expect(page.getByText("task_progressed", { exact: true })).toBeVisible();
+  await expect(page.locator(".lower-grid-primary article:nth-child(4) .event-list").getByText("task_progressed", { exact: true })).toBeVisible();
   await expect(page.locator(".top-status .status")).toHaveText("LIVE");
 });
 
