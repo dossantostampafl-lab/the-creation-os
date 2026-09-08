@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import hmac
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import Depends, HTTPException, status
 from jose import JWTError, jwt
@@ -21,13 +22,24 @@ class AuthService:
         self.session = session
 
     @classmethod
-    def create(cls, session: AsyncSession) -> 'AuthService':
+    def create(cls, session: AsyncSession) -> "AuthService":
         return cls(CreatorRepository(session), session)
 
     async def bootstrap(self, username: str, password: str) -> Creator:
         existing = await self.repository.get_one()
         if existing is not None:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Creator already exists")
+        if settings.app_env == "production":
+            configured_username = settings.creator_bootstrap_username
+            configured_password = settings.creator_bootstrap_password.get_secret_value()
+            if not (
+                hmac.compare_digest(username, configured_username)
+                and hmac.compare_digest(password, configured_password)
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Production bootstrap credentials do not match configured sovereign credentials",
+                )
         creator = await self.repository.create(username=username, password=password)
         await self.session.commit()
         return creator
@@ -47,7 +59,7 @@ class AuthService:
         return self.build_token(subject, token_type, expires_delta)[0]
 
     def build_token(self, subject: str, token_type: str, expires_delta: timedelta) -> tuple[str, str]:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         jti = str(uuid.uuid4())
         payload = {
             "sub": subject,
