@@ -44,15 +44,15 @@ class AuthService:
         await self.session.commit()
         return creator
 
-    async def login(self, username: str, password: str) -> Creator:
-        if await token_store.login_is_blocked(username):
+    async def login(self, username: str, password: str, source: str) -> Creator:
+        if await token_store.login_is_blocked(username, source):
             raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                                 detail="Too many failed login attempts")
         creator = await self.repository.get_by_username(username)
         if creator is None or not await self.repository.verify_password(creator, password):
-            await token_store.register_login_failure(username)
+            await token_store.register_login_failure(username, source)
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
-        await token_store.clear_login_failures(username)
+        await token_store.clear_login_failures(username, source)
         return creator
 
     def create_token(self, subject: str, token_type: str, expires_delta: timedelta) -> str:
