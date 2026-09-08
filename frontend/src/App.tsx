@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { fetchProjectionStatus, fetchSystemState, streamChronicle } from "./api";
-import type { ChronicleEvent, ProjectionStatus, SystemState } from "./types";
+import { fetchChronicleHistory, fetchProjectionStatus, fetchSystemState, streamChronicle } from "./api";
+import type { ChronicleEvent, ChronicleRecord, ProjectionStatus, SystemState } from "./types";
 
 function statusTone(status: string): string {
   const value = status.toUpperCase();
-  if (["MANIFESTED", "SUCCEEDED", "CURRENT", "ACTIVE"].includes(value)) return "good";
-  if (["FAILED", "BLOCKED", "INVALID"].includes(value)) return "bad";
+  if (["MANIFESTED", "SUCCEEDED", "CURRENT", "ACTIVE", "HEALTHY"].includes(value)) return "good";
+  if (["FAILED", "BLOCKED", "INVALID", "DEGRADED"].includes(value)) return "bad";
   if (["RUNNING", "EXECUTING", "DISTRIBUTED", "READY", "LAGGING"].includes(value)) return "warn";
   return "neutral";
 }
@@ -13,6 +13,7 @@ function statusTone(status: string): string {
 function App() {
   const [state, setState] = useState<SystemState | null>(null);
   const [projections, setProjections] = useState<ProjectionStatus | null>(null);
+  const [chronicle, setChronicle] = useState<ChronicleRecord[]>([]);
   const [events, setEvents] = useState<ChronicleEvent[]>([]);
   const [connection, setConnection] = useState<"CONNECTING" | "LIVE" | "RESYNCING" | "AUTH_REQUIRED" | "ERROR">("CONNECTING");
   const [error, setError] = useState<string | null>(null);
@@ -25,18 +26,44 @@ function App() {
     async function hydrate() {
       try {
         setConnection("CONNECTING");
-        const [snapshot, projectionStatus] = await Promise.all([fetchSystemState(), fetchProjectionStatus()]);
+        setError(null);
+        const [snapshot, projectionStatus, history] = await Promise.all([
+          fetchSystemState(),
+          fetchProjectionStatus(),
+          fetchChronicleHistory(),
+        ]);
         if (!active) return;
         setState(snapshot);
         setProjections(projectionStatus);
+        setChronicle(history);
         cursor.current = snapshot.position;
         setConnection("LIVE");
+        controller.abort();
         controller = new AbortController();
         void streamChronicle(cursor.current, {
           onEvent: (event) => {
             cursor.current = event.position;
             setEvents((current) => [event, ...current].slice(0, 40));
-            void fetchSystemState().then((next) => active && setState(next));
+            setChronicle((current) => [{
+              id: event.event_id,
+              event_id: event.event_id,
+              correlation_id: event.correlation_id,
+              causation_id: event.causation_id,
+              actor_type: event.actor_role,
+              actor_id: null,
+              event_type: event.event_type,
+              aggregate_type: event.aggregate_type,
+              aggregate_id: event.aggregate_id,
+              payload_json: event.payload,
+              payload_hash: "live",
+              previous_hash: null,
+              created_at: event.created_at,
+            }, ...current].slice(0, 40));
+            void Promise.all([fetchSystemState(), fetchProjectionStatus()]).then(([next, nextProjections]) => {
+              if (!active) return;
+              setState(next);
+              setProjections(nextProjections);
+            });
           },
           onResync: () => {
             setConnection("RESYNCING");
@@ -64,6 +91,7 @@ function App() {
 
   const selectedMission = state?.missions.find((mission) => ["executing", "distributed", "authorized"].includes(mission.status)) ?? state?.missions.at(-1);
   const missionTasks = useMemo(() => state?.tasks.filter((task) => task.mission_id === selectedMission?.id) ?? [], [state, selectedMission]);
+  const pulseEntries = useMemo(() => Object.entries(state?.pulse ?? {}).slice(0, 8), [state]);
 
   return (
     <main className="terminal">
@@ -121,14 +149,19 @@ function App() {
           <div className="panel-title secondary">AGENTS</div>
           <div className="stack">{state?.agents.slice(0, 12).map((a) => <div className="row" key={a.id}><span>{a.name}</span><b className={a.active ? "good" : "neutral"}>{a.active ? "LIVE" : "OFF"}</b></div>)}</div>
           <div className="panel-title secondary">MEMORY LAYERS</div>
-          <div className="memory-grid">{state && Object.entries(state.memory).filter(([k]) => k !== 'total').map(([k,v]) => <div key={k}><span>{k}</span><strong>{v}</strong></div>)}</div>
+          <div className="memory-grid">{state && Object.entries(state.memory).filter(([k]) => k !== "total").map(([k,v]) => <div key={k}><span>{k}</span><strong>{v}</strong></div>)}</div>
         </aside>
       </section>
 
-      <section className="lower-grid">
+      <section className="lower-grid lower-grid-primary">
+        <article className="panel"><div className="panel-title">CHRONICLE</div><div className="event-list">{chronicle.length ? chronicle.map((event) => <div className="event" key={event.event_id}><time>{new Date(event.created_at).toLocaleTimeString()}</time><span>{event.event_type}</span><small>{event.aggregate_type}</small></div>) : <div className="empty">Chronicle has no persisted events.</div>}</div></article>
+        <article className="panel"><div className="panel-title">PULSE</div><div className="stack">{pulseEntries.length ? pulseEntries.map(([name, metric]) => <div className="row" key={name}><span>{name}</span><b className="good">{String(metric.value)}</b></div>) : <div className="empty">No persisted Pulse metrics.</div>}</div></article>
         <article className="panel"><div className="panel-title">TASK DAG</div><div className="dag">{missionTasks.length ? missionTasks.map((task, i) => <div className="dag-item" key={task.id}><span>{i + 1}</span><div><strong>{task.status}</strong><small>{task.attempt_count}/{task.max_attempts} attempts</small></div></div>) : <div className="empty">No task graph for selected mission.</div>}</div></article>
-        <article className="panel"><div className="panel-title">PROJECTIONS</div><div className="stack">{projections?.projections.map((p) => <div className="row" key={p.name}><span>{p.name}</span><b className={statusTone(p.status)}>{p.status}{p.lag ? ` · lag ${p.lag}` : ""}</b></div>)}</div></article>
-        <article className="panel chronicle"><div className="panel-title">SYSTEM EVENTS</div><div className="event-list">{events.length ? events.map((event) => <div className="event" key={event.event_id}><time>#{event.position}</time><span>{event.event_type}</span><small>{event.aggregate_type}</small></div>) : <div className="empty">No new Chronicle events since connection.</div>}</div></article>
+        <article className="panel"><div className="panel-title">SYSTEM EVENTS</div><div className="event-list">{events.length ? events.map((event) => <div className="event" key={event.event_id}><time>#{event.position}</time><span>{event.event_type}</span><small>{event.aggregate_type}</small></div>) : <div className="empty">No new events since connection.</div>}</div></article>
+      </section>
+
+      <section className="lower-grid lower-grid-secondary">
+        <article className="panel projections-panel"><div className="panel-title">PROJECTIONS</div><div className="stack">{projections?.projections.map((p) => <div className="row" key={p.name}><span>{p.name}</span><b className={statusTone(p.status)}>{p.status}{p.lag ? ` · lag ${p.lag}` : ""}</b></div>)}</div></article>
       </section>
     </main>
   );
