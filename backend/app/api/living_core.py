@@ -6,9 +6,12 @@ from enum import StrEnum
 from fastapi import APIRouter, Depends, Header, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ai.embeddings import build_embedding_model
 from app.auth.dependencies import get_sovereign_creator
-from app.core.domain import Actor, InceptionStatus, MissionStatus
+from app.core.domain import Actor, InceptionStatus, InvalidOrigin, MissionStatus
 from app.db.session import get_session
+from app.memory.contracts import MemoryCandidate
+from app.memory.policy import MemoryPolicy, MemoryProvenanceError
 from app.observability.probes import database_probe, redis_probes
 from app.repositories.domain import DomainRepository
 from app.schemas.auth import TokenPayload
@@ -46,7 +49,9 @@ def actor(token: TokenPayload = Depends(get_sovereign_creator)) -> Actor:
 
 
 def service(session: AsyncSession = Depends(get_session)) -> LivingCoreService:
-    return LivingCoreService(DomainRepository(session))
+    core = LivingCoreService(DomainRepository(session))
+    core.embeddings = build_embedding_model()
+    return core
 
 
 def conversation_response(item) -> ConversationResponse:
@@ -239,7 +244,24 @@ async def list_conscious_memory(source_type: str | None = Query(None, max_length
 
 @router.post("/memory/conscious", response_model=ConsciousMemoryResponse, status_code=201)
 async def record_conscious_memory(body: ConsciousMemoryCreateRequest, a: Actor = Depends(actor), cid: str = Depends(correlation_id), s: LivingCoreService = Depends(service)):
-    item = await s.record_conscious_memory(a, body.source_type, body.source_id, body.content, body.metadata, cid)
+    candidate = MemoryCandidate(
+        source_type=body.source_type,
+        source_id=body.source_id,
+        content=body.content,
+        metadata=body.metadata,
+    )
+    try:
+        await MemoryPolicy(s.repo.session).validate_provenance(a.id, candidate)
+    except MemoryProvenanceError as exc:
+        raise InvalidOrigin(str(exc)) from exc
+    item = await s.record_conscious_memory(
+        a,
+        candidate.source_type.value,
+        candidate.source_id,
+        candidate.content,
+        candidate.metadata,
+        cid,
+    )
     return conscious_memory_response(item)
 
 
