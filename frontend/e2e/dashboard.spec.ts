@@ -48,9 +48,9 @@ test("renders the approved high-density operational structure from real projecti
   await expect(page.getByText("MEMORY LAYERS")).toBeVisible();
   await expect(page.getByText("TASK DAG")).toBeVisible();
   await expect(page.getByText("SYSTEM EVENTS")).toBeVisible();
-  await expect(page.getByText("Manifest Alpha")).toBeVisible();
-  await expect(page.getByText("Engineering")).toBeVisible();
-  await expect(page.getByText("Architect")).toBeVisible();
+  await expect(page.getByText("Manifest Alpha", { exact: true })).toBeVisible();
+  await expect(page.getByText("ENGINEERING", { exact: true })).toBeVisible();
+  await expect(page.getByText("Architect", { exact: true })).toBeVisible();
   await expect(page.getByText("41", { exact: true }).first()).toBeVisible();
 });
 
