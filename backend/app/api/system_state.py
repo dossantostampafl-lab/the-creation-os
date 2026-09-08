@@ -6,7 +6,7 @@ from typing import AsyncIterator
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.living_core import actor
@@ -43,10 +43,29 @@ async def system_events(
     )
 
 
+def cursor_resync_reason(*, after: int, head: int, first_position: int | None) -> dict | None:
+    if after > head:
+        return {
+            "status": "RESYNCING",
+            "reason": "cursor_ahead",
+            "expected_max": head,
+            "received": after,
+        }
+    if after > 0 and first_position is not None and first_position != after + 1:
+        return {
+            "status": "RESYNCING",
+            "reason": "gap",
+            "expected": after + 1,
+            "received": first_position,
+        }
+    return None
+
+
 async def _stream_chronicle(request: Request, after: int) -> AsyncIterator[str]:
     cursor = after
     while not await request.is_disconnected():
         async with AsyncSessionLocal() as session:
+            head = int(await session.scalar(select(func.max(Chronicle.position))) or 0)
             events = list((await session.scalars(
                 select(Chronicle)
                 .where(Chronicle.position > cursor)
@@ -54,11 +73,13 @@ async def _stream_chronicle(request: Request, after: int) -> AsyncIterator[str]:
                 .limit(100)
             )).all())
 
+        first_position = events[0].position if events else None
+        resync = cursor_resync_reason(after=cursor, head=head, first_position=first_position)
+        if resync is not None:
+            yield f"event: resync_required\ndata: {json.dumps(resync, separators=(',', ':'))}\n\n"
+            return
+
         if events:
-            if cursor > 0 and events[0].position != cursor + 1:
-                payload = {"status": "RESYNCING", "expected": cursor + 1, "received": events[0].position}
-                yield f"event: resync_required\ndata: {json.dumps(payload, separators=(',', ':'))}\n\n"
-                return
             for event in events:
                 payload = {
                     "event_id": event.event_id,
