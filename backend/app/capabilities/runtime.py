@@ -44,7 +44,7 @@ class CapabilityRuntime:
             raise
 
         async with self.session_factory() as session:
-            invocation = self._invocation(
+            authorized_invocation = self._invocation(
                 mission_id=mission_id,
                 task_id=task_id,
                 agent_execution_id=agent_execution_id,
@@ -52,9 +52,9 @@ class CapabilityRuntime:
                 authorization=authorization,
                 status="AUTHORIZED",
             )
-            session.add(invocation)
+            session.add(authorized_invocation)
             await session.flush()
-            invocation_id = invocation.id
+            invocation_id = authorized_invocation.id
             await session.commit()
 
         try:
@@ -62,23 +62,23 @@ class CapabilityRuntime:
         except Exception as exc:
             status = "UNCERTAIN" if intent.idempotency_class is IdempotencyClass.AT_MOST_ONCE else "FAILED"
             async with self.session_factory() as session:
-                invocation = await session.get(CapabilityInvocation, invocation_id, with_for_update=True)
-                if invocation is None:
+                failed_invocation = await session.get(CapabilityInvocation, invocation_id, with_for_update=True)
+                if failed_invocation is None:
                     raise RuntimeError("capability invocation record disappeared") from exc
-                invocation.status = status
-                invocation.error_json = {"code": "CAPABILITY_EXECUTION_FAILED", "detail": exc.__class__.__name__}
-                invocation.completed_at = datetime.now(timezone.utc)
+                failed_invocation.status = status
+                failed_invocation.error_json = {"code": "CAPABILITY_EXECUTION_FAILED", "detail": exc.__class__.__name__}
+                failed_invocation.completed_at = datetime.now(timezone.utc)
                 await session.commit()
             raise
 
         async with self.session_factory() as session:
-            invocation = await session.get(CapabilityInvocation, invocation_id, with_for_update=True)
-            if invocation is None:
+            completed_invocation = await session.get(CapabilityInvocation, invocation_id, with_for_update=True)
+            if completed_invocation is None:
                 raise RuntimeError("capability invocation record disappeared")
-            invocation.status = "SUCCEEDED" if result.ok else "FAILED"
-            invocation.result_json = result.model_dump(mode="json")
-            invocation.error_json = result.error if not result.ok else {}
-            invocation.completed_at = datetime.now(timezone.utc)
+            completed_invocation.status = "SUCCEEDED" if result.ok else "FAILED"
+            completed_invocation.result_json = result.model_dump(mode="json")
+            completed_invocation.error_json = result.error if not result.ok else {}
+            completed_invocation.completed_at = datetime.now(timezone.utc)
             await session.commit()
         return result
 
