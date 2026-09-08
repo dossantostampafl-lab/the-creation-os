@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.entities import MissionStep, Task
+from app.models.entities import Mission, MissionStep, Task
 from app.models.execution import AgentExecution
 
 TERMINAL_TASK_STATES = {"SUCCEEDED", "FAILED", "BLOCKED", "CANCELLED"}
@@ -44,7 +44,32 @@ async def refresh_task_readiness(session: AsyncSession, mission_id: str) -> None
     await session.flush()
 
 
+async def _cancel_remaining_tasks(session: AsyncSession, mission_id: str) -> None:
+    now = datetime.now(timezone.utc)
+    tasks = list((await session.scalars(
+        select(Task).where(Task.mission_id == mission_id).with_for_update()
+    )).all())
+    for task in tasks:
+        if task.status in TERMINAL_TASK_STATES:
+            continue
+        task.status = "CANCELLED"
+        task.error_json = {"code": "MISSION_CANCELLED"}
+        task.completed_at = now
+    await session.flush()
+
+
 async def claim_next_ready_task(session: AsyncSession, mission_id: str) -> tuple[Task, AgentExecution] | None:
+    mission = await session.scalar(
+        select(Mission).where(Mission.id == mission_id).with_for_update()
+    )
+    if mission is None:
+        raise ValueError("Mission not found")
+    if mission.status == "cancelled":
+        await _cancel_remaining_tasks(session, mission_id)
+        return None
+    if mission.status != "executing":
+        return None
+
     await refresh_task_readiness(session, mission_id)
     task = await session.scalar(
         select(Task)
