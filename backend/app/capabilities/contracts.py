@@ -29,6 +29,7 @@ class MissionAuthorization(BaseModel):
     external_effects_allowed: bool = False
     risk_level: str = "low"
     budget: dict[str, Any] = Field(default_factory=dict)
+    expires_at: str | None = None
     version: int = Field(default=1, ge=1)
     authorized_by: str
     authorized_at: str
