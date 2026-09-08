@@ -21,6 +21,10 @@ from app.models.entities import (
 from app.projections.checkpoints import save_checkpoint
 
 SYSTEM_PROJECTION = "system"
+MISSION_PROJECTION = "missions"
+TASK_PROJECTION = "tasks"
+AGENT_PROJECTION = "agents"
+MEMORY_PROJECTION = "memory"
 
 
 async def system_snapshot(session: AsyncSession, *, persist: bool = True) -> dict[str, Any]:
@@ -46,55 +50,61 @@ async def system_snapshot(session: AsyncSession, *, persist: bool = True) -> dic
                 "observed_at": metric.created_at.isoformat(),
             }
 
+    mission_view = [
+        {
+            "id": mission.id,
+            "title": mission.title,
+            "objective": mission.objective,
+            "status": mission.status,
+            "started_at": mission.started_at.isoformat() if mission.started_at else None,
+            "completed_at": mission.completed_at.isoformat() if mission.completed_at else None,
+        }
+        for mission in missions
+    ]
+    task_view = [
+        {
+            "id": task.id,
+            "mission_id": task.mission_id,
+            "step_id": task.step_id,
+            "universe_id": task.universe_id,
+            "agent_id": task.agent_id,
+            "status": task.status,
+            "attempt_count": task.attempt_count,
+            "max_attempts": task.max_attempts,
+        }
+        for task in tasks
+    ]
+    universe_view = [
+        {"id": universe.id, "code": universe.code, "name": universe.name, "active": universe.active}
+        for universe in universes
+    ]
+    agent_view = [
+        {
+            "id": agent.id,
+            "code": agent.code,
+            "name": agent.name,
+            "universe_id": agent.universe_id,
+            "active": agent.active,
+        }
+        for agent in agents
+    ]
+    memory_view = {
+        "conversation": conversation_memory,
+        "mission": mission_memory,
+        "universe": universe_memory,
+        "conscious": conscious_memory,
+        "total": conversation_memory + mission_memory + universe_memory + conscious_memory,
+    }
+
     snapshot: dict[str, Any] = {
         "projection": SYSTEM_PROJECTION,
         "position": position,
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "missions": [
-            {
-                "id": mission.id,
-                "title": mission.title,
-                "objective": mission.objective,
-                "status": mission.status,
-                "started_at": mission.started_at.isoformat() if mission.started_at else None,
-                "completed_at": mission.completed_at.isoformat() if mission.completed_at else None,
-            }
-            for mission in missions
-        ],
-        "tasks": [
-            {
-                "id": task.id,
-                "mission_id": task.mission_id,
-                "step_id": task.step_id,
-                "universe_id": task.universe_id,
-                "agent_id": task.agent_id,
-                "status": task.status,
-                "attempt_count": task.attempt_count,
-                "max_attempts": task.max_attempts,
-            }
-            for task in tasks
-        ],
-        "universes": [
-            {"id": universe.id, "code": universe.code, "name": universe.name, "active": universe.active}
-            for universe in universes
-        ],
-        "agents": [
-            {
-                "id": agent.id,
-                "code": agent.code,
-                "name": agent.name,
-                "universe_id": agent.universe_id,
-                "active": agent.active,
-            }
-            for agent in agents
-        ],
-        "memory": {
-            "conversation": conversation_memory,
-            "mission": mission_memory,
-            "universe": universe_memory,
-            "conscious": conscious_memory,
-            "total": conversation_memory + mission_memory + universe_memory + conscious_memory,
-        },
+        "missions": mission_view,
+        "tasks": task_view,
+        "universes": universe_view,
+        "agents": agent_view,
+        "memory": memory_view,
         "pulse": pulse,
         "counts": {
             "missions": len(missions),
@@ -108,11 +118,19 @@ async def system_snapshot(session: AsyncSession, *, persist: bool = True) -> dic
         },
     }
     if persist:
-        await save_checkpoint(
-            session,
-            projection_name=SYSTEM_PROJECTION,
-            position=position,
-            state=snapshot,
-        )
+        checkpoints = {
+            SYSTEM_PROJECTION: snapshot,
+            MISSION_PROJECTION: {"position": position, "missions": mission_view},
+            TASK_PROJECTION: {"position": position, "tasks": task_view},
+            AGENT_PROJECTION: {"position": position, "agents": agent_view, "universes": universe_view},
+            MEMORY_PROJECTION: {"position": position, "memory": memory_view},
+        }
+        for projection_name, state in checkpoints.items():
+            await save_checkpoint(
+                session,
+                projection_name=projection_name,
+                position=position,
+                state=state,
+            )
         await session.commit()
     return snapshot
