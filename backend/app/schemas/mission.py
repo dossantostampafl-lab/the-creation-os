@@ -62,6 +62,24 @@ class MissionPlanRequest(BaseModel):
         return self
 
 
+class MissionAuthorizationRequest(BaseModel):
+    allowed_capabilities: list[str] = Field(default_factory=list)
+    denied_capabilities: list[str] = Field(default_factory=list)
+    scope: dict[str, Any] = Field(default_factory=dict)
+    external_effects_allowed: bool = False
+    risk_level: str = Field(default="low", pattern=r"^(low|medium|high|critical)$")
+    budget: dict[str, Any] = Field(default_factory=dict)
+    expires_at: datetime | None = None
+    version: int = Field(default=1, ge=1)
+
+    @model_validator(mode="after")
+    def deny_wins_and_lists_are_consistent(self) -> "MissionAuthorizationRequest":
+        denied = set(self.denied_capabilities)
+        self.allowed_capabilities = [name for name in dict.fromkeys(self.allowed_capabilities) if name not in denied]
+        self.denied_capabilities = list(dict.fromkeys(self.denied_capabilities))
+        return self
+
+
 class MissionResponse(BaseModel):
     id: str
     inception_id: str
