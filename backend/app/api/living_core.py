@@ -382,7 +382,7 @@ async def record_conscious_memory(
         await MemoryPolicy(s.repo.session).validate_provenance(a.id, candidate)
     except MemoryProvenanceError as exc:
         raise InvalidOrigin(str(exc)) from exc
-    s.embeddings = build_embedding_model()
+    setattr(s, "embeddings", build_embedding_model())
     item = await s.record_conscious_memory(
         a,
         candidate.source_type.value,
