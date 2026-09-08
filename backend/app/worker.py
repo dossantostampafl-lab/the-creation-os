@@ -15,6 +15,7 @@ from app.kernel.completion_engine import MissionCompletionEngine
 from app.kernel.reconciler import ExecutionReconciler
 from app.kernel.supervisor import MissionRuntimeSupervisor
 from app.models.entities import Mission
+from app.projections.refresher import ProjectionRefresher
 
 POLL_INTERVAL_SECONDS = 1.0
 
@@ -32,10 +33,12 @@ async def run_worker() -> None:
     )
     supervisor = MissionRuntimeSupervisor(AsyncSessionLocal)
     reconciler = ExecutionReconciler(AsyncSessionLocal)
+    projection_refresher = ProjectionRefresher(AsyncSessionLocal)
 
     startup_correlation_id = str(uuid.uuid4())
     reconciled = await reconciler.reconcile(startup_correlation_id)
     logger.bind(**reconciled).info("execution reconciliation complete")
+    await projection_refresher.refresh_if_needed()
 
     while True:
         async with AsyncSessionLocal() as session:
@@ -63,6 +66,8 @@ async def run_worker() -> None:
                 target = await completion_engine.evaluate(mission_id, correlation_id)
                 did_work = target is not None or did_work
 
+        projected = await projection_refresher.refresh_if_needed()
+        did_work = projected or did_work
         if not did_work:
             await asyncio.sleep(POLL_INTERVAL_SECONDS)
 

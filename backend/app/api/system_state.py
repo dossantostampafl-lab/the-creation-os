@@ -6,16 +6,32 @@ from typing import AsyncIterator
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.living_core import actor
 from app.core.domain import Actor
 from app.db.session import AsyncSessionLocal, get_session
 from app.models.entities import Chronicle
-from app.projections.system import system_snapshot
+from app.models.projection import ProjectionCheckpoint
+from app.projections.checkpoints import projection_lag
+from app.projections.system import (
+    AGENT_PROJECTION,
+    MEMORY_PROJECTION,
+    MISSION_PROJECTION,
+    SYSTEM_PROJECTION,
+    TASK_PROJECTION,
+    system_snapshot,
+)
 
 router = APIRouter(tags=["system-state"])
+EXPECTED_PROJECTIONS = (
+    SYSTEM_PROJECTION,
+    MISSION_PROJECTION,
+    TASK_PROJECTION,
+    AGENT_PROJECTION,
+    MEMORY_PROJECTION,
+)
 
 
 @router.get("/system/state")
@@ -23,7 +39,39 @@ async def get_system_state(
     _: Actor = Depends(actor),
     session: AsyncSession = Depends(get_session),
 ):
-    return await system_snapshot(session)
+    return await system_snapshot(session, persist=False)
+
+
+@router.get("/system/projections")
+async def get_projection_status(
+    _: Actor = Depends(actor),
+    session: AsyncSession = Depends(get_session),
+):
+    head = int(await session.scalar(select(func.max(Chronicle.position))) or 0)
+    rows = list((await session.scalars(select(ProjectionCheckpoint))).all())
+    by_name = {row.projection_name: row for row in rows}
+    projections = []
+    for name in EXPECTED_PROJECTIONS:
+        checkpoint = by_name.get(name)
+        if checkpoint is None:
+            projections.append({"name": name, "position": None, "lag": head, "status": "MISSING"})
+            continue
+        try:
+            lag = projection_lag(head=head, checkpoint=checkpoint.position)
+            status = "CURRENT" if lag == 0 else "LAGGING"
+        except ValueError:
+            lag = None
+            status = "INVALID"
+        projections.append(
+            {
+                "name": name,
+                "position": checkpoint.position,
+                "lag": lag,
+                "status": status,
+                "updated_at": checkpoint.updated_at.isoformat(),
+            }
+        )
+    return {"chronicle_head": head, "projections": projections}
 
 
 @router.get("/system/events")
@@ -43,10 +91,29 @@ async def system_events(
     )
 
 
+def cursor_resync_reason(*, after: int, head: int, first_position: int | None) -> dict | None:
+    if after > head:
+        return {
+            "status": "RESYNCING",
+            "reason": "cursor_ahead",
+            "expected_max": head,
+            "received": after,
+        }
+    if after > 0 and first_position is not None and first_position != after + 1:
+        return {
+            "status": "RESYNCING",
+            "reason": "gap",
+            "expected": after + 1,
+            "received": first_position,
+        }
+    return None
+
+
 async def _stream_chronicle(request: Request, after: int) -> AsyncIterator[str]:
     cursor = after
     while not await request.is_disconnected():
         async with AsyncSessionLocal() as session:
+            head = int(await session.scalar(select(func.max(Chronicle.position))) or 0)
             events = list((await session.scalars(
                 select(Chronicle)
                 .where(Chronicle.position > cursor)
@@ -54,11 +121,13 @@ async def _stream_chronicle(request: Request, after: int) -> AsyncIterator[str]:
                 .limit(100)
             )).all())
 
+        first_position = events[0].position if events else None
+        resync = cursor_resync_reason(after=cursor, head=head, first_position=first_position)
+        if resync is not None:
+            yield f"event: resync_required\ndata: {json.dumps(resync, separators=(',', ':'))}\n\n"
+            return
+
         if events:
-            if cursor > 0 and events[0].position != cursor + 1:
-                payload = {"status": "RESYNCING", "expected": cursor + 1, "received": events[0].position}
-                yield f"event: resync_required\ndata: {json.dumps(payload, separators=(',', ':'))}\n\n"
-                return
             for event in events:
                 payload = {
                     "event_id": event.event_id,

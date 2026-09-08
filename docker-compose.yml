@@ -57,7 +57,6 @@ services:
       - tco_net
 
   worker:
-    profiles: ["future-runtime"]
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -69,6 +68,7 @@ services:
       redis:
         condition: service_healthy
     command: ["python", "-m", "app.worker"]
+    restart: unless-stopped
     networks:
       - tco_net
 
