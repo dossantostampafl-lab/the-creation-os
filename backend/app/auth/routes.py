@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.auth.dependencies import get_current_creator, get_current_token
 from app.config import settings
@@ -23,8 +23,9 @@ async def bootstrap(request: BootstrapRequest, auth_service = Depends(get_auth_s
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(request: LoginRequest, auth_service = Depends(get_auth_service)) -> TokenResponse:
-    creator = await auth_service.login(request.username, request.password.get_secret_value())
+async def login(request: Request, body: LoginRequest, auth_service = Depends(get_auth_service)) -> TokenResponse:
+    source = request.client.host if request.client is not None else "unknown"
+    creator = await auth_service.login(body.username, body.password.get_secret_value(), source)
     access_token = auth_service.create_access_token(creator.id)
     refresh_token = await auth_service.issue_refresh_token(creator.id)
     return TokenResponse(access_token=access_token, refresh_token=refresh_token, expires_in=settings.access_token_expire_minutes)
