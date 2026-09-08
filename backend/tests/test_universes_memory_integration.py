@@ -136,8 +136,14 @@ async def test_memory_is_isolated_per_owner_and_layer(world):
 async def test_conscious_memory_is_embedded_and_listed(world):
     client, creator_id, _ = world
     headers = auth(creator_id)
+    conversation = await client.post("/api/v1/conversations", headers=headers, json={"title": "Origem consciente"})
+    assert conversation.status_code == 201
+
     recorded = await client.post("/api/v1/memory/conscious", headers=headers, json={
-        "source_type": "conversation", "source_id": str(uuid.uuid4()), "content": "O Criador decidiu avançar."})
+        "source_type": "conversation",
+        "source_id": conversation.json()["id"],
+        "content": "O Criador decidiu avançar.",
+    })
     assert recorded.status_code == 201
     assert len(recorded.json()["embedding"]) == 8
 
