@@ -12,6 +12,14 @@ class ProjectionRegressionError(ValueError):
     pass
 
 
+def projection_lag(*, head: int, checkpoint: int) -> int:
+    if head < 0 or checkpoint < 0:
+        raise ValueError("projection positions must be non-negative")
+    if checkpoint > head:
+        raise ValueError("projection checkpoint cannot be ahead of Chronicle head")
+    return head - checkpoint
+
+
 async def load_checkpoint(session: AsyncSession, projection_name: str) -> ProjectionCheckpoint | None:
     return await session.get(ProjectionCheckpoint, projection_name)
 
