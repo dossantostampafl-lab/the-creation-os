@@ -29,7 +29,7 @@ const state = {
   universes: [{ id: "universe-1", code: "engineering", name: "Engineering", active: true }],
   agents: [{ id: "agent-1", code: "builder", name: "Builder", universe_id: "universe-1", active: true }],
   memory: { conversation: 2, mission: 3, universe: 4, conscious: 5, total: 14 },
-  pulse: {},
+  pulse: { kernel_health: { value: "healthy", observed_at: "2026-09-08T15:00:00Z" } },
   counts: {
     missions: 1,
     running_missions: 1,
@@ -50,10 +50,29 @@ const projections = {
   ],
 };
 
+const chronicle = [
+  {
+    id: "chronicle-41",
+    event_id: "event-41",
+    correlation_id: "corr-41",
+    causation_id: null,
+    actor_type: "creator",
+    actor_id: "creator-1",
+    event_type: "mission_distributed",
+    aggregate_type: "mission",
+    aggregate_id: "mission-1",
+    payload_json: {},
+    payload_hash: "hash",
+    previous_hash: null,
+    created_at: "2026-09-08T15:00:00Z",
+  },
+];
+
 test("renders the Living Operations Terminal from projection-backed state", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("creation_access_token", "e2e-token"));
   await page.route("**/api/v1/system/state", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(state) }));
   await page.route("**/api/v1/system/projections", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(projections) }));
+  await page.route("**/api/v1/chronicles?limit=40&offset=0", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(chronicle) }));
   await page.route("**/api/v1/system/events?after=41", (route) => route.fulfill({
     status: 200,
     contentType: "text/event-stream",
@@ -69,6 +88,8 @@ test("renders the Living Operations Terminal from projection-backed state", asyn
   await expect(page.getByText("Manifest Gate D", { exact: true })).toBeVisible();
   await expect(page.getByText("Engineering", { exact: true })).toBeVisible();
   await expect(page.getByText("Builder", { exact: true })).toBeVisible();
+  await expect(page.getByText("mission_distributed", { exact: true })).toBeVisible();
+  await expect(page.getByText("kernel_health", { exact: true })).toBeVisible();
   await expect(page.getByText("task_progressed", { exact: true })).toBeVisible();
   await expect(page.locator(".top-status .status")).toHaveText("LIVE");
 });
