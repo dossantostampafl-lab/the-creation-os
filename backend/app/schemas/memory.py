@@ -5,6 +5,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from app.memory.contracts import MemorySourceType
+
 
 class MemoryUpsertRequest(BaseModel):
     key: str = Field(..., min_length=1, max_length=128)
@@ -21,8 +23,8 @@ class MemoryResponse(BaseModel):
 
 
 class ConsciousMemoryCreateRequest(BaseModel):
-    source_type: str = Field(..., min_length=2, max_length=64)
-    source_id: str = Field(..., min_length=1, max_length=36)
+    source_type: MemorySourceType
+    source_id: str = Field(..., min_length=36, max_length=36)
     content: str = Field(..., min_length=1, max_length=8000)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
