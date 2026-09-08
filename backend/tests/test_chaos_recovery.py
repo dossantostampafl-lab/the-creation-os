@@ -142,11 +142,11 @@ async def test_transient_provider_failure_retries_and_manifestation_recovers(cha
     async with chaos_db() as session:
         task = await session.scalar(select(Task).where(Task.mission_id == mission_id))
         mission = await session.get(Mission, mission_id)
+        assert task is not None and task.status == "SUCCEEDED"
         executions = list((await session.scalars(
             select(AgentExecution).where(AgentExecution.task_id == task.id).order_by(AgentExecution.attempt)
         )).all())
         assert provider.calls == 2
-        assert task is not None and task.status == "SUCCEEDED"
         assert task.attempt_count == 2
         assert mission is not None and mission.status == MissionStatus.MANIFESTED.value
         assert [execution.status for execution in executions] == ["FAILED", "SUCCEEDED"]
