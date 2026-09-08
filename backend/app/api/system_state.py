@@ -39,7 +39,7 @@ async def get_system_state(
     _: Actor = Depends(actor),
     session: AsyncSession = Depends(get_session),
 ):
-    return await system_snapshot(session)
+    return await system_snapshot(session, persist=False)
 
 
 @router.get("/system/projections")
