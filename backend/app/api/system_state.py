@@ -13,9 +13,25 @@ from app.api.living_core import actor
 from app.core.domain import Actor
 from app.db.session import AsyncSessionLocal, get_session
 from app.models.entities import Chronicle
-from app.projections.system import system_snapshot
+from app.models.projection import ProjectionCheckpoint
+from app.projections.checkpoints import projection_lag
+from app.projections.system import (
+    AGENT_PROJECTION,
+    MEMORY_PROJECTION,
+    MISSION_PROJECTION,
+    SYSTEM_PROJECTION,
+    TASK_PROJECTION,
+    system_snapshot,
+)
 
 router = APIRouter(tags=["system-state"])
+EXPECTED_PROJECTIONS = (
+    SYSTEM_PROJECTION,
+    MISSION_PROJECTION,
+    TASK_PROJECTION,
+    AGENT_PROJECTION,
+    MEMORY_PROJECTION,
+)
 
 
 @router.get("/system/state")
@@ -24,6 +40,38 @@ async def get_system_state(
     session: AsyncSession = Depends(get_session),
 ):
     return await system_snapshot(session)
+
+
+@router.get("/system/projections")
+async def get_projection_status(
+    _: Actor = Depends(actor),
+    session: AsyncSession = Depends(get_session),
+):
+    head = int(await session.scalar(select(func.max(Chronicle.position))) or 0)
+    rows = list((await session.scalars(select(ProjectionCheckpoint))).all())
+    by_name = {row.projection_name: row for row in rows}
+    projections = []
+    for name in EXPECTED_PROJECTIONS:
+        checkpoint = by_name.get(name)
+        if checkpoint is None:
+            projections.append({"name": name, "position": None, "lag": head, "status": "MISSING"})
+            continue
+        try:
+            lag = projection_lag(head=head, checkpoint=checkpoint.position)
+            status = "CURRENT" if lag == 0 else "LAGGING"
+        except ValueError:
+            lag = None
+            status = "INVALID"
+        projections.append(
+            {
+                "name": name,
+                "position": checkpoint.position,
+                "lag": lag,
+                "status": status,
+                "updated_at": checkpoint.updated_at.isoformat(),
+            }
+        )
+    return {"chronicle_head": head, "projections": projections}
 
 
 @router.get("/system/events")
