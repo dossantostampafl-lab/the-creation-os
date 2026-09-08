@@ -31,6 +31,7 @@ app.include_router(api_router, prefix="/api/v1")
 @app.middleware("http")
 async def add_correlation_id(request: Request, call_next):
     correlation_id = request.headers.get("X-Correlation-ID") or str(uuid.uuid4())
+    request.state.correlation_id = correlation_id
     response = await call_next(request)
     response.headers["X-Correlation-ID"] = correlation_id
     return response
@@ -52,7 +53,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     logger.bind(
         path=request.url.path,
         method=request.method,
-        correlation_id=request.headers.get("X-Correlation-ID", "missing"),
+        correlation_id=getattr(request.state, "correlation_id", "missing"),
         error_type=exc.__class__.__name__,
     ).exception("unhandled server error")
     return JSONResponse(status_code=500, content={"detail": "Internal server error"})
