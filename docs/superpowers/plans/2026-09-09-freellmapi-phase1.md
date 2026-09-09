@@ -15,7 +15,7 @@
 - Preserve existing `InferenceRequest`, `InferenceResponse`, `ModelRequirements`, `ProviderHealth`, `InferenceProvider`, `ProviderRegistry`, and `ModelRouter` as canonical runtime abstractions.
 - Never silently fall back to fake in the operational runtime.
 - Fallback remains explicit through `ModelRequirements.fallback_providers`.
-- `FREELLMAPI_API_KEY` is a `SecretStr` and must never appear in errors, logs, telemetry, or frontend state.
+- `FREELLMAPI_API_KEY` is wrapped in `SecretStr` before entering provider construction and must never appear in errors, logs, telemetry, or frontend state.
 - No live third-party key is required by tests.
 - Do not vendor FreeLLMAPI source code.
 - Do not execute tool calls returned by FreeLLMAPI in Phase 1.
@@ -36,27 +36,28 @@
 - Implements `generate(InferenceRequest) -> InferenceResponse`, `stream(InferenceRequest) -> AsyncIterator[str]`, and `health() -> ProviderHealth`.
 - Extends the existing error hierarchy with configuration/authentication/rate-limit/timeout/upstream-response errors without breaking router compatibility.
 
-- [ ] Write tests first for request serialization, bearer auth, response parsing, health, status mapping, malformed payloads, timeout/network failure, streaming deltas, and secret-safe errors.
-- [ ] Verify CI reaches pytest and fails because `FreeLLMAPIProvider` / new errors do not exist.
-- [ ] Implement minimal provider and error classes.
-- [ ] Verify provider tests and existing inference tests pass.
+- [x] Write tests first for request serialization, bearer auth, response parsing, health, status mapping, malformed payloads, timeout/network failure, streaming deltas, and secret-safe errors.
+- [x] Verify CI reaches pytest and fails because `FreeLLMAPIProvider` / new errors do not exist.
+- [x] Implement minimal provider and error classes.
+- [x] Verify provider tests and existing inference tests pass.
 
 ### Task 2: Runtime configuration and bootstrap
 
 **Files:**
-- Modify: `backend/app/config.py`
+- Create: `backend/app/inference/freellmapi_config.py`
 - Modify: `backend/app/inference/bootstrap.py`
-- Modify: `backend/app/inference/__init__.py`
 - Test: `backend/tests/test_freellmapi_bootstrap.py`
 
 **Interfaces:**
-- Settings: `freellmapi_base_url`, `freellmapi_api_key`, `freellmapi_model`, `freellmapi_timeout_seconds`.
+- Dedicated environment configuration: `FREELLMAPI_BASE_URL`, `FREELLMAPI_API_KEY`, `FREELLMAPI_MODEL`, `FREELLMAPI_TIMEOUT_SECONDS`.
+- `FREELLMAPI_API_KEY` is converted to `SecretStr` by the dedicated loader.
 - `LLM_PROVIDER=freellmapi` registers `FreeLLMAPIProvider` in the existing `ProviderRegistry` returned through `ModelRouter`.
+- FreeLLMAPI chat does not reuse `LLM_API_KEY` or `LLM_MODEL`; direct OpenAI configuration remains independent.
 
-- [ ] Write failing tests for successful registration and missing URL/key/model fail-closed behavior.
-- [ ] Verify RED in CI.
-- [ ] Implement settings + bootstrap registration; preserve direct OpenAI and fake rejection behavior.
-- [ ] Verify GREEN in CI.
+- [x] Write failing tests for successful registration and missing URL/key/model fail-closed behavior.
+- [x] Verify RED in CI.
+- [x] Implement dedicated environment loader + bootstrap registration; preserve direct OpenAI and fake rejection behavior.
+- [x] Verify GREEN in CI.
 
 ### Task 3: FreeLLMAPI embeddings compatibility
 
@@ -65,13 +66,13 @@
 - Test: `backend/tests/test_freellmapi_embeddings.py`
 
 **Interfaces:**
-- `EMBEDDING_PROVIDER=freellmapi` calls `${FREELLMAPI_BASE_URL}/embeddings` with `FREELLMAPI_API_KEY` and `EMBEDDING_MODEL`.
+- `EMBEDDING_PROVIDER=freellmapi` calls `${FREELLMAPI_BASE_URL}/embeddings` with the shared dedicated `FREELLMAPI_API_KEY` and `EMBEDDING_MODEL`.
 - Existing deterministic test and direct OpenAI embedding paths remain intact.
 
-- [ ] Write failing tests for serialized request, parsed vector, missing configuration, malformed response, and secret-safe failure.
-- [ ] Verify RED in CI.
-- [ ] Implement minimal embedding adapter/factory branch.
-- [ ] Verify GREEN in CI.
+- [x] Write failing tests for serialized request, parsed vector, missing configuration, malformed response, and secret-safe failure.
+- [x] Verify RED in CI.
+- [x] Implement minimal embedding adapter/factory branch.
+- [x] Verify GREEN in CI.
 
 ### Task 4: Deployment placeholders and safety documentation
 
@@ -79,13 +80,14 @@
 - Modify: `.env.example`
 - Modify: `backend/.env.example`
 
-- [ ] Add placeholder-only FreeLLMAPI configuration names, never real credentials.
-- [ ] Verify secret scan by inspecting PR diff and CI output.
+- [x] Add placeholder-only `FREELLMAPI_API_KEY`, `FREELLMAPI_MODEL`, `FREELLMAPI_BASE_URL`, and `FREELLMAPI_TIMEOUT_SECONDS`; no real credentials.
+- [x] Inspect PR diff for accidental credentials, prompt/body logging, authorization leakage, and arbitrary metadata passthrough.
 
 ### Task 5: Full verification gate
 
-- [ ] Verify backend CI: `ruff check .`, `mypy app`, migrations, full `pytest`.
-- [ ] Verify frontend build/tests/Playwright remain green.
-- [ ] Inspect PR diff for accidental secrets, prompt/body logging, arbitrary metadata passthrough, duplicate inference abstractions, and unrelated refactors.
-- [ ] Reconcile implementation with each Phase 1 acceptance criterion in the revised design.
-- [ ] Mark PR ready only after fresh green CI. Do not merge automatically without an explicit merge decision.
+- [x] Verify backend CI: `ruff check .`, `mypy app`, migrations, full `pytest`.
+- [x] Verify frontend build/tests/Playwright remain green.
+- [x] Inspect PR diff for accidental secrets, prompt/body logging, arbitrary metadata passthrough, duplicate inference abstractions, and unrelated refactors.
+- [x] Reconcile implementation with each Phase 1 acceptance criterion in the revised design.
+- [ ] Obtain a fresh green CI after this documentation reconciliation.
+- [ ] Mark PR ready only after that fresh green CI. Do not merge automatically without an explicit merge decision.
