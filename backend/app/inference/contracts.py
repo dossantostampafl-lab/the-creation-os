@@ -42,5 +42,25 @@ class InferenceError(RuntimeError):
         self.provider = provider
 
 
+class InferenceConfigurationError(InferenceError):
+    code: Literal["INFERENCE_CONFIGURATION_ERROR"] = "INFERENCE_CONFIGURATION_ERROR"
+
+
+class InferenceAuthenticationError(InferenceError):
+    code: Literal["INFERENCE_AUTHENTICATION_ERROR"] = "INFERENCE_AUTHENTICATION_ERROR"
+
+
 class ProviderUnavailable(InferenceError):
-    code: Literal["PROVIDER_UNAVAILABLE"] = "PROVIDER_UNAVAILABLE"
+    code: str = "PROVIDER_UNAVAILABLE"
+
+
+class InferenceRateLimitError(ProviderUnavailable):
+    code: Literal["INFERENCE_RATE_LIMIT"] = "INFERENCE_RATE_LIMIT"
+
+
+class InferenceTimeoutError(ProviderUnavailable):
+    code: Literal["INFERENCE_TIMEOUT"] = "INFERENCE_TIMEOUT"
+
+
+class InferenceUpstreamResponseError(ProviderUnavailable):
+    code: Literal["INFERENCE_UPSTREAM_RESPONSE_ERROR"] = "INFERENCE_UPSTREAM_RESPONSE_ERROR"
