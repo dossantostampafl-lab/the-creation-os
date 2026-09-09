@@ -4,8 +4,8 @@ import json
 
 import httpx
 import pytest
-
 from app.inference.freellmapi_provider import FreeLLMAPIProvider
+
 from app.inference.contracts import (
     InferenceAuthenticationError,
     InferenceRateLimitError,
