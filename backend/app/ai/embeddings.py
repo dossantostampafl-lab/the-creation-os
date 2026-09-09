@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 from typing import Any
 from urllib.parse import urlparse
 
@@ -116,14 +115,11 @@ def build_embedding_model() -> EmbeddingModel:
             model=settings.embedding_model,
         )
     if provider == "freellmapi":
-        api_key = os.getenv("FREELLMAPI_API_KEY", "").strip()
-        if not api_key:
-            raise RuntimeError("FreeLLMAPI embedding provider requires FREELLMAPI_API_KEY")
         if not settings.embedding_model.strip():
             raise RuntimeError("FreeLLMAPI embedding provider requires EMBEDDING_MODEL")
         gateway_config = load_freellmapi_config()
         return FreeLLMAPIEmbeddingModel(
-            api_key=api_key,
+            api_key=gateway_config.api_key.get_secret_value(),
             model=settings.embedding_model,
             base_url=gateway_config.base_url,
             timeout_seconds=gateway_config.timeout_seconds,
