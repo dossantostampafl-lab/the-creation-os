@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from app.inference.health import CircuitState, ProviderCircuitBreaker
 
 from app.inference.contracts import (
     CostTier,
@@ -11,7 +12,6 @@ from app.inference.contracts import (
     ProviderModelProfile,
     ProviderUnavailable,
 )
-from app.inference.health import CircuitState, ProviderCircuitBreaker
 from app.inference.registry import ProviderRegistry
 from app.inference.router import ModelRouter
 
