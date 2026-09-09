@@ -2,14 +2,24 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ModelRequirements(BaseModel):
     preferred_provider: str | None = None
     fallback_providers: list[str] = Field(default_factory=list)
+    required_capabilities: set[str] = Field(default_factory=set)
     requires_streaming: bool = False
     max_output_tokens: int | None = Field(default=None, ge=1)
+
+
+class ProviderModelProfile(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    provider: str = Field(..., min_length=1)
+    model: str = Field(..., min_length=1)
+    capabilities: frozenset[str] = Field(default_factory=frozenset)
+    is_default: bool = False
 
 
 class InferenceRequest(BaseModel):
