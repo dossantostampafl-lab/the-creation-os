@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import pytest
-from app.inference.status import build_inference_status
 
 from app.inference.contracts import CostTier, ProviderHealth, ProviderModelProfile
 from app.inference.registry import ProviderRegistry
 from app.inference.router import ModelRouter
+from app.inference.status import build_inference_status
 
 
 class HealthStubProvider:
