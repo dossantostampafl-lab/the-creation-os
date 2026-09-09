@@ -4,6 +4,7 @@ from pydantic.v1 import SecretStr
 
 from app.config import settings
 from app.inference.bootstrap import build_model_router
+from app.inference.contracts import CostTier
 from app.inference.freellmapi_provider import FreeLLMAPIProvider
 
 
@@ -18,11 +19,14 @@ def test_build_model_router_registers_freellmapi_from_dedicated_environment(monk
 
     router = build_model_router()
     provider = router.registry.get("freellmapi")
+    profile = router.registry.get_default_model_profile("freellmapi")
 
     assert isinstance(provider, FreeLLMAPIProvider)
     assert provider._base_url == "http://freellmapi:3001/v1"
     assert provider._default_model == "auto:default"
     assert provider._timeout_seconds == 12.5
+    assert profile is not None
+    assert profile.cost_tier is CostTier.UNKNOWN
 
 
 def test_build_model_router_requires_freellmapi_api_key_even_when_llm_key_exists(monkeypatch) -> None:
