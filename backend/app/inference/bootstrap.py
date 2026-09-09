@@ -4,6 +4,8 @@ from app.config import settings
 from app.inference.contracts import ProviderModelProfile
 from app.inference.freellmapi_config import load_freellmapi_config, load_freellmapi_model
 from app.inference.freellmapi_provider import FreeLLMAPIProvider
+from app.inference.openai_compatible_config import load_openai_compatible_config
+from app.inference.openai_compatible_provider import OpenAICompatibleProvider
 from app.inference.openai_provider import OpenAIResponsesProvider
 from app.inference.registry import ProviderRegistry
 from app.inference.router import ModelRouter
@@ -44,6 +46,29 @@ def build_model_router() -> ModelRouter:
             ProviderModelProfile(
                 provider="freellmapi",
                 model=model,
+                capabilities=frozenset({"text", "streaming"}),
+                is_default=True,
+            )
+        )
+    elif provider == "openai_compatible":
+        compatible_config = load_openai_compatible_config()
+        registry.register(
+            OpenAICompatibleProvider(
+                name="openai_compatible",
+                api_key=(
+                    compatible_config.api_key.get_secret_value()
+                    if compatible_config.api_key is not None
+                    else None
+                ),
+                default_model=compatible_config.model,
+                base_url=compatible_config.base_url,
+                timeout_seconds=compatible_config.timeout_seconds,
+            )
+        )
+        registry.register_model_profile(
+            ProviderModelProfile(
+                provider="openai_compatible",
+                model=compatible_config.model,
                 capabilities=frozenset({"text", "streaming"}),
                 is_default=True,
             )
