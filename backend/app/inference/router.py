@@ -89,14 +89,9 @@ class ModelRouter:
         for provider_name in candidates:
             provider = self.registry.get(provider_name)
 
-            # Preserve Phase 2 behavior: a capability mismatch may advance only
-            # to the next explicitly authorized candidate. Budget admission is
-            # Creation-owned policy and remains fail-closed.
-            try:
-                self._admit_capabilities(provider_name, request)
-            except ProviderUnavailable as exc:
-                last_error = exc
-                continue
+            # Creation-owned governance gates fail closed and cannot be bypassed
+            # by advancing to another candidate.
+            self._admit_capabilities(provider_name, request)
             self._admit_budget(provider_name, request)
 
             now = self._clock()
