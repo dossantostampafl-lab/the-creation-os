@@ -141,7 +141,7 @@ async def test_router_fails_closed_when_required_capability_has_no_evidence() ->
 
 
 @pytest.mark.asyncio
-async def test_router_uses_only_explicit_fallback_when_primary_lacks_capability() -> None:
+async def test_router_fails_closed_when_primary_lacks_required_capability() -> None:
     registry = ProviderRegistry()
     primary = CapabilityStubProvider("primary")
     fallback = CapabilityStubProvider("fallback")
@@ -175,20 +175,20 @@ async def test_router_uses_only_explicit_fallback_when_primary_lacks_capability(
     )
     router = ModelRouter(registry)
 
-    response = await router.generate(
-        InferenceRequest(
-            messages=[{"role": "user", "content": "hello"}],
-            requirements=ModelRequirements(
-                preferred_provider="primary",
-                fallback_providers=["fallback"],
-                required_capabilities={"vision"},
-            ),
+    with pytest.raises(ProviderUnavailable, match="required capabilities"):
+        await router.generate(
+            InferenceRequest(
+                messages=[{"role": "user", "content": "hello"}],
+                requirements=ModelRequirements(
+                    preferred_provider="primary",
+                    fallback_providers=["fallback"],
+                    required_capabilities={"vision"},
+                ),
+            )
         )
-    )
 
-    assert response.provider == "fallback"
     assert primary.requests == []
-    assert len(fallback.requests) == 1
+    assert fallback.requests == []
     assert unrelated.requests == []
 
 
