@@ -67,3 +67,36 @@ jobs:
       - run: npm test
       - run: npx playwright install chromium
       - run: npm run test:e2e
+
+  release:
+    runs-on: ubuntu-latest
+    env:
+      APP_SECRET_KEY: ci-release-secret-key-at-least-32-characters
+      CREATOR_BOOTSTRAP_USERNAME: creator
+      CREATOR_BOOTSTRAP_PASSWORD: ci-release-password
+      POSTGRES_PASSWORD: ci@strong/pass?word
+      DATABASE_URL: postgresql+asyncpg://creation:ci%40strong%2Fpass%3Fword@postgres:5432/the_creation_os
+      LLM_PROVIDER: openai
+      LLM_MODEL: ci-model
+      LLM_API_KEY: ci-not-a-real-key
+      EMBEDDING_PROVIDER: openai
+      EMBEDDING_MODEL: ci-embedding-model
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate OpenAI production configuration
+        run: docker compose -f docker-compose.prod.yml config --quiet
+      - name: Validate FreeLLMAPI production configuration
+        env:
+          LLM_PROVIDER: freellmapi
+          FREELLMAPI_API_KEY: ci-not-a-real-key
+          FREELLMAPI_MODEL: ci-freellm-model
+          FREELLMAPI_BASE_URL: https://freellm.example.invalid/v1
+        run: docker compose -f docker-compose.prod.yml config --quiet
+      - name: Validate OpenAI-compatible production configuration
+        env:
+          LLM_PROVIDER: openai_compatible
+          OPENAI_COMPATIBLE_MODEL: ci-compatible-model
+          OPENAI_COMPATIBLE_BASE_URL: https://compatible.example.invalid/v1
+        run: docker compose -f docker-compose.prod.yml config --quiet
+      - run: docker build -t creation-api:ci ./backend
+      - run: docker build -t creation-frontend:ci ./frontend
