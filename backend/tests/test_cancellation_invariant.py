@@ -1,14 +1,32 @@
 from __future__ import annotations
 
+import os
 import uuid
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.domain import Actor, InceptionStatus, MissionStatus
 from app.kernel.orchestrator import claim_next_ready_task
 from app.repositories.domain import DomainRepository
 from app.services.domain import LivingCoreService
+
+pytestmark = pytest.mark.integration
+
+
+@pytest.fixture
+async def database():
+    engine = create_async_engine(os.environ["DATABASE_URL"])
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with engine.begin() as connection:
+        await connection.execute(text(
+            "TRUNCATE chronicles, conscious_memory, universe_memory, mission_memory, conversation_memory, "
+            "agent_executions, tasks, mission_steps, mission_plans, missions, inceptions, messages, conversations, "
+            "agents, universes, creator RESTART IDENTITY CASCADE"
+        ))
+    yield factory
+    await engine.dispose()
 
 
 async def _mission_with_ready_task(session: AsyncSession, *, status: MissionStatus):
@@ -61,18 +79,18 @@ async def _mission_with_ready_task(session: AsyncSession, *, status: MissionStat
 
 
 @pytest.mark.asyncio
-async def test_cancelled_mission_never_claims_ready_task(db_session: AsyncSession):
-    mission = await _mission_with_ready_task(db_session, status=MissionStatus.CANCELLED)
-
-    claimed = await claim_next_ready_task(db_session, mission.id)
+async def test_cancelled_mission_never_claims_ready_task(database):
+    async with database() as session:
+        mission = await _mission_with_ready_task(session, status=MissionStatus.CANCELLED)
+        claimed = await claim_next_ready_task(session, mission.id)
 
     assert claimed is None
 
 
 @pytest.mark.asyncio
-async def test_non_executing_mission_never_claims_ready_task(db_session: AsyncSession):
-    mission = await _mission_with_ready_task(db_session, status=MissionStatus.DISTRIBUTED)
-
-    claimed = await claim_next_ready_task(db_session, mission.id)
+async def test_non_executing_mission_never_claims_ready_task(database):
+    async with database() as session:
+        mission = await _mission_with_ready_task(session, status=MissionStatus.DISTRIBUTED)
+        claimed = await claim_next_ready_task(session, mission.id)
 
     assert claimed is None
