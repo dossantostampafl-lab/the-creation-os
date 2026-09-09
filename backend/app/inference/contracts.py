@@ -1,14 +1,24 @@
 from __future__ import annotations
 
+from enum import IntEnum
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+
+class CostTier(IntEnum):
+    UNKNOWN = -1
+    FREE = 0
+    LOW = 1
+    PREMIUM = 2
+    FRONTIER = 3
 
 
 class ModelRequirements(BaseModel):
     preferred_provider: str | None = None
     fallback_providers: list[str] = Field(default_factory=list)
     required_capabilities: set[str] = Field(default_factory=set)
+    max_cost_tier: CostTier | None = None
     requires_streaming: bool = False
     max_output_tokens: int | None = Field(default=None, ge=1)
 
@@ -19,6 +29,7 @@ class ProviderModelProfile(BaseModel):
     provider: str = Field(..., min_length=1)
     model: str = Field(..., min_length=1)
     capabilities: frozenset[str] = Field(default_factory=frozenset)
+    cost_tier: CostTier = CostTier.UNKNOWN
     is_default: bool = False
 
 
@@ -62,6 +73,10 @@ class InferenceAuthenticationError(InferenceError):
 
 class ProviderUnavailable(InferenceError):
     code: str = "PROVIDER_UNAVAILABLE"
+
+
+class InferenceBudgetError(ProviderUnavailable):
+    code: Literal["INFERENCE_BUDGET_ERROR"] = "INFERENCE_BUDGET_ERROR"
 
 
 class InferenceRateLimitError(ProviderUnavailable):
