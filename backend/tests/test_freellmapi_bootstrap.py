@@ -15,7 +15,7 @@ def test_build_model_router_registers_freellmapi_from_environment(monkeypatch) -
     monkeypatch.setenv("FREELLMAPI_TIMEOUT_SECONDS", "12.5")
 
     router = build_model_router()
-    provider = router._registry.get("freellmapi")
+    provider = router.registry.get("freellmapi")
 
     assert isinstance(provider, FreeLLMAPIProvider)
     assert provider._base_url == "http://freellmapi:3001/v1"
