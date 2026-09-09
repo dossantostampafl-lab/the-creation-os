@@ -1,0 +1,29 @@
+name: UI Demo Capture
+
+on:
+  push:
+    branches:
+      - verify/ui-demo
+
+permissions:
+  contents: read
+
+jobs:
+  demo:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm install
+      - run: npx playwright install chromium
+      - run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        with:
+          name: creation-os-ui-demo
+          path: frontend/test-results/**/*.png
+          if-no-files-found: error
