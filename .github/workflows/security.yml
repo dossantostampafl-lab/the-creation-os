@@ -1,0 +1,85 @@
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  codeql:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [python, javascript-typescript]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+      - id: analyze
+        continue-on-error: true
+        uses: github/codeql-action/analyze@v4
+        with:
+          upload: never
+          output: ../results
+      - name: Enforce local CodeQL SARIF
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import glob
+          import json
+
+          files = glob.glob("../results/*.sarif")
+          if not files:
+              raise SystemExit("CodeQL SARIF missing; analysis did not complete")
+
+          blocking = []
+          total = 0
+          for path in files:
+              with open(path, encoding="utf-8") as handle:
+                  sarif = json.load(handle)
+              for run in sarif.get("runs", []):
+                  for result in run.get("results", []):
+                      total += 1
+                      level = result.get("level", "warning")
+                      if level in {"error", "warning"}:
+                          blocking.append((
+                              level,
+                              result.get("ruleId", "unknown"),
+                              result.get("message", {}).get("text", ""),
+                          ))
+
+          print(f"CodeQL local SARIF results: {total}; blocking: {len(blocking)}")
+          for level, rule, message in blocking[:50]:
+              print(f"{level}: {rule}: {message}")
+          if blocking:
+              raise SystemExit(1)
+          PY
+
+  dependency-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Audit Python dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip pip-audit
+          python -m pip install .
+          pip-audit
+      - name: Audit frontend dependencies
+        working-directory: frontend
+        run: |
+          npm install
+          npm audit --audit-level=high
