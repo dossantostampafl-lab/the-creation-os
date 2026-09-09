@@ -1,6 +1,12 @@
 from __future__ import annotations
 
-from app.inference.contracts import InferenceRequest, InferenceResponse, ProviderUnavailable
+from app.inference.contracts import (
+    CostTier,
+    InferenceBudgetError,
+    InferenceRequest,
+    InferenceResponse,
+    ProviderUnavailable,
+)
 from app.inference.registry import ProviderRegistry
 
 
@@ -8,16 +14,17 @@ class ModelRouter:
     def __init__(self, registry: ProviderRegistry) -> None:
         self.registry = registry
 
+    def _profile_for_request(self, provider_name: str, request: InferenceRequest):
+        if request.model is not None:
+            return self.registry.get_model_profile(provider_name, request.model)
+        return self.registry.get_default_model_profile(provider_name)
+
     def _admit_capabilities(self, provider_name: str, request: InferenceRequest) -> None:
         required = request.requirements.required_capabilities
         if not required:
             return
 
-        if request.model is not None:
-            profile = self.registry.get_model_profile(provider_name, request.model)
-        else:
-            profile = self.registry.get_default_model_profile(provider_name)
-
+        profile = self._profile_for_request(provider_name, request)
         if profile is None:
             raise ProviderUnavailable(
                 provider_name,
@@ -30,6 +37,23 @@ class ModelRouter:
             raise ProviderUnavailable(
                 provider_name,
                 f"required capabilities unavailable for provider {provider_name}: {missing_list}",
+            )
+
+    def _admit_budget(self, provider_name: str, request: InferenceRequest) -> None:
+        ceiling = request.requirements.max_cost_tier
+        if ceiling is None:
+            return
+
+        profile = self._profile_for_request(provider_name, request)
+        if profile is None or profile.cost_tier == CostTier.UNKNOWN:
+            raise InferenceBudgetError(
+                provider_name,
+                f"cost evidence unavailable for provider: {provider_name}",
+            )
+        if profile.cost_tier > ceiling:
+            raise InferenceBudgetError(
+                provider_name,
+                f"budget ceiling excludes provider: {provider_name}",
             )
 
     async def generate(self, request: InferenceRequest) -> InferenceResponse:
@@ -46,6 +70,7 @@ class ModelRouter:
             try:
                 provider = self.registry.get(provider_name)
                 self._admit_capabilities(provider_name, request)
+                self._admit_budget(provider_name, request)
                 health = await provider.health()
                 if not health.available:
                     raise ProviderUnavailable(provider_name, health.detail or "provider unavailable")
