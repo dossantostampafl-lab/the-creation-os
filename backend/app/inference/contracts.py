@@ -20,6 +20,7 @@ class ModelRequirements(BaseModel):
     fallback_providers: list[str] = Field(default_factory=list)
     required_capabilities: set[str] = Field(default_factory=set)
     max_cost_tier: CostTier | None = None
+    routing_strategy: Literal["ordered", "benchmark"] = "ordered"
     requires_streaming: bool = False
     max_output_tokens: int | None = Field(default=None, ge=1)
 
