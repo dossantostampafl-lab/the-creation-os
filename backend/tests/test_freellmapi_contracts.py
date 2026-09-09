@@ -12,7 +12,6 @@ from app.ai.errors import (
     LLMUnsupportedCapabilityError,
     LLMUpstreamResponseError,
 )
-from app.ai.interfaces import IntelligenceProvider, LanguageModel
 from app.ai.types import (
     HealthState,
     LLMCapability,
@@ -23,6 +22,7 @@ from app.ai.types import (
     LLMUsage,
     ProviderHealth,
 )
+from app.ai.interfaces import IntelligenceProvider, LanguageModel
 
 
 def test_request_and_result_types_are_immutable() -> None:
