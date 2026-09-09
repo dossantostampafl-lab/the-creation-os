@@ -67,3 +67,21 @@ jobs:
       - run: npm test
       - run: npx playwright install chromium
       - run: npm run test:e2e
+
+  release:
+    runs-on: ubuntu-latest
+    env:
+      APP_SECRET_KEY: ci-release-secret-key-at-least-32-characters
+      CREATOR_BOOTSTRAP_USERNAME: creator
+      CREATOR_BOOTSTRAP_PASSWORD: ci-release-password
+      POSTGRES_PASSWORD: ci-postgres-password
+      LLM_PROVIDER: openai
+      LLM_MODEL: ci-model
+      LLM_API_KEY: ci-not-a-real-key
+      EMBEDDING_PROVIDER: openai
+      EMBEDDING_MODEL: ci-embedding-model
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose -f docker-compose.prod.yml config --quiet
+      - run: docker build -t creation-api:ci ./backend
+      - run: docker build -t creation-frontend:ci ./frontend
