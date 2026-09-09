@@ -5,6 +5,7 @@ import json
 import httpx
 import pytest
 
+from app.inference.freellmapi_provider import FreeLLMAPIProvider
 from app.inference.contracts import (
     InferenceAuthenticationError,
     InferenceRateLimitError,
@@ -13,7 +14,6 @@ from app.inference.contracts import (
     InferenceUpstreamResponseError,
     ModelRequirements,
 )
-from app.inference.freellmapi_provider import FreeLLMAPIProvider
 
 
 @pytest.mark.asyncio
@@ -224,9 +224,12 @@ async def test_stream_yields_only_text_deltas() -> None:
         transport=httpx.MockTransport(handler),
     )
 
-    chunks = [chunk async for chunk in provider.stream(
-        InferenceRequest(messages=[{"role": "user", "content": "hello"}])
-    )]
+    chunks = [
+        chunk
+        async for chunk in provider.stream(
+            InferenceRequest(messages=[{"role": "user", "content": "hello"}])
+        )
+    ]
 
     assert chunks == ["hel", "lo"]
 
