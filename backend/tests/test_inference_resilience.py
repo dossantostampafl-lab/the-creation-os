@@ -11,6 +11,7 @@ from app.inference.contracts import (
     ProviderModelProfile,
     ProviderUnavailable,
 )
+from app.inference.health import CircuitState, ProviderCircuitBreaker
 from app.inference.registry import ProviderRegistry
 from app.inference.router import ModelRouter
 
@@ -102,3 +103,38 @@ async def test_budget_rejects_unknown_cost_evidence_when_ceiling_is_explicit() -
         )
 
     assert provider.calls == 0
+
+
+def test_circuit_breaker_transitions_closed_open_half_open_closed() -> None:
+    breaker = ProviderCircuitBreaker(failure_threshold=2, cooldown_seconds=10.0)
+
+    assert breaker.state("primary") is CircuitState.CLOSED
+    assert breaker.can_attempt("primary", now=0.0) is True
+
+    breaker.record_transient_failure("primary", now=0.0)
+    assert breaker.state("primary") is CircuitState.CLOSED
+
+    breaker.record_transient_failure("primary", now=1.0)
+    assert breaker.state("primary") is CircuitState.OPEN
+    assert breaker.can_attempt("primary", now=10.9) is False
+
+    assert breaker.can_attempt("primary", now=11.0) is True
+    assert breaker.state("primary") is CircuitState.HALF_OPEN
+
+    breaker.record_success("primary")
+    assert breaker.state("primary") is CircuitState.CLOSED
+    assert breaker.can_attempt("primary", now=11.1) is True
+
+
+def test_circuit_breaker_half_open_failure_reopens() -> None:
+    breaker = ProviderCircuitBreaker(failure_threshold=1, cooldown_seconds=5.0)
+
+    breaker.record_transient_failure("primary", now=2.0)
+    assert breaker.state("primary") is CircuitState.OPEN
+    assert breaker.can_attempt("primary", now=7.0) is True
+    assert breaker.state("primary") is CircuitState.HALF_OPEN
+
+    breaker.record_transient_failure("primary", now=7.0)
+    assert breaker.state("primary") is CircuitState.OPEN
+    assert breaker.can_attempt("primary", now=11.9) is False
+    assert breaker.can_attempt("primary", now=12.0) is True
