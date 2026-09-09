@@ -64,3 +64,25 @@ class ProviderCircuitBreaker:
         if record.failures >= self._failure_threshold:
             record.state = CircuitState.OPEN
             record.opened_at = now
+
+
+class ProviderRateLimitCooldown:
+    def __init__(self) -> None:
+        self._blocked_until: dict[str, float] = {}
+
+    def register(self, provider: str, *, now: float, retry_after_seconds: float) -> None:
+        if retry_after_seconds < 0:
+            raise ValueError("retry_after_seconds must be >= 0")
+        blocked_until = now + retry_after_seconds
+        current = self._blocked_until.get(provider)
+        if current is None or blocked_until > current:
+            self._blocked_until[provider] = blocked_until
+
+    def can_attempt(self, provider: str, *, now: float) -> bool:
+        blocked_until = self._blocked_until.get(provider)
+        if blocked_until is None:
+            return True
+        if now >= blocked_until:
+            self._blocked_until.pop(provider, None)
+            return True
+        return False
