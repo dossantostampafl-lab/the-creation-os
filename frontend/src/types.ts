@@ -109,3 +109,23 @@ export type ProjectionStatus = {
     updated_at?: string;
   }>;
 };
+
+export type InferenceModelStatus = {
+  model: string;
+  is_default: boolean;
+  capabilities: string[];
+  cost_tier: string;
+};
+
+export type InferenceProviderStatus = {
+  provider: string;
+  available: boolean;
+  detail: string | null;
+  models: InferenceModelStatus[];
+};
+
+export type InferenceStatusSnapshot = {
+  configured: boolean;
+  configured_provider: string;
+  providers: InferenceProviderStatus[];
+};

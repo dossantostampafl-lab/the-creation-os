@@ -48,5 +48,13 @@ class ProviderRegistry:
             return None
         return self._model_profiles.get((provider, model))
 
+    def model_profiles(self, provider: str) -> tuple[ProviderModelProfile, ...]:
+        profiles = [
+            profile
+            for (provider_name, _), profile in self._model_profiles.items()
+            if provider_name == provider
+        ]
+        return tuple(sorted(profiles, key=lambda profile: profile.model))
+
     def names(self) -> tuple[str, ...]:
         return tuple(self._providers)

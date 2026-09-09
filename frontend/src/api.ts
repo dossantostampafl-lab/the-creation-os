@@ -1,4 +1,4 @@
-import type { ChronicleEvent, ChronicleRecord, ProjectionStatus, SystemState } from "./types";
+import type { ChronicleEvent, ChronicleRecord, InferenceStatusSnapshot, ProjectionStatus, SystemState } from "./types";
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ?? "http://localhost:8000/api/v1";
 
@@ -19,6 +19,7 @@ async function api<T>(path: string): Promise<T> {
 
 export const fetchSystemState = () => api<SystemState>("/system/state");
 export const fetchProjectionStatus = () => api<ProjectionStatus>("/system/projections");
+export const fetchInferenceStatus = () => api<InferenceStatusSnapshot>("/system/inference");
 export const fetchChronicleHistory = () => api<ChronicleRecord[]>("/chronicles?limit=40&offset=0");
 
 export type StreamHandlers = {
