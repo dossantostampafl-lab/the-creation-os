@@ -51,7 +51,7 @@ class InferenceAuthenticationError(InferenceError):
 
 
 class ProviderUnavailable(InferenceError):
-    code: Literal["PROVIDER_UNAVAILABLE"] = "PROVIDER_UNAVAILABLE"
+    code: str = "PROVIDER_UNAVAILABLE"
 
 
 class InferenceRateLimitError(ProviderUnavailable):
