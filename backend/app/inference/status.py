@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from pydantic import BaseModel, Field
 
+from app.inference.bootstrap import build_model_router
 from app.inference.router import ModelRouter
 
 
@@ -61,3 +64,29 @@ async def build_inference_status(router: ModelRouter) -> InferenceStatusSnapshot
         configured_provider=provider_names[0] if provider_names else "",
         providers=statuses,
     )
+
+
+async def configured_inference_status(
+    provider_name: str,
+    *,
+    router_factory: Callable[[], ModelRouter] = build_model_router,
+) -> InferenceStatusSnapshot:
+    normalized = provider_name.strip().lower()
+    if normalized in {"", "fake"}:
+        return InferenceStatusSnapshot(
+            configured=False,
+            configured_provider=normalized,
+            providers=[],
+        )
+
+    try:
+        router = router_factory()
+    except Exception:
+        return InferenceStatusSnapshot(
+            configured=False,
+            configured_provider=normalized,
+            providers=[],
+        )
+
+    snapshot = await build_inference_status(router)
+    return snapshot.model_copy(update={"configured_provider": normalized})
