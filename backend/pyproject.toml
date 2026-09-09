@@ -40,7 +40,10 @@ minversion = "7.0"
 addopts = "-q"
 testpaths = ["tests"]
 asyncio_mode = "auto"
-markers = ["integration: requires a real PostgreSQL database"]
+markers = [
+  "integration: requires a real PostgreSQL database",
+  "real_provider: requires explicit REAL_PROVIDER_TEST=1 and external provider configuration"
+]
 
 [tool.ruff]
 line-length = 140
