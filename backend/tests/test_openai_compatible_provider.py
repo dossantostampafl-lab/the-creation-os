@@ -4,7 +4,6 @@ import json
 
 import httpx
 import pytest
-from app.inference.openai_compatible_provider import OpenAICompatibleProvider
 
 from app.inference.contracts import (
     InferenceAuthenticationError,
@@ -14,6 +13,7 @@ from app.inference.contracts import (
     InferenceUpstreamResponseError,
     ModelRequirements,
 )
+from app.inference.openai_compatible_provider import OpenAICompatibleProvider
 
 
 def request(*, model: str | None = None) -> InferenceRequest:
