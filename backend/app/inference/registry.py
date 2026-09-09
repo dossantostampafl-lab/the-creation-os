@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.inference.contracts import ProviderModelProfile, ProviderUnavailable
+from app.inference.contracts import ProviderBenchmarkEvidence, ProviderModelProfile, ProviderUnavailable
 
 
 class ProviderRegistry:
@@ -10,6 +10,7 @@ class ProviderRegistry:
         self._providers: dict[str, Any] = {}
         self._model_profiles: dict[tuple[str, str], ProviderModelProfile] = {}
         self._default_models: dict[str, str] = {}
+        self._benchmark_evidence: dict[tuple[str, str, str], ProviderBenchmarkEvidence] = {}
 
     def register(self, provider: Any) -> None:
         name = str(provider.name)
@@ -55,6 +56,27 @@ class ProviderRegistry:
             if provider_name == provider
         ]
         return tuple(sorted(profiles, key=lambda profile: profile.model))
+
+    def register_benchmark_evidence(self, evidence: ProviderBenchmarkEvidence) -> None:
+        if evidence.provider not in self._providers:
+            raise ValueError(f"provider not registered: {evidence.provider}")
+        key = (evidence.provider, evidence.model, evidence.suite_id)
+        if key in self._benchmark_evidence:
+            raise ValueError(
+                "benchmark evidence already registered: "
+                f"{evidence.provider}/{evidence.model}/{evidence.suite_id}"
+            )
+        self._benchmark_evidence[key] = evidence
+
+    def get_benchmark_evidence(self, provider: str, model: str) -> ProviderBenchmarkEvidence | None:
+        matches = [
+            evidence
+            for (provider_name, model_name, _), evidence in self._benchmark_evidence.items()
+            if provider_name == provider and model_name == model
+        ]
+        if not matches:
+            return None
+        return max(matches, key=lambda item: (item.observed_at, item.suite_id))
 
     def names(self) -> tuple[str, ...]:
         return tuple(self._providers)
