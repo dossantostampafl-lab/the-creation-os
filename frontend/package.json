@@ -13,8 +13,8 @@
     "@vitejs/plugin-react": "latest",
     "vite": "latest",
     "typescript": "latest",
-    "react": "latest",
-    "react-dom": "latest"
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
   },
   "devDependencies": {
     "@playwright/test": "latest",
