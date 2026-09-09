@@ -25,7 +25,7 @@ def build_model_router() -> ModelRouter:
             ProviderModelProfile(
                 provider="openai",
                 model=settings.llm_model,
-                capabilities={"text", "streaming"},
+                capabilities=frozenset({"text", "streaming"}),
                 is_default=True,
             )
         )
@@ -44,7 +44,7 @@ def build_model_router() -> ModelRouter:
             ProviderModelProfile(
                 provider="freellmapi",
                 model=model,
-                capabilities={"text", "streaming"},
+                capabilities=frozenset({"text", "streaming"}),
                 is_default=True,
             )
         )
