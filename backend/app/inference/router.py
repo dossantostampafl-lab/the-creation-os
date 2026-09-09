@@ -39,6 +39,28 @@ class ModelRouter:
             return self.registry.get_model_profile(provider_name, request.model)
         return self.registry.get_default_model_profile(provider_name)
 
+    def _candidate_names(self, request: InferenceRequest) -> list[str]:
+        requirements = request.requirements
+        candidates: list[str] = []
+        if requirements.preferred_provider:
+            candidates.append(requirements.preferred_provider)
+        candidates.extend(name for name in requirements.fallback_providers if name not in candidates)
+        if requirements.routing_strategy != "benchmark":
+            return candidates
+
+        ranked: list[tuple[int, float, int, str]] = []
+        for index, provider_name in enumerate(candidates):
+            profile = self._profile_for_request(provider_name, request)
+            evidence = None
+            if profile is not None:
+                evidence = self.registry.get_benchmark_evidence(provider_name, profile.model)
+            if evidence is None:
+                ranked.append((1, 0.0, index, provider_name))
+            else:
+                ranked.append((0, -evidence.score, index, provider_name))
+        ranked.sort()
+        return [item[3] for item in ranked]
+
     def _admit_capabilities(self, provider_name: str, request: InferenceRequest) -> None:
         required = request.requirements.required_capabilities
         if not required:
@@ -77,11 +99,7 @@ class ModelRouter:
             )
 
     async def generate(self, request: InferenceRequest) -> InferenceResponse:
-        requirements = request.requirements
-        candidates: list[str] = []
-        if requirements.preferred_provider:
-            candidates.append(requirements.preferred_provider)
-        candidates.extend(name for name in requirements.fallback_providers if name not in candidates)
+        candidates = self._candidate_names(request)
         if not candidates:
             raise ProviderUnavailable("router", "no inference provider requested")
 
