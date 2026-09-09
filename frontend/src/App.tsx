@@ -1,18 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { fetchChronicleHistory, fetchProjectionStatus, fetchSystemState, streamChronicle } from "./api";
-import type { ChronicleEvent, ChronicleRecord, ProjectionStatus, SystemState } from "./types";
+import { fetchChronicleHistory, fetchInferenceStatus, fetchProjectionStatus, fetchSystemState, streamChronicle } from "./api";
+import type { ChronicleEvent, ChronicleRecord, InferenceStatusSnapshot, ProjectionStatus, SystemState } from "./types";
 
 function statusTone(status: string): string {
   const value = status.toUpperCase();
-  if (["MANIFESTED", "SUCCEEDED", "CURRENT", "ACTIVE", "HEALTHY"].includes(value)) return "good";
-  if (["FAILED", "BLOCKED", "INVALID", "DEGRADED"].includes(value)) return "bad";
-  if (["RUNNING", "EXECUTING", "DISTRIBUTED", "READY", "LAGGING"].includes(value)) return "warn";
+  if (["MANIFESTED", "SUCCEEDED", "CURRENT", "ACTIVE", "HEALTHY", "AVAILABLE"].includes(value)) return "good";
+  if (["FAILED", "BLOCKED", "INVALID", "DEGRADED", "UNAVAILABLE"].includes(value)) return "bad";
+  if (["RUNNING", "EXECUTING", "DISTRIBUTED", "READY", "LAGGING", "UNCONFIGURED"].includes(value)) return "warn";
   return "neutral";
 }
 
 function App() {
   const [state, setState] = useState<SystemState | null>(null);
   const [projections, setProjections] = useState<ProjectionStatus | null>(null);
+  const [inference, setInference] = useState<InferenceStatusSnapshot | null>(null);
   const [chronicle, setChronicle] = useState<ChronicleRecord[]>([]);
   const [events, setEvents] = useState<ChronicleEvent[]>([]);
   const [connection, setConnection] = useState<"CONNECTING" | "LIVE" | "RESYNCING" | "AUTH_REQUIRED" | "ERROR">("CONNECTING");
@@ -27,14 +28,16 @@ function App() {
       try {
         setConnection("CONNECTING");
         setError(null);
-        const [snapshot, projectionStatus, history] = await Promise.all([
+        const [snapshot, projectionStatus, inferenceStatus, history] = await Promise.all([
           fetchSystemState(),
           fetchProjectionStatus(),
+          fetchInferenceStatus(),
           fetchChronicleHistory(),
         ]);
         if (!active) return;
         setState(snapshot);
         setProjections(projectionStatus);
+        setInference(inferenceStatus);
         setChronicle(history);
         cursor.current = snapshot.position;
         setConnection("LIVE");
@@ -59,10 +62,11 @@ function App() {
               previous_hash: null,
               created_at: event.created_at,
             }, ...current].slice(0, 40));
-            void Promise.all([fetchSystemState(), fetchProjectionStatus()]).then(([next, nextProjections]) => {
+            void Promise.all([fetchSystemState(), fetchProjectionStatus(), fetchInferenceStatus()]).then(([next, nextProjections, nextInference]) => {
               if (!active) return;
               setState(next);
               setProjections(nextProjections);
+              setInference(nextInference);
             });
           },
           onResync: () => {
@@ -162,6 +166,23 @@ function App() {
 
       <section className="lower-grid lower-grid-secondary">
         <article className="panel projections-panel"><div className="panel-title">PROJECTIONS</div><div className="stack">{projections?.projections.map((p) => <div className="row" key={p.name}><span>{p.name}</span><b className={statusTone(p.status)}>{p.status}{p.lag ? ` · lag ${p.lag}` : ""}</b></div>)}</div></article>
+        <article className="panel inference-panel">
+          <div className="panel-title">INFERENCE FABRIC</div>
+          {!inference ? <div className="empty">Inference status unavailable.</div> : !inference.configured ? (
+            <div className="stack"><div className="row"><span>{inference.configured_provider || "none"}</span><b className="warn">UNCONFIGURED</b></div></div>
+          ) : (
+            <div className="stack">
+              {inference.providers.map((provider) => <div className="inference-provider" key={provider.provider}>
+                <div className="row"><span>{provider.provider}</span><b className={statusTone(provider.available ? "AVAILABLE" : "UNAVAILABLE")}>{provider.available ? "AVAILABLE" : "UNAVAILABLE"}</b></div>
+                {provider.detail && <small>{provider.detail}</small>}
+                {provider.models.map((model) => <div className="row" key={`${provider.provider}:${model.model}`}>
+                  <span>{model.model}<small>{model.capabilities.join(" · ")}</small></span>
+                  <b className="neutral">{model.cost_tier}</b>
+                </div>)}
+              </div>)}
+            </div>
+          )}
+        </article>
       </section>
     </main>
   );
