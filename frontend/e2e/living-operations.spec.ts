@@ -68,11 +68,32 @@ const chronicle = [
   },
 ];
 
+const inference = {
+  configured: true,
+  configured_provider: "freellmapi",
+  providers: [
+    {
+      provider: "freellmapi",
+      available: true,
+      detail: null,
+      models: [
+        {
+          model: "auto:default",
+          is_default: true,
+          capabilities: ["streaming", "text"],
+          cost_tier: "UNKNOWN",
+        },
+      ],
+    },
+  ],
+};
+
 test("renders the Living Operations Terminal from projection-backed state", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("creation_access_token", "e2e-token"));
   await page.route("**/api/v1/system/state", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(state) }));
   await page.route("**/api/v1/system/projections", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(projections) }));
   await page.route("**/api/v1/chronicles?limit=40&offset=0", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(chronicle) }));
+  await page.route("**/api/v1/system/inference", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(inference) }));
   await page.route("**/api/v1/system/events?after=41", (route) => route.fulfill({
     status: 200,
     contentType: "text/event-stream",
@@ -92,6 +113,26 @@ test("renders the Living Operations Terminal from projection-backed state", asyn
   await expect(page.getByText("kernel_health", { exact: true })).toBeVisible();
   await expect(page.locator(".lower-grid-primary article:nth-child(4) .event-list").getByText("task_progressed", { exact: true })).toBeVisible();
   await expect(page.locator(".top-status .status")).toHaveText("LIVE");
+  await expect(page.getByText("INFERENCE FABRIC", { exact: true })).toBeVisible();
+  await expect(page.getByText("freellmapi", { exact: true })).toBeVisible();
+  await expect(page.getByText("auto:default", { exact: true })).toBeVisible();
+  await expect(page.getByText("streaming · text", { exact: true })).toBeVisible();
+  await expect(page.getByText("UNKNOWN", { exact: true })).toBeVisible();
+});
+
+test("renders an explicit unconfigured inference state without fabricated providers", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("creation_access_token", "e2e-token"));
+  await page.route("**/api/v1/system/state", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(state) }));
+  await page.route("**/api/v1/system/projections", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(projections) }));
+  await page.route("**/api/v1/chronicles?limit=40&offset=0", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(chronicle) }));
+  await page.route("**/api/v1/system/inference", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ configured: false, configured_provider: "fake", providers: [] }) }));
+  await page.route("**/api/v1/system/events?after=41", (route) => route.fulfill({ status: 200, contentType: "text/event-stream", body: "" }));
+
+  await page.goto("/");
+
+  await expect(page.getByText("INFERENCE FABRIC", { exact: true })).toBeVisible();
+  await expect(page.getByText("UNCONFIGURED", { exact: true })).toBeVisible();
+  await expect(page.getByText("fake", { exact: true })).toBeVisible();
 });
 
 test("fails closed when Creator authentication is absent", async ({ page }) => {
