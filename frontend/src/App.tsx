@@ -176,7 +176,7 @@ function App() {
                 <div className="row"><span>{provider.provider}</span><b className={statusTone(provider.available ? "AVAILABLE" : "UNAVAILABLE")}>{provider.available ? "AVAILABLE" : "UNAVAILABLE"}</b></div>
                 {provider.detail && <small>{provider.detail}</small>}
                 {provider.models.map((model) => <div className="row" key={`${provider.provider}:${model.model}`}>
-                  <span>{model.model}<small>{model.capabilities.join(" · ")}</small></span>
+                  <span><span>{model.model}</span><small>{model.capabilities.join(" · ")}</small></span>
                   <b className="neutral">{model.cost_tier}</b>
                 </div>)}
               </div>)}
