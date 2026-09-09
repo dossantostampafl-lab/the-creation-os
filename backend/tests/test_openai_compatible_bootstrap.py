@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from app.inference.openai_compatible_config import load_openai_compatible_config
-
 from app.config import settings
 from app.inference.bootstrap import build_model_router
 from app.inference.contracts import CostTier
+from app.inference.openai_compatible_config import load_openai_compatible_config
 from app.inference.openai_compatible_provider import OpenAICompatibleProvider
 
 
