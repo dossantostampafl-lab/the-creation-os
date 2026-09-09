@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from enum import IntEnum
 from typing import Any, Literal
 
@@ -31,6 +32,17 @@ class ProviderModelProfile(BaseModel):
     capabilities: frozenset[str] = Field(default_factory=frozenset)
     cost_tier: CostTier = CostTier.UNKNOWN
     is_default: bool = False
+
+
+class ProviderBenchmarkEvidence(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    provider: str = Field(..., min_length=1)
+    model: str = Field(..., min_length=1)
+    suite_id: str = Field(..., min_length=1)
+    score: float = Field(..., ge=0.0, le=1.0)
+    sample_count: int = Field(..., ge=1)
+    observed_at: datetime
 
 
 class InferenceRequest(BaseModel):
