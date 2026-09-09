@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.config import settings
+from app.inference.contracts import ProviderModelProfile
 from app.inference.freellmapi_config import load_freellmapi_config, load_freellmapi_model
 from app.inference.freellmapi_provider import FreeLLMAPIProvider
 from app.inference.openai_provider import OpenAIResponsesProvider
@@ -20,6 +21,14 @@ def build_model_router() -> ModelRouter:
                 default_model=settings.llm_model,
             )
         )
+        registry.register_model_profile(
+            ProviderModelProfile(
+                provider="openai",
+                model=settings.llm_model,
+                capabilities={"text", "streaming"},
+                is_default=True,
+            )
+        )
     elif provider == "freellmapi":
         gateway_config = load_freellmapi_config()
         model = load_freellmapi_model()
@@ -29,6 +38,14 @@ def build_model_router() -> ModelRouter:
                 default_model=model,
                 base_url=gateway_config.base_url,
                 timeout_seconds=gateway_config.timeout_seconds,
+            )
+        )
+        registry.register_model_profile(
+            ProviderModelProfile(
+                provider="freellmapi",
+                model=model,
+                capabilities={"text", "streaming"},
+                is_default=True,
             )
         )
     elif provider == "fake":
