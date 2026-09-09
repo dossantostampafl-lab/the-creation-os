@@ -11,7 +11,7 @@ from app.inference.contracts import (
     ProviderModelProfile,
     ProviderUnavailable,
 )
-from app.inference.health import CircuitState, ProviderCircuitBreaker
+from app.inference.health import CircuitState, ProviderCircuitBreaker, ProviderRateLimitCooldown
 from app.inference.registry import ProviderRegistry
 from app.inference.router import ModelRouter
 
@@ -138,3 +138,21 @@ def test_circuit_breaker_half_open_failure_reopens() -> None:
     assert breaker.state("primary") is CircuitState.OPEN
     assert breaker.can_attempt("primary", now=11.9) is False
     assert breaker.can_attempt("primary", now=12.0) is True
+
+
+def test_rate_limit_cooldown_blocks_provider_until_expiry() -> None:
+    cooldown = ProviderRateLimitCooldown()
+
+    cooldown.register("primary", now=10.0, retry_after_seconds=30.0)
+
+    assert cooldown.can_attempt("primary", now=39.9) is False
+    assert cooldown.can_attempt("primary", now=40.0) is True
+
+
+def test_rate_limit_cooldown_is_scoped_per_provider() -> None:
+    cooldown = ProviderRateLimitCooldown()
+
+    cooldown.register("primary", now=5.0, retry_after_seconds=20.0)
+
+    assert cooldown.can_attempt("primary", now=6.0) is False
+    assert cooldown.can_attempt("fallback", now=6.0) is True
