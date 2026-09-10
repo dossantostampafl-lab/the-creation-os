@@ -1,0 +1,174 @@
+services:
+  - type: web
+    name: creation-api
+    runtime: docker
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    preDeployCommand: python -m alembic upgrade head
+    healthCheckPath: /api/v1/health/ready
+    dockerCommand: >-
+      sh -c 'exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-10000}'
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: APP_SECRET_KEY
+        generateValue: true
+      - key: CREATOR_BOOTSTRAP_USERNAME
+        sync: false
+      - key: CREATOR_BOOTSTRAP_PASSWORD
+        sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: creation-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: creation-redis
+          property: connectionString
+      - key: CORS_ALLOW_ORIGINS
+        sync: false
+      - key: LLM_PROVIDER
+        sync: false
+      - key: LLM_MODEL
+        sync: false
+      - key: LLM_API_KEY
+        sync: false
+      - key: FREELLMAPI_API_KEY
+        sync: false
+      - key: FREELLMAPI_MODEL
+        sync: false
+      - key: FREELLMAPI_BASE_URL
+        sync: false
+      - key: FREELLMAPI_TIMEOUT_SECONDS
+        value: "60"
+      - key: OPENAI_COMPATIBLE_API_KEY
+        sync: false
+      - key: OPENAI_COMPATIBLE_MODEL
+        sync: false
+      - key: OPENAI_COMPATIBLE_BASE_URL
+        sync: false
+      - key: OPENAI_COMPATIBLE_TIMEOUT_SECONDS
+        value: "60"
+      - key: EMBEDDING_PROVIDER
+        sync: false
+      - key: EMBEDDING_MODEL
+        sync: false
+
+  - type: worker
+    name: creation-worker
+    runtime: docker
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    dockerCommand: python -m app.worker
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: APP_SECRET_KEY
+        fromService:
+          type: web
+          name: creation-api
+          envVarKey: APP_SECRET_KEY
+      - key: CREATOR_BOOTSTRAP_USERNAME
+        fromService:
+          type: web
+          name: creation-api
+          envVarKey: CREATOR_BOOTSTRAP_USERNAME
+      - key: CREATOR_BOOTSTRAP_PASSWORD
+        fromService:
+          type: web
+          name: creation-api
+          envVarKey: CREATOR_BOOTSTRAP_PASSWORD
+      - key: DATABASE_URL
+        fromDatabase:
+          name: creation-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: creation-redis
+          property: connectionString
+      - key: CORS_ALLOW_ORIGINS
+        fromService:
+          type: web
+          name: creation-api
+          envVarKey: CORS_ALLOW_ORIGINS
+      - key: LLM_PROVIDER
+        fromService:
+          type: web
+          name: creation-api
+          envVarKey: LLM_PROVIDER
+      - key: LLM_MODEL
+        fromService:
+          type: web
+          name: creation-api
+          envVarKey: LLM_MODEL
+      - key: LLM_API_KEY
+        fromService:
+          type: web
+          name: creation-api
+          envVarKey: LLM_API_KEY
+      - key: FREELLMAPI_API_KEY
+        fromService:
+          type: web
+          name: creation-api
+          envVarKey: FREELLMAPI_API_KEY
+      - key: FREELLMAPI_MODEL
+        fromService:
+          type: web
+          name: creation-api
+          envVarKey: FREELLMAPI_MODEL
+      - key: FREELLMAPI_BASE_URL
+        fromService:
+          type: web
+          name: creation-api
+          envVarKey: FREELLMAPI_BASE_URL
+      - key: FREELLMAPI_TIMEOUT_SECONDS
+        value: "60"
+      - key: OPENAI_COMPATIBLE_API_KEY
+        fromService:
+          type: web
+          name: creation-api
+          envVarKey: OPENAI_COMPATIBLE_API_KEY
+      - key: OPENAI_COMPATIBLE_MODEL
+        fromService:
+          type: web
+          name: creation-api
+          envVarKey: OPENAI_COMPATIBLE_MODEL
+      - key: OPENAI_COMPATIBLE_BASE_URL
+        fromService:
+          type: web
+          name: creation-api
+          envVarKey: OPENAI_COMPATIBLE_BASE_URL
+      - key: OPENAI_COMPATIBLE_TIMEOUT_SECONDS
+        value: "60"
+      - key: EMBEDDING_PROVIDER
+        fromService:
+          type: web
+          name: creation-api
+          envVarKey: EMBEDDING_PROVIDER
+      - key: EMBEDDING_MODEL
+        fromService:
+          type: web
+          name: creation-api
+          envVarKey: EMBEDDING_MODEL
+
+  - type: web
+    name: creation-frontend
+    runtime: docker
+    rootDir: frontend
+    dockerfilePath: ./Dockerfile.render
+    healthCheckPath: /healthz
+    envVars:
+      - key: VITE_API_BASE_URL
+        sync: false
+
+  - type: keyvalue
+    name: creation-redis
+    ipAllowList: []
+    maxmemoryPolicy: allkeys-lru
+
+databases:
+  - name: creation-postgres
+    databaseName: the_creation_os
+    user: creation

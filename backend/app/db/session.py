@@ -5,8 +5,9 @@ from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import settings
+from app.db.url import normalize_database_url
 
-engine: AsyncEngine = create_async_engine(settings.database_url, future=True, echo=False)
+engine: AsyncEngine = create_async_engine(normalize_database_url(settings.database_url), future=True, echo=False)
 AsyncSessionLocal = async_sessionmaker(bind=engine, expire_on_commit=False, autoflush=False)
 
 
