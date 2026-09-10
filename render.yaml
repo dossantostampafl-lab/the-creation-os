@@ -4,9 +4,10 @@ services:
     runtime: docker
     rootDir: backend
     dockerfilePath: ./Dockerfile
+    preDeployCommand: python -m alembic upgrade head
     healthCheckPath: /api/v1/health/ready
     dockerCommand: >-
-      sh -c 'python -m alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-10000}'
+      sh -c 'exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-10000}'
     envVars:
       - key: APP_ENV
         value: production
