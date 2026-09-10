@@ -59,8 +59,8 @@ def test_render_blueprint_uses_managed_data_references() -> None:
 
 def test_render_worker_is_background_only() -> None:
     text = (ROOT / "render.yaml").read_text()
-    worker_block = text.split("name: creation-worker", 1)[1].split("name: creation-frontend", 1)[0]
-    assert "type: worker" in worker_block
+    worker_block = text.split("- type: worker", 1)[1].split("- type: web\n    name: creation-frontend", 1)[0]
+    assert "name: creation-worker" in worker_block
     assert "healthCheckPath" not in worker_block
 
 
