@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { converseWithDeus, createConversation, fetchConversationMessages } from "./api";
 import type { ConversationMessage } from "./api";
+import "./CreatorConsole.css";
 
 type Props = {
   enabled: boolean;
