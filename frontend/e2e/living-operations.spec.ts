@@ -88,8 +88,7 @@ const inference = {
   ],
 };
 
-test("renders the Living Operations Terminal from projection-backed state", async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem("creation_access_token", "e2e-token"));
+async function mockOperationalApi(page: import("@playwright/test").Page) {
   await page.route("**/api/v1/system/state", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(state) }));
   await page.route("**/api/v1/system/projections", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(projections) }));
   await page.route("**/api/v1/chronicles?limit=40&offset=0", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(chronicle) }));
@@ -99,6 +98,11 @@ test("renders the Living Operations Terminal from projection-backed state", asyn
     contentType: "text/event-stream",
     body: "id: 42\nevent: chronicle\ndata: {\"event_id\":\"event-42\",\"position\":42,\"correlation_id\":\"corr\",\"causation_id\":null,\"actor_role\":\"agent\",\"event_type\":\"task_progressed\",\"aggregate_type\":\"task\",\"aggregate_id\":\"task-1\",\"payload\":{},\"created_at\":\"2026-09-08T15:00:01Z\"}\n\n",
   }));
+}
+
+test("renders the Living Operations Terminal from projection-backed state", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("creation_access_token", "e2e-token"));
+  await mockOperationalApi(page);
 
   await page.goto("/");
 
@@ -135,8 +139,29 @@ test("renders an explicit unconfigured inference state without fabricated provid
   await expect(page.getByText("fake", { exact: true })).toBeVisible();
 });
 
-test("fails closed when Creator authentication is absent", async ({ page }) => {
+test("presents a Creator login instead of requiring manual localStorage setup", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".top-status .status")).toHaveText("AUTH_REQUIRED");
-  await expect(page.getByText(/Authentication required/)).toBeVisible();
+
+  await expect(page.getByRole("heading", { name: "Creator Access" })).toBeVisible();
+  await expect(page.getByLabel("Username")).toBeVisible();
+  await expect(page.getByLabel("Password")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Enter The Creation" })).toBeVisible();
+});
+
+test("authenticates the Creator and hydrates the live dashboard", async ({ page }) => {
+  await page.route("**/api/v1/auth/login", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ access_token: "e2e-token", refresh_token: "e2e-refresh", token_type: "bearer", expires_in: 15 }),
+  }));
+  await mockOperationalApi(page);
+
+  await page.goto("/");
+  await page.getByLabel("Username").fill("creator");
+  await page.getByLabel("Password").fill("correct-horse-battery-staple");
+  await page.getByRole("button", { name: "Enter The Creation" }).click();
+
+  await expect(page.locator(".top-status .status")).toHaveText("LIVE");
+  await expect(page.getByRole("heading", { name: "Manifest Gate D" })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("creation_access_token"))).toBe("e2e-token");
 });
