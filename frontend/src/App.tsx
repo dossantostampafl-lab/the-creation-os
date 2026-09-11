@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { fetchChronicleHistory, fetchInferenceStatus, fetchProjectionStatus, fetchSystemState, streamChronicle } from "./api";
+import type { FormEvent } from "react";
+import { fetchChronicleHistory, fetchInferenceStatus, fetchProjectionStatus, fetchSystemState, loginCreator, streamChronicle } from "./api";
 import type { ChronicleEvent, ChronicleRecord, InferenceStatusSnapshot, ProjectionStatus, SystemState } from "./types";
 
 function statusTone(status: string): string {
@@ -18,6 +19,11 @@ function App() {
   const [events, setEvents] = useState<ChronicleEvent[]>([]);
   const [connection, setConnection] = useState<"CONNECTING" | "LIVE" | "RESYNCING" | "AUTH_REQUIRED" | "ERROR">("CONNECTING");
   const [error, setError] = useState<string | null>(null);
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [loginPending, setLoginPending] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [authVersion, setAuthVersion] = useState(0);
   const cursor = useRef(0);
 
   useEffect(() => {
@@ -91,7 +97,23 @@ function App() {
       active = false;
       controller.abort();
     };
-  }, []);
+  }, [authVersion]);
+
+  async function handleLogin(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setLoginPending(true);
+    setLoginError(null);
+    try {
+      await loginCreator(username, password);
+      setPassword("");
+      setAuthVersion((version) => version + 1);
+    } catch (loginFailure) {
+      const message = loginFailure instanceof Error ? loginFailure.message : "LOGIN_FAILED";
+      setLoginError(message === "INVALID_CREDENTIALS" ? "Invalid username or password." : "Authentication service unavailable.");
+    } finally {
+      setLoginPending(false);
+    }
+  }
 
   const selectedMission = state?.missions.find((mission) => ["executing", "distributed", "authorized"].includes(mission.status)) ?? state?.missions.at(-1);
   const missionTasks = useMemo(() => state?.tasks.filter((task) => task.mission_id === selectedMission?.id) ?? [], [state, selectedMission]);
@@ -108,7 +130,25 @@ function App() {
         </div>
       </header>
 
-      {connection === "AUTH_REQUIRED" && <section className="auth-banner">Authentication required. Store a valid access token as <code>creation_access_token</code> in this browser session.</section>}
+      {connection === "AUTH_REQUIRED" && (
+        <section className="login-shell" aria-live="polite">
+          <form className="login-panel" onSubmit={handleLogin}>
+            <span className="eyebrow">SOVEREIGN CREATOR</span>
+            <h2>Creator Access</h2>
+            <p>Authenticate to enter the live operating surface.</p>
+            <label>
+              <span>Username</span>
+              <input aria-label="Username" autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} required />
+            </label>
+            <label>
+              <span>Password</span>
+              <input aria-label="Password" autoComplete="current-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} required />
+            </label>
+            {loginError && <div className="login-error">{loginError}</div>}
+            <button type="submit" disabled={loginPending}>{loginPending ? "Authenticating…" : "Enter The Creation"}</button>
+          </form>
+        </section>
+      )}
       {error && connection === "ERROR" && <section className="error-banner">Live state unavailable: {error}</section>}
 
       <section className="metrics">
@@ -123,7 +163,7 @@ function App() {
         <aside className="panel hierarchy">
           <div className="panel-title">SYSTEM HIERARCHY</div>
           <ol className="tree">
-            {['CREATOR','DEUS','SOPHIA','ROCKMAM','INCEPTION','CENTRAL CORE','TREE CORE'].map((name) => <li key={name}>{name}</li>)}
+            {["CREATOR", "DEUS", "SOPHIA", "ROCKMAM", "INCEPTION", "CENTRAL CORE", "TREE CORE"].map((name) => <li key={name}>{name}</li>)}
           </ol>
           <div className="panel-title secondary">MISSIONS</div>
           <div className="stack">
@@ -153,7 +193,7 @@ function App() {
           <div className="panel-title secondary">AGENTS</div>
           <div className="stack">{state?.agents.slice(0, 12).map((a) => <div className="row" key={a.id}><span>{a.name}</span><b className={a.active ? "good" : "neutral"}>{a.active ? "LIVE" : "OFF"}</b></div>)}</div>
           <div className="panel-title secondary">MEMORY LAYERS</div>
-          <div className="memory-grid">{state && Object.entries(state.memory).filter(([k]) => k !== "total").map(([k,v]) => <div key={k}><span>{k}</span><strong>{v}</strong></div>)}</div>
+          <div className="memory-grid">{state && Object.entries(state.memory).filter(([k]) => k !== "total").map(([k, value]) => <div key={k}><span>{k}</span><strong>{value}</strong></div>)}</div>
         </aside>
       </section>
 
@@ -165,7 +205,7 @@ function App() {
       </section>
 
       <section className="lower-grid lower-grid-secondary">
-        <article className="panel projections-panel"><div className="panel-title">PROJECTIONS</div><div className="stack">{projections?.projections.map((p) => <div className="row" key={p.name}><span>{p.name}</span><b className={statusTone(p.status)}>{p.status}{p.lag ? ` · lag ${p.lag}` : ""}</b></div>)}</div></article>
+        <article className="panel projections-panel"><div className="panel-title">PROJECTIONS</div><div className="stack">{projections?.projections.map((projection) => <div className="row" key={projection.name}><span>{projection.name}</span><b className={statusTone(projection.status)}>{projection.status}{projection.lag ? ` · lag ${projection.lag}` : ""}</b></div>)}</div></article>
         <article className="panel inference-panel">
           <div className="panel-title">INFERENCE FABRIC</div>
           {!inference ? <div className="empty">Inference status unavailable.</div> : !inference.configured ? (
