@@ -1,12 +1,23 @@
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+LOCAL_COMPOSE = REPO_ROOT / "docker-compose.yml"
 PROD_COMPOSE = REPO_ROOT / "docker-compose.prod.yml"
 NGINX_CONFIG = REPO_ROOT / "frontend" / "nginx.conf"
 
 
 def _content() -> str:
     return PROD_COMPOSE.read_text(encoding="utf-8")
+
+
+def test_local_compose_runs_complete_product_stack() -> None:
+    content = LOCAL_COMPOSE.read_text(encoding="utf-8")
+    frontend_block = content.split("  frontend:\n", 1)[1].split("\n  api:\n", 1)[0]
+
+    assert '"8080:8080"' in frontend_block
+    assert "context: ./frontend" in frontend_block
+    assert "VITE_API_BASE_URL: /api/v1" in frontend_block
+    assert "condition: service_healthy" in frontend_block
 
 
 def test_production_compose_exposes_only_frontend_and_keeps_state_services_internal() -> None:
