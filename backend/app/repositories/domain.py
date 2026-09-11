@@ -76,7 +76,6 @@ class DomainRepository:
             stmt = select(model).join(Conversation).where(getattr(Conversation, 'creator_id') == creator_id)
         else:
             stmt = select(model).where(getattr(model, 'creator_id') == creator_id)
-        # SQLAlchemy typing is complex here; cast the result to the expected list type
         return cast(list[T], (await self.session.scalars(cast(Any, stmt.order_by(getattr(model, 'id'))))).all())
 
     async def add(self, entity: T) -> T:
@@ -94,6 +93,15 @@ class DomainRepository:
         return await self.session.scalar(select(Message).where(
             Message.id == message_id, Message.conversation_id == conversation_id
         ))
+
+    async def list_messages(self, conversation_id: str, limit: int = 20) -> list[Message]:
+        stmt = (
+            select(Message)
+            .where(Message.conversation_id == conversation_id)
+            .order_by(Message.created_at.desc(), Message.id.desc())
+            .limit(limit)
+        )
+        return list(reversed((await self.session.scalars(stmt)).all()))
 
     async def mission_for_inception(self, inception_id: str, lock: bool = False) -> Mission | None:
         stmt = select(Mission).where(Mission.inception_id == inception_id)
@@ -113,7 +121,6 @@ class DomainRepository:
         self, event_type: str, aggregate_type: str, aggregate_id: str | None,
         actor_id: str, actor_role: str, correlation_id: str, payload: dict[str, Any] | None = None,
     ) -> Chronicle:
-        # Serializes the empty-chain case as well as normal appends on PostgreSQL.
         if self.session.bind is not None and self.session.bind.dialect.name == "postgresql":
             await self.session.execute(text("SELECT pg_advisory_xact_lock(84739201)"))
         previous_event = await self.session.scalar(select(Chronicle).order_by(Chronicle.position.desc()).limit(1))
