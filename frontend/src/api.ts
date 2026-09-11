@@ -15,6 +15,27 @@ type TokenResponse = {
   expires_in: number;
 };
 
+export type Conversation = {
+  id: string;
+  creator_id: string;
+  title: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ConversationMessage = {
+  id: string;
+  conversation_id: string;
+  actor_id: string;
+  role: string;
+  content: string;
+  route: string;
+  metadata_json: Record<string, unknown>;
+  correlation_id: string;
+  created_at: string;
+};
+
 export async function loginCreator(username: string, password: string): Promise<void> {
   const response = await fetch(`${API_BASE}/auth/login`, {
     method: "POST",
@@ -28,9 +49,14 @@ export async function loginCreator(username: string, password: string): Promise<
   window.localStorage.setItem("creation_refresh_token", tokens.refresh_token);
 }
 
-async function api<T>(path: string): Promise<T> {
+async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
-    headers: { Authorization: `Bearer ${token()}` },
+    ...init,
+    headers: {
+      Authorization: `Bearer ${token()}`,
+      ...(init?.body ? { "Content-Type": "application/json" } : {}),
+      ...init?.headers,
+    },
   });
   if (response.status === 401 || response.status === 403) throw new Error("AUTH_REQUIRED");
   if (!response.ok) throw new Error(`HTTP_${response.status}`);
@@ -41,6 +67,20 @@ export const fetchSystemState = () => api<SystemState>("/system/state");
 export const fetchProjectionStatus = () => api<ProjectionStatus>("/system/projections");
 export const fetchInferenceStatus = () => api<InferenceStatusSnapshot>("/system/inference");
 export const fetchChronicleHistory = () => api<ChronicleRecord[]>("/chronicles?limit=40&offset=0");
+
+export const createConversation = (title = "Creator Session") => api<Conversation>("/conversations", {
+  method: "POST",
+  body: JSON.stringify({ title }),
+});
+
+export const fetchConversationMessages = (conversationId: string) =>
+  api<ConversationMessage[]>(`/conversations/${conversationId}/messages`);
+
+export const converseWithDeus = (conversationId: string, content: string) =>
+  api<{ response: string }>(`/conversations/${conversationId}/deus`, {
+    method: "POST",
+    body: JSON.stringify({ content, metadata: {} }),
+  });
 
 export type StreamHandlers = {
   onEvent: (event: ChronicleEvent) => void;
