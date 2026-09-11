@@ -8,6 +8,26 @@ function token(): string {
   return value;
 }
 
+type TokenResponse = {
+  access_token: string;
+  refresh_token: string;
+  token_type: "bearer";
+  expires_in: number;
+};
+
+export async function loginCreator(username: string, password: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
+  if (response.status === 401 || response.status === 403) throw new Error("INVALID_CREDENTIALS");
+  if (!response.ok) throw new Error(`HTTP_${response.status}`);
+  const tokens = await response.json() as TokenResponse;
+  window.localStorage.setItem("creation_access_token", tokens.access_token);
+  window.localStorage.setItem("creation_refresh_token", tokens.refresh_token);
+}
+
 async function api<T>(path: string): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     headers: { Authorization: `Bearer ${token()}` },
