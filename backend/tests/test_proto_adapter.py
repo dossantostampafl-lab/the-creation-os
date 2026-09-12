@@ -45,6 +45,13 @@ def test_proto_bridge_requires_url_and_secret() -> None:
     assert (
         _settings(
             proto_base_url="https://proto.example",
+            proto_creation_shared_secret="   ",
+        ).proto_bridge_configured
+        is False
+    )
+    assert (
+        _settings(
+            proto_base_url="https://proto.example",
             proto_creation_shared_secret="secret",
         ).proto_bridge_configured
         is True
