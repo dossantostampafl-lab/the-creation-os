@@ -151,6 +151,7 @@ class AgentRuntime:
                         "capability": intent.capability,
                         "action": intent.action,
                     },
+                    terminal=True,
                 )
                 return True
             output = {
@@ -189,6 +190,8 @@ class AgentRuntime:
         task_id: str,
         execution_id: str,
         error: dict[str, Any],
+        *,
+        terminal: bool = False,
     ) -> None:
         async with self.session_factory() as session:
             await finish_task_attempt(
@@ -197,6 +200,7 @@ class AgentRuntime:
                 execution_id=execution_id,
                 succeeded=False,
                 error=error,
+                terminal_failure=terminal,
             )
             await session.commit()
         await self._evaluate_completion(mission_id, correlation_id)
