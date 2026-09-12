@@ -8,7 +8,7 @@ THE CREATION OS é um sistema persistente de execução governada com API FastAP
 - `backend/app/auth` — autenticação do Criador e ciclo de tokens.
 - `backend/app/cognition` — contratos estruturados para avaliação cognitiva e planejamento.
 - `backend/app/kernel` — distribuição, DAG, claims de tarefas, AgentExecution, supervisão, reconciliação e conclusão de Missions.
-- `backend/app/capabilities` — contratos, autorização, policy, gateway e execução governada de capabilities.
+- `backend/app/capabilities` — contratos, autorização, policy, gateway e execução governada de capabilities, incluindo o adapter opcional e restrito do PROTO.
 - `backend/app/inference` — ProviderRegistry, ModelRouter e adapters `openai`, `freellmapi` e `openai_compatible`.
 - `backend/app/memory` — contratos e policy de memória governada; persistência é feita no domínio/repositórios.
 - `backend/app/projections` — projeções persistidas usadas pelo dashboard e pelo estado operacional.
@@ -29,6 +29,14 @@ DEUS permanece como interface conceitual do Criador. Trabalho operacional é exe
 `.env.example` na raiz é a única referência canônica de variáveis locais/de desenvolvimento. Copie-o para `.env` e ajuste os valores.
 
 Providers `fake` são permitidos somente em desenvolvimento/testes. Produção deve selecionar explicitamente `openai`, `freellmapi` ou `openai_compatible` e fornecer as credenciais/configurações correspondentes.
+
+### Bridge seguro com o PROTO
+
+O worker pode registrar a capability `proto` para enviar Missions apenas ao bridge autenticado `/creation/missions` do PROTO. A integração é habilitada somente quando `PROTO_BASE_URL` e `PROTO_CREATION_SHARED_SECRET` estão configurados; `PROTO_TIMEOUT_SECONDS` controla o timeout de transporte.
+
+O host do PROTO é configuração fixa do processo: Agents e `CapabilityIntent` não podem fornecer URL, token ou headers. Em produção, `PROTO_BASE_URL` deve usar HTTPS. O adapter local aceita somente os jobs `market-data-health`, `opportunity-scan` e `shadow-decision`, nos modos `LIVE_MONITORING`, `SIMULATION`, `PAPER_TRADING` ou `HISTORICAL_REPLAY`.
+
+Este bridge não expõe execução financeira. Respostas do PROTO são rejeitadas se indicarem `financial_connectivity=true` ou `real_money_execution=true`. O shared secret é usado somente no header `X-Proto-Creation-Token` e não deve ser persistido em `CapabilityInvocation`, Chronicle ou logs.
 
 ## Executar local
 
@@ -121,5 +129,7 @@ O repositório também possui CI de release, CodeQL/auditoria de dependências e
 - `creation-redis`
 
 `DATABASE_URL` e `REDIS_URL` são fornecidos pelos serviços gerenciados. `APP_SECRET_KEY` é gerado pela plataforma. Credenciais reais não devem ser commitadas no Git.
+
+Para habilitar o bridge PROTO no Render, configure `PROTO_BASE_URL` e `PROTO_CREATION_SHARED_SECRET` no serviço `creation-api`; o Blueprint replica essas variáveis para `creation-worker`. Sem ambos, o adapter PROTO permanece desligado e o gateway continua fail-closed.
 
 O frontend usa `VITE_API_BASE_URL` para apontar para a API pública. A API executa migrations antes do Uvicorn e expõe `/api/v1/health/ready`; o worker compartilha persistência/configuração e não possui porta pública.
