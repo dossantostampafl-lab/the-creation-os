@@ -7,7 +7,9 @@ from loguru import logger
 from sqlalchemy import select
 
 from app.capabilities.gateway import CapabilityGateway
+from app.capabilities.proto import ProtoCapabilityAdapter
 from app.capabilities.runtime import CapabilityRuntime
+from app.config import settings
 from app.db.session import AsyncSessionLocal
 from app.inference.bootstrap import build_model_router
 from app.kernel.agent_runtime import AgentRuntime
@@ -20,9 +22,24 @@ from app.projections.refresher import ProjectionRefresher
 POLL_INTERVAL_SECONDS = 1.0
 
 
+def build_capability_gateway() -> CapabilityGateway:
+    gateway = CapabilityGateway()
+    if settings.proto_bridge_configured:
+        assert settings.proto_base_url is not None
+        assert settings.proto_creation_shared_secret is not None
+        gateway.register(
+            ProtoCapabilityAdapter(
+                base_url=settings.proto_base_url,
+                shared_secret=settings.proto_creation_shared_secret.get_secret_value(),
+                timeout_seconds=settings.proto_timeout_seconds,
+            )
+        )
+    return gateway
+
+
 async def run_worker() -> None:
     router = build_model_router()
-    capability_gateway = CapabilityGateway()
+    capability_gateway = build_capability_gateway()
     capability_runtime = CapabilityRuntime(AsyncSessionLocal, capability_gateway)
     completion_engine = MissionCompletionEngine(AsyncSessionLocal)
     runtime = AgentRuntime(
