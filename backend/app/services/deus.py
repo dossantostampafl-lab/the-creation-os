@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.core.domain import Actor, ConversationStatus, InvalidOrigin, require_creator
+from app.core.domain import (
+    Actor,
+    ConversationStatus,
+    InvalidOrigin,
+    require_creator,
+)
 from app.inference.contracts import InferenceRequest, ModelRequirements
 from app.inference.router import ModelRouter
 from app.models.entities import Conversation, Message
