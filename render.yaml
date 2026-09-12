@@ -54,6 +54,12 @@ services:
         sync: false
       - key: EMBEDDING_MODEL
         sync: false
+      - key: PROTO_BASE_URL
+        sync: false
+      - key: PROTO_CREATION_SHARED_SECRET
+        sync: false
+      - key: PROTO_TIMEOUT_SECONDS
+        value: "10"
 
   - type: worker
     name: creation-worker
@@ -152,6 +158,18 @@ services:
           type: web
           name: creation-api
           envVarKey: EMBEDDING_MODEL
+      - key: PROTO_BASE_URL
+        fromService:
+          type: web
+          name: creation-api
+          envVarKey: PROTO_BASE_URL
+      - key: PROTO_CREATION_SHARED_SECRET
+        fromService:
+          type: web
+          name: creation-api
+          envVarKey: PROTO_CREATION_SHARED_SECRET
+      - key: PROTO_TIMEOUT_SECONDS
+        value: "10"
 
   - type: web
     name: creation-frontend
