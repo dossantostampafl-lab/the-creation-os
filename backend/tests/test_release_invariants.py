@@ -3,6 +3,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 LOCAL_COMPOSE = REPO_ROOT / "docker-compose.yml"
 PROD_COMPOSE = REPO_ROOT / "docker-compose.prod.yml"
+RENDER_BLUEPRINT = REPO_ROOT / "render.yaml"
 NGINX_CONFIG = REPO_ROOT / "frontend" / "nginx.conf"
 
 
@@ -66,6 +67,23 @@ def test_production_compose_passes_current_multi_provider_configuration_without_
     assert required <= {line.strip() for line in content.splitlines()}
     assert "http://freellmapi:3001/v1" not in content
     assert "http://ollama:11434/v1" not in content
+
+
+def test_production_worker_receives_optional_proto_bridge_configuration() -> None:
+    content = _content()
+    render = RENDER_BLUEPRINT.read_text(encoding="utf-8")
+
+    required_compose = {
+        "PROTO_BASE_URL: ${PROTO_BASE_URL:-}",
+        "PROTO_CREATION_SHARED_SECRET: ${PROTO_CREATION_SHARED_SECRET:-}",
+        "PROTO_TIMEOUT_SECONDS: ${PROTO_TIMEOUT_SECONDS:-10}",
+    }
+    assert required_compose <= {line.strip() for line in content.splitlines()}
+    assert render.count("- key: PROTO_BASE_URL") == 2
+    assert render.count("- key: PROTO_CREATION_SHARED_SECRET") == 2
+    assert render.count("- key: PROTO_TIMEOUT_SECONDS") == 2
+    assert "envVarKey: PROTO_BASE_URL" in render
+    assert "envVarKey: PROTO_CREATION_SHARED_SECRET" in render
 
 
 def test_worker_has_outbound_network_path_for_hosted_inference_providers() -> None:
