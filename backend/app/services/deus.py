@@ -9,7 +9,6 @@ from app.models.entities import Conversation, Message
 from app.repositories.domain import DomainRepository
 from app.services.domain import NotFoundError
 
-
 SYSTEM_PROMPT = (
     "You are DEUS, the Creator-facing interface of THE CREATION OS. "
     "Answer the Creator clearly and concisely. Do not claim that an action, Mission, Agent, "
