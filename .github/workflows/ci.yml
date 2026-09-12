@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   backend:
     runs-on: ubuntu-latest
@@ -43,6 +46,8 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -67,6 +72,8 @@ jobs:
         working-directory: frontend
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -80,6 +87,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Configure canonical development environment
         run: cp .env.example .env
       - name: Validate complete local Compose configuration
@@ -127,6 +136,8 @@ jobs:
       EMBEDDING_MODEL: ci-embedding-model
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Validate OpenAI production configuration
         run: docker compose -f docker-compose.prod.yml config --quiet
       - name: Validate FreeLLMAPI production configuration
