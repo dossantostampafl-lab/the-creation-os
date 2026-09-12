@@ -125,6 +125,14 @@ class ProtoJobStatus(BaseModel):
             raise ValueError("PROTO status contains a job outside the safe allowlist")
         return value
 
+    @field_validator("mode")
+    @classmethod
+    def validate_mode(cls, value: str) -> str:
+        normalized = value.strip().upper()
+        if normalized not in _ALLOWED_MODES:
+            raise ValueError("PROTO status contains a mode outside the safe allowlist")
+        return normalized
+
     @model_validator(mode="after")
     def validate_financial_boundary(self) -> ProtoJobStatus:
         if self.financial_connectivity or self.real_money_execution:
@@ -186,9 +194,13 @@ class ProtoCapabilityAdapter:
             receipt = ProtoMissionReceipt.model_validate(response.json())
             if receipt.mission_id != mission.mission_id:
                 raise ValueError("PROTO receipt mission_id does not match request")
+            if receipt.state == "ACCEPTED" and set(receipt.accepted_jobs) != set(
+                mission.requested_jobs
+            ):
+                raise ValueError("PROTO receipt accepted_jobs does not match request")
             if receipt.state != "ACCEPTED":
                 return self._receipt_result(intent, receipt)
-            status = await self._wait_for_terminal_status(mission.mission_id, headers)
+            status = await self._wait_for_terminal_status(mission, headers)
         except (httpx.TimeoutException, httpx.NetworkError) as exc:
             raise RuntimeError("PROTO bridge transport failed") from exc
         except httpx.HTTPStatusError as exc:
@@ -216,17 +228,23 @@ class ProtoCapabilityAdapter:
 
     async def _wait_for_terminal_status(
         self,
-        mission_id: UUID,
+        mission: ProtoMissionRequest,
         headers: dict[str, str],
     ) -> ProtoMissionStatus:
         deadline = time.monotonic() + self._mission_wait_seconds
-        path = f"/creation/missions/{mission_id}"
+        path = f"/creation/missions/{mission.mission_id}"
+        requested_jobs = set(mission.requested_jobs)
         while True:
             response = await self._request("GET", path, headers)
             response.raise_for_status()
             status = ProtoMissionStatus.model_validate(response.json())
-            if status.mission_id != mission_id:
+            if status.mission_id != mission.mission_id:
                 raise ValueError("PROTO status mission_id does not match request")
+            returned_jobs = {job.job_name for job in status.jobs}
+            if returned_jobs - requested_jobs:
+                raise ValueError("PROTO status contains an unrequested job")
+            if any(job.mode != mission.execution_mode for job in status.jobs):
+                raise ValueError("PROTO status execution mode does not match request")
             if status.state in _TERMINAL_STATES:
                 return status
             if time.monotonic() >= deadline:
