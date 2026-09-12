@@ -23,6 +23,21 @@ def _settings(**overrides: object) -> Settings:
     return Settings(**values)
 
 
+def _intent(**arguments: object) -> CapabilityIntent:
+    payload: dict[str, object] = {
+        "mission_id": "550e8400-e29b-41d4-a716-446655440000",
+        "objective": "scan safe opportunities",
+        "requested_jobs": ["opportunity-scan"],
+        "execution_mode": "LIVE_MONITORING",
+    }
+    payload.update(arguments)
+    return CapabilityIntent(
+        capability="proto",
+        action="submit_mission",
+        arguments=payload,
+    )
+
+
 def test_proto_bridge_requires_url_and_secret() -> None:
     assert _settings().proto_bridge_configured is False
     assert _settings(proto_base_url="https://proto.example").proto_bridge_configured is False
@@ -45,24 +60,64 @@ def test_proto_bridge_rejects_http_in_production() -> None:
         )
 
 
+def test_proto_bridge_rejects_origin_with_path() -> None:
+    with pytest.raises(ValidationError):
+        _settings(
+            proto_base_url="https://proto.example/creation",
+            proto_creation_shared_secret="secret",
+        )
+
+
 @pytest.mark.asyncio
-async def test_proto_adapter_submits_safe_mission_without_leaking_secret() -> None:
+async def test_proto_adapter_waits_for_terminal_result_without_leaking_secret() -> None:
     from app.capabilities.proto import ProtoCapabilityAdapter
 
-    captured: dict[str, object] = {}
+    captured: list[tuple[str, str, str | None, str]] = []
+    status_calls = 0
 
     def handler(request: httpx.Request) -> httpx.Response:
-        captured["url"] = str(request.url)
-        captured["token"] = request.headers.get("X-Proto-Creation-Token")
-        captured["body"] = request.content.decode()
+        nonlocal status_calls
+        body = request.content.decode()
+        captured.append(
+            (
+                request.method,
+                str(request.url),
+                request.headers.get("X-Proto-Creation-Token"),
+                body,
+            )
+        )
+        if request.method == "POST":
+            return httpx.Response(
+                200,
+                json={
+                    "mission_id": "550e8400-e29b-41d4-a716-446655440000",
+                    "state": "ACCEPTED",
+                    "accepted_jobs": ["opportunity-scan"],
+                    "rejected_reason": None,
+                    "job_run_ids": ["run-1"],
+                    "financial_connectivity": False,
+                    "real_money_execution": False,
+                },
+            )
+        status_calls += 1
+        state = "RUNNING" if status_calls == 1 else "COMPLETED"
         return httpx.Response(
             200,
             json={
                 "mission_id": "550e8400-e29b-41d4-a716-446655440000",
-                "state": "ACCEPTED",
-                "accepted_jobs": ["opportunity-scan"],
-                "rejected_reason": None,
-                "job_run_ids": ["run-1"],
+                "state": state,
+                "jobs": [
+                    {
+                        "id": "run-1",
+                        "job_name": "opportunity-scan",
+                        "mode": "LIVE_MONITORING",
+                        "state": "RUNNING" if state == "RUNNING" else "SUCCEEDED",
+                        "result": None if state == "RUNNING" else {"opportunity_count": 3},
+                        "last_error": None,
+                        "financial_connectivity": False,
+                        "real_money_execution": False,
+                    }
+                ],
                 "financial_connectivity": False,
                 "real_money_execution": False,
             },
@@ -73,25 +128,25 @@ async def test_proto_adapter_submits_safe_mission_without_leaking_secret() -> No
         base_url="https://proto.example",
         shared_secret="super-secret",
         timeout_seconds=5,
+        mission_wait_seconds=1,
+        poll_interval_seconds=0.001,
         client=client,
     )
-    intent = CapabilityIntent(
-        capability="proto",
-        action="submit_mission",
-        arguments={
-            "mission_id": "550e8400-e29b-41d4-a716-446655440000",
-            "objective": "scan safe opportunities",
-            "requested_jobs": ["opportunity-scan"],
-            "execution_mode": "LIVE_MONITORING",
-        },
-    )
 
-    result = await adapter.execute(intent)
+    result = await adapter.execute(_intent())
     await client.aclose()
 
     assert result.ok is True
-    assert captured["url"] == "https://proto.example/creation/missions"
-    assert captured["token"] == "super-secret"
+    assert result.data["state"] == "COMPLETED"
+    assert result.data["jobs"][0]["result"] == {"opportunity_count": 3}
+    assert status_calls == 2
+    assert captured[0][0] == "POST"
+    assert captured[0][1] == "https://proto.example/creation/missions"
+    assert captured[1][1] == (
+        "https://proto.example/creation/missions/550e8400-e29b-41d4-a716-446655440000"
+    )
+    assert all(item[2] == "super-secret" for item in captured)
+    assert all("super-secret" not in item[3] for item in captured)
     assert "super-secret" not in str(result.model_dump(mode="json"))
     assert result.data["financial_connectivity"] is False
     assert result.data["real_money_execution"] is False
@@ -124,19 +179,9 @@ async def test_proto_adapter_rejects_unsafe_jobs_and_modes(jobs: list[str], mode
         timeout_seconds=5,
         client=client,
     )
-    intent = CapabilityIntent(
-        capability="proto",
-        action="submit_mission",
-        arguments={
-            "mission_id": "550e8400-e29b-41d4-a716-446655440000",
-            "objective": "unsafe attempt",
-            "requested_jobs": jobs,
-            "execution_mode": mode,
-        },
-    )
 
     with pytest.raises(ValueError):
-        await adapter.execute(intent)
+        await adapter.execute(_intent(requested_jobs=jobs, execution_mode=mode))
     await client.aclose()
     assert called is False
 
@@ -152,21 +197,14 @@ async def test_proto_adapter_rejects_transport_override_arguments() -> None:
         timeout_seconds=5,
         client=client,
     )
-    intent = CapabilityIntent(
-        capability="proto",
-        action="submit_mission",
-        arguments={
-            "mission_id": "550e8400-e29b-41d4-a716-446655440000",
-            "objective": "override attempt",
-            "requested_jobs": ["opportunity-scan"],
-            "execution_mode": "LIVE_MONITORING",
-            "base_url": "https://attacker.example",
-            "token": "attacker-token",
-        },
-    )
 
     with pytest.raises(ValueError, match="transport override"):
-        await adapter.execute(intent)
+        await adapter.execute(
+            _intent(
+                base_url="https://attacker.example",
+                token="attacker-token",
+            )
+        )
     await client.aclose()
 
 
@@ -194,19 +232,61 @@ async def test_proto_adapter_rejects_financial_invariant_violation() -> None:
         timeout_seconds=5,
         client=client,
     )
-    intent = CapabilityIntent(
-        capability="proto",
-        action="submit_mission",
-        arguments={
-            "mission_id": "550e8400-e29b-41d4-a716-446655440000",
-            "objective": "scan",
-            "requested_jobs": ["opportunity-scan"],
-            "execution_mode": "LIVE_MONITORING",
-        },
-    )
 
     with pytest.raises(RuntimeError, match="financial boundary"):
-        await adapter.execute(intent)
+        await adapter.execute(_intent())
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_proto_adapter_rejects_unsafe_job_returned_by_status() -> None:
+    from app.capabilities.proto import ProtoCapabilityAdapter
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            return httpx.Response(
+                200,
+                json={
+                    "mission_id": "550e8400-e29b-41d4-a716-446655440000",
+                    "state": "ACCEPTED",
+                    "accepted_jobs": ["opportunity-scan"],
+                    "job_run_ids": ["run-1"],
+                    "financial_connectivity": False,
+                    "real_money_execution": False,
+                },
+            )
+        return httpx.Response(
+            200,
+            json={
+                "mission_id": "550e8400-e29b-41d4-a716-446655440000",
+                "state": "COMPLETED",
+                "jobs": [
+                    {
+                        "id": "run-1",
+                        "job_name": "execute-order",
+                        "mode": "LIVE",
+                        "state": "SUCCEEDED",
+                        "result": {},
+                        "financial_connectivity": False,
+                        "real_money_execution": False,
+                    }
+                ],
+                "financial_connectivity": False,
+                "real_money_execution": False,
+            },
+        )
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    adapter = ProtoCapabilityAdapter(
+        base_url="https://proto.example",
+        shared_secret="secret",
+        timeout_seconds=5,
+        poll_interval_seconds=0.001,
+        client=client,
+    )
+
+    with pytest.raises(RuntimeError, match="invalid response"):
+        await adapter.execute(_intent())
     await client.aclose()
 
 
