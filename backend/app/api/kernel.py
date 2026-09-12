@@ -56,16 +56,6 @@ async def execute_mission(
     return mission_response(await s.transition_mission(a, str(entity_id), MissionStatus.EXECUTING, cid))
 
 
-@router.post("/missions/{entity_id}/manifest", response_model=MissionResponse)
-async def manifest_mission(
-    entity_id: uuid.UUID,
-    a: Actor = Depends(actor),
-    cid: str = Depends(correlation_id),
-    s: LivingCoreService = Depends(service),
-):
-    return mission_response(await s.transition_mission(a, str(entity_id), MissionStatus.MANIFESTED, cid))
-
-
 @router.post("/missions/{entity_id}/fail", response_model=MissionResponse)
 async def fail_mission(
     entity_id: uuid.UUID,

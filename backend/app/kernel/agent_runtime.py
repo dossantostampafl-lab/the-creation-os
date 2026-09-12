@@ -46,7 +46,9 @@ class AgentRuntime:
             execution_id = execution.id
             input_payload = dict(task.input_json or {})
             capabilities = dict(agent.capabilities_json or {})
-            mission_correlation_id = correlation_id or str((mission.authorization_json or {}).get("correlation_id") or uuid.uuid4())
+            mission_correlation_id = correlation_id or str(
+                (mission.authorization_json or {}).get("correlation_id") or uuid.uuid4()
+            )
             await session.commit()
 
         preferred_provider = capabilities.get("inference_provider")
@@ -138,6 +140,20 @@ class AgentRuntime:
                     {"code": "CAPABILITY_EXECUTION_REJECTED", "detail": exc.__class__.__name__},
                 )
                 return True
+            if not capability_result.ok:
+                await self._finish_failure(
+                    mission_id,
+                    mission_correlation_id,
+                    task_id,
+                    execution_id,
+                    {
+                        "code": "CAPABILITY_RESULT_FAILED",
+                        "capability": intent.capability,
+                        "action": intent.action,
+                    },
+                    terminal=True,
+                )
+                return True
             output = {
                 "content": response.content,
                 "capability_result": capability_result.model_dump(mode="json"),
@@ -174,6 +190,8 @@ class AgentRuntime:
         task_id: str,
         execution_id: str,
         error: dict[str, Any],
+        *,
+        terminal: bool = False,
     ) -> None:
         async with self.session_factory() as session:
             await finish_task_attempt(
@@ -182,6 +200,7 @@ class AgentRuntime:
                 execution_id=execution_id,
                 succeeded=False,
                 error=error,
+                terminal_failure=terminal,
             )
             await session.commit()
         await self._evaluate_completion(mission_id, correlation_id)

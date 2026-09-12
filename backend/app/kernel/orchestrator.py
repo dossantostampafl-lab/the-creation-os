@@ -97,6 +97,7 @@ async def finish_task_attempt(
     error: dict | None = None,
     provider: str | None = None,
     model: str | None = None,
+    terminal_failure: bool = False,
 ) -> Task:
     task = await session.get(Task, task_id, with_for_update=True)
     execution = await session.get(AgentExecution, execution_id, with_for_update=True)
@@ -121,7 +122,7 @@ async def finish_task_attempt(
         task.error_json = failure
         execution.status = "FAILED"
         execution.error_json = failure
-        if task.attempt_count < task.max_attempts:
+        if not terminal_failure and task.attempt_count < task.max_attempts:
             task.status = "READY"
         else:
             task.status = "FAILED"

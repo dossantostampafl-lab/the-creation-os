@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from datetime import timedelta
+from urllib.parse import urlsplit
 
 from pydantic.v1 import BaseSettings, Field, SecretStr, validator
 
@@ -25,6 +26,9 @@ class Settings(BaseSettings):
     llm_api_key: SecretStr | None = Field(None, env="LLM_API_KEY")
     embedding_provider: str = Field("fake", env="EMBEDDING_PROVIDER")
     embedding_model: str = Field("fake", env="EMBEDDING_MODEL")
+    proto_base_url: str | None = Field(None, env="PROTO_BASE_URL")
+    proto_creation_shared_secret: SecretStr | None = Field(None, env="PROTO_CREATION_SHARED_SECRET")
+    proto_timeout_seconds: float = Field(10.0, gt=0.0, le=60.0, env="PROTO_TIMEOUT_SECONDS")
     chronicle_embedding_dim: int = 8
 
     class Config:
@@ -43,13 +47,58 @@ class Settings(BaseSettings):
     def refresh_token_expires(self) -> timedelta:
         return timedelta(minutes=self.refresh_token_expire_minutes)
 
+    @property
+    def proto_bridge_configured(self) -> bool:
+        configured_value = self.proto_creation_shared_secret
+        return bool(
+            self.proto_base_url
+            and configured_value is not None
+            and configured_value.get_secret_value().strip()
+        )
+
     @validator("app_env")
     def validate_env(cls, value: str) -> str:
         if value not in {"development", "test", "production"}:
             raise ValueError("APP_ENV must be development, test, or production")
         return value
 
+    @validator("cors_allow_origins")
+    def validate_cors_allow_origins(cls, value: str, values: dict[str, object]) -> str:
+        origins = [origin.strip() for origin in value.split(",") if origin.strip()]
+        if values.get("app_env") == "production" and "*" in origins:
+            raise ValueError("CORS_ALLOW_ORIGINS must not contain wildcard in production")
+        return ",".join(origins)
 
-# Instantiated from environment at runtime; mypy flags missing constructor args.
-# This is intentional for BaseSettings which reads from env vars.
+    @validator("proto_base_url")
+    def validate_proto_base_url(cls, value: str | None, values: dict[str, object]) -> str | None:
+        if value is None or not value.strip():
+            return None
+        normalized = value.strip().rstrip("/")
+        parsed = urlsplit(normalized)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            raise ValueError("PROTO_BASE_URL must be an absolute HTTP(S) origin")
+        if parsed.username or parsed.password or parsed.query or parsed.fragment:
+            raise ValueError("PROTO_BASE_URL must not contain credentials, query, or fragment")
+        if parsed.path not in {"", "/"}:
+            raise ValueError("PROTO_BASE_URL must be an origin without a path")
+        if values.get("app_env") == "production" and parsed.scheme != "https":
+            raise ValueError("PROTO_BASE_URL must use HTTPS in production")
+        return normalized
+
+    @validator("proto_creation_shared_secret")
+    def validate_proto_credential(
+        cls,
+        value: SecretStr | None,
+        values: dict[str, object],
+    ) -> SecretStr | None:
+        if value is None:
+            return None
+        raw = value.get_secret_value().strip()
+        if not raw:
+            return None
+        if values.get("app_env") == "production" and len(raw) < 32:
+            raise ValueError("PROTO_CREATION_SHARED_SECRET must be at least 32 characters in production")
+        return SecretStr(raw)
+
+
 settings = Settings()  # type: ignore[call-arg]
