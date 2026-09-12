@@ -1,0 +1,50 @@
+name: Materialize Dependency Locks
+
+on:
+  push:
+    branches: [integration/proto-secure-bridge]
+
+permissions:
+  contents: read
+
+jobs:
+  frontend-lock:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+      - name: Resolve frontend lockfile without lifecycle scripts
+        working-directory: frontend
+        run: npm install --package-lock-only --ignore-scripts --audit=false --fund=false
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: creation-frontend-lock
+          path: frontend/package-lock.json
+          if-no-files-found: error
+          retention-days: 1
+
+  python-lock:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+      - name: Resolve Python 3.12 dependency constraints
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install '.[dev]'
+          python -m pip freeze --exclude-editable | sort > constraints-py312.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: creation-python312-constraints
+          path: backend/constraints-py312.txt
+          if-no-files-found: error
+          retention-days: 1
