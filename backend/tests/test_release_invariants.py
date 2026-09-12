@@ -7,6 +7,7 @@ RENDER_BLUEPRINT = REPO_ROOT / "render.yaml"
 NGINX_CONFIG = REPO_ROOT / "frontend" / "nginx.conf"
 NGINX_RENDER_CONFIG = REPO_ROOT / "frontend" / "nginx.render.conf"
 CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+KERNEL_API = REPO_ROOT / "backend" / "app" / "api" / "kernel.py"
 
 
 def _content() -> str:
@@ -130,3 +131,9 @@ def test_frontend_nginx_configs_apply_browser_security_headers() -> None:
         content = path.read_text(encoding="utf-8")
         for expected in required:
             assert expected in content, f"{path.name} missing {expected}"
+
+
+def test_manifestation_has_no_direct_creator_api_bypass() -> None:
+    content = KERNEL_API.read_text(encoding="utf-8")
+
+    assert '@router.post("/missions/{entity_id}/manifest"' not in content
