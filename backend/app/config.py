@@ -27,10 +27,7 @@ class Settings(BaseSettings):
     embedding_provider: str = Field("fake", env="EMBEDDING_PROVIDER")
     embedding_model: str = Field("fake", env="EMBEDDING_MODEL")
     proto_base_url: str | None = Field(None, env="PROTO_BASE_URL")
-    proto_creation_shared_secret: SecretStr | None = Field(
-        None,
-        env="PROTO_CREATION_SHARED_SECRET",
-    )
+    proto_creation_shared_secret: SecretStr | None = Field(None, env="PROTO_CREATION_SHARED_SECRET")
     proto_timeout_seconds: float = Field(10.0, gt=0.0, le=60.0, env="PROTO_TIMEOUT_SECONDS")
     chronicle_embedding_dim: int = 8
 
@@ -52,11 +49,11 @@ class Settings(BaseSettings):
 
     @property
     def proto_bridge_configured(self) -> bool:
-        secret = self.proto_creation_shared_secret
+        configured_value = self.proto_creation_shared_secret
         return bool(
             self.proto_base_url
-            and secret is not None
-            and secret.get_secret_value().strip()
+            and configured_value is not None
+            and configured_value.get_secret_value().strip()
         )
 
     @validator("app_env")
@@ -64,6 +61,13 @@ class Settings(BaseSettings):
         if value not in {"development", "test", "production"}:
             raise ValueError("APP_ENV must be development, test, or production")
         return value
+
+    @validator("cors_allow_origins")
+    def validate_cors_allow_origins(cls, value: str, values: dict[str, object]) -> str:
+        origins = [origin.strip() for origin in value.split(",") if origin.strip()]
+        if values.get("app_env") == "production" and "*" in origins:
+            raise ValueError("CORS_ALLOW_ORIGINS must not contain wildcard in production")
+        return ",".join(origins)
 
     @validator("proto_base_url")
     def validate_proto_base_url(cls, value: str | None, values: dict[str, object]) -> str | None:
@@ -81,7 +85,20 @@ class Settings(BaseSettings):
             raise ValueError("PROTO_BASE_URL must use HTTPS in production")
         return normalized
 
+    @validator("proto_creation_shared_secret")
+    def validate_proto_credential(
+        cls,
+        value: SecretStr | None,
+        values: dict[str, object],
+    ) -> SecretStr | None:
+        if value is None:
+            return None
+        raw = value.get_secret_value().strip()
+        if not raw:
+            return None
+        if values.get("app_env") == "production" and len(raw) < 32:
+            raise ValueError("PROTO_CREATION_SHARED_SECRET must be at least 32 characters in production")
+        return SecretStr(raw)
 
-# Instantiated from environment at runtime; mypy flags missing constructor args.
-# This is intentional for BaseSettings which reads from env vars.
+
 settings = Settings()  # type: ignore[call-arg]
