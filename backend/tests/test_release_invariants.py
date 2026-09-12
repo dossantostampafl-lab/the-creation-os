@@ -5,6 +5,8 @@ LOCAL_COMPOSE = REPO_ROOT / "docker-compose.yml"
 PROD_COMPOSE = REPO_ROOT / "docker-compose.prod.yml"
 RENDER_BLUEPRINT = REPO_ROOT / "render.yaml"
 NGINX_CONFIG = REPO_ROOT / "frontend" / "nginx.conf"
+NGINX_RENDER_CONFIG = REPO_ROOT / "frontend" / "nginx.render.conf"
+CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 
 
 def _content() -> str:
@@ -107,3 +109,24 @@ def test_production_services_are_read_only_and_prevent_privilege_escalation() ->
 
     assert content.count("read_only: true") >= 3
     assert content.count("no-new-privileges:true") >= 2
+
+
+def test_ci_uses_read_only_repository_token() -> None:
+    content = CI_WORKFLOW.read_text(encoding="utf-8")
+
+    assert "permissions:\n  contents: read\n" in content
+
+
+def test_frontend_nginx_configs_apply_browser_security_headers() -> None:
+    required = {
+        'add_header X-Content-Type-Options "nosniff" always;',
+        'add_header X-Frame-Options "DENY" always;',
+        'add_header Referrer-Policy "no-referrer" always;',
+        'add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()" always;',
+        "add_header Content-Security-Policy",
+        "server_tokens off;",
+    }
+    for path in (NGINX_CONFIG, NGINX_RENDER_CONFIG):
+        content = path.read_text(encoding="utf-8")
+        for expected in required:
+            assert expected in content, f"{path.name} missing {expected}"
