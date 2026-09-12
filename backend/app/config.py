@@ -52,7 +52,12 @@ class Settings(BaseSettings):
 
     @property
     def proto_bridge_configured(self) -> bool:
-        return bool(self.proto_base_url and self.proto_creation_shared_secret)
+        secret = self.proto_creation_shared_secret
+        return bool(
+            self.proto_base_url
+            and secret is not None
+            and secret.get_secret_value().strip()
+        )
 
     @validator("app_env")
     def validate_env(cls, value: str) -> str:
