@@ -47,7 +47,15 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install --upgrade pip && pip install ".[dev]"
-      - run: ruff check .
+      - name: Ruff
+        shell: bash
+        run: |
+          if ! ruff check .; then
+            echo "::group::Ruff suggested fixes"
+            ruff check --diff . || true
+            echo "::endgroup::"
+            exit 1
+          fi
       - run: mypy app
       - run: python -m alembic upgrade head
       - run: pytest
