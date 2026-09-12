@@ -12,9 +12,10 @@ from app.core.domain import Actor, InceptionStatus, MissionStatus
 from app.inference.bootstrap import build_model_router
 from app.kernel.agent_runtime import AgentRuntime
 from app.kernel.completion_engine import MissionCompletionEngine
-from app.models.entities import Creator, Mission, Task
+from app.models.entities import Chronicle, Creator, Mission, Task
 from app.models.execution import AgentExecution
 from app.repositories.domain import DomainRepository
+from app.services.deus import DeusConversationService
 from app.services.domain import LivingCoreService
 
 pytestmark = [
@@ -62,9 +63,10 @@ async def real_provider_db():
 
 
 @pytest.mark.asyncio
-async def test_real_provider_completes_authorized_mission_to_manifested(real_provider_db):
+async def test_real_provider_completes_creator_deus_to_manifested_mission(real_provider_db):
     assert settings.app_env == "test"
     provider, model = _configured_provider_and_model()
+    router = build_model_router()
 
     creator_id = str(uuid.uuid4())
     correlation_id = str(uuid.uuid4())
@@ -73,19 +75,35 @@ async def test_real_provider_completes_authorized_mission_to_manifested(real_pro
     async with real_provider_db() as session:
         session.add(Creator(id=creator_id, username="real-provider-creator", password_hash="unused", is_active=True))
         await session.commit()
-        service = LivingCoreService(DomainRepository(session))
+        repository = DomainRepository(session)
+        service = LivingCoreService(repository)
         conversation = await service.create_conversation(creator, "Real Provider Gate", correlation_id)
-        message = await service.add_message(
+
+        deus = DeusConversationService(repository, router, provider=provider, model=model)
+        deus_reply = await deus.respond(
             creator,
             conversation.id,
-            "Return a concise confirmation that this authorized validation task completed.",
-            {},
+            "Confirm concisely that the Creator-to-DEUS real-provider path is operational.",
             correlation_id,
         )
+        assert deus_reply.response.strip()
+        assert deus_reply.provider == provider
+        assert deus_reply.model
+
+        messages = await repository.list_messages(conversation.id, limit=20)
+        assert [message.role for message in messages] == ["creator", "deus"]
+        assert messages[-1].content.strip() == deus_reply.response.strip()
+        deus_event = await session.scalar(select(Chronicle).where(
+            Chronicle.event_type == "deus_response_generated",
+            Chronicle.aggregate_id == conversation.id,
+        ))
+        assert deus_event is not None
+        assert deus_event.payload_json["provider"] == provider
+
         inception = await service.create_inception(
             creator,
             conversation.id,
-            message.id,
+            deus_reply.creator_message_id,
             "Real Provider Mission",
             "Validate the operational inference boundary with a real provider",
             correlation_id,
@@ -138,7 +156,7 @@ async def test_real_provider_completes_authorized_mission_to_manifested(real_pro
 
     runtime = AgentRuntime(
         real_provider_db,
-        build_model_router(),
+        router,
         completion_engine=MissionCompletionEngine(real_provider_db),
     )
     assert await runtime.run_next(mission_id, correlation_id) is True
