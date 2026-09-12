@@ -46,7 +46,9 @@ class AgentRuntime:
             execution_id = execution.id
             input_payload = dict(task.input_json or {})
             capabilities = dict(agent.capabilities_json or {})
-            mission_correlation_id = correlation_id or str((mission.authorization_json or {}).get("correlation_id") or uuid.uuid4())
+            mission_correlation_id = correlation_id or str(
+                (mission.authorization_json or {}).get("correlation_id") or uuid.uuid4()
+            )
             await session.commit()
 
         preferred_provider = capabilities.get("inference_provider")
@@ -136,6 +138,19 @@ class AgentRuntime:
                     task_id,
                     execution_id,
                     {"code": "CAPABILITY_EXECUTION_REJECTED", "detail": exc.__class__.__name__},
+                )
+                return True
+            if not capability_result.ok:
+                await self._finish_failure(
+                    mission_id,
+                    mission_correlation_id,
+                    task_id,
+                    execution_id,
+                    {
+                        "code": "CAPABILITY_RESULT_FAILED",
+                        "capability": intent.capability,
+                        "action": intent.action,
+                    },
                 )
                 return True
             output = {
