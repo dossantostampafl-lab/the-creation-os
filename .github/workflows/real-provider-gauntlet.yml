@@ -100,5 +100,5 @@ jobs:
           pip install ".[dev]"
       - name: Migrate database
         run: python -m alembic upgrade head
-      - name: Run real provider mission
+      - name: Run real provider golden path
         run: pytest -q tests/test_real_provider_mission.py
