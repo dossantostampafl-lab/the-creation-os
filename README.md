@@ -1,36 +1,45 @@
 # THE CREATION OS v0.3 — Living Core
 
-Projeto backend do núcleo persistente do THE CREATION OS. Inclui autenticação do Criador, conversa com DEUS, Trindade, Inceptions, Central Core, Tree Core, Universos, memória, Chronicles e Pulse.
+THE CREATION OS é um sistema persistente de execução governada com API FastAPI, worker operacional, frontend React, PostgreSQL e Redis. O fluxo principal conecta a interação do Criador a Inceptions, Missions, DAG de tarefas, Agents, capabilities, inferência, memória, Chronicle, projeções e dashboard operacional.
 
-## Arquitetura
+## Runtime atual
 
-- `api` expõe REST estável `/api/v1`
-- `auth` gerencia o único Criador e tokens JWT
-- `chronicles` mantém histórico append-only encadeado
-- `core` preserva invariantes de DEUS, SOPHIA, ROCKMAM, Central Core, Tree Core e Malkuth
-- `cognition` define contratos estruturados da avaliação cognitiva
-- `inference` isola ModelRouter, ProviderRegistry e InferenceProvider
-- `kernel` implementa distribuição, DAG, AgentExecution e runtime operacional governado
-- `memory` implementa memória de conversa, missão, universo e consciousness
-- `db` e `alembic` gerenciam persistência PostgreSQL
-- `redis` e `redis streams` suportam execução de tarefas
+- `backend/app/api` — REST `/api/v1`, health, estado/projeções do sistema e stream autenticado de eventos.
+- `backend/app/auth` — autenticação do Criador e ciclo de tokens.
+- `backend/app/cognition` — contratos estruturados para avaliação cognitiva e planejamento.
+- `backend/app/kernel` — distribuição, DAG, claims de tarefas, AgentExecution, supervisão, reconciliação e conclusão de Missions.
+- `backend/app/capabilities` — contratos, autorização, policy, gateway e execução governada de capabilities.
+- `backend/app/inference` — ProviderRegistry, ModelRouter e adapters `openai`, `freellmapi` e `openai_compatible`.
+- `backend/app/memory` — contratos e policy de memória governada; persistência é feita no domínio/repositórios.
+- `backend/app/projections` — projeções persistidas usadas pelo dashboard e pelo estado operacional.
+- `backend/app/repositories` — acesso persistente ao domínio e Chronicle append-only.
+- `backend/app/worker.py` — loop operacional de reconciliação, execução, conclusão e atualização de projeções.
+- `frontend` — Living Operations Terminal em React/TypeScript/Vite, alimentado pelos endpoints de estado/projeções/Chronicle/inference e SSE autenticado.
 
-DEUS é a interface soberana com o Criador e não executa trabalho operacional. A execução percorre o kernel, Universos, Agentes, capabilities/governança e adapters autorizados.
+DEUS permanece como interface conceitual do Criador. Trabalho operacional é executado pelo runtime governado de Missions, Tasks, Agents e capabilities; a interface não executa capabilities diretamente.
 
 ## Requisitos
 
-- Docker
-- Docker Compose
-- Python 3.12 (para execução local sem container)
+- Docker e Docker Compose
+- Python 3.12 para execução local sem container
+- Node.js 22 para desenvolvimento direto do frontend
 
 ## Configuração
 
-Copie `.env.example` para `.env` e ajuste os valores. O `.env.example` representa o ambiente local; não copie URLs locais de PostgreSQL/Redis nem provedores `fake` para produção.
+`.env.example` na raiz é a única referência canônica de variáveis locais/de desenvolvimento. Copie-o para `.env` e ajuste os valores.
+
+Providers `fake` são permitidos somente em desenvolvimento/testes. Produção deve selecionar explicitamente `openai`, `freellmapi` ou `openai_compatible` e fornecer as credenciais/configurações correspondentes.
 
 ## Executar local
 
 ```bash
 docker compose up --build
+```
+
+Readiness da API:
+
+```text
+GET /api/v1/health/ready
 ```
 
 ## Migrations
@@ -39,7 +48,11 @@ docker compose up --build
 docker compose exec api alembic upgrade head
 ```
 
-## Criar o Criador
+Veja `backend/MIGRATIONS.md` para a nota de compatibilidade histórica relevante ao schema de embeddings.
+
+## Autenticação inicial
+
+Bootstrap do Criador:
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/auth/bootstrap \
@@ -47,7 +60,7 @@ curl -X POST http://localhost:8000/api/v1/auth/bootstrap \
   -d '{"username":"creator","password":"change-me-securely"}'
 ```
 
-## Login
+Login:
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/auth/login \
@@ -55,74 +68,58 @@ curl -X POST http://localhost:8000/api/v1/auth/login \
   -d '{"username":"creator","password":"change-me-securely"}'
 ```
 
-## Deploy no Render
+## Superfície operacional
 
-O repositório inclui `render.yaml` para criar a topologia completa como Render Blueprint.
+Principais grupos de endpoints:
 
-Serviços declarados:
+- autenticação: `/api/v1/auth/*`
+- conversations/messages: `/api/v1/conversations/*`
+- Inceptions: `/api/v1/inceptions/*`
+- Missions e Tasks: `/api/v1/missions/*`
+- Universes e Agents: `/api/v1/universes/*`, `/api/v1/agents/*`
+- memória: `/api/v1/memory/*`
+- Chronicle/Pulse: `/api/v1/chronicles*`, `/api/v1/pulse`
+- estado/projeções/eventos: `/api/v1/system/state`, `/api/v1/system/projections`, `/api/v1/system/events`
+- inference health/telemetry: `/api/v1/system/inference`
 
-- `creation-api` — Web Service Docker, raiz `backend`
-- `creation-worker` — Background Worker Docker, raiz `backend`
-- `creation-frontend` — Web Service Docker, raiz `frontend`
-- `creation-postgres` — PostgreSQL gerenciado
-- `creation-redis` — Render Key Value, compatível com Redis
-
-No Render, escolha **Blueprints → New Blueprint Instance**, conecte este repositório e use o `render.yaml` da raiz.
-
-O Blueprint injeta `DATABASE_URL` e `REDIS_URL` por referências aos serviços gerenciados. Não copie os valores locais de `.env.example`.
-
-Durante a criação inicial do Blueprint, forneça os valores marcados `sync: false`:
-
-- `CREATOR_BOOTSTRAP_USERNAME`
-- `CREATOR_BOOTSTRAP_PASSWORD`
-- `CORS_ALLOW_ORIGINS` — URL pública do frontend Render, por exemplo `https://<creation-frontend>.onrender.com`
-- `LLM_PROVIDER`
-- `LLM_MODEL` quando exigido pelo provider
-- credencial/URL específica do provider selecionado
-- `EMBEDDING_PROVIDER`
-- `EMBEDDING_MODEL`
-- `VITE_API_BASE_URL` — URL pública da API terminando em `/api/v1`, por exemplo `https://<creation-api>.onrender.com/api/v1`
-
-`APP_SECRET_KEY` é gerado pelo próprio Render. Nenhuma credencial real deve ser commitada no Git.
-
-A API executa migrações antes do Uvicorn, escuta `0.0.0.0:$PORT` e expõe healthcheck em `/api/v1/health/ready`. O worker usa a mesma persistência e configuração de inferência, mas não expõe porta pública. O frontend Render possui imagem/Nginx próprios e não depende dos hostnames do Docker Compose.
-
-### Provedores
-
-Produção no Render não deve usar `fake`. Selecione explicitamente um provider já suportado pelo projeto (`openai`, `freellmapi` ou `openai_compatible`) e configure somente as variáveis exigidas por ele. Os valores `fake` de `.env.example` continuam restritos ao desenvolvimento/testes.
-
-## Endpoints principais
-
-- `POST /api/v1/auth/login`
-- `POST /api/v1/auth/refresh`
-- `POST /api/v1/auth/logout`
-- `POST /api/v1/conversations`
-- `POST /api/v1/conversations/{id}/messages`
-- `GET /api/v1/inceptions`
-- `POST /api/v1/inceptions/{id}/approve`
-- `POST /api/v1/inceptions/{id}/reject`
-- `GET /api/v1/universes` · `POST /api/v1/universes` · `POST /api/v1/universes/{id}/activate|deactivate`
-- `GET /api/v1/agents?universe_id=` · `POST /api/v1/agents` · `POST /api/v1/agents/{id}/activate|deactivate`
-- `GET|PUT /api/v1/memory/{conversation|mission|universe}/{scope_id}`
-- `GET|POST /api/v1/memory/conscious`
-- `POST /api/v1/missions/{id}/distribute`
-- `POST /api/v1/missions/{id}/execute`
-- `POST /api/v1/missions/{id}/manifest`
-- `GET /api/v1/missions/{id}/tasks`
-- `GET /api/v1/pulse`
-- `GET /api/v1/chronicles?limit=100&offset=0`
-- `GET /api/v1/chronicles/verify`
+O dashboard consome estado/projeções persistidos e Chronicle/SSE. Indicadores operacionais não devem ser hardcoded no frontend.
 
 ## Testes
 
-Os testes de integração exigem PostgreSQL e Redis acessíveis em `localhost`.
+A suíte completa de backend usa PostgreSQL e Redis:
 
 ```bash
-docker compose up -d postgres redis
 cd backend
 pip install ".[dev]"
-DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/the_creation_os \
-  REDIS_URL=redis://localhost:6379/0 pytest
+ruff check .
+mypy app
+python -m alembic upgrade head
+pytest
 ```
 
-Para rodar apenas os testes unitários: `pytest -m "not integration"`.
+Frontend:
+
+```bash
+cd frontend
+npm install
+npm run build
+npm test
+npx playwright install chromium
+npm run test:e2e
+```
+
+O repositório também possui CI de release, CodeQL/auditoria de dependências e um `Real Provider Gauntlet` manual para provar uma Mission com provider externo real. Esse último gate não deve ser considerado aprovado sem uma execução real bem-sucedida.
+
+## Deploy no Render
+
+`render.yaml` é o Blueprint canônico de produção e declara:
+
+- `creation-api`
+- `creation-worker`
+- `creation-frontend`
+- `creation-postgres`
+- `creation-redis`
+
+`DATABASE_URL` e `REDIS_URL` são fornecidos pelos serviços gerenciados. `APP_SECRET_KEY` é gerado pela plataforma. Credenciais reais não devem ser commitadas no Git.
+
+O frontend usa `VITE_API_BASE_URL` para apontar para a API pública. A API executa migrations antes do Uvicorn e expõe `/api/v1/health/ready`; o worker compartilha persistência/configuração e não possui porta pública.

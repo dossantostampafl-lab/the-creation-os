@@ -15,6 +15,10 @@ __pycache__/
 
 # Build
 backend/the_creation_os.egg-info/
+backend/build/
+
+# Local inventory dumps
+backend/tree.txt
 
 # Backups
 backup_*.sql

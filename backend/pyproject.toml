@@ -48,6 +48,7 @@ markers = [
 [tool.ruff]
 line-length = 140
 target-version = "py312"
+extend-exclude = ["build"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]
