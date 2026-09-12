@@ -12,12 +12,12 @@ from app.config import Settings
 
 def _settings(**overrides: object) -> Settings:
     values: dict[str, object] = {
-        "APP_ENV": "test",
-        "APP_SECRET_KEY": "test-secret",
-        "CREATOR_BOOTSTRAP_USERNAME": "creator",
-        "CREATOR_BOOTSTRAP_PASSWORD": "password",
-        "DATABASE_URL": "postgresql+asyncpg://postgres:postgres@localhost/test",
-        "REDIS_URL": "redis://localhost:6379/0",
+        "app_env": "test",
+        "secret_key": "test-secret",
+        "creator_bootstrap_username": "creator",
+        "creator_bootstrap_password": "password",
+        "database_url": "postgresql+asyncpg://postgres:postgres@localhost/test",
+        "redis_url": "redis://localhost:6379/0",
     }
     values.update(overrides)
     return Settings(**values)
@@ -25,12 +25,12 @@ def _settings(**overrides: object) -> Settings:
 
 def test_proto_bridge_requires_url_and_secret() -> None:
     assert _settings().proto_bridge_configured is False
-    assert _settings(PROTO_BASE_URL="https://proto.example").proto_bridge_configured is False
-    assert _settings(PROTO_CREATION_SHARED_SECRET="secret").proto_bridge_configured is False
+    assert _settings(proto_base_url="https://proto.example").proto_bridge_configured is False
+    assert _settings(proto_creation_shared_secret="secret").proto_bridge_configured is False
     assert (
         _settings(
-            PROTO_BASE_URL="https://proto.example",
-            PROTO_CREATION_SHARED_SECRET="secret",
+            proto_base_url="https://proto.example",
+            proto_creation_shared_secret="secret",
         ).proto_bridge_configured
         is True
     )
@@ -39,9 +39,9 @@ def test_proto_bridge_requires_url_and_secret() -> None:
 def test_proto_bridge_rejects_http_in_production() -> None:
     with pytest.raises(ValidationError):
         _settings(
-            APP_ENV="production",
-            PROTO_BASE_URL="http://proto.example",
-            PROTO_CREATION_SHARED_SECRET="secret",
+            app_env="production",
+            proto_base_url="http://proto.example",
+            proto_creation_shared_secret="secret",
         )
 
 
@@ -219,8 +219,8 @@ def test_worker_registers_proto_only_when_configured(monkeypatch: pytest.MonkeyP
     assert "proto" not in gateway._adapters
 
     enabled = _settings(
-        PROTO_BASE_URL="https://proto.example",
-        PROTO_CREATION_SHARED_SECRET="secret",
+        proto_base_url="https://proto.example",
+        proto_creation_shared_secret="secret",
     )
     monkeypatch.setattr(worker, "settings", enabled)
     gateway = worker.build_capability_gateway()
