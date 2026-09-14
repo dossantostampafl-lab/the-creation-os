@@ -6,7 +6,7 @@ services:
       args:
         VITE_API_BASE_URL: /api/v1
     ports:
-      - "8080:8080"
+      - "${CREATION_HTTP_PORT:-8080}:8080"
     depends_on:
       api:
         condition: service_healthy
@@ -19,8 +19,13 @@ services:
       dockerfile: Dockerfile
     env_file:
       - .env
+    environment: &local_bridge
+      PROTO_BASE_URL: ${PROTO_BASE_URL:-http://host.docker.internal:8000}
+      PROTO_CREATION_SHARED_SECRET: ${PROTO_CREATION_SHARED_SECRET:-development-only-not-a-production-secret-2026}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
-      - "8000:8000"
+      - "${CREATION_API_PORT:-8100}:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -76,6 +81,9 @@ services:
       dockerfile: Dockerfile
     env_file:
       - .env
+    environment: *local_bridge
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy
