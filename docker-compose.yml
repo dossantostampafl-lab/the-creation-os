@@ -21,7 +21,7 @@ services:
       - .env
     environment: &local_bridge
       PROTO_BASE_URL: ${PROTO_BASE_URL:-http://host.docker.internal:8000}
-      PROTO_CREATION_SHARED_SECRET: ${PROTO_CREATION_SHARED_SECRET:-development-only-not-a-production-secret-2026}
+      PROTO_CREATION_SHARED_SECRET: ${PROTO_CREATION_SHARED_SECRET:-local-creation-proto-bridge-change-me-2026}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
