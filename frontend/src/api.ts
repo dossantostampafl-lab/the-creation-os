@@ -63,7 +63,8 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-export const fetchSystemState = () => api<SystemState>("/system/state");
+export const fetchSystemState = (page = 1, pageSize = 25) =>
+  api<SystemState>(`/system/state?page=${page}&page_size=${pageSize}`);
 export const fetchProjectionStatus = () => api<ProjectionStatus>("/system/projections");
 export const fetchInferenceStatus = () => api<InferenceStatusSnapshot>("/system/inference");
 export const fetchChronicleHistory = () => api<ChronicleRecord[]>("/chronicles?limit=40&offset=0");
