@@ -17,6 +17,8 @@ from app.models.projection import ProjectionCheckpoint
 from app.projections.checkpoints import projection_lag
 from app.projections.system import (
     AGENT_PROJECTION,
+    DEFAULT_PAGE_SIZE,
+    MAX_PAGE_SIZE,
     MEMORY_PROJECTION,
     MISSION_PROJECTION,
     SYSTEM_PROJECTION,
@@ -38,8 +40,11 @@ EXPECTED_PROJECTIONS = (
 async def get_system_state(
     _: Actor = Depends(actor),
     session: AsyncSession = Depends(get_session),
+    page: int = Query(1, ge=1, le=100_000),
+    page_size: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
 ):
-    return await system_snapshot(session, persist=False)
+    offset = (page - 1) * page_size
+    return await system_snapshot(session, persist=False, limit=page_size, offset=offset)
 
 
 @router.get("/system/projections")
