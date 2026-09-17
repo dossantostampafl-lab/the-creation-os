@@ -51,6 +51,24 @@ async def system_snapshot(
     task_total = int(await session.scalar(select(func.count()).select_from(Task)) or 0)
     universe_total = int(await session.scalar(select(func.count()).select_from(Universe)) or 0)
     agent_total = int(await session.scalar(select(func.count()).select_from(Agent)) or 0)
+    running_missions_total = int(await session.scalar(
+        select(func.count()).select_from(Mission).where(Mission.status.in_({"distributed", "executing"}))
+    ) or 0)
+    ready_tasks_total = int(await session.scalar(
+        select(func.count()).select_from(Task).where(Task.status == "READY")
+    ) or 0)
+    running_tasks_total = int(await session.scalar(
+        select(func.count()).select_from(Task).where(Task.status == "RUNNING")
+    ) or 0)
+    failed_tasks_total = int(await session.scalar(
+        select(func.count()).select_from(Task).where(Task.status.in_({"FAILED", "BLOCKED"}))
+    ) or 0)
+    active_universes_total = int(await session.scalar(
+        select(func.count()).select_from(Universe).where(Universe.active.is_(True))
+    ) or 0)
+    active_agents_total = int(await session.scalar(
+        select(func.count()).select_from(Agent).where(Agent.active.is_(True))
+    ) or 0)
 
     missions = list((await session.scalars(
         select(Mission).order_by(Mission.created_at, Mission.id).offset(offset).limit(limit)
@@ -140,13 +158,13 @@ async def system_snapshot(
         "pulse": pulse,
         "counts": {
             "missions": mission_total,
-            "running_missions": sum(mission.status in {"distributed", "executing"} for mission in missions),
+            "running_missions": running_missions_total,
             "tasks": task_total,
-            "ready_tasks": sum(task.status == "READY" for task in tasks),
-            "running_tasks": sum(task.status == "RUNNING" for task in tasks),
-            "failed_tasks": sum(task.status in {"FAILED", "BLOCKED"} for task in tasks),
-            "active_universes": sum(universe.active for universe in universes),
-            "active_agents": sum(agent.active for agent in agents),
+            "ready_tasks": ready_tasks_total,
+            "running_tasks": running_tasks_total,
+            "failed_tasks": failed_tasks_total,
+            "active_universes": active_universes_total,
+            "active_agents": active_agents_total,
         },
         "pagination": {
             "limit": limit,
