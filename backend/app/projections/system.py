@@ -26,12 +26,44 @@ TASK_PROJECTION = "tasks"
 AGENT_PROJECTION = "agents"
 MEMORY_PROJECTION = "memory"
 
+DEFAULT_PAGE_SIZE = 25
+MAX_PAGE_SIZE = 100
 
-async def system_snapshot(session: AsyncSession, *, persist: bool = True) -> dict[str, Any]:
-    missions = list((await session.scalars(select(Mission).order_by(Mission.created_at, Mission.id))).all())
-    tasks = list((await session.scalars(select(Task).order_by(Task.created_at, Task.id))).all())
-    universes = list((await session.scalars(select(Universe).order_by(Universe.code))).all())
-    agents = list((await session.scalars(select(Agent).order_by(Agent.code))).all())
+
+def page_window(*, limit: int = DEFAULT_PAGE_SIZE, offset: int = 0) -> tuple[int, int]:
+    if limit < 1 or limit > MAX_PAGE_SIZE:
+        raise ValueError(f"limit must be between 1 and {MAX_PAGE_SIZE}")
+    if offset < 0:
+        raise ValueError("offset must be non-negative")
+    return limit, offset
+
+
+async def system_snapshot(
+    session: AsyncSession,
+    *,
+    persist: bool = True,
+    limit: int = DEFAULT_PAGE_SIZE,
+    offset: int = 0,
+) -> dict[str, Any]:
+    limit, offset = page_window(limit=limit, offset=offset)
+
+    mission_total = int(await session.scalar(select(func.count()).select_from(Mission)) or 0)
+    task_total = int(await session.scalar(select(func.count()).select_from(Task)) or 0)
+    universe_total = int(await session.scalar(select(func.count()).select_from(Universe)) or 0)
+    agent_total = int(await session.scalar(select(func.count()).select_from(Agent)) or 0)
+
+    missions = list((await session.scalars(
+        select(Mission).order_by(Mission.created_at, Mission.id).offset(offset).limit(limit)
+    )).all())
+    tasks = list((await session.scalars(
+        select(Task).order_by(Task.created_at, Task.id).offset(offset).limit(limit)
+    )).all())
+    universes = list((await session.scalars(
+        select(Universe).order_by(Universe.code).offset(offset).limit(limit)
+    )).all())
+    agents = list((await session.scalars(
+        select(Agent).order_by(Agent.code).offset(offset).limit(limit)
+    )).all())
     position = int(await session.scalar(select(func.max(Chronicle.position))) or 0)
 
     conversation_memory = int(await session.scalar(select(func.count()).select_from(ConversationMemory)) or 0)
@@ -107,14 +139,25 @@ async def system_snapshot(session: AsyncSession, *, persist: bool = True) -> dic
         "memory": memory_view,
         "pulse": pulse,
         "counts": {
-            "missions": len(missions),
+            "missions": mission_total,
             "running_missions": sum(mission.status in {"distributed", "executing"} for mission in missions),
-            "tasks": len(tasks),
+            "tasks": task_total,
             "ready_tasks": sum(task.status == "READY" for task in tasks),
             "running_tasks": sum(task.status == "RUNNING" for task in tasks),
             "failed_tasks": sum(task.status in {"FAILED", "BLOCKED"} for task in tasks),
             "active_universes": sum(universe.active for universe in universes),
             "active_agents": sum(agent.active for agent in agents),
+        },
+        "pagination": {
+            "limit": limit,
+            "offset": offset,
+            "has_next": any(total > offset + limit for total in (mission_total, task_total, universe_total, agent_total)),
+            "totals": {
+                "missions": mission_total,
+                "tasks": task_total,
+                "universes": universe_total,
+                "agents": agent_total,
+            },
         },
     }
     if persist:
