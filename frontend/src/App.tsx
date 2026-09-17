@@ -25,6 +25,9 @@ function App() {
   const [loginPending, setLoginPending] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [authVersion, setAuthVersion] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [stateLoading, setStateLoading] = useState(false);
   const cursor = useRef(0);
 
   useEffect(() => {
@@ -34,9 +37,10 @@ function App() {
     async function hydrate() {
       try {
         setConnection("CONNECTING");
+        setStateLoading(true);
         setError(null);
         const [snapshot, projectionStatus, inferenceStatus, history] = await Promise.all([
-          fetchSystemState(),
+          fetchSystemState(page, pageSize),
           fetchProjectionStatus(),
           fetchInferenceStatus(),
           fetchChronicleHistory(),
@@ -48,6 +52,7 @@ function App() {
         setChronicle(history);
         cursor.current = snapshot.position;
         setConnection("LIVE");
+        setStateLoading(false);
         controller.abort();
         controller = new AbortController();
         void streamChronicle(cursor.current, {
@@ -69,7 +74,7 @@ function App() {
               previous_hash: null,
               created_at: event.created_at,
             }, ...current].slice(0, 40));
-            void Promise.all([fetchSystemState(), fetchProjectionStatus(), fetchInferenceStatus()]).then(([next, nextProjections, nextInference]) => {
+            void Promise.all([fetchSystemState(page, pageSize), fetchProjectionStatus(), fetchInferenceStatus()]).then(([next, nextProjections, nextInference]) => {
               if (!active) return;
               setState(next);
               setProjections(nextProjections);
@@ -90,6 +95,7 @@ function App() {
         const message = loadError instanceof Error ? loadError.message : "LOAD_ERROR";
         setError(message);
         setConnection(message === "AUTH_REQUIRED" ? "AUTH_REQUIRED" : "ERROR");
+        setStateLoading(false);
       }
     }
 
@@ -98,7 +104,7 @@ function App() {
       active = false;
       controller.abort();
     };
-  }, [authVersion]);
+  }, [authVersion, page, pageSize]);
 
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -120,6 +126,18 @@ function App() {
   const missionTasks = useMemo(() => state?.tasks.filter((task) => task.mission_id === selectedMission?.id) ?? [], [state, selectedMission]);
   const pulseEntries = useMemo(() => Object.entries(state?.pulse ?? {}).slice(0, 8), [state]);
   const deusReady = Boolean(inference?.configured && inference.providers.some((provider) => provider.available));
+  const totalPages = state ? Math.max(1, Math.ceil(Math.max(
+    state.pagination.totals.missions,
+    state.pagination.totals.tasks,
+    state.pagination.totals.universes,
+    state.pagination.totals.agents,
+  ) / pageSize)) : 1;
+
+  function changePage(nextPage: number) {
+    if (stateLoading) return;
+    setPage(Math.min(Math.max(nextPage, 1), totalPages));
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
 
   return (
     <main className="terminal">
@@ -146,14 +164,14 @@ function App() {
               <span>Password</span>
               <input aria-label="Password" autoComplete="current-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} required />
             </label>
-            {loginError && <div className="login-error">{loginError}</div>}
+            {loginError && <div className="login-error" role="alert">{loginError}</div>}
             <button type="submit" disabled={loginPending}>{loginPending ? "Authenticating…" : "Enter The Creation"}</button>
           </form>
         </section>
       )}
-      {error && connection === "ERROR" && <section className="error-banner">Live state unavailable: {error}</section>}
+      {error && connection === "ERROR" && <section className="error-banner" role="alert">Live state unavailable: {error}</section>}
 
-      <section className="metrics">
+      <section className="metrics" aria-label="System metrics">
         {[
           ["MISSIONS", state?.counts.missions], ["RUNNING", state?.counts.running_missions], ["TASKS", state?.counts.tasks],
           ["READY", state?.counts.ready_tasks], ["ACTIVE UNIVERSES", state?.counts.active_universes], ["ACTIVE AGENTS", state?.counts.active_agents],
@@ -168,8 +186,8 @@ function App() {
             {["CREATOR", "DEUS", "SOPHIA", "ROCKMAM", "INCEPTION", "CENTRAL CORE", "TREE CORE"].map((name) => <li key={name}>{name}</li>)}
           </ol>
           <div className="panel-title secondary">MISSIONS</div>
-          <div className="stack">
-            {state?.missions.slice(-8).reverse().map((mission) => <div className="row" key={mission.id}><span>{mission.title}</span><b className={statusTone(mission.status)}>{mission.status}</b></div>)}
+          <div className="stack" aria-live="polite">
+            {stateLoading && !state ? <div className="list-skeleton" aria-label="Loading missions">Loading missions…</div> : state?.missions.length ? state.missions.map((mission) => <div className="row" key={mission.id}><span>{mission.title}</span><b className={statusTone(mission.status)}>{mission.status}</b></div>) : <div className="empty">No missions on this page.</div>}
           </div>
         </aside>
 
@@ -179,7 +197,7 @@ function App() {
             <div className="orbit orbit-a"><span>SOPHIA</span></div>
             <div className="orbit orbit-b"><span>ROCKMAM</span></div>
             <div className="deus">DEUS</div>
-            {state?.universes.filter((u) => u.active).slice(0, 8).map((u, i) => <div className={`node node-${i}`} key={u.id}>{u.code.toUpperCase()}</div>)}
+            {state?.universes.map((u, i) => <div className={`node node-${i % 8}`} key={u.id}>{u.code.toUpperCase()}</div>)}
           </div>
           <div className="mission-focus">
             <span className="eyebrow">CURRENT MISSION</span>
@@ -191,13 +209,25 @@ function App() {
 
         <aside className="panel right-rail">
           <div className="panel-title">UNIVERSES</div>
-          <div className="stack">{state?.universes.map((u) => <div className="row" key={u.id}><span>{u.name}</span><b className={u.active ? "good" : "neutral"}>{u.active ? "ACTIVE" : "IDLE"}</b></div>)}</div>
+          <div className="stack">{stateLoading && !state ? <div className="list-skeleton">Loading universes…</div> : state?.universes.length ? state.universes.map((u) => <div className="row" key={u.id}><span>{u.name}</span><b className={u.active ? "good" : "neutral"}>{u.active ? "ACTIVE" : "IDLE"}</b></div>) : <div className="empty">No universes on this page.</div>}</div>
           <div className="panel-title secondary">AGENTS</div>
-          <div className="stack">{state?.agents.slice(0, 12).map((a) => <div className="row" key={a.id}><span>{a.name}</span><b className={a.active ? "good" : "neutral"}>{a.active ? "LIVE" : "OFF"}</b></div>)}</div>
+          <div className="stack">{stateLoading && !state ? <div className="list-skeleton">Loading agents…</div> : state?.agents.length ? state.agents.map((a) => <div className="row" key={a.id}><span>{a.name}</span><b className={a.active ? "good" : "neutral"}>{a.active ? "LIVE" : "OFF"}</b></div>) : <div className="empty">No agents on this page.</div>}</div>
           <div className="panel-title secondary">MEMORY LAYERS</div>
           <div className="memory-grid">{state && Object.entries(state.memory).filter(([k]) => k !== "total").map(([k, value]) => <div key={k}><span>{k}</span><strong>{value}</strong></div>)}</div>
         </aside>
       </section>
+
+      <nav className="pagination" aria-label="System data pagination" aria-busy={stateLoading}>
+        <label htmlFor="page-size">Rows per page</label>
+        <select id="page-size" value={pageSize} disabled={stateLoading} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }}>
+          <option value="25">25</option>
+          <option value="50">50</option>
+          <option value="100">100</option>
+        </select>
+        <button type="button" aria-label="Go to previous page" title="Previous page" disabled={stateLoading || page <= 1} onClick={() => changePage(page - 1)}>Previous</button>
+        <span aria-live="polite">Page {page} of {totalPages}</span>
+        <button type="button" aria-label="Go to next page" title="Next page" disabled={stateLoading || !state?.pagination.has_next} onClick={() => changePage(page + 1)}>Next</button>
+      </nav>
 
       <section className="lower-grid lower-grid-primary">
         <article className="panel"><div className="panel-title">CHRONICLE</div><div className="event-list">{chronicle.length ? chronicle.map((event) => <div className="event" key={event.event_id}><time>{new Date(event.created_at).toLocaleTimeString()}</time><span>{event.event_type}</span><small>{event.aggregate_type}</small></div>) : <div className="empty">Chronicle has no persisted events.</div>}</div></article>
