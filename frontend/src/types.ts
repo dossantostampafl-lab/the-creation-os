@@ -52,6 +52,18 @@ export type SystemCounts = {
   active_agents: number;
 };
 
+export type SystemPagination = {
+  limit: number;
+  offset: number;
+  has_next: boolean;
+  totals: {
+    missions: number;
+    tasks: number;
+    universes: number;
+    agents: number;
+  };
+};
+
 export type PulseValue = {
   value: unknown;
   observed_at: string;
@@ -68,6 +80,7 @@ export type SystemState = {
   memory: MemoryView;
   pulse: Record<string, PulseValue>;
   counts: SystemCounts;
+  pagination: SystemPagination;
 };
 
 export type ChronicleEvent = {
