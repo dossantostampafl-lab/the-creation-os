@@ -25,6 +25,7 @@ function App() {
   const [loginPending, setLoginPending] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [authVersion, setAuthVersion] = useState(0);
+  const [retryVersion, setRetryVersion] = useState(0);
   const cursor = useRef(0);
 
   useEffect(() => {
@@ -98,7 +99,7 @@ function App() {
       active = false;
       controller.abort();
     };
-  }, [authVersion]);
+  }, [authVersion, retryVersion]);
 
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -151,7 +152,8 @@ function App() {
           </form>
         </section>
       )}
-      {error && connection === "ERROR" && <section className="error-banner">Live state unavailable: {error}</section>}
+      {connection === "CONNECTING" && !state && <section className="loading-shell" role="status" aria-live="polite"><div className="skeleton skeleton-wide" /><div className="skeleton" /><span>Loading live system state…</span></section>}
+      {error && connection === "ERROR" && <section className="error-banner" role="alert">Live state unavailable: {error} <button type="button" className="retry-button" onClick={() => setRetryVersion((version) => version + 1)}>Retry</button></section>}
 
       <section className="metrics">
         {[
