@@ -50,17 +50,32 @@ export async function loginCreator(username: string, password: string): Promise<
 }
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${token()}`,
-      ...(init?.body ? { "Content-Type": "application/json" } : {}),
-      ...init?.headers,
-    },
-  });
-  if (response.status === 401 || response.status === 403) throw new Error("AUTH_REQUIRED");
-  if (!response.ok) throw new Error(`HTTP_${response.status}`);
-  return response.json() as Promise<T>;
+  const method = (init?.method ?? "GET").toUpperCase();
+  const attempts = method === "GET" ? 3 : 1;
+  let lastError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      const response = await fetch(`${API_BASE}${path}`, {
+        ...init,
+        headers: {
+          Authorization: `Bearer ${token()}`,
+          ...(init?.body ? { "Content-Type": "application/json" } : {}),
+          ...init?.headers,
+        },
+      });
+      if (response.status === 401 || response.status === 403) throw new Error("AUTH_REQUIRED");
+      if (!response.ok) {
+        if (response.status < 500 || attempt === attempts - 1) throw new Error(`HTTP_${response.status}`);
+        throw new Error(`RETRYABLE_HTTP_${response.status}`);
+      }
+      return response.json() as Promise<T>;
+    } catch (error) {
+      if (error instanceof Error && (error.message === "AUTH_REQUIRED" || error.message.startsWith("HTTP_4"))) throw error;
+      lastError = error;
+      if (attempt < attempts - 1) await new Promise((resolve) => window.setTimeout(resolve, 250 * 2 ** attempt));
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("NETWORK_ERROR");
 }
 
 export const fetchSystemState = () => api<SystemState>("/system/state");
