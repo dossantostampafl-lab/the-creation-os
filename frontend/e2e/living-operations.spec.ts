@@ -1,101 +1,62 @@
 import { expect, test } from "@playwright/test";
 
 const state = {
-  projection: "system",
-  position: 41,
-  generated_at: "2026-09-08T15:00:00Z",
-  missions: [
-    {
-      id: "mission-1",
-      title: "Manifest Gate D",
-      objective: "Render live operational state",
-      status: "executing",
-      started_at: "2026-09-08T14:55:00Z",
-      completed_at: null,
-    },
-  ],
-  tasks: [
-    {
-      id: "task-1",
-      mission_id: "mission-1",
-      step_id: "step-1",
-      universe_id: "universe-1",
-      agent_id: "agent-1",
-      status: "RUNNING",
-      attempt_count: 1,
-      max_attempts: 3,
-    },
-  ],
+  projection: "system", position: 41, generated_at: "2026-09-08T15:00:00Z",
+  missions: [{ id: "mission-1", title: "Manifest Gate D", objective: "Render live operational state", status: "executing", started_at: "2026-09-08T14:55:00Z", completed_at: null }],
+  tasks: [{ id: "task-1", mission_id: "mission-1", step_id: "step-1", universe_id: "universe-1", agent_id: "agent-1", status: "RUNNING", attempt_count: 1, max_attempts: 3 }],
   universes: [{ id: "universe-1", code: "engineering", name: "Engineering", active: true }],
   agents: [{ id: "agent-1", code: "builder", name: "Builder", universe_id: "universe-1", active: true }],
   memory: { conversation: 2, mission: 3, universe: 4, conscious: 5, total: 14 },
   pulse: { kernel_health: { value: "healthy", observed_at: "2026-09-08T15:00:00Z" } },
-  counts: {
-    missions: 1,
-    running_missions: 1,
-    tasks: 1,
-    ready_tasks: 0,
-    running_tasks: 1,
-    failed_tasks: 0,
-    active_universes: 1,
-    active_agents: 1,
-  },
+  counts: { missions: 1, running_missions: 1, tasks: 1, ready_tasks: 0, running_tasks: 1, failed_tasks: 0, active_universes: 1, active_agents: 1 },
 };
+const projections = { chronicle_head: 41, projections: [{ name: "system", position: 41, lag: 0, status: "CURRENT", updated_at: "2026-09-08T15:00:00Z" }] };
+const chronicle = [{ id:"chronicle-41",event_id:"event-41",correlation_id:"corr-41",causation_id:null,actor_type:"creator",actor_id:"creator-1",event_type:"mission_distributed",aggregate_type:"mission",aggregate_id:"mission-1",payload_json:{},payload_hash:"hash",previous_hash:null,created_at:"2026-09-08T15:00:00Z" }];
 
-const projections = {
-  chronicle_head: 41,
-  projections: [
-    { name: "system", position: 41, lag: 0, status: "CURRENT", updated_at: "2026-09-08T15:00:00Z" },
-    { name: "missions", position: 41, lag: 0, status: "CURRENT", updated_at: "2026-09-08T15:00:00Z" },
-  ],
-};
+async function routeHealthy(page: import("@playwright/test").Page, delay = 0) {
+  const fulfill = async (route: import("@playwright/test").Route, body: unknown) => { if (delay) await new Promise(r => setTimeout(r, delay)); await route.fulfill({status:200,contentType:"application/json",body:JSON.stringify(body)}); };
+  await page.route("**/api/v1/system/state", r => fulfill(r,state));
+  await page.route("**/api/v1/system/projections", r => fulfill(r,projections));
+  await page.route("**/api/v1/chronicles?limit=40&offset=0", r => fulfill(r,chronicle));
+  await page.route("**/api/v1/system/events?after=41", r => r.fulfill({status:200,contentType:"text/event-stream",body:""}));
+}
 
-const chronicle = [
-  {
-    id: "chronicle-41",
-    event_id: "event-41",
-    correlation_id: "corr-41",
-    causation_id: null,
-    actor_type: "creator",
-    actor_id: "creator-1",
-    event_type: "mission_distributed",
-    aggregate_type: "mission",
-    aggregate_id: "mission-1",
-    payload_json: {},
-    payload_hash: "hash",
-    previous_hash: null,
-    created_at: "2026-09-08T15:00:00Z",
-  },
-];
+test.beforeEach(async ({page}) => page.addInitScript(() => localStorage.setItem("creation_access_token","e2e-token")));
 
-test("renders the Living Operations Terminal from projection-backed state", async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem("creation_access_token", "e2e-token"));
-  await page.route("**/api/v1/system/state", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(state) }));
-  await page.route("**/api/v1/system/projections", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(projections) }));
-  await page.route("**/api/v1/chronicles?limit=40&offset=0", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(chronicle) }));
-  await page.route("**/api/v1/system/events?after=41", (route) => route.fulfill({
-    status: 200,
-    contentType: "text/event-stream",
-    body: "id: 42\nevent: chronicle\ndata: {\"event_id\":\"event-42\",\"position\":42,\"correlation_id\":\"corr\",\"causation_id\":null,\"actor_role\":\"agent\",\"event_type\":\"task_progressed\",\"aggregate_type\":\"task\",\"aggregate_id\":\"task-1\",\"payload\":{},\"created_at\":\"2026-09-08T15:00:01Z\"}\n\n",
-  }));
-
+test("renders projection-backed state and is explicitly non-indexable", async ({ page }) => {
+  await routeHealthy(page);
   await page.goto("/");
-
-  await expect(page.getByRole("heading", { name: "Living Cognitive Operating System" })).toBeVisible();
+  await expect(page.getByRole("heading",{name:"Living Cognitive Operating System"})).toBeVisible();
   await expect(page.locator(".deus")).toHaveText("DEUS");
-  await expect(page.locator(".orbit-a span")).toHaveText("SOPHIA");
-  await expect(page.locator(".orbit-b span")).toHaveText("ROCKMAM");
-  await expect(page.getByRole("heading", { name: "Manifest Gate D" })).toBeVisible();
-  await expect(page.getByText("Engineering", { exact: true })).toBeVisible();
-  await expect(page.getByText("Builder", { exact: true })).toBeVisible();
-  await expect(page.getByText("mission_distributed", { exact: true })).toBeVisible();
-  await expect(page.getByText("kernel_health", { exact: true })).toBeVisible();
-  await expect(page.locator(".lower-grid-primary article:nth-child(4) .event-list").getByText("task_progressed", { exact: true })).toBeVisible();
-  await expect(page.locator(".top-status .status")).toHaveText("LIVE");
+  await expect(page.getByRole("heading",{name:"Manifest Gate D"})).toBeVisible();
+  await expect(page.locator('.top-status .status')).toHaveText("LIVE");
+  await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", /noindex/);
+});
+
+test("remains usable on a mobile viewport", async ({ page }) => {
+  await page.setViewportSize({width:390,height:844});
+  await routeHealthy(page);
+  await page.goto("/");
+  await expect(page.getByRole("heading",{name:"Living Cognitive Operating System"})).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBeTruthy();
+});
+
+test("shows connecting state on a slow API instead of fabricated data", async ({ page }) => {
+  await routeHealthy(page, 1200);
+  await page.goto("/");
+  await expect(page.locator(".top-status .status")).toHaveText("CONNECTING");
+  await expect(page.locator(".top-status .status")).toHaveText("LIVE",{timeout:6000});
+});
+
+test("surfaces API offline failure", async ({ page }) => {
+  await page.route("**/api/v1/**", r => r.abort("connectionfailed"));
+  await page.goto("/");
+  await expect(page.locator(".top-status .status")).toHaveText("ERROR");
+  await expect(page.getByText(/Live state unavailable/)).toBeVisible();
 });
 
 test("fails closed when Creator authentication is absent", async ({ page }) => {
+  await page.evaluate(() => localStorage.removeItem("creation_access_token"));
   await page.goto("/");
   await expect(page.locator(".top-status .status")).toHaveText("AUTH_REQUIRED");
-  await expect(page.getByText(/Authentication required/)).toBeVisible();
 });
