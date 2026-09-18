@@ -165,3 +165,53 @@ test("authenticates the Creator and hydrates the live dashboard", async ({ page 
   await expect(page.getByRole("heading", { name: "Manifest Gate D" })).toBeVisible();
   await expect.poll(() => page.evaluate(() => localStorage.getItem("creation_access_token"))).toBe("e2e-token");
 });
+
+
+test("keeps the authenticated terminal non-indexable", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", /noindex/);
+  await expect(page.locator('meta[name="googlebot"]')).toHaveAttribute("content", /noindex/);
+});
+
+test("shows a skeleton while real API state is delayed", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("creation_access_token", "e2e-token"));
+  await page.route("**/api/v1/**", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    const url = route.request().url();
+    if (url.includes("/system/state")) return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(state) });
+    if (url.includes("/system/projections")) return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(projections) });
+    if (url.includes("/system/inference")) return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(inference) });
+    if (url.includes("/chronicles")) return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(chronicle) });
+    return route.fulfill({ status: 200, contentType: "text/event-stream", body: "" });
+  });
+  await page.goto("/");
+  await expect(page.getByRole("status")).toContainText("Loading live system state");
+  await expect(page.locator(".top-status .status")).toHaveText("LIVE", { timeout: 6000 });
+});
+
+test("recovers from an offline API with the explicit Retry action", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("creation_access_token", "e2e-token"));
+  let stateAttempts = 0;
+  await page.route("**/api/v1/system/state", (route) => {
+    stateAttempts += 1;
+    if (stateAttempts <= 3) return route.fulfill({ status: 503, body: "offline" });
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(state) });
+  });
+  await page.route("**/api/v1/system/projections", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(projections) }));
+  await page.route("**/api/v1/system/inference", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(inference) }));
+  await page.route("**/api/v1/chronicles?limit=40&offset=0", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(chronicle) }));
+  await page.route("**/api/v1/system/events?after=41", (route) => route.fulfill({ status: 200, contentType: "text/event-stream", body: "" }));
+  await page.goto("/");
+  await expect(page.getByRole("alert")).toContainText("Live state unavailable");
+  await page.getByRole("button", { name: "Retry" }).click();
+  await expect(page.locator(".top-status .status")).toHaveText("LIVE", { timeout: 6000 });
+});
+
+test("does not introduce horizontal overflow on a mobile viewport", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.addInitScript(() => localStorage.setItem("creation_access_token", "e2e-token"));
+  await mockOperationalApi(page);
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Living Cognitive Operating System" })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBeTruthy();
+});
