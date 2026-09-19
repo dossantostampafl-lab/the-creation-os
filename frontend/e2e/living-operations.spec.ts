@@ -91,7 +91,7 @@ const inference = {
 async function mockOperationalApi(page: import("@playwright/test").Page) {
   await page.route("**/api/v1/system/state", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(state) }));
   await page.route("**/api/v1/system/projections", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(projections) }));
-  await page.route("**/api/v1/chronicles?limit=40&offset=0", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(chronicle) }));
+  await page.route("**/api/v1/chronicles?limit=40&offset=*", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(chronicle) }));
   await page.route("**/api/v1/system/inference", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(inference) }));
   await page.route("**/api/v1/system/events?after=41", (route) => route.fulfill({
     status: 200,
@@ -128,7 +128,7 @@ test("renders an explicit unconfigured inference state without fabricated provid
   await page.addInitScript(() => localStorage.setItem("creation_access_token", "e2e-token"));
   await page.route("**/api/v1/system/state", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(state) }));
   await page.route("**/api/v1/system/projections", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(projections) }));
-  await page.route("**/api/v1/chronicles?limit=40&offset=0", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(chronicle) }));
+  await page.route("**/api/v1/chronicles?limit=40&offset=*", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(chronicle) }));
   await page.route("**/api/v1/system/inference", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ configured: false, configured_provider: "fake", providers: [] }) }));
   await page.route("**/api/v1/system/events?after=41", (route) => route.fulfill({ status: 200, contentType: "text/event-stream", body: "" }));
 
@@ -198,7 +198,7 @@ test("recovers from an offline API with the explicit Retry action", async ({ pag
   });
   await page.route("**/api/v1/system/projections", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(projections) }));
   await page.route("**/api/v1/system/inference", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(inference) }));
-  await page.route("**/api/v1/chronicles?limit=40&offset=0", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(chronicle) }));
+  await page.route("**/api/v1/chronicles?limit=40&offset=*", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(chronicle) }));
   await page.route("**/api/v1/system/events?after=41", (route) => route.fulfill({ status: 200, contentType: "text/event-stream", body: "" }));
   await page.goto("/");
   await expect(page.getByRole("alert")).toContainText("Live state unavailable");
@@ -243,4 +243,54 @@ test("keeps a failed Creator login actionable and does not enter the dashboard",
   await page.getByRole("button", { name: "Enter The Creation" }).click();
   await expect(page.getByText("Invalid username or password.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Enter The Creation" })).toBeEnabled();
+});
+
+test("refreshes an expired access token and keeps the dashboard live", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("creation_access_token", "expired-token");
+    localStorage.setItem("creation_refresh_token", "e2e-refresh");
+  });
+  await mockOperationalApi(page);
+  await page.route("**/api/v1/system/state", (route) => {
+    if (route.request().headers().authorization === "Bearer expired-token") return route.fulfill({ status: 401, body: "expired" });
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(state) });
+  });
+  await page.route("**/api/v1/auth/refresh", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ access_token: "fresh-token", refresh_token: "fresh-refresh", token_type: "bearer", expires_in: 15 }),
+  }));
+
+  await page.goto("/");
+
+  await expect(page.locator(".top-status .status")).toHaveText("LIVE");
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("creation_access_token"))).toBe("fresh-token");
+});
+
+test("returns to the login and clears the session when refresh fails", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("creation_access_token", "expired-token");
+    localStorage.setItem("creation_refresh_token", "revoked-refresh");
+  });
+  await mockOperationalApi(page);
+  await page.route("**/api/v1/system/state", (route) => route.fulfill({ status: 401, body: "expired" }));
+  await page.route("**/api/v1/auth/refresh", (route) => route.fulfill({ status: 401, body: "revoked" }));
+
+  await page.goto("/");
+
+  await expect(page.getByRole("heading", { name: "Creator Access" })).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem("creation_access_token"))).toBeNull();
+});
+
+test("signs out and shows the login again", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("creation_access_token", "e2e-token"));
+  await mockOperationalApi(page);
+  await page.route("**/api/v1/auth/logout", (route) => route.fulfill({ status: 204 }));
+
+  await page.goto("/");
+  await expect(page.locator(".top-status .status")).toHaveText("LIVE");
+  await page.getByRole("button", { name: "Sign out" }).click();
+
+  await expect(page.getByRole("heading", { name: "Creator Access" })).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem("creation_access_token"))).toBeNull();
 });

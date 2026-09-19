@@ -1,6 +1,6 @@
 import type { ChronicleEvent, ChronicleRecord, InferenceStatusSnapshot, ProjectionStatus, SystemState } from "./types";
 
-const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ?? "http://localhost:8000/api/v1";
+const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ?? "/api/v1";
 
 const ACCESS_KEY = "creation_access_token";
 const REFRESH_KEY = "creation_refresh_token";
@@ -99,6 +99,16 @@ export async function loginCreator(username: string, password: string): Promise<
   const tokens = await response.json() as TokenResponse;
   window.localStorage.setItem(ACCESS_KEY, tokens.access_token);
   window.localStorage.setItem(REFRESH_KEY, tokens.refresh_token);
+}
+
+export async function logoutCreator(): Promise<void> {
+  try {
+    await authFetch("/auth/logout", { method: "POST" });
+  } catch {
+    // Best effort: the local session is cleared regardless of the server outcome.
+  } finally {
+    clearSession();
+  }
 }
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {

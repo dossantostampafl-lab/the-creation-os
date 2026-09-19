@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
-import { fetchChronicleHistory, fetchInferenceStatus, fetchProjectionStatus, fetchSystemState, loginCreator, streamChronicle } from "./api";
+import { fetchChronicleHistory, fetchInferenceStatus, fetchProjectionStatus, fetchSystemState, loginCreator, logoutCreator, streamChronicle } from "./api";
 import { CreatorConsole } from "./CreatorConsole";
 import type { ChronicleEvent, ChronicleRecord, InferenceStatusSnapshot, ProjectionStatus, SystemState } from "./types";
 
@@ -11,6 +11,8 @@ function statusTone(status: string): string {
   if (["RUNNING", "EXECUTING", "DISTRIBUTED", "READY", "LAGGING", "UNCONFIGURED"].includes(value)) return "warn";
   return "neutral";
 }
+
+const formatStamp = (value: string) => new Date(value).toLocaleString([], { dateStyle: "short", timeStyle: "medium" });
 
 function App() {
   const [state, setState] = useState<SystemState | null>(null);
@@ -137,6 +139,17 @@ function App() {
     };
   }, [authVersion, retryVersion]);
 
+  async function handleLogout() {
+    await logoutCreator();
+    window.localStorage.removeItem("creation_conversation_id");
+    setState(null);
+    setProjections(null);
+    setInference(null);
+    setChronicle([]);
+    setEvents([]);
+    setAuthVersion((version) => version + 1);
+  }
+
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setLoginPending(true);
@@ -169,7 +182,8 @@ function App() {
         <div className="top-status">
           <span className={`status ${connection.toLowerCase()}`}>{connection}</span>
           <span>Chronicle #{state?.position ?? "—"}</span>
-          <span>{state?.generated_at ? new Date(state.generated_at).toLocaleTimeString() : "—"}</span>
+          <span>{state?.generated_at ? formatStamp(state.generated_at) : "—"}</span>
+          {connection !== "AUTH_REQUIRED" && <button type="button" className="logout-button" onClick={() => void handleLogout()}>Sign out</button>}
         </div>
       </header>
 
@@ -195,6 +209,7 @@ function App() {
       {connection === "CONNECTING" && !state && <section className="loading-shell" role="status" aria-live="polite"><div className="skeleton skeleton-wide" /><div className="skeleton" /><span>Loading live system state…</span></section>}
       {error && connection === "ERROR" && <section className="error-banner" role="alert">Live state unavailable: {error} <button type="button" className="retry-button" onClick={() => setRetryVersion((version) => version + 1)}>Retry</button></section>}
 
+      {!(connection === "AUTH_REQUIRED" && !state) && <>
       <section className="metrics">
         {[
           ["MISSIONS", state?.counts.missions], ["RUNNING", state?.counts.running_missions], ["TASKS", state?.counts.tasks],
@@ -217,7 +232,7 @@ function App() {
 
         <section className="panel core">
           <div className="panel-title">LIVING CORE VISUALIZATION</div>
-          <div className="core-map">
+          <div className="core-map" aria-hidden="true">
             <div className="orbit orbit-a"><span>SOPHIA</span></div>
             <div className="orbit orbit-b"><span>ROCKMAM</span></div>
             <div className="deus">DEUS</div>
@@ -242,14 +257,14 @@ function App() {
       </section>
 
       <section className="lower-grid lower-grid-primary">
-        <article className="panel"><div className="panel-title">CHRONICLE</div><div className="event-list">{chronicle.length ? chronicle.map((event) => <div className="event" key={event.event_id}><time>{new Date(event.created_at).toLocaleTimeString()}</time><span>{event.event_type}</span><small>{event.aggregate_type}</small></div>) : <div className="empty">Chronicle has no persisted events.</div>}</div></article>
+        <article className="panel"><div className="panel-title">CHRONICLE</div><div className="event-list" tabIndex={0} role="region" aria-label="Chronicle events">{chronicle.length ? chronicle.map((event) => <div className="event" key={event.event_id}><time>{formatStamp(event.created_at)}</time><span>{event.event_type}</span><small>{event.aggregate_type}</small></div>) : <div className="empty">Chronicle has no persisted events.</div>}</div></article>
         <article className="panel"><div className="panel-title">PULSE</div><div className="stack">{pulseEntries.length ? pulseEntries.map(([name, metric]) => <div className="row" key={name}><span>{name}</span><b className="good">{String(metric.value)}</b></div>) : <div className="empty">No persisted Pulse metrics.</div>}</div></article>
         <article className="panel"><div className="panel-title">TASK DAG</div><div className="dag">{missionTasks.length ? missionTasks.map((task, i) => <div className="dag-item" key={task.id}><span>{i + 1}</span><div><strong>{task.status}</strong><small>{task.attempt_count}/{task.max_attempts} attempts</small></div></div>) : <div className="empty">No task graph for selected mission.</div>}</div></article>
-        <article className="panel"><div className="panel-title">SYSTEM EVENTS</div><div className="event-list">{events.length ? events.map((event) => <div className="event" key={event.event_id}><time>#{event.position}</time><span>{event.event_type}</span><small>{event.aggregate_type}</small></div>) : <div className="empty">No new events since connection.</div>}</div></article>
+        <article className="panel"><div className="panel-title">SYSTEM EVENTS</div><div className="event-list" tabIndex={0} role="region" aria-label="Live system events">{events.length ? events.map((event) => <div className="event" key={event.event_id}><time>#{event.position}</time><span>{event.event_type}</span><small>{event.aggregate_type}</small></div>) : <div className="empty">No new events since connection.</div>}</div></article>
       </section>
 
       <section className="lower-grid lower-grid-secondary">
-        <CreatorConsole enabled={deusReady} />
+        <CreatorConsole key={authVersion} enabled={deusReady} />
         <article className="panel projections-panel"><div className="panel-title">PROJECTIONS</div><div className="stack">{projections?.projections.map((projection) => <div className="row" key={projection.name}><span>{projection.name}</span><b className={statusTone(projection.status)}>{projection.status}{projection.lag ? ` · lag ${projection.lag}` : ""}</b></div>)}</div></article>
         <article className="panel inference-panel">
           <div className="panel-title">INFERENCE FABRIC</div>
@@ -269,6 +284,7 @@ function App() {
           )}
         </article>
       </section>
+      </>}
     </main>
   );
 }

@@ -63,7 +63,6 @@ export function CreatorConsole({ enabled }: Props) {
 
   return (
     <article className="panel creator-console">
-      <div className="panel-title">CREATOR CONSOLE</div>
       <div className="console-heading">
         <div><span className="eyebrow">DIRECT INTERFACE</span><h2>Creator Console</h2></div>
         <span className={`pill ${enabled ? "good" : "warn"}`}>{enabled ? "DEUS READY" : "INFERENCE REQUIRED"}</span>
