@@ -38,6 +38,13 @@ def build_capability_gateway() -> CapabilityGateway:
 
 
 async def run_worker() -> None:
+    if settings.llm_provider.strip().lower() == "fake":
+        if settings.app_env == "production":
+            raise RuntimeError("fake inference provider is forbidden for the production worker")
+        logger.warning("worker running idle because LLM_PROVIDER=fake outside production")
+        while True:
+            await asyncio.sleep(POLL_INTERVAL_SECONDS)
+
     router = build_model_router()
     capability_gateway = build_capability_gateway()
     capability_runtime = CapabilityRuntime(AsyncSessionLocal, capability_gateway)
