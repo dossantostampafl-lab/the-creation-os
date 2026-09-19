@@ -30,73 +30,109 @@ function App() {
 
   useEffect(() => {
     let active = true;
-    let controller = new AbortController();
+    const controller = new AbortController();
+    let refreshTimer: number | undefined;
+    let refreshSeq = 0;
+
+    const fail = (failure: unknown, fallback: string) => {
+      const message = failure instanceof Error ? failure.message : fallback;
+      setError(message);
+      setConnection(message === "AUTH_REQUIRED" ? "AUTH_REQUIRED" : "ERROR");
+    };
+
+    // Coalesce bursts of events into one refetch; a stale response never overwrites a newer one.
+    function scheduleRefresh() {
+      window.clearTimeout(refreshTimer);
+      refreshTimer = window.setTimeout(async () => {
+        const seq = ++refreshSeq;
+        try {
+          const [next, nextProjections, nextInference] = await Promise.all([fetchSystemState(), fetchProjectionStatus(), fetchInferenceStatus()]);
+          if (!active || seq !== refreshSeq) return;
+          setState(next);
+          setProjections(nextProjections);
+          setInference(nextInference);
+        } catch (refreshError) {
+          if (active && refreshError instanceof Error && refreshError.message === "AUTH_REQUIRED") fail(refreshError, "AUTH_REQUIRED");
+        }
+      }, 250);
+    }
+
+    function handleEvent(event: ChronicleEvent) {
+      if (event.position <= cursor.current) return;
+      cursor.current = event.position;
+      setEvents((current) => [event, ...current].slice(0, 40));
+      setChronicle((current) => [{
+        id: event.event_id,
+        event_id: event.event_id,
+        correlation_id: event.correlation_id,
+        causation_id: event.causation_id,
+        actor_type: event.actor_role,
+        actor_id: null,
+        event_type: event.event_type,
+        aggregate_type: event.aggregate_type,
+        aggregate_id: event.aggregate_id,
+        payload_json: event.payload,
+        payload_hash: "live",
+        previous_hash: null,
+        created_at: event.created_at,
+      }, ...current.filter((record) => record.event_id !== event.event_id)].slice(0, 40));
+      scheduleRefresh();
+    }
 
     async function hydrate() {
-      try {
-        setConnection("CONNECTING");
-        setError(null);
-        const [snapshot, projectionStatus, inferenceStatus, history] = await Promise.all([
-          fetchSystemState(),
-          fetchProjectionStatus(),
-          fetchInferenceStatus(),
-          fetchChronicleHistory(),
-        ]);
-        if (!active) return;
-        setState(snapshot);
-        setProjections(projectionStatus);
-        setInference(inferenceStatus);
-        setChronicle(history);
-        cursor.current = snapshot.position;
-        setConnection("LIVE");
-        controller.abort();
-        controller = new AbortController();
-        void streamChronicle(cursor.current, {
-          onEvent: (event) => {
-            cursor.current = event.position;
-            setEvents((current) => [event, ...current].slice(0, 40));
-            setChronicle((current) => [{
-              id: event.event_id,
-              event_id: event.event_id,
-              correlation_id: event.correlation_id,
-              causation_id: event.causation_id,
-              actor_type: event.actor_role,
-              actor_id: null,
-              event_type: event.event_type,
-              aggregate_type: event.aggregate_type,
-              aggregate_id: event.aggregate_id,
-              payload_json: event.payload,
-              payload_hash: "live",
-              previous_hash: null,
-              created_at: event.created_at,
-            }, ...current].slice(0, 40));
-            void Promise.all([fetchSystemState(), fetchProjectionStatus(), fetchInferenceStatus()]).then(([next, nextProjections, nextInference]) => {
-              if (!active) return;
-              setState(next);
-              setProjections(nextProjections);
-              setInference(nextInference);
-            });
-          },
-          onResync: () => {
+      setConnection("CONNECTING");
+      setError(null);
+      const snapshot = await fetchSystemState();
+      const [projectionStatus, inferenceStatus, history] = await Promise.all([
+        fetchProjectionStatus(),
+        fetchInferenceStatus(),
+        fetchChronicleHistory(snapshot.position),
+      ]);
+      if (!active) return;
+      setState(snapshot);
+      setProjections(projectionStatus);
+      setInference(inferenceStatus);
+      setChronicle(history);
+      setEvents([]);
+      cursor.current = snapshot.position;
+      setConnection("LIVE");
+    }
+
+    async function run() {
+      let backoff = 1000;
+      let needsHydrate = true;
+      while (active) {
+        try {
+          if (needsHydrate) {
+            await hydrate();
+            needsHydrate = false;
+          }
+          setConnection("LIVE");
+          const end = await streamChronicle(cursor.current, handleEvent, controller.signal);
+          if (!active) return;
+          if (end === "resync") {
             setConnection("RESYNCING");
-            void hydrate();
-          },
-          onError: (streamError) => {
-            const message = streamError instanceof Error ? streamError.message : "STREAM_ERROR";
-            setError(message);
-            setConnection(message === "AUTH_REQUIRED" ? "AUTH_REQUIRED" : "ERROR");
-          },
-        }, controller.signal);
-      } catch (loadError) {
-        const message = loadError instanceof Error ? loadError.message : "LOAD_ERROR";
-        setError(message);
-        setConnection(message === "AUTH_REQUIRED" ? "AUTH_REQUIRED" : "ERROR");
+            needsHydrate = true;
+            backoff = 1000;
+            continue;
+          }
+          // Stream closed by server/proxy: reconnect from the cursor after the backoff below.
+        } catch (failure) {
+          if (!active) return;
+          if (failure instanceof Error && failure.message === "AUTH_REQUIRED") return fail(failure, "AUTH_REQUIRED");
+          setError(failure instanceof Error ? failure.message : "STREAM_ERROR");
+          setConnection("ERROR");
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, backoff));
+        backoff = Math.min(backoff * 2, 15000);
+        if (active) setConnection("CONNECTING");
       }
     }
 
-    void hydrate();
+    void run();
     return () => {
       active = false;
+      window.clearTimeout(refreshTimer);
       controller.abort();
     };
   }, [authVersion, retryVersion]);
@@ -111,7 +147,11 @@ function App() {
       setAuthVersion((version) => version + 1);
     } catch (loginFailure) {
       const message = loginFailure instanceof Error ? loginFailure.message : "LOGIN_FAILED";
-      setLoginError(message === "INVALID_CREDENTIALS" ? "Invalid username or password." : "Authentication service unavailable.");
+      setLoginError(
+        message === "INVALID_CREDENTIALS" ? "Invalid username or password."
+          : message === "RATE_LIMITED" ? "Too many attempts. Wait a moment and try again."
+          : "Authentication service unavailable.",
+      );
     } finally {
       setLoginPending(false);
     }

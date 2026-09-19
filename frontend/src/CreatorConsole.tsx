@@ -21,10 +21,13 @@ export function CreatorConsole({ enabled }: Props) {
     if (!conversationId) return;
     void fetchConversationMessages(conversationId)
       .then(setMessages)
-      .catch(() => {
-        window.localStorage.removeItem(CONVERSATION_KEY);
-        setConversationId(null);
-        setMessages([]);
+      .catch((failure: unknown) => {
+        // Only a missing/foreign conversation invalidates the saved id; auth or network errors must keep it.
+        if (failure instanceof Error && (failure.message === "HTTP_404" || failure.message === "HTTP_422")) {
+          window.localStorage.removeItem(CONVERSATION_KEY);
+          setConversationId(null);
+          setMessages([]);
+        }
       });
   }, [conversationId]);
 
@@ -42,12 +45,17 @@ export function CreatorConsole({ enabled }: Props) {
         window.localStorage.setItem(CONVERSATION_KEY, id);
         setConversationId(id);
       }
-      setInput("");
       await converseWithDeus(id, content);
+      setInput("");
       setMessages(await fetchConversationMessages(id));
     } catch (failure) {
       const message = failure instanceof Error ? failure.message : "CONVERSATION_FAILED";
-      setError(message === "HTTP_503" ? "Inference provider is not configured." : "DEUS conversation failed.");
+      setError(
+        message === "HTTP_503" ? "Inference provider is not configured."
+          : message === "AUTH_REQUIRED" ? "Session expired. Sign in again."
+          : message === "HTTP_429" ? "Too many requests. Try again shortly."
+          : "DEUS conversation failed. Your message was kept.",
+      );
     } finally {
       setPending(false);
     }
