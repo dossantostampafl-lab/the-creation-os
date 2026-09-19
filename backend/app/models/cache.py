@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import ARRAY, DateTime, Float, Integer, JSON, String, Text, UniqueConstraint, text
+from sqlalchemy import ARRAY, JSON, DateTime, Float, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
