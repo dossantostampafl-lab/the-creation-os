@@ -9,7 +9,6 @@ from app.cache.redis_store import RedisCacheStore
 from app.config import settings
 from app.db.session import AsyncSessionLocal
 
-
 _orchestrator: CacheOrchestrator | None = None
 
 
