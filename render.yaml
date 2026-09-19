@@ -54,6 +54,18 @@ services:
         sync: false
       - key: EMBEDDING_MODEL
         sync: false
+      - key: SEMANTIC_CACHE_MODE
+        value: shadow
+      - key: SEMANTIC_CACHE_POLICY_VERSION
+        value: sc-v1
+      - key: SEMANTIC_CACHE_EMBEDDING_VERSION
+        value: v1
+      - key: SEMANTIC_CACHE_REDIS_PREFIX
+        value: tco:semantic-cache
+      - key: SEMANTIC_CACHE_SIMILARITY_THRESHOLD
+        value: "0.94"
+      - key: SEMANTIC_CACHE_REVALIDATE_THRESHOLD
+        value: "0.90"
       - key: PROTO_BASE_URL
         sync: false
       - key: PROTO_CREATION_SHARED_SECRET
@@ -158,6 +170,36 @@ services:
           type: web
           name: creation-api
           envVarKey: EMBEDDING_MODEL
+      - key: SEMANTIC_CACHE_MODE
+        fromService:
+          type: web
+          name: creation-api
+          envVarKey: SEMANTIC_CACHE_MODE
+      - key: SEMANTIC_CACHE_POLICY_VERSION
+        fromService:
+          type: web
+          name: creation-api
+          envVarKey: SEMANTIC_CACHE_POLICY_VERSION
+      - key: SEMANTIC_CACHE_EMBEDDING_VERSION
+        fromService:
+          type: web
+          name: creation-api
+          envVarKey: SEMANTIC_CACHE_EMBEDDING_VERSION
+      - key: SEMANTIC_CACHE_REDIS_PREFIX
+        fromService:
+          type: web
+          name: creation-api
+          envVarKey: SEMANTIC_CACHE_REDIS_PREFIX
+      - key: SEMANTIC_CACHE_SIMILARITY_THRESHOLD
+        fromService:
+          type: web
+          name: creation-api
+          envVarKey: SEMANTIC_CACHE_SIMILARITY_THRESHOLD
+      - key: SEMANTIC_CACHE_REVALIDATE_THRESHOLD
+        fromService:
+          type: web
+          name: creation-api
+          envVarKey: SEMANTIC_CACHE_REVALIDATE_THRESHOLD
       - key: PROTO_BASE_URL
         fromService:
           type: web
