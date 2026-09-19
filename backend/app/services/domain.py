@@ -229,8 +229,16 @@ class LivingCoreService:
             raise NotFoundError("Universe not found")
         if await self.repo.get_by_code(Agent, code) is not None:
             raise InvalidOrigin(f"Agent {code} already exists")
-        item = await self.repo.add(Agent(code=code, name=name, universe_id=universe.id, active=True,
-                                         capabilities_json=capabilities))
+        item = await self.repo.add(Agent(
+            code=code,
+            name=name,
+            universe_name=universe.code,
+            universe_id=universe.id,
+            active=True,
+            enabled=True,
+            status="offline",
+            capabilities_json=capabilities,
+        ))
         await self.repo.add_event("agent_created", "agent", item.id, actor.id, actor.role, correlation_id,
                                   {"code": code, "universe_id": universe.id})
         await self.repo.commit()
