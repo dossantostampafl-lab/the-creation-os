@@ -132,5 +132,16 @@ jobs:
         run: |
           cp .env.example .env
           docker compose config --quiet
+      - name: Validate Windows operations scripts
+        shell: pwsh
+        run: |
+          $errors = $null
+          foreach ($path in @("scripts/local-start.ps1", "scripts/local-status.ps1", "scripts/local-stop.ps1")) {
+            [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$null, [ref]$errors) | Out-Null
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Error $_.Message }
+              exit 1
+            }
+          }
       - name: Build canonical local runtime
         run: docker compose build
