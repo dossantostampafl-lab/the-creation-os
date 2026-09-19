@@ -71,6 +71,12 @@ if (-not (Get-DotEnvValue "REDIS_URL")) {
     Set-DotEnvValue "REDIS_URL" "redis://redis:6379/0"
 }
 
+$workerCredential = Get-DotEnvValue "WORKER_CREDENTIAL"
+if (-not $workerCredential -or $workerCredential -eq "change-me-worker-securely") {
+    $workerCredential = ([guid]::NewGuid().ToString("N") + [guid]::NewGuid().ToString("N"))
+    Set-DotEnvValue "WORKER_CREDENTIAL" $workerCredential
+}
+
 if ($envCreated) {
     Write-Host "Created .env for the canonical local runtime."
 } else {
