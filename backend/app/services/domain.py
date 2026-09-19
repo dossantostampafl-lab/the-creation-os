@@ -19,6 +19,7 @@ from app.core.domain import (
 from app.kernel.distributor import validate_distribution
 from app.models.entities import (
     Agent,
+    AgentCapability,
     ConsciousMemory,
     Conversation,
     Inception,
@@ -349,9 +350,18 @@ class LivingCoreService:
             universe = await self.repo.get_by_code(Universe, step.universe)
             if universe is None or not universe.active:
                 raise InvalidOrigin(f"Universe {step.universe} is unavailable for distribution")
-            agents = [agent for agent in await self.repo.list_agents(universe.id) if agent.active]
+            agents = [agent for agent in await self.repo.list_agents(universe.id) if agent.active and agent.enabled]
             if not agents:
                 raise InvalidOrigin(f"Universe {step.universe} has no active Agent")
+            selected_agent = agents[0]
+            capability_id = await self.repo.session.scalar(
+                select(AgentCapability.capability_id)
+                .where(AgentCapability.agent_id == selected_agent.id)
+                .order_by(AgentCapability.capability_id)
+                .limit(1)
+            )
+            if capability_id is None:
+                raise InvalidOrigin(f"Agent {selected_agent.id} has no registered capability")
             idempotency_key = f"{item.id}:{step.step_key}"
             existing = await self.repo.session.scalar(select(Task).where(Task.idempotency_key == idempotency_key))
             if existing is not None:
@@ -361,7 +371,15 @@ class LivingCoreService:
                 mission_id=item.id,
                 step_id=step.id,
                 universe_id=universe.id,
-                agent_id=agents[0].id,
+                agent_id=selected_agent.id,
+                name=step.title,
+                description=step.description,
+                required_capability_id=capability_id,
+                priority=max(0, 100 - step.position),
+                state="ready" if task_status == "READY" else "planned",
+                retry_limit=3,
+                retry_count=0,
+                timeout_seconds=300,
                 status=task_status,
                 input_json={
                     "mission_objective": item.objective,
