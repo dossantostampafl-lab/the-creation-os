@@ -1,145 +1,381 @@
-import type { ChronicleEvent, ChronicleRecord, InferenceStatusSnapshot, ProjectionStatus, SystemState } from "./types";
+import type {
+  Agent,
+  AutomationExecution,
+  CapabilityFramework,
+  ChronicleEntry,
+  Conversation,
+  ConversationMessage,
+  CreatorNotification,
+  GodResponse,
+  Inception,
+  Mission,
+  MissionAuthorization,
+  Opportunity,
+  PerceptionRun,
+  PerceptionRunResult,
+  PerceptionSource,
+  Pulse,
+  TokenResponse,
+  TrinityResponse,
+  Universe,
+} from "./types";
 
-const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ?? "http://localhost:8000/api/v1";
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000/api/v1";
+const DEFAULT_REQUEST_TIMEOUT_MS = 20000;
 
-function token(): string {
-  const value = window.localStorage.getItem("creation_access_token");
-  if (!value) throw new Error("AUTH_REQUIRED");
-  return value;
-}
-
-type TokenResponse = {
-  access_token: string;
-  refresh_token: string;
-  token_type: "bearer";
-  expires_in: number;
-};
-
-export type Conversation = {
-  id: string;
-  creator_id: string;
-  title: string;
-  status: string;
-  created_at: string;
-  updated_at: string;
-};
-
-export type ConversationMessage = {
-  id: string;
-  conversation_id: string;
-  actor_id: string;
-  role: string;
-  content: string;
-  route: string;
-  metadata_json: Record<string, unknown>;
-  correlation_id: string;
-  created_at: string;
-};
-
-export async function loginCreator(username: string, password: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/auth/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, password }),
-  });
-  if (response.status === 401 || response.status === 403) throw new Error("INVALID_CREDENTIALS");
-  if (!response.ok) throw new Error(`HTTP_${response.status}`);
-  const tokens = await response.json() as TokenResponse;
-  window.localStorage.setItem("creation_access_token", tokens.access_token);
-  window.localStorage.setItem("creation_refresh_token", tokens.refresh_token);
-}
-
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const method = (init?.method ?? "GET").toUpperCase();
-  const attempts = method === "GET" ? 3 : 1;
-  let lastError: unknown;
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    try {
-      const response = await fetch(`${API_BASE}${path}`, {
-        ...init,
-        headers: {
-          Authorization: `Bearer ${token()}`,
-          ...(init?.body ? { "Content-Type": "application/json" } : {}),
-          ...init?.headers,
-        },
-      });
-      if (response.status === 401 || response.status === 403) throw new Error("AUTH_REQUIRED");
-      if (!response.ok) {
-        if (response.status < 500 || attempt === attempts - 1) throw new Error(`HTTP_${response.status}`);
-        throw new Error(`RETRYABLE_HTTP_${response.status}`);
-      }
-      return response.json() as Promise<T>;
-    } catch (error) {
-      if (error instanceof Error && (error.message === "AUTH_REQUIRED" || error.message.startsWith("HTTP_4"))) throw error;
-      lastError = error;
-      if (attempt < attempts - 1) await new Promise((resolve) => window.setTimeout(resolve, 250 * 2 ** attempt));
-    }
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+  ) {
+    super(message);
   }
-  throw lastError instanceof Error ? lastError : new Error("NETWORK_ERROR");
 }
 
-export const fetchSystemState = () => api<SystemState>("/system/state");
-export const fetchProjectionStatus = () => api<ProjectionStatus>("/system/projections");
-export const fetchInferenceStatus = () => api<InferenceStatusSnapshot>("/system/inference");
-export const fetchChronicleHistory = () => api<ChronicleRecord[]>("/chronicles?limit=40&offset=0");
-
-export const createConversation = (title = "Creator Session") => api<Conversation>("/conversations", {
-  method: "POST",
-  body: JSON.stringify({ title }),
-});
-
-export const fetchConversationMessages = (conversationId: string) =>
-  api<ConversationMessage[]>(`/conversations/${conversationId}/messages`);
-
-export const converseWithDeus = (conversationId: string, content: string) =>
-  api<{ response: string }>(`/conversations/${conversationId}/deus`, {
-    method: "POST",
-    body: JSON.stringify({ content, metadata: {} }),
-  });
-
-export type StreamHandlers = {
-  onEvent: (event: ChronicleEvent) => void;
-  onResync: () => void;
-  onError: (error: unknown) => void;
-};
-
-export async function streamChronicle(after: number, handlers: StreamHandlers, signal: AbortSignal): Promise<void> {
+async function request<T>(path: string, options: RequestInit = {}, token?: string): Promise<T> {
+  const controller = options.signal ? null : new AbortController();
+  const timeout = controller ? window.setTimeout(() => controller.abort(), DEFAULT_REQUEST_TIMEOUT_MS) : null;
   try {
-    const response = await fetch(`${API_BASE}/system/events?after=${after}`, {
-      headers: { Authorization: `Bearer ${token()}`, Accept: "text/event-stream" },
-      signal,
+    const response = await fetch(`${API_BASE}${path}`, {
+      ...options,
+      signal: options.signal ?? controller?.signal,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(options.headers ?? {}),
+      },
     });
-    if (response.status === 401 || response.status === 403) throw new Error("AUTH_REQUIRED");
-    if (!response.ok || !response.body) throw new Error(`HTTP_${response.status}`);
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-
-    while (!signal.aborted) {
-      const { value, done } = await reader.read();
-      if (done) return;
-      buffer += decoder.decode(value, { stream: true });
-      const frames = buffer.split("\n\n");
-      buffer = frames.pop() ?? "";
-
-      for (const frame of frames) {
-        if (!frame || frame.startsWith(":")) continue;
-        let eventType = "message";
-        let data = "";
-        for (const line of frame.split("\n")) {
-          if (line.startsWith("event:")) eventType = line.slice(6).trim();
-          if (line.startsWith("data:")) data += line.slice(5).trim();
-        }
-        if (!data) continue;
-        if (eventType === "resync_required") {
-          handlers.onResync();
-          return;
-        }
-        if (eventType === "chronicle") handlers.onEvent(JSON.parse(data) as ChronicleEvent);
-      }
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new ApiError(body.detail ?? response.statusText, response.status);
     }
+    return (await response.json()) as T;
   } catch (error) {
-    if (!signal.aborted) handlers.onError(error);
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new ApiError("Tempo de resposta esgotado.", 408);
+    }
+    throw error;
+  } finally {
+    if (timeout !== null) window.clearTimeout(timeout);
   }
 }
+
+async function requestAudio(path: string, text: string, token: string): Promise<Blob> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), DEFAULT_REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${API_BASE}${path}`, {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ text }),
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new ApiError(body.detail ?? response.statusText, response.status);
+    }
+    return await response.blob();
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new ApiError("Tempo de resposta esgotado.", 408);
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
+export const api = {
+  baseUrl: API_BASE,
+
+  login(username: string, password: string) {
+    return request<TokenResponse>("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username, password }),
+    });
+  },
+
+  createConversation(token: string, title: string) {
+    return request<Conversation>(
+      "/conversations",
+      {
+        method: "POST",
+        body: JSON.stringify({ title }),
+      },
+      token,
+    );
+  },
+
+  getConversation(token: string, conversationId: string) {
+    return request<Conversation>(`/conversations/${conversationId}`, undefined, token);
+  },
+
+  listConversationMessages(token: string, conversationId: string) {
+    return request<ConversationMessage[]>(`/conversations/${conversationId}/messages`, undefined, token);
+  },
+
+  sendGod(token: string, conversationId: string, message: string) {
+    return request<GodResponse>(
+      `/living-core/conversations/${conversationId}/god`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          message,
+          idempotency_key: crypto.randomUUID(),
+        }),
+      },
+      token,
+    );
+  },
+
+  orchestrateTrinity(token: string, godInteractionId: string) {
+    return request<TrinityResponse>(
+      `/trinity/god-interactions/${godInteractionId}/orchestrate`,
+      { method: "POST" },
+      token,
+    );
+  },
+
+  listInceptions(token: string) {
+    return request<Inception[]>("/inceptions", undefined, token);
+  },
+
+  submitInception(token: string, inceptionId: string) {
+    return request<Inception>(`/inceptions/${inceptionId}/submit`, { method: "POST" }, token);
+  },
+
+  approveInception(token: string, inceptionId: string) {
+    return request<Inception>(
+      `/inceptions/${inceptionId}/approve`,
+      {
+        method: "POST",
+        body: JSON.stringify({ reason: "Creator approved Inception." }),
+      },
+      token,
+    );
+  },
+
+  rejectInception(token: string, inceptionId: string) {
+    return request<Inception>(
+      `/inceptions/${inceptionId}/reject`,
+      {
+        method: "POST",
+        body: JSON.stringify({ reason: "Creator rejected Inception." }),
+      },
+      token,
+    );
+  },
+
+  createMissionFromInception(token: string, inception: Inception) {
+    return request<Mission>(
+      "/missions",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          inception_id: inception.id,
+          title: inception.title,
+          objective: inception.description || inception.title,
+        }),
+      },
+      token,
+    );
+  },
+
+  listMissions(token: string) {
+    return request<Mission[]>("/missions", undefined, token);
+  },
+
+  getMissionAuthorization(token: string, missionId: string) {
+    return request<MissionAuthorization | null>(`/missions/${missionId}/authorization`, undefined, token);
+  },
+
+  requestMissionAuthorization(token: string, missionId: string, projectId: string) {
+    return request<MissionAuthorization>(
+      `/missions/${missionId}/authorization/request`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          project_id: projectId,
+          scope: {
+            actions: ["read_project_files", "modify_project_files", "run_tests", "run_lint", "run_typecheck", "update_documentation", "create_local_commit"],
+          },
+          allowed_capabilities: ["rest.restricted.request", "opportunity.discovery.run", "opportunity.ranking.list"],
+          allowed_resources: ["*"],
+          restrictions: { denied_actions: ["git_push", "deploy", "production_change", "use_real_financial_account"] },
+        }),
+      },
+      token,
+    );
+  },
+
+  approveMissionAuthorization(token: string, missionId: string) {
+    return request<MissionAuthorization>(`/missions/${missionId}/authorization/approve`, { method: "POST" }, token);
+  },
+
+  revokeMissionAuthorization(token: string, missionId: string) {
+    return request<MissionAuthorization>(`/missions/${missionId}/authorization/revoke`, { method: "POST" }, token);
+  },
+
+  listAgents(token: string) {
+    return request<Agent[]>("/agents", undefined, token);
+  },
+
+  listUniverses(token: string) {
+    return request<Universe[]>("/universes", undefined, token);
+  },
+
+  listChronicles(token: string) {
+    return request<ChronicleEntry[]>("/chronicles?limit=18", undefined, token);
+  },
+
+  pulse(token: string) {
+    return request<Pulse>("/pulse", undefined, token);
+  },
+
+  listCapabilities(token: string) {
+    return request<CapabilityFramework[]>("/automation/capabilities", undefined, token);
+  },
+
+  enableCapability(token: string, capabilityId: string) {
+    return request<CapabilityFramework>(
+      `/automation/capabilities/${encodeURIComponent(capabilityId)}/enable`,
+      { method: "POST" },
+      token,
+    );
+  },
+
+  disableCapability(token: string, capabilityId: string) {
+    return request<CapabilityFramework>(
+      `/automation/capabilities/${encodeURIComponent(capabilityId)}/disable`,
+      { method: "POST" },
+      token,
+    );
+  },
+
+  executeAutomation(
+    token: string,
+    body: {
+      connector_id: string;
+      capability: string;
+      payload: Record<string, unknown>;
+      timeout_seconds: number;
+      idempotency_key: string;
+    },
+  ) {
+    return request<AutomationExecution>(
+      "/automation/execute",
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+      token,
+    );
+  },
+
+  listOpportunities(token: string) {
+    return request<Opportunity[]>("/opportunities/ranking?limit=8", undefined, token);
+  },
+
+  runOpportunityDiscovery(token: string) {
+    return request<{ opportunities: Opportunity[] }>(
+      "/opportunities/discovery/run",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          observations: [
+            {
+              universe: "finance",
+              source: "fixture.market",
+              subject: "ACME",
+              event_type: "volume_anomaly",
+              title: "ACME volume anomaly",
+              summary: "Volume rose above the configured informational threshold.",
+              source_reliability: 0.82,
+              correlation_key: "acme:volume",
+              normalized_data: { percent_change: 8.4, volume_ratio: 2.7 },
+              evidence: { type: "controlled_fixture", financial_execution: false },
+            },
+            {
+              universe: "technology",
+              source: "fixture.trends",
+              subject: "Deterministic Agents",
+              event_type: "launch",
+              title: "Deterministic agent tooling launch",
+              summary: "Multiple technical sources indicate rising interest in deterministic agent tooling.",
+              source_reliability: 0.76,
+              correlation_key: "deterministic-agents:launch",
+              normalized_data: { activity_growth: 0.68 },
+              evidence: { type: "controlled_fixture" },
+            },
+          ],
+        }),
+      },
+      token,
+    );
+  },
+
+  approveOpportunity(token: string, opportunityId: string) {
+    return request<Opportunity>(
+      `/opportunities/${opportunityId}/approve`,
+      {
+        method: "POST",
+        body: JSON.stringify({ reason: "Creator approved investigation." }),
+      },
+      token,
+    );
+  },
+
+  rejectOpportunity(token: string, opportunityId: string) {
+    return request<Opportunity>(
+      `/opportunities/${opportunityId}/reject`,
+      {
+        method: "POST",
+        body: JSON.stringify({ reason: "Creator rejected the opportunity." }),
+      },
+      token,
+    );
+  },
+
+  convertOpportunity(token: string, opportunityId: string) {
+    return request<Opportunity>(`/opportunities/${opportunityId}/convert-to-inception`, { method: "POST" }, token);
+  },
+
+  listPerceptionSources(token: string) {
+    return request<PerceptionSource[]>("/perception/sources", undefined, token);
+  },
+
+  enablePerceptionSource(token: string, sourceId: string) {
+    return request<PerceptionSource>(`/perception/sources/${sourceId}/enable`, { method: "POST" }, token);
+  },
+
+  disablePerceptionSource(token: string, sourceId: string) {
+    return request<PerceptionSource>(`/perception/sources/${sourceId}/disable`, { method: "POST" }, token);
+  },
+
+  runPerceptionSource(token: string, sourceId: string) {
+    return request<PerceptionRunResult>(`/perception/sources/${sourceId}/run`, { method: "POST" }, token);
+  },
+
+  listPerceptionRuns(token: string, sourceId: string) {
+    return request<PerceptionRun[]>(`/perception/sources/${sourceId}/runs?limit=8`, undefined, token);
+  },
+
+  listNotifications(token: string) {
+    return request<CreatorNotification[]>("/notifications?limit=20", undefined, token);
+  },
+
+  readNotification(token: string, notificationId: string) {
+    return request<CreatorNotification>(`/notifications/${notificationId}/read`, { method: "POST" }, token);
+  },
+
+  acknowledgeNotification(token: string, notificationId: string) {
+    return request<CreatorNotification>(`/notifications/${notificationId}/acknowledge`, { method: "POST" }, token);
+  },
+
+  synthesizeVoice(token: string, text: string) {
+    return requestAudio("/voice/synthesize", text, token);
+  },
+};

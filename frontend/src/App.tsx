@@ -1,236 +1,1164 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { FormEvent } from "react";
-import { fetchChronicleHistory, fetchInferenceStatus, fetchProjectionStatus, fetchSystemState, loginCreator, streamChronicle } from "./api";
-import { CreatorConsole } from "./CreatorConsole";
-import type { ChronicleEvent, ChronicleRecord, InferenceStatusSnapshot, ProjectionStatus, SystemState } from "./types";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { api, ApiError } from "./api";
+import {
+  conversationMessageToChatItem,
+  inferRequestedPanel,
+  missionProgressFraction,
+  panelTitle,
+  pendingInception,
+  shouldClosePanel,
+  normalizeEntityKey,
+  type RequestedPanel,
+} from "./appLogic";
+import { CapabilityPanel } from "./components/CapabilityPanel";
+import { ChronicleRibbon } from "./components/ChronicleRibbon";
+import { InceptionPanel } from "./components/InceptionPanel";
+import { EntityActivityState, HotspotSummary, LivingDashboard } from "./components/LivingDashboard";
+import { MissionAuthorizationPanel } from "./components/MissionAuthorizationPanel";
+import { NotificationsPanel } from "./components/NotificationsPanel";
+import { OpportunityPanel } from "./components/OpportunityPanel";
+import { OverlayStatsRow } from "./components/OverlayStatsRow";
+import { PerceptionPanel } from "./components/PerceptionPanel";
+import { SearchPanel } from "./components/SearchPanel";
+import "./styles/living-dashboard.css";
+import { buildContextualVoiceMessage, createBrowserSpeechRecognizer, stopAudioPlayback, type VoiceConversationState } from "./voice";
+import type {
+  Agent,
+  AutomationExecution,
+  CapabilityFramework,
+  ChatItem,
+  ChronicleEntry,
+  Conversation,
+  CreatorNotification,
+  Inception,
+  Mission,
+  MissionAuthorization,
+  Opportunity,
+  PerceptionSource,
+  Pulse,
+  TokenResponse,
+  Universe,
+} from "./types";
 
-function statusTone(status: string): string {
-  const value = status.toUpperCase();
-  if (["MANIFESTED", "SUCCEEDED", "CURRENT", "ACTIVE", "HEALTHY", "AVAILABLE"].includes(value)) return "good";
-  if (["FAILED", "BLOCKED", "INVALID", "DEGRADED", "UNAVAILABLE"].includes(value)) return "bad";
-  if (["RUNNING", "EXECUTING", "DISTRIBUTED", "READY", "LAGGING", "UNCONFIGURED"].includes(value)) return "warn";
-  return "neutral";
-}
+type LoadState = "idle" | "loading" | "ready" | "empty" | "error";
 
-function App() {
-  const [state, setState] = useState<SystemState | null>(null);
-  const [projections, setProjections] = useState<ProjectionStatus | null>(null);
-  const [inference, setInference] = useState<InferenceStatusSnapshot | null>(null);
-  const [chronicle, setChronicle] = useState<ChronicleRecord[]>([]);
-  const [events, setEvents] = useState<ChronicleEvent[]>([]);
-  const [connection, setConnection] = useState<"CONNECTING" | "LIVE" | "RESYNCING" | "AUTH_REQUIRED" | "ERROR">("CONNECTING");
-  const [error, setError] = useState<string | null>(null);
-  const [username, setUsername] = useState("");
+const REFRESH_INTERVAL_MS = 15000;
+const WORKSPACE_CACHE_KEY = "creator-interface-workspace-cache";
+const CONVERSATION_ID_CACHE_KEY = "creator-conversation-id";
+const CREATOR_DEFAULT_USERNAME = import.meta.env.VITE_CREATOR_DEFAULT_USERNAME ?? "creator";
+const CREATOR_DEV_PASSWORD = import.meta.env.VITE_CREATOR_DEV_PASSWORD ?? "";
+
+type WorkspaceCache = {
+  inceptions: Inception[];
+  missions: Mission[];
+  agents: Agent[];
+  universes: Universe[];
+  chronicles: ChronicleEntry[];
+  capabilities: CapabilityFramework[];
+  opportunities: Opportunity[];
+  perceptionSources: PerceptionSource[];
+  notifications: CreatorNotification[];
+  missionAuthorization: MissionAuthorization | null;
+  pulse: Pulse | null;
+};
+
+export function App() {
+  const [token, setToken] = useState<string | null>(localStorage.getItem("creator-token"));
+  const [username, setUsername] = useState(CREATOR_DEFAULT_USERNAME);
   const [password, setPassword] = useState("");
-  const [loginPending, setLoginPending] = useState(false);
-  const [loginError, setLoginError] = useState<string | null>(null);
-  const [authVersion, setAuthVersion] = useState(0);
-  const [retryVersion, setRetryVersion] = useState(0);
-  const cursor = useRef(0);
+  const [authBusy, setAuthBusy] = useState(false);
+  const [conversation, setConversation] = useState<Conversation | null>(null);
+  const [chat, setChat] = useState<ChatItem[]>([
+    { id: "intro", role: "god", text: "DEUS esta presente. Aguardando a palavra do Criador.", meta: "local" },
+  ]);
+  const [message, setMessage] = useState("");
+  const [inceptions, setInceptions] = useState<Inception[]>([]);
+  const [inceptionBusy, setInceptionBusy] = useState(false);
+  const [inceptionError, setInceptionError] = useState<string | null>(null);
+  const [missions, setMissions] = useState<Mission[]>([]);
+  const [missionAuthorization, setMissionAuthorization] = useState<MissionAuthorization | null>(null);
+  const [missionAuthorizationBusy, setMissionAuthorizationBusy] = useState(false);
+  const [missionAuthorizationError, setMissionAuthorizationError] = useState<string | null>(null);
+  const [capabilities, setCapabilities] = useState<CapabilityFramework[]>([]);
+  const [automationResult, setAutomationResult] = useState<AutomationExecution | null>(null);
+  const [capabilityError, setCapabilityError] = useState<string | null>(null);
+  const [capabilityBusy, setCapabilityBusy] = useState(false);
+  const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
+  const [opportunityBusy, setOpportunityBusy] = useState(false);
+  const [opportunityError, setOpportunityError] = useState<string | null>(null);
+  const [perceptionSources, setPerceptionSources] = useState<PerceptionSource[]>([]);
+  const [notifications, setNotifications] = useState<CreatorNotification[]>([]);
+  const [perceptionBusy, setPerceptionBusy] = useState(false);
+  const [perceptionError, setPerceptionError] = useState<string | null>(null);
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [universes, setUniverses] = useState<Universe[]>([]);
+  const [chronicles, setChronicles] = useState<ChronicleEntry[]>([]);
+  const [pulse, setPulse] = useState<Pulse | null>(null);
+  const [loadState, setLoadState] = useState<LoadState>("idle");
+  const [dataError, setDataError] = useState<string | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [requestedPanel, setRequestedPanel] = useState<RequestedPanel>(null);
+  const [busy, setBusy] = useState(false);
+  const [silentAuthAttempted, setSilentAuthAttempted] = useState(false);
+  const [voiceState, setVoiceState] = useState<VoiceConversationState>("idle");
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioUrlRef = useRef<string | null>(null);
+  const voiceSubmittingRef = useRef(false);
+  const submitVoiceRef = useRef<(text: string) => Promise<void>>(async () => undefined);
+
+  const authenticated = Boolean(token);
+  const empty = loadState === "empty";
+  const activeMission = missions[0] ?? null;
+  const onlineAgentCount = agents.filter(
+    (agent) => agent.enabled && !["idle", "offline", "disabled"].includes(agent.status.toLowerCase()),
+  ).length;
+  const activeCapabilityCount = capabilities.filter((capability) => capability.enabled).length;
+  const enabledPerceptionSourceCount = perceptionSources.filter((source) => source.enabled).length;
+  const pendingInceptionCount = inceptions.filter(pendingInception).length;
+  const unreadNotificationCount = notifications.filter((notification) => notification.status === "unread").length;
+  const lastGodReply = useMemo(() => [...chat].reverse().find((item) => item.role === "god")?.text ?? null, [chat]);
+  const voiceContext = useMemo(
+    () => ({
+      currentSubject: chat.at(-1)?.text.slice(0, 120) ?? null,
+      missionTitle: missions[0]?.title ?? null,
+      opportunityTitle: opportunities[0]?.title ?? null,
+      pendingDecision: inceptions.some(pendingInception) ? "inception_review" : opportunities[0] ? "opportunity_review" : null,
+      lastGodReply,
+    }),
+    [chat, inceptions, lastGodReply, missions, opportunities],
+  );
+  const recognizer = useMemo(
+    () =>
+      createBrowserSpeechRecognizer({
+        onStart: () => {
+          setVoiceError(null);
+          setVoiceState("listening");
+        },
+        onStop: () => {
+          setVoiceState((current) => (current === "listening" ? "idle" : current));
+        },
+        onTranscript: (text) => {
+          setMessage(text);
+          void submitVoiceRef.current(text);
+        },
+        onError: (message) => {
+          setVoiceError(message);
+          setVoiceState("error");
+        },
+      }),
+    [],
+  );
+  const universeSummaries = useMemo(
+    () => buildHotspotSummaries({ agents, universes, opportunities, notifications, missions, inceptions, chronicles }),
+    [agents, universes, opportunities, notifications, missions, inceptions, chronicles],
+  );
+  const activityStates = useMemo(
+    () => buildActivityStates({ busy, voiceState, loadState, pulse, agents, opportunities, notifications, chat }),
+    [busy, voiceState, loadState, pulse, agents, opportunities, notifications, chat],
+  );
 
   useEffect(() => {
-    let active = true;
-    let controller = new AbortController();
-
-    async function hydrate() {
-      try {
-        setConnection("CONNECTING");
-        setError(null);
-        const [snapshot, projectionStatus, inferenceStatus, history] = await Promise.all([
-          fetchSystemState(),
-          fetchProjectionStatus(),
-          fetchInferenceStatus(),
-          fetchChronicleHistory(),
-        ]);
-        if (!active) return;
-        setState(snapshot);
-        setProjections(projectionStatus);
-        setInference(inferenceStatus);
-        setChronicle(history);
-        cursor.current = snapshot.position;
-        setConnection("LIVE");
-        controller.abort();
-        controller = new AbortController();
-        void streamChronicle(cursor.current, {
-          onEvent: (event) => {
-            cursor.current = event.position;
-            setEvents((current) => [event, ...current].slice(0, 40));
-            setChronicle((current) => [{
-              id: event.event_id,
-              event_id: event.event_id,
-              correlation_id: event.correlation_id,
-              causation_id: event.causation_id,
-              actor_type: event.actor_role,
-              actor_id: null,
-              event_type: event.event_type,
-              aggregate_type: event.aggregate_type,
-              aggregate_id: event.aggregate_id,
-              payload_json: event.payload,
-              payload_hash: "live",
-              previous_hash: null,
-              created_at: event.created_at,
-            }, ...current].slice(0, 40));
-            void Promise.all([fetchSystemState(), fetchProjectionStatus(), fetchInferenceStatus()]).then(([next, nextProjections, nextInference]) => {
-              if (!active) return;
-              setState(next);
-              setProjections(nextProjections);
-              setInference(nextInference);
-            });
-          },
-          onResync: () => {
-            setConnection("RESYNCING");
-            void hydrate();
-          },
-          onError: (streamError) => {
-            const message = streamError instanceof Error ? streamError.message : "STREAM_ERROR";
-            setError(message);
-            setConnection(message === "AUTH_REQUIRED" ? "AUTH_REQUIRED" : "ERROR");
-          },
-        }, controller.signal);
-      } catch (loadError) {
-        const message = loadError instanceof Error ? loadError.message : "LOAD_ERROR";
-        setError(message);
-        setConnection(message === "AUTH_REQUIRED" ? "AUTH_REQUIRED" : "ERROR");
-      }
+    if (!token) {
+      // Resets local state when the workspace polling subscription below stops, not derived UI state.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setLoadState("idle");
+      return undefined;
     }
+    restoreWorkspaceCache();
+    void refreshWorkspace(token, true);
+    const interval = window.setInterval(() => {
+      void refreshWorkspace(token, false);
+    }, REFRESH_INTERVAL_MS);
+    return () => window.clearInterval(interval);
+  }, [token]);
 
-    void hydrate();
+  // Lote: DEUS inicia conversa automaticamente após login. Loads the
+  // Creator's anchor DEUS conversation (and its real message history,
+  // including the automatic greeting the login request just persisted
+  // server-side) whenever a token is present — a fresh login and a plain
+  // page reload with an already-cached token both land here, so the
+  // greeting appears without any action from the Creator either way.
+  useEffect(() => {
+    if (!token) return undefined;
+    const cachedId = localStorage.getItem(CONVERSATION_ID_CACHE_KEY);
+    if (!cachedId) return undefined;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [loadedConversation, loadedMessages] = await Promise.all([
+          api.getConversation(token, cachedId),
+          api.listConversationMessages(token, cachedId),
+        ]);
+        if (cancelled) return;
+        setConversation(loadedConversation);
+        if (loadedMessages.length > 0) setChat(loadedMessages.map(conversationMessageToChatItem));
+      } catch {
+        // Best-effort hydration: the local intro placeholder and
+        // ensureConversation()'s own fallback keep the chat usable even if
+        // this fails (offline, or a cached id from a wiped Creator).
+      }
+    })();
     return () => {
-      active = false;
-      controller.abort();
+      cancelled = true;
     };
-  }, [authVersion, retryVersion]);
+  }, [token]);
 
-  async function handleLogin(event: FormEvent<HTMLFormElement>) {
+  useEffect(() => {
+    if (token || silentAuthAttempted || !CREATOR_DEV_PASSWORD) return;
+    // Guards the one-time silent-login network call below, not derived UI state.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSilentAuthAttempted(true);
+    void api
+      .login(CREATOR_DEFAULT_USERNAME, CREATOR_DEV_PASSWORD)
+      .then((result) => {
+        applyLoginResult(result);
+        setAuthError(null);
+      })
+      .catch((error) => {
+        setAuthError(error instanceof ApiError ? error.message : "Falha ao autenticar Criador.");
+      });
+  }, [silentAuthAttempted, token]);
+
+  useEffect(() => {
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setRequestedPanel(null);
+    }
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, []);
+
+  useEffect(() => {
+    return () => stopVoiceAudio();
+  }, []);
+
+  function resetSession(message?: string) {
+    localStorage.removeItem("creator-token");
+    localStorage.removeItem(CONVERSATION_ID_CACHE_KEY);
+    setToken(null);
+    setConversation(null);
+    setLoadState("idle");
+    setDataError(null);
+    if (message) setAuthError(message);
+  }
+
+  // Lote: DEUS inicia conversa automaticamente após login. /auth/login now
+  // returns the Creator's anchor DEUS conversation id (created, and greeted
+  // into, server-side) — cached the same way the token already is, so a
+  // plain page reload can resolve "which conversation is this Creator's"
+  // without a fresh login. Shared by handleLogin and the silent dev-login
+  // effect below so both paths stay in sync.
+  function applyLoginResult(result: TokenResponse) {
+    localStorage.setItem("creator-token", result.access_token);
+    if (result.conversation_id) localStorage.setItem(CONVERSATION_ID_CACHE_KEY, result.conversation_id);
+    setToken(result.access_token);
+  }
+
+  async function handleLogin(event: FormEvent) {
     event.preventDefault();
-    setLoginPending(true);
-    setLoginError(null);
+    if (!username.trim() || !password || authBusy) return;
+    setAuthBusy(true);
+    setAuthError(null);
     try {
-      await loginCreator(username, password);
+      const result = await api.login(username.trim(), password);
+      applyLoginResult(result);
       setPassword("");
-      setAuthVersion((version) => version + 1);
-    } catch (loginFailure) {
-      const message = loginFailure instanceof Error ? loginFailure.message : "LOGIN_FAILED";
-      setLoginError(message === "INVALID_CREDENTIALS" ? "Invalid username or password." : "Authentication service unavailable.");
+    } catch (error) {
+      setAuthError(error instanceof ApiError ? error.message : "Falha ao autenticar o Criador.");
     } finally {
-      setLoginPending(false);
+      setAuthBusy(false);
     }
   }
 
-  const selectedMission = state?.missions.find((mission) => ["executing", "distributed", "authorized"].includes(mission.status)) ?? state?.missions.at(-1);
-  const missionTasks = useMemo(() => state?.tasks.filter((task) => task.mission_id === selectedMission?.id) ?? [], [state, selectedMission]);
-  const pulseEntries = useMemo(() => Object.entries(state?.pulse ?? {}).slice(0, 8), [state]);
-  const deusReady = Boolean(inference?.configured && inference.providers.some((provider) => provider.available));
+  function restoreWorkspaceCache() {
+    const cached = localStorage.getItem(WORKSPACE_CACHE_KEY);
+    if (!cached) return;
+    try {
+      const workspace = JSON.parse(cached) as WorkspaceCache;
+      setInceptions(workspace.inceptions ?? []);
+      setMissions(workspace.missions ?? []);
+      setAgents(workspace.agents ?? []);
+      setUniverses(workspace.universes ?? []);
+      setChronicles(workspace.chronicles ?? []);
+      setMissionAuthorization(workspace.missionAuthorization ?? null);
+      setCapabilities(workspace.capabilities ?? []);
+      setOpportunities(workspace.opportunities ?? []);
+      setPerceptionSources(workspace.perceptionSources ?? []);
+      setNotifications(workspace.notifications ?? []);
+      setPulse(workspace.pulse ?? null);
+    } catch {
+      localStorage.removeItem(WORKSPACE_CACHE_KEY);
+    }
+  }
+
+  function cacheWorkspace(workspace: WorkspaceCache) {
+    localStorage.setItem(WORKSPACE_CACHE_KEY, JSON.stringify(workspace));
+  }
+
+  async function refreshWorkspace(accessToken: string, showLoading: boolean) {
+    if (showLoading) setLoadState("loading");
+    setDataError(null);
+    const [
+      loadedInceptions,
+      loadedMissions,
+      loadedAgents,
+      loadedUniverses,
+      loadedChronicles,
+      loadedPulse,
+      loadedCapabilities,
+      loadedOpportunities,
+      loadedPerceptionSources,
+      loadedNotifications,
+    ] =
+      await Promise.allSettled([
+        api.listInceptions(accessToken),
+        api.listMissions(accessToken),
+        api.listAgents(accessToken),
+        api.listUniverses(accessToken),
+        api.listChronicles(accessToken),
+        api.pulse(accessToken),
+        api.listCapabilities(accessToken),
+        api.listOpportunities(accessToken),
+        api.listPerceptionSources(accessToken),
+        api.listNotifications(accessToken),
+      ]);
+
+    const failures = [
+      loadedInceptions,
+      loadedMissions,
+      loadedAgents,
+      loadedUniverses,
+      loadedChronicles,
+      loadedPulse,
+      loadedCapabilities,
+      loadedOpportunities,
+      loadedPerceptionSources,
+      loadedNotifications,
+    ].filter((result) => result.status === "rejected");
+
+    if (
+      failures.some(
+        (result) =>
+          result.status === "rejected" &&
+          result.reason instanceof ApiError &&
+          result.reason.status === 401,
+      )
+    ) {
+      resetSession("Sessao expirada ou invalida. Autentique o Criador novamente.");
+      return;
+    }
+
+    const nextInceptions = loadedInceptions.status === "fulfilled" ? loadedInceptions.value : inceptions;
+    const nextMissions = loadedMissions.status === "fulfilled" ? loadedMissions.value : missions;
+    const nextAgents = loadedAgents.status === "fulfilled" ? loadedAgents.value : agents;
+    const nextUniverses = loadedUniverses.status === "fulfilled" ? loadedUniverses.value : universes;
+    const nextChronicles = loadedChronicles.status === "fulfilled" ? loadedChronicles.value : chronicles;
+    const nextPulse = loadedPulse.status === "fulfilled" ? loadedPulse.value : pulse;
+    const nextCapabilities = loadedCapabilities.status === "fulfilled" ? loadedCapabilities.value : capabilities;
+    const nextOpportunities = loadedOpportunities.status === "fulfilled" ? loadedOpportunities.value : opportunities;
+    const nextPerceptionSources = loadedPerceptionSources.status === "fulfilled" ? loadedPerceptionSources.value : perceptionSources;
+    const nextNotifications = loadedNotifications.status === "fulfilled" ? loadedNotifications.value : notifications;
+
+    const nextMissionAuthorization =
+      nextMissions[0] ? await api.getMissionAuthorization(accessToken, nextMissions[0].id).catch(() => missionAuthorization) : null;
+
+    setInceptions(nextInceptions);
+    setMissions(nextMissions);
+    setAgents(nextAgents);
+    setUniverses(nextUniverses);
+    setChronicles(nextChronicles);
+    setPulse(nextPulse);
+    setMissionAuthorization(nextMissionAuthorization);
+    setCapabilities(nextCapabilities);
+    setOpportunities(nextOpportunities);
+    setPerceptionSources(nextPerceptionSources);
+    setNotifications(nextNotifications);
+
+    if (failures.length > 0) {
+      setLoadState("error");
+      setDataError("Falha ao carregar dados reais da API.");
+      return;
+    }
+
+    const hasData =
+      loadedInceptions.status === "fulfilled" &&
+      loadedMissions.status === "fulfilled" &&
+      loadedAgents.status === "fulfilled" &&
+      loadedUniverses.status === "fulfilled" &&
+      loadedChronicles.status === "fulfilled" &&
+      loadedCapabilities.status === "fulfilled" &&
+      loadedOpportunities.status === "fulfilled" &&
+      loadedPerceptionSources.status === "fulfilled" &&
+      loadedNotifications.status === "fulfilled" &&
+      (loadedInceptions.value.length > 0 ||
+        loadedMissions.value.length > 0 ||
+        loadedAgents.value.length > 0 ||
+        loadedUniverses.value.length > 0 ||
+        loadedChronicles.value.length > 0 ||
+        loadedCapabilities.value.length > 0 ||
+        loadedOpportunities.value.length > 0 ||
+        loadedPerceptionSources.value.length > 0 ||
+        loadedNotifications.value.length > 0);
+    cacheWorkspace({
+      inceptions: nextInceptions,
+      missions: nextMissions,
+      agents: nextAgents,
+      universes: nextUniverses,
+      chronicles: nextChronicles,
+      missionAuthorization: nextMissionAuthorization,
+      capabilities: nextCapabilities,
+      opportunities: nextOpportunities,
+      perceptionSources: nextPerceptionSources,
+      notifications: nextNotifications,
+      pulse: nextPulse,
+    });
+    setLoadState(hasData ? "ready" : "empty");
+  }
+
+  async function ensureConversation(accessToken: string) {
+    if (conversation) return conversation;
+    // Falls back to the cached anchor id (from login/localStorage) rather
+    // than always minting a fresh Conversation — the anchor-hydration effect
+    // below may not have resolved yet, and using the same id here is what
+    // keeps a message sent right after login landing in the same thread as
+    // DEUS's automatic greeting instead of forking a new, empty one.
+    const cachedId = localStorage.getItem(CONVERSATION_ID_CACHE_KEY);
+    if (cachedId) {
+      const existing = await api.getConversation(accessToken, cachedId);
+      setConversation(existing);
+      return existing;
+    }
+    const created = await api.createConversation(accessToken, "Creator Interface");
+    setConversation(created);
+    return created;
+  }
+
+  async function handleEnableCapability(capabilityId: string) {
+    if (!token) return;
+    setCapabilityBusy(true);
+    setCapabilityError(null);
+    try {
+      await api.enableCapability(token, capabilityId);
+      await refreshWorkspace(token, false);
+    } catch (error) {
+      setCapabilityError(error instanceof ApiError ? error.message : "Falha ao habilitar capability.");
+    } finally {
+      setCapabilityBusy(false);
+    }
+  }
+
+  async function handleDisableCapability(capabilityId: string) {
+    if (!token) return;
+    setCapabilityBusy(true);
+    setCapabilityError(null);
+    try {
+      await api.disableCapability(token, capabilityId);
+      await refreshWorkspace(token, false);
+    } catch (error) {
+      setCapabilityError(error instanceof ApiError ? error.message : "Falha ao desabilitar capability.");
+    } finally {
+      setCapabilityBusy(false);
+    }
+  }
+
+  async function handleExecuteAutomation() {
+    if (!token) return;
+    setCapabilityBusy(true);
+    setCapabilityError(null);
+    setAutomationResult(null);
+    try {
+      const result = await api.executeAutomation(token, {
+        connector_id: "restricted_rest",
+        capability: "http_request",
+        payload: {
+          method: "GET",
+          url: "https://example.com",
+          headers: {
+            accept: "text/html",
+            "user-agent": "the-creation-os-creator-interface",
+          },
+        },
+        timeout_seconds: 10,
+        idempotency_key: `creator-interface-${Date.now()}`,
+      });
+      setAutomationResult(result);
+      await refreshWorkspace(token, false);
+    } catch (error) {
+      setCapabilityError(error instanceof ApiError ? error.message : "Automation negada pelo backend.");
+    } finally {
+      setCapabilityBusy(false);
+    }
+  }
+
+  async function handleRunDiscovery() {
+    if (!token) return;
+    setOpportunityBusy(true);
+    setOpportunityError(null);
+    try {
+      await api.runOpportunityDiscovery(token);
+      await refreshWorkspace(token, false);
+    } catch (error) {
+      setOpportunityError(error instanceof ApiError ? error.message : "Falha ao executar descoberta.");
+    } finally {
+      setOpportunityBusy(false);
+    }
+  }
+
+  async function handleSubmitInception(inceptionId: string) {
+    if (!token) return;
+    setInceptionBusy(true);
+    setInceptionError(null);
+    try {
+      await api.submitInception(token, inceptionId);
+      await refreshWorkspace(token, false);
+    } catch (error) {
+      setInceptionError(error instanceof ApiError ? error.message : "Falha ao enviar Inception.");
+    } finally {
+      setInceptionBusy(false);
+    }
+  }
+
+  async function handleApproveInception(inceptionId: string) {
+    if (!token) return;
+    setInceptionBusy(true);
+    setInceptionError(null);
+    try {
+      await api.approveInception(token, inceptionId);
+      await refreshWorkspace(token, false);
+    } catch (error) {
+      setInceptionError(error instanceof ApiError ? error.message : "Falha ao aprovar Inception.");
+    } finally {
+      setInceptionBusy(false);
+    }
+  }
+
+  async function handleRejectInception(inceptionId: string) {
+    if (!token) return;
+    setInceptionBusy(true);
+    setInceptionError(null);
+    try {
+      await api.rejectInception(token, inceptionId);
+      await refreshWorkspace(token, false);
+    } catch (error) {
+      setInceptionError(error instanceof ApiError ? error.message : "Falha ao negar Inception.");
+    } finally {
+      setInceptionBusy(false);
+    }
+  }
+
+  async function handleCreateMissionFromInception(inception: Inception) {
+    if (!token) return;
+    setInceptionBusy(true);
+    setInceptionError(null);
+    try {
+      await api.createMissionFromInception(token, inception);
+      await refreshWorkspace(token, false);
+    } catch (error) {
+      setInceptionError(error instanceof ApiError ? error.message : "Falha ao criar missao.");
+    } finally {
+      setInceptionBusy(false);
+    }
+  }
+
+  async function handleApproveOpportunity(opportunityId: string) {
+    if (!token) return;
+    setOpportunityBusy(true);
+    setOpportunityError(null);
+    try {
+      await api.approveOpportunity(token, opportunityId);
+      await refreshWorkspace(token, false);
+    } catch (error) {
+      setOpportunityError(error instanceof ApiError ? error.message : "Falha ao aprovar oportunidade.");
+    } finally {
+      setOpportunityBusy(false);
+    }
+  }
+
+  async function handleRejectOpportunity(opportunityId: string) {
+    if (!token) return;
+    setOpportunityBusy(true);
+    setOpportunityError(null);
+    try {
+      await api.rejectOpportunity(token, opportunityId);
+      await refreshWorkspace(token, false);
+    } catch (error) {
+      setOpportunityError(error instanceof ApiError ? error.message : "Falha ao rejeitar oportunidade.");
+    } finally {
+      setOpportunityBusy(false);
+    }
+  }
+
+  async function handleConvertOpportunity(opportunityId: string) {
+    if (!token) return;
+    setOpportunityBusy(true);
+    setOpportunityError(null);
+    try {
+      await api.convertOpportunity(token, opportunityId);
+      await refreshWorkspace(token, false);
+    } catch (error) {
+      setOpportunityError(error instanceof ApiError ? error.message : "Falha ao converter oportunidade.");
+    } finally {
+      setOpportunityBusy(false);
+    }
+  }
+
+  async function handleEnablePerceptionSource(sourceId: string) {
+    if (!token) return;
+    setPerceptionBusy(true);
+    setPerceptionError(null);
+    try {
+      await api.enablePerceptionSource(token, sourceId);
+      await refreshWorkspace(token, false);
+    } catch (error) {
+      setPerceptionError(error instanceof ApiError ? error.message : "Falha ao ativar fonte.");
+    } finally {
+      setPerceptionBusy(false);
+    }
+  }
+
+  async function handleDisablePerceptionSource(sourceId: string) {
+    if (!token) return;
+    setPerceptionBusy(true);
+    setPerceptionError(null);
+    try {
+      await api.disablePerceptionSource(token, sourceId);
+      await refreshWorkspace(token, false);
+    } catch (error) {
+      setPerceptionError(error instanceof ApiError ? error.message : "Falha ao desativar fonte.");
+    } finally {
+      setPerceptionBusy(false);
+    }
+  }
+
+  async function handleRunPerceptionSource(sourceId: string) {
+    if (!token) return;
+    setPerceptionBusy(true);
+    setPerceptionError(null);
+    try {
+      await api.runPerceptionSource(token, sourceId);
+      await refreshWorkspace(token, false);
+    } catch (error) {
+      setPerceptionError(error instanceof ApiError ? error.message : "Falha na coleta da fonte.");
+    } finally {
+      setPerceptionBusy(false);
+    }
+  }
+
+  async function handleReadNotification(notificationId: string) {
+    if (!token) return;
+    try {
+      await api.readNotification(token, notificationId);
+      await refreshWorkspace(token, false);
+    } catch (error) {
+      setPerceptionError(error instanceof ApiError ? error.message : "Falha ao marcar notificacao.");
+    }
+  }
+
+  async function handleRequestMissionAuthorization(missionId: string) {
+    if (!token) return;
+    setMissionAuthorizationBusy(true);
+    setMissionAuthorizationError(null);
+    try {
+      await api.requestMissionAuthorization(token, missionId, "local");
+      await refreshWorkspace(token, false);
+    } catch (error) {
+      setMissionAuthorizationError(error instanceof ApiError ? error.message : "Falha ao solicitar autorizacao.");
+    } finally {
+      setMissionAuthorizationBusy(false);
+    }
+  }
+
+  async function handleApproveMissionAuthorization(missionId: string) {
+    if (!token) return;
+    setMissionAuthorizationBusy(true);
+    setMissionAuthorizationError(null);
+    try {
+      await api.approveMissionAuthorization(token, missionId);
+      await refreshWorkspace(token, false);
+    } catch (error) {
+      setMissionAuthorizationError(error instanceof ApiError ? error.message : "Falha ao autorizar missao.");
+    } finally {
+      setMissionAuthorizationBusy(false);
+    }
+  }
+
+  async function handleRevokeMissionAuthorization(missionId: string) {
+    if (!token) return;
+    setMissionAuthorizationBusy(true);
+    setMissionAuthorizationError(null);
+    try {
+      await api.revokeMissionAuthorization(token, missionId);
+      await refreshWorkspace(token, false);
+    } catch (error) {
+      setMissionAuthorizationError(error instanceof ApiError ? error.message : "Falha ao revogar missao.");
+    } finally {
+      setMissionAuthorizationBusy(false);
+    }
+  }
+
+  async function sendToGod(text: string) {
+    if (!token || !text.trim()) return "";
+    const normalized = text.trim();
+    setBusy(true);
+    setChat((items) => [...items, { id: crypto.randomUUID(), role: "creator", text: normalized, meta: "Creator" }]);
+    if (shouldClosePanel(normalized)) setRequestedPanel(null);
+    const panelIntent = inferRequestedPanel(normalized);
+    if (panelIntent) setRequestedPanel(panelIntent);
+    try {
+      const current = await ensureConversation(token);
+      const god = await api.sendGod(token, current.id, normalized);
+      setChat((items) => [
+        ...items,
+        {
+          id: god.id,
+          role: "god",
+          text: god.reply.message,
+          meta: `${god.interaction_type} / ${god.next_action}`,
+        },
+      ]);
+      let spokenReply = god.reply.message;
+      if (god.interaction_type === "POTENTIAL") {
+        const trinity = await api.orchestrateTrinity(token, god.id);
+        const trinityReply = `Trindade integrada: ROCKMAM retornou ${trinity.assessment_result}.`;
+        spokenReply = `${spokenReply} ${trinityReply}`;
+        setChat((items) => [
+          ...items,
+          {
+            id: trinity.rockmam_assessment_id,
+            role: "trinity",
+            text: trinityReply,
+            meta: trinity.god_consolidated_result.creator_approval_required
+              ? "Requires Creator approval"
+              : "No approval request emitted",
+          },
+        ]);
+      }
+      await refreshWorkspace(token, false);
+      return spokenReply;
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        resetSession("Sessao expirada ou invalida. Autentique o Criador novamente.");
+      }
+      const text = error instanceof ApiError ? error.message : "The channel failed without changing backend state.";
+      setChat((items) => [
+        ...items,
+        {
+          id: crypto.randomUUID(),
+          role: "god",
+          text,
+          meta: "error",
+        },
+      ]);
+      throw error instanceof Error ? error : new Error(text);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    submitVoiceRef.current = submitVoice;
+  });
+
+  async function submitVoice(text: string) {
+    if (!token || busy || voiceSubmittingRef.current) return;
+    voiceSubmittingRef.current = true;
+    setMessage(text);
+    const contextual = buildContextualVoiceMessage(text, voiceContext);
+    setVoiceState("processing");
+    setVoiceError(null);
+    try {
+      const reply = await sendToGod(contextual);
+      await speakGodReply(reply);
+    } catch (error) {
+      setVoiceError(error instanceof Error ? error.message : "Falha na conversa por voz.");
+      setVoiceState("error");
+    } finally {
+      voiceSubmittingRef.current = false;
+      setMessage(text);
+    }
+  }
+
+  async function speakGodReply(text: string) {
+    if (!token || !text.trim()) {
+      setVoiceState("idle");
+      return;
+    }
+    try {
+      setVoiceState("responding");
+      const audio = await api.synthesizeVoice(token, text);
+      stopVoiceAudio();
+      const url = URL.createObjectURL(audio);
+      audioUrlRef.current = url;
+      const player = new Audio(url);
+      audioRef.current = player;
+      player.onended = () => {
+        stopVoiceAudio();
+        setVoiceState("idle");
+      };
+      player.onerror = () => {
+        stopVoiceAudio();
+        setVoiceError("Audio indisponivel. Resposta de DEUS mantida em texto.");
+        setVoiceState("idle");
+      };
+      setVoiceState("speaking");
+      await player.play();
+    } catch (error) {
+      setVoiceError(error instanceof ApiError ? "Audio indisponivel. Resposta de DEUS mantida em texto." : "Voz indisponivel.");
+      setVoiceState("idle");
+    }
+  }
+
+  function stopVoiceAudio() {
+    stopAudioPlayback(audioRef.current, audioUrlRef.current);
+    audioRef.current = null;
+    audioUrlRef.current = null;
+  }
+
+  async function handleVoiceListen() {
+    if (!recognizer.supported || voiceState === "listening" || voiceState === "processing" || voiceState === "responding") return;
+    try {
+      setVoiceError(null);
+      await recognizer.start();
+    } catch (error) {
+      setVoiceError(error instanceof Error ? error.message : "Nao foi possivel iniciar o microfone.");
+      setVoiceState("error");
+    }
+  }
+
+  function handleVoiceStopListening() {
+    recognizer.stop();
+    setVoiceState("idle");
+  }
+
+  function handleVoiceStopSpeaking() {
+    stopVoiceAudio();
+    setVoiceState("idle");
+  }
+
+  async function handleSend(event: FormEvent) {
+    event.preventDefault();
+    if (!token || !message.trim()) return;
+    const text = message.trim();
+    setMessage("");
+    await sendToGod(text).catch(() => undefined);
+  }
+
+  const demandPanel =
+    authenticated && requestedPanel ? (
+        <section className="deus-demand-panel" role="dialog" aria-modal="false" aria-label="Painel solicitado por DEUS">
+          <header>
+            <strong>{panelTitle(requestedPanel)}</strong>
+            <button type="button" onClick={() => setRequestedPanel(null)}>
+              Fechar
+            </button>
+          </header>
+          <div className="creator-secondary-grid">
+            {requestedPanel === "inceptions" ? (
+              <InceptionPanel
+                inceptions={inceptions}
+                loading={inceptionBusy}
+                error={inceptionError}
+                onSubmit={handleSubmitInception}
+                onApprove={handleApproveInception}
+                onReject={handleRejectInception}
+                onCreateMission={handleCreateMissionFromInception}
+              />
+            ) : null}
+            {requestedPanel === "missions" ? (
+              <>
+                <OverlayStatsRow
+                  stats={[
+                    { label: "Missoes ativas", value: missions.length },
+                    { label: "Oportunidades", value: opportunities.length },
+                    { label: "Agentes online", value: onlineAgentCount },
+                    { label: "Capabilities ativas", value: activeCapabilityCount },
+                    { label: "Percepcao ativa", value: `${enabledPerceptionSourceCount}/${perceptionSources.length}` },
+                  ]}
+                  focus={
+                    activeMission
+                      ? { label: `Foco atual: ${activeMission.title}`, fraction: missionProgressFraction(activeMission.status) }
+                      : undefined
+                  }
+                />
+                <MissionAuthorizationPanel
+                  mission={activeMission}
+                  authorization={missionAuthorization}
+                  loading={missionAuthorizationBusy}
+                  error={missionAuthorizationError}
+                  onRequest={handleRequestMissionAuthorization}
+                  onApprove={handleApproveMissionAuthorization}
+                  onRevoke={handleRevokeMissionAuthorization}
+                />
+              </>
+            ) : null}
+            {requestedPanel === "opportunities" ? (
+              <OpportunityPanel
+                opportunities={opportunities}
+                loading={opportunityBusy}
+                error={opportunityError}
+                onDiscover={handleRunDiscovery}
+                onApprove={handleApproveOpportunity}
+                onReject={handleRejectOpportunity}
+                onConvert={handleConvertOpportunity}
+              />
+            ) : null}
+            {requestedPanel === "perception" ? (
+              <PerceptionPanel
+                sources={perceptionSources}
+                notifications={notifications}
+                loading={perceptionBusy}
+                error={perceptionError}
+                onEnable={handleEnablePerceptionSource}
+                onDisable={handleDisablePerceptionSource}
+                onRun={handleRunPerceptionSource}
+                onReadNotification={handleReadNotification}
+              />
+            ) : null}
+            {requestedPanel === "capabilities" ? (
+              <CapabilityPanel
+                capabilities={capabilities}
+                loading={capabilityBusy}
+                error={capabilityError}
+                result={automationResult}
+                onEnable={handleEnableCapability}
+                onDisable={handleDisableCapability}
+                onExecute={handleExecuteAutomation}
+              />
+            ) : null}
+            {requestedPanel === "chronicle" ? (
+              <>
+                <OverlayStatsRow
+                  stats={[
+                    { label: "Inceptions aguardando", value: pendingInceptionCount },
+                    { label: "Missao aguardando autorizacao", value: missionAuthorization?.status === "pending" ? 1 : 0 },
+                    { label: "Notificacoes nao lidas", value: unreadNotificationCount },
+                  ]}
+                />
+                <ChronicleRibbon entries={chronicles} />
+              </>
+            ) : null}
+            {requestedPanel === "notifications" ? (
+              <NotificationsPanel notifications={notifications} onReadNotification={handleReadNotification} />
+            ) : null}
+            {requestedPanel === "search" ? (
+              <SearchPanel
+                missions={missions}
+                inceptions={inceptions}
+                opportunities={opportunities}
+                agents={agents}
+                universes={universes}
+                onOpenPanel={setRequestedPanel}
+              />
+            ) : null}
+            {requestedPanel === "universes" ? (
+              <section className="conversation-data-list" aria-label="Universos e agentes">
+                <header>
+                  <span>Universos</span>
+                  <strong>{universes.length}</strong>
+                </header>
+                {universes.length === 0 ? <p>Nenhum universo retornado pela API.</p> : null}
+                {universes.map((universe) => (
+                  <article key={universe.id}>
+                    <strong>{universe.name}</strong>
+                    <span>
+                      {universe.code} / {universe.active ? "ativo" : "inativo"}
+                    </span>
+                  </article>
+                ))}
+                <header>
+                  <span>Agentes</span>
+                  <strong>{agents.length}</strong>
+                </header>
+                {agents.length === 0 ? <p>Nenhum agente retornado pela API.</p> : null}
+                {agents.map((agent) => {
+                  const online = agent.enabled && !["idle", "offline", "disabled"].includes(agent.status.toLowerCase());
+                  return (
+                    <article key={agent.id}>
+                      <strong>{agent.name}</strong>
+                      <span>
+                        <span className="agent-status-dot" data-online={online} aria-hidden="true" />
+                        {agent.universe} / {agent.status} / {agent.description}
+                      </span>
+                    </article>
+                  );
+                })}
+              </section>
+            ) : null}
+          </div>
+        </section>
+      ) : null;
 
   return (
-    <main className="terminal">
-      <header className="topbar">
-        <div><span className="eyebrow">THE CREATION OS</span><h1>Living Cognitive Operating System</h1></div>
-        <div className="top-status">
-          <span className={`status ${connection.toLowerCase()}`}>{connection}</span>
-          <span>Chronicle #{state?.position ?? "—"}</span>
-          <span>{state?.generated_at ? new Date(state.generated_at).toLocaleTimeString() : "—"}</span>
-        </div>
-      </header>
-
-      {connection === "AUTH_REQUIRED" && (
-        <section className="login-shell" aria-live="polite">
-          <form className="login-panel" onSubmit={handleLogin}>
-            <span className="eyebrow">SOVEREIGN CREATOR</span>
-            <h2>Creator Access</h2>
-            <p>Authenticate to enter the live operating surface.</p>
-            <label>
-              <span>Username</span>
-              <input aria-label="Username" autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} required />
-            </label>
-            <label>
-              <span>Password</span>
-              <input aria-label="Password" autoComplete="current-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} required />
-            </label>
-            {loginError && <div className="login-error">{loginError}</div>}
-            <button type="submit" disabled={loginPending}>{loginPending ? "Authenticating…" : "Enter The Creation"}</button>
-          </form>
-        </section>
-      )}
-      {connection === "CONNECTING" && !state && <section className="loading-shell" role="status" aria-live="polite"><div className="skeleton skeleton-wide" /><div className="skeleton" /><span>Loading live system state…</span></section>}
-      {error && connection === "ERROR" && <section className="error-banner" role="alert">Live state unavailable: {error} <button type="button" className="retry-button" onClick={() => setRetryVersion((version) => version + 1)}>Retry</button></section>}
-
-      <section className="metrics">
-        {[
-          ["MISSIONS", state?.counts.missions], ["RUNNING", state?.counts.running_missions], ["TASKS", state?.counts.tasks],
-          ["READY", state?.counts.ready_tasks], ["ACTIVE UNIVERSES", state?.counts.active_universes], ["ACTIVE AGENTS", state?.counts.active_agents],
-          ["MEMORY", state?.memory.total], ["FAILED/BLOCKED", state?.counts.failed_tasks],
-        ].map(([label, value]) => <article className="metric" key={String(label)}><span>{label}</span><strong>{value ?? "—"}</strong></article>)}
-      </section>
-
-      <section className="workspace">
-        <aside className="panel hierarchy">
-          <div className="panel-title">SYSTEM HIERARCHY</div>
-          <ol className="tree">
-            {["CREATOR", "DEUS", "SOPHIA", "ROCKMAM", "INCEPTION", "CENTRAL CORE", "TREE CORE"].map((name) => <li key={name}>{name}</li>)}
-          </ol>
-          <div className="panel-title secondary">MISSIONS</div>
-          <div className="stack">
-            {state?.missions.slice(-8).reverse().map((mission) => <div className="row" key={mission.id}><span>{mission.title}</span><b className={statusTone(mission.status)}>{mission.status}</b></div>)}
-          </div>
-        </aside>
-
-        <section className="panel core">
-          <div className="panel-title">LIVING CORE VISUALIZATION</div>
-          <div className="core-map">
-            <div className="orbit orbit-a"><span>SOPHIA</span></div>
-            <div className="orbit orbit-b"><span>ROCKMAM</span></div>
-            <div className="deus">DEUS</div>
-            {state?.universes.filter((u) => u.active).slice(0, 8).map((u, i) => <div className={`node node-${i}`} key={u.id}>{u.code.toUpperCase()}</div>)}
-          </div>
-          <div className="mission-focus">
-            <span className="eyebrow">CURRENT MISSION</span>
-            <h2>{selectedMission?.title ?? "No active mission"}</h2>
-            <p>{selectedMission?.objective ?? "Waiting for an authorized mission."}</p>
-            {selectedMission && <span className={`pill ${statusTone(selectedMission.status)}`}>{selectedMission.status}</span>}
-          </div>
-        </section>
-
-        <aside className="panel right-rail">
-          <div className="panel-title">UNIVERSES</div>
-          <div className="stack">{state?.universes.map((u) => <div className="row" key={u.id}><span>{u.name}</span><b className={u.active ? "good" : "neutral"}>{u.active ? "ACTIVE" : "IDLE"}</b></div>)}</div>
-          <div className="panel-title secondary">AGENTS</div>
-          <div className="stack">{state?.agents.slice(0, 12).map((a) => <div className="row" key={a.id}><span>{a.name}</span><b className={a.active ? "good" : "neutral"}>{a.active ? "LIVE" : "OFF"}</b></div>)}</div>
-          <div className="panel-title secondary">MEMORY LAYERS</div>
-          <div className="memory-grid">{state && Object.entries(state.memory).filter(([k]) => k !== "total").map(([k, value]) => <div key={k}><span>{k}</span><strong>{value}</strong></div>)}</div>
-        </aside>
-      </section>
-
-      <section className="lower-grid lower-grid-primary">
-        <article className="panel"><div className="panel-title">CHRONICLE</div><div className="event-list">{chronicle.length ? chronicle.map((event) => <div className="event" key={event.event_id}><time>{new Date(event.created_at).toLocaleTimeString()}</time><span>{event.event_type}</span><small>{event.aggregate_type}</small></div>) : <div className="empty">Chronicle has no persisted events.</div>}</div></article>
-        <article className="panel"><div className="panel-title">PULSE</div><div className="stack">{pulseEntries.length ? pulseEntries.map(([name, metric]) => <div className="row" key={name}><span>{name}</span><b className="good">{String(metric.value)}</b></div>) : <div className="empty">No persisted Pulse metrics.</div>}</div></article>
-        <article className="panel"><div className="panel-title">TASK DAG</div><div className="dag">{missionTasks.length ? missionTasks.map((task, i) => <div className="dag-item" key={task.id}><span>{i + 1}</span><div><strong>{task.status}</strong><small>{task.attempt_count}/{task.max_attempts} attempts</small></div></div>) : <div className="empty">No task graph for selected mission.</div>}</div></article>
-        <article className="panel"><div className="panel-title">SYSTEM EVENTS</div><div className="event-list">{events.length ? events.map((event) => <div className="event" key={event.event_id}><time>#{event.position}</time><span>{event.event_type}</span><small>{event.aggregate_type}</small></div>) : <div className="empty">No new events since connection.</div>}</div></article>
-      </section>
-
-      <section className="lower-grid lower-grid-secondary">
-        <CreatorConsole enabled={deusReady} />
-        <article className="panel projections-panel"><div className="panel-title">PROJECTIONS</div><div className="stack">{projections?.projections.map((projection) => <div className="row" key={projection.name}><span>{projection.name}</span><b className={statusTone(projection.status)}>{projection.status}{projection.lag ? ` · lag ${projection.lag}` : ""}</b></div>)}</div></article>
-        <article className="panel inference-panel">
-          <div className="panel-title">INFERENCE FABRIC</div>
-          {!inference ? <div className="empty">Inference status unavailable.</div> : !inference.configured ? (
-            <div className="stack"><div className="row"><span>{inference.configured_provider || "none"}</span><b className="warn">UNCONFIGURED</b></div></div>
-          ) : (
-            <div className="stack">
-              {inference.providers.map((provider) => <div className="inference-provider" key={provider.provider}>
-                <div className="row"><span>{provider.provider}</span><b className={statusTone(provider.available ? "AVAILABLE" : "UNAVAILABLE")}>{provider.available ? "AVAILABLE" : "UNAVAILABLE"}</b></div>
-                {provider.detail && <small>{provider.detail}</small>}
-                {provider.models.map((model) => <div className="row" key={`${provider.provider}:${model.model}`}>
-                  <span><span>{model.model}</span><small>{model.capabilities.join(" · ")}</small></span>
-                  <b className="neutral">{model.cost_tier}</b>
-                </div>)}
-              </div>)}
-            </div>
-          )}
-        </article>
-      </section>
-    </main>
+    <>
+      <LivingDashboard
+        authenticated={authenticated}
+        busy={busy}
+        authBusy={authBusy}
+        authError={authError}
+        username={username}
+        password={password}
+        message={message}
+        chat={chat}
+        pulse={pulse}
+        loadState={loadState}
+        notifications={notifications}
+        agents={agents}
+        universes={universes}
+        chronicles={chronicles}
+        activityStates={activityStates}
+        hotspotSummaries={universeSummaries}
+        demandPanel={demandPanel}
+        onSelectPanel={setRequestedPanel}
+        unreadNotificationCount={unreadNotificationCount}
+        voiceState={voiceState}
+        voiceSupported={recognizer.supported}
+        voiceError={voiceError}
+        onUsername={setUsername}
+        onPassword={setPassword}
+        onLogin={handleLogin}
+        onMessage={setMessage}
+        onSend={handleSend}
+        onVoiceListen={handleVoiceListen}
+        onVoiceStopListening={handleVoiceStopListening}
+        onVoiceStopSpeaking={handleVoiceStopSpeaking}
+        onReadNotification={handleReadNotification}
+      />
+      {dataError ? <div className="api-state api-state-error">{dataError}</div> : null}
+      {empty ? <div className="api-state api-state-empty">API conectada sem dados ativos.</div> : null}
+    </>
   );
 }
 
-export default App;
+function buildActivityStates({
+  busy,
+  voiceState,
+  loadState,
+  pulse,
+  agents,
+  opportunities,
+  notifications,
+  chat,
+}: {
+  busy: boolean;
+  voiceState: VoiceConversationState;
+  loadState: LoadState;
+  pulse: Pulse | null;
+  agents: Agent[];
+  opportunities: Opportunity[];
+  notifications: CreatorNotification[];
+  chat: ChatItem[];
+}): Record<string, EntityActivityState> {
+  const offline = loadState === "error" || pulse?.status === "unhealthy";
+  const recentTrinity = [...chat].reverse().find((item) => item.role === "trinity");
+  const unreadNotifications = notifications.some((notification) => notification.status === "unread");
+  const activeByUniverse = new Set(
+    agents
+      .filter((agent) => agent.enabled && !["idle", "offline", "disabled"].includes(agent.status.toLowerCase()))
+      .map((agent) => normalizeEntityKey(agent.universe)),
+  );
+  const opportunityByUniverse = new Set(opportunities.map((opportunity) => normalizeEntityKey(opportunity.universe)));
+
+  const state: Record<string, EntityActivityState> = {
+    deus: offline ? "offline" : busy || voiceState === "processing" ? "processing" : voiceState === "listening" || voiceState === "speaking" ? "active" : unreadNotifications ? "active" : "idle",
+    sophia: busy ? "processing" : recentTrinity ? "completed" : "idle",
+    rockmam: recentTrinity ? "completed" : opportunities.some((item) => item.status === "approved") ? "active" : "idle",
+  };
+
+  const universeIds = ["eng", "jur", "fin", "seg", "neg", "cie", "con", "cri"];
+  for (const id of universeIds) {
+    if (offline) state[id] = "offline";
+    else if (activeByUniverse.has(id)) state[id] = "active";
+    else if (opportunityByUniverse.has(id)) state[id] = "warning";
+    else state[id] = "idle";
+  }
+  return state;
+}
+
+function buildHotspotSummaries({
+  agents,
+  universes,
+  opportunities,
+  notifications,
+  missions,
+  inceptions,
+  chronicles,
+}: {
+  agents: Agent[];
+  universes: Universe[];
+  opportunities: Opportunity[];
+  notifications: CreatorNotification[];
+  missions: Mission[];
+  inceptions: Inception[];
+  chronicles: ChronicleEntry[];
+}): Record<string, HotspotSummary> {
+  const pendingInceptions = inceptions.filter(pendingInception);
+  const pendingOpportunities = opportunities.filter((item) => item.status === "pending_creator_review");
+  const unreadNotifications = notifications.filter((item) => item.status === "unread");
+  const latestChronicle = chronicles[0];
+  const base: Record<string, HotspotSummary> = {
+    deus: {
+      id: "deus",
+      title: "DEUS",
+      subtitle: "Presenca central",
+      lines: [
+        missions[0] ? `Missao ativa: ${missions[0].title}` : "Nenhuma missao ativa retornada pela API.",
+        pendingInceptions.length > 0 ? `${pendingInceptions.length} Inception pendente.` : "Sem Inception pendente.",
+        unreadNotifications.length > 0 ? `${unreadNotifications.length} notificacao real nao lida.` : "Sem notificacao real nao lida.",
+      ],
+    },
+    sophia: {
+      id: "sophia",
+      title: "SOPHIA",
+      subtitle: "Compreensao",
+      lines: [
+        latestChronicle ? `Ultimo evento: ${latestChronicle.event_type}` : "Nenhum discernimento recente retornado pela API.",
+        "SOPHIA permanece somente na camada de compreensao.",
+      ],
+      actionLabel: "Ver Chronicle",
+      panel: "chronicle",
+    },
+    rockmam: {
+      id: "rockmam",
+      title: "ROCKMAM",
+      subtitle: "Possibilidade",
+      lines: [
+        pendingOpportunities[0] ? `Oportunidade: ${pendingOpportunities[0].title}` : "Nenhuma possibilidade pendente retornada pela API.",
+        "ROCKMAM nao executa, apenas avalia possibilidade.",
+      ],
+      actionLabel: "Ver oportunidades",
+      panel: "opportunities",
+    },
+  };
+
+  const universeMap: Record<string, { label: string; query: string[]; panel?: HotspotSummary["panel"] }> = {
+    eng: { label: "ENGENHARIA", query: ["eng", "engenharia", "engineering"], panel: "universes" },
+    jur: { label: "JURIDICO", query: ["jur", "juridico", "legal"], panel: "universes" },
+    fin: { label: "FINANCAS", query: ["fin", "finance", "financial", "financas"], panel: "opportunities" },
+    seg: { label: "SEGURANCA", query: ["seg", "seguranca", "security"], panel: "universes" },
+    neg: { label: "NEGOCIOS", query: ["neg", "negocios", "business"], panel: "opportunities" },
+    cie: { label: "CIENCIA", query: ["cie", "ciencia", "science"], panel: "universes" },
+    con: { label: "CONHECIMENTO", query: ["con", "conhecimento", "knowledge"], panel: "universes" },
+    cri: { label: "CRIACAO", query: ["cri", "criacao", "creation"], panel: "universes" },
+  };
+
+  for (const [id, config] of Object.entries(universeMap)) {
+    const relatedAgents = agents.filter((agent) => config.query.includes(normalizeEntityKey(agent.universe)));
+    const activeAgents = relatedAgents.filter((agent) => agent.enabled && !["idle", "offline", "disabled"].includes(agent.status.toLowerCase()));
+    const relatedUniverse = universes.find((universe) => config.query.includes(normalizeEntityKey(universe.code)) || config.query.includes(normalizeEntityKey(universe.name)));
+    const relatedOpportunities = opportunities.filter((opportunity) => config.query.includes(normalizeEntityKey(opportunity.universe)));
+    base[id] = {
+      id,
+      title: config.label,
+      subtitle: relatedUniverse?.active ? "Universo ativo" : "Universo",
+      lines: [
+        `${relatedAgents.length} agentes retornados pela API.`,
+        `${activeAgents.length} agentes ativos.`,
+        relatedOpportunities[0] ? `Oportunidade: ${relatedOpportunities[0].title}` : "Nenhuma oportunidade relacionada no ranking atual.",
+      ],
+      actionLabel: "Ver detalhes",
+      panel: config.panel,
+    };
+  }
+
+  return base;
+}
