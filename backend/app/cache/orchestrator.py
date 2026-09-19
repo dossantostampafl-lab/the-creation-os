@@ -407,11 +407,6 @@ class CacheOrchestrator:
                 logger.bind(component="semantic_cache", error_type=exc.__class__.__name__).warning(
                     "cache admission embedding failed"
                 )
-        if not embedding:
-            await self._metric("cache_admission_rejected_total")
-            await self.abort(lookup)
-            return
-
         ttl = ttl_seconds_for_intent(
             lookup.context.intent,
             default_ttl=self.default_ttl_seconds,
@@ -430,7 +425,7 @@ class CacheOrchestrator:
             "embedding": embedding,
             "embedding_model": self.embedding_model_name,
             "embedding_version": self.embedding_version,
-            "embedding_dimensions": len(embedding),
+            "embedding_dimensions": len(embedding) if embedding else 0,
             "context_hash": lookup.context.context_hash,
             "context_version": lookup.context.context_version,
             "knowledge_version": lookup.context.knowledge_version,
