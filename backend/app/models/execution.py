@@ -20,7 +20,7 @@ class AgentExecution(Base):
     agent_id: Mapped[str] = mapped_column(ForeignKey("agents.id"), nullable=False, index=True)
 
     # Canonical kernel attempt fields.
-    attempt: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    attempt: Mapped[int] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, server_default=text("'RUNNING'"))
     provider: Mapped[str | None] = mapped_column(String(64), nullable=True)
     model: Mapped[str | None] = mapped_column(String(128), nullable=True)
@@ -30,13 +30,13 @@ class AgentExecution(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Durable dispatch/worker execution fields.
-    dispatch_item_id: Mapped[str | None] = mapped_column(ForeignKey("dispatch_items.id"), nullable=True)
-    mission_id: Mapped[str | None] = mapped_column(ForeignKey("missions.id"), nullable=True)
-    worker_id: Mapped[str | None] = mapped_column(ForeignKey("workers.id"), nullable=True)
-    capability_id: Mapped[str | None] = mapped_column(ForeignKey("capabilities.id"), nullable=True)
-    attempt_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    handler_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    handler_version: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    dispatch_item_id: Mapped[str] = mapped_column(ForeignKey("dispatch_items.id"), nullable=True)
+    mission_id: Mapped[str] = mapped_column(ForeignKey("missions.id"), nullable=True)
+    worker_id: Mapped[str] = mapped_column(ForeignKey("workers.id"), nullable=True)
+    capability_id: Mapped[str] = mapped_column(ForeignKey("capabilities.id"), nullable=True)
+    attempt_number: Mapped[int] = mapped_column(Integer, nullable=True)
+    handler_name: Mapped[str] = mapped_column(String(128), nullable=True)
+    handler_version: Mapped[str] = mapped_column(String(32), nullable=True)
     state: Mapped[str] = mapped_column(String(32), nullable=False, server_default=text("'pending'"))
     input_payload: Mapped[dict] = mapped_column(JSON, nullable=False, server_default=text("'{}'"))
     output_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
@@ -45,8 +45,8 @@ class AgentExecution(Base):
     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     contract_json: Mapped[dict] = mapped_column(JSON, nullable=False, server_default=text("'{}'"))
-    deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    max_duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    deadline: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+    max_duration_seconds: Mapped[int] = mapped_column(Integer, nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, server_default=text("now()"))
