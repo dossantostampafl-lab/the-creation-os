@@ -72,15 +72,15 @@ def _sensitivity(request: InferenceRequest) -> CacheSensitivity:
 
 
 def classify_intent(request: InferenceRequest, query: str) -> CacheIntent:
-    explicit = _explicit_intent(request)
-    if explicit is not None:
-        return explicit
     if request.metadata.get("cache_policy") == "bypass":
         return CacheIntent.UNKNOWN
-    if request.metadata.get("enable_capability_intents") or request.metadata.get("task_id") or request.metadata.get("mission_id"):
+    if (
+        request.metadata.get("enable_capability_intents")
+        or request.metadata.get("task_id")
+        or request.metadata.get("mission_id")
+        or str(request.metadata.get("tool_state_class", "read_only")) != "read_only"
+    ):
         return CacheIntent.SYSTEM_COMMAND
-    if request.metadata.get("retrieval_fingerprint") or request.metadata.get("knowledge_version"):
-        return CacheIntent.DOCUMENT_QA
     if _SECURITY_RE.search(query):
         return CacheIntent.SECURITY_DECISION
     if _AUTH_RE.search(query):
@@ -89,6 +89,11 @@ def classify_intent(request: InferenceRequest, query: str) -> CacheIntent:
         return CacheIntent.SYSTEM_COMMAND
     if _LIVE_RE.search(query):
         return CacheIntent.FINANCIAL_LIVE if _FINANCIAL_RE.search(query) else CacheIntent.LIVE_STATE
+    explicit = _explicit_intent(request)
+    if explicit is not None:
+        return explicit
+    if request.metadata.get("retrieval_fingerprint") or request.metadata.get("knowledge_version"):
+        return CacheIntent.DOCUMENT_QA
     if _EXPLANATION_RE.search(query):
         return CacheIntent.EXPLANATION
     return CacheIntent.UNKNOWN
