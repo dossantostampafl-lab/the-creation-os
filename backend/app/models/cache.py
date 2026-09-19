@@ -25,7 +25,7 @@ class SemanticCacheEntry(Base):
     sensitivity: Mapped[str] = mapped_column(String(32), nullable=False)
     normalized_query: Mapped[str] = mapped_column(Text, nullable=False)
     exact_key: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
-    embedding: Mapped[list[float]] = mapped_column(Vector(), nullable=False)
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(), nullable=True)
     embedding_model: Mapped[str] = mapped_column(String(128), nullable=False)
     embedding_version: Mapped[str] = mapped_column(String(64), nullable=False)
     embedding_dimensions: Mapped[int] = mapped_column(Integer, nullable=False)
