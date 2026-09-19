@@ -79,6 +79,11 @@ class LivingCoreService:
         require_creator(actor, "control DEUS")
         return await self._owned(Conversation, entity_id, actor)
 
+    async def messages(self, actor: Actor, entity_id: str):
+        require_creator(actor, "control DEUS")
+        await self._owned(Conversation, entity_id, actor)
+        return await self.repo.list_messages(entity_id)
+
     async def add_message(self, actor: Actor, entity_id: str, content: str, metadata: dict[str, Any], correlation_id: str):
         require_creator(actor, "speak directly with DEUS")
         conversation = await self._owned(Conversation, entity_id, actor, lock=True)
