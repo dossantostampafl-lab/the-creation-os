@@ -83,7 +83,12 @@ class Settings(BaseSettings):
 
     @validator("semantic_cache_revalidate_threshold")
     def validate_semantic_cache_threshold_order(cls, value: float, values: dict[str, object]) -> float:
-        hit_threshold = float(values.get("semantic_cache_similarity_threshold", 0.94))
+        raw_hit_threshold = values.get("semantic_cache_similarity_threshold", 0.94)
+        hit_threshold = (
+            float(raw_hit_threshold)
+            if isinstance(raw_hit_threshold, (int, float, str))
+            else 0.94
+        )
         if value > hit_threshold:
             raise ValueError("SEMANTIC_CACHE_REVALIDATE_THRESHOLD must be <= SEMANTIC_CACHE_SIMILARITY_THRESHOLD")
         return value
