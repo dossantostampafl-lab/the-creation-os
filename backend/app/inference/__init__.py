@@ -10,6 +10,7 @@ from app.inference.provider import InferenceProvider
 from app.inference.registry import ProviderRegistry
 from app.inference.router import ModelRouter
 
+
 def build_model_router() -> ModelRouter:
     from app.inference.bootstrap import build_model_router as _build_model_router
 
