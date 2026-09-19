@@ -1,0 +1,31 @@
+.chronicle-events article {
+  animation: chronicleEnter 700ms ease both;
+}
+
+@keyframes chronicleEnter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 1366px) {
+  .exact-chronicle {
+    height: 58px;
+    grid-template-columns: 190px 104px 1fr 82px;
+  }
+
+  .chronicle-events article {
+    min-width: 132px;
+  }
+}
+
+@media (max-width: 900px) {
+  .inception-panel {
+    display: none;
+  }
+}
