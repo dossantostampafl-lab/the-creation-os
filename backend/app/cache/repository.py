@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import and_, cast, func, or_, select, update
+from sqlalchemy import and_, any_, cast, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -77,7 +77,7 @@ class CacheRepository:
     async def upsert(self, *, values: dict[str, Any]) -> SemanticCacheEntry:
         statement = insert(SemanticCacheEntry).values(**values)
         excluded = statement.excluded
-        statement = (
+        upsert_statement = (
             statement.on_conflict_do_update(
                 index_elements=[SemanticCacheEntry.exact_key],
                 set_={
@@ -107,7 +107,7 @@ class CacheRepository:
             )
             .returning(SemanticCacheEntry)
         )
-        return (await self.session.execute(statement)).scalar_one()
+        return (await self.session.execute(upsert_statement)).scalar_one()
 
     async def record_hit(self, entry_id: str) -> None:
         await self.session.execute(
@@ -122,7 +122,7 @@ class CacheRepository:
         conditions: list[Any] = [SemanticCacheEntry.validation_status == "VALIDATED"]
         if creator_scope is not None:
             conditions.append(SemanticCacheEntry.creator_scope == creator_scope)
-        tag_filters = [SemanticCacheEntry.tags.any(tag) for tag in tags]
+        tag_filters = [tag == any_(SemanticCacheEntry.tags) for tag in tags]
         statement = (
             update(SemanticCacheEntry)
             .where(and_(*conditions), or_(*tag_filters))
