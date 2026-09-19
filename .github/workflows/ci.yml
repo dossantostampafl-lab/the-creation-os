@@ -153,22 +153,10 @@ jobs:
           OPENAI_COMPATIBLE_MODEL: ci-compatible-model
           OPENAI_COMPATIBLE_BASE_URL: https://compatible.example.invalid/v1
         run: docker compose -f docker-compose.prod.yml config --quiet
-      - name: Validate Render Blueprint YAML
-        run: ruby -e 'require "yaml"; data = YAML.safe_load_file("render.yaml"); abort("missing services") unless data["services"].is_a?(Array); abort("missing databases") unless data["databases"].is_a?(Array)'
-      - name: Validate Render deployment invariants
-        working-directory: backend
-        env:
-          APP_ENV: test
-          APP_SECRET_KEY: ci-secret-key-at-least-32-characters
-          CREATOR_BOOTSTRAP_USERNAME: creator
-          CREATOR_BOOTSTRAP_PASSWORD: ci-password
-          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/the_creation_os
-          REDIS_URL: redis://localhost:6379/0
+      - name: Validate canonical local LAN Compose
         run: |
-          pip install --upgrade pip
-          pip install ".[dev]"
-          pytest -q tests/test_render_deployment_invariants.py tests/test_render_database_url.py
+          cp .env.example .env
+          docker compose config --quiet
+          docker compose -f docker-compose.prod.yml config --quiet
       - run: docker build -t creation-api:ci ./backend
       - run: docker build -t creation-frontend:ci ./frontend
-      - name: Build Render frontend image
-        run: docker build -f frontend/Dockerfile.render --build-arg VITE_API_BASE_URL=https://example.invalid/api/v1 -t creation-frontend-render:ci frontend
