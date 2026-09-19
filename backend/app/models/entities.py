@@ -3,8 +3,8 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, text
-from sqlalchemy.dialects.postgresql import ARRAY, REAL
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -129,12 +129,23 @@ class MissionStep(Base):
 
 class Task(Base):
     __tablename__ = "tasks"
+    __table_args__ = (UniqueConstraint("mission_id", "name", name="uq_task_mission_name"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_string)
     mission_id: Mapped[str] = mapped_column(ForeignKey("missions.id"), nullable=False)
-    step_id: Mapped[str] = mapped_column(ForeignKey("mission_steps.id"), nullable=False)
-    universe_id: Mapped[str] = mapped_column(ForeignKey("universes.id"), nullable=False)
-    agent_id: Mapped[str] = mapped_column(ForeignKey("agents.id"), nullable=False)
+    step_id: Mapped[str | None] = mapped_column(ForeignKey("mission_steps.id"), nullable=True)
+    universe_id: Mapped[str | None] = mapped_column(ForeignKey("universes.id"), nullable=True)
+    agent_id: Mapped[str | None] = mapped_column(ForeignKey("agents.id"), nullable=True)
+    parent_task_id: Mapped[str | None] = mapped_column(ForeignKey("tasks.id"), nullable=True)
+    name: Mapped[str] = mapped_column(String(256), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    required_capability_id: Mapped[str] = mapped_column(ForeignKey("capabilities.id"), nullable=False)
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    state: Mapped[str] = mapped_column(String(32), nullable=False, server_default=text("'created'"))
+    retry_limit: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("3"))
+    retry_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    timeout_seconds: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("300"))
+    estimated_duration: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, server_default=text("'PENDING'"))
     input_json: Mapped[dict] = mapped_column(JSON, nullable=False, server_default=text("'{}'"))
     output_json: Mapped[dict] = mapped_column(JSON, nullable=False, server_default=text("'{}'"))
@@ -145,11 +156,20 @@ class Task(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"), onupdate=lambda: datetime.now(timezone.utc))
 
     mission: Mapped[Mission] = relationship("Mission", back_populates="tasks")
-    step: Mapped[MissionStep] = relationship("MissionStep", back_populates="tasks")
-    universe: Mapped["Universe"] = relationship("Universe")
-    agent: Mapped["Agent"] = relationship("Agent")
+    step: Mapped[MissionStep | None] = relationship("MissionStep", back_populates="tasks")
+    universe: Mapped["Universe | None"] = relationship("Universe")
+    agent: Mapped["Agent | None"] = relationship("Agent")
+
+
+class TaskDependency(Base):
+    __tablename__ = "task_dependencies"
+
+    task_id: Mapped[str] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"), primary_key=True)
+    dependency_id: Mapped[str] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
 
 
 class Universe(Base):
@@ -168,14 +188,45 @@ class Agent(Base):
     __tablename__ = "agents"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_string)
-    code: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    code: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
-    universe_id: Mapped[str] = mapped_column(ForeignKey("universes.id"), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    universe_name: Mapped[str] = mapped_column("universe", String(64), nullable=False)
+    universe_id: Mapped[str | None] = mapped_column(ForeignKey("universes.id"), nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     capabilities_json: Mapped[dict] = mapped_column(JSON, nullable=False, server_default=text("'{}'"))
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    status: Mapped[str] = mapped_column(String(32), nullable=False, server_default=text("'offline'"))
+    version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"), onupdate=lambda: datetime.now(timezone.utc))
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
 
-    universe: Mapped[Universe] = relationship("Universe", back_populates="agents")
+    universe: Mapped[Universe | None] = relationship("Universe", back_populates="agents")
+    capabilities: Mapped[list["Capability"]] = relationship(
+        "Capability", secondary="agent_capabilities", back_populates="agents"
+    )
+
+
+class Capability(Base):
+    __tablename__ = "capabilities"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_string)
+    name: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+
+    agents: Mapped[list[Agent]] = relationship(
+        "Agent", secondary="agent_capabilities", back_populates="capabilities"
+    )
+
+
+class AgentCapability(Base):
+    __tablename__ = "agent_capabilities"
+
+    agent_id: Mapped[str] = mapped_column(ForeignKey("agents.id", ondelete="CASCADE"), primary_key=True)
+    capability_id: Mapped[str] = mapped_column(ForeignKey("capabilities.id", ondelete="CASCADE"), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
 
 
 class ConversationMemory(Base):
@@ -219,7 +270,11 @@ class ConsciousMemory(Base):
     source_id: Mapped[str] = mapped_column(String(36), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     metadata_json: Mapped[dict] = mapped_column(JSON, nullable=False, server_default=text("'{}'"))
-    embedding: Mapped[list[float]] = mapped_column(ARRAY(REAL), nullable=False)
+    # 0001_initial created this column as psql.ARRAY(psql.REAL()) (real[]); Lote:
+    # busca ANN real via pgvector (migration 0026) converted it to a native
+    # pgvector `vector(8)` column with an HNSW cosine index — see
+    # ARCHITECTURE.md. 8 must match settings.conscious_memory_embedding_dim.
+    embedding: Mapped[list[float]] = mapped_column(Vector(8), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
 
 
