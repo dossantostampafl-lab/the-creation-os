@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from enum import StrEnum
 
-from fastapi import APIRouter, Depends, Header, Query, status
+from fastapi import APIRouter, Depends, Header, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.embeddings import build_embedding_model
@@ -15,15 +15,18 @@ from app.memory.contracts import MemoryCandidate
 from app.memory.policy import MemoryPolicy, MemoryProvenanceError
 from app.observability.probes import database_probe, redis_probes
 from app.repositories.domain import DomainRepository
+from app.repositories.god import GodConversationRepository
 from app.schemas.auth import TokenPayload
 from app.schemas.chronicle import ChronicleResponse, ChronicleVerifyResponse
 from app.schemas.conversation import ConversationCreateRequest, ConversationMessageResponse, ConversationResponse, MessageRequest
+from app.schemas.god import GodConversationRequest, GodConversationResponse
 from app.schemas.inception import InceptionCreateRequest, InceptionDecisionRequest, InceptionResponse
 from app.schemas.memory import ConsciousMemoryCreateRequest, ConsciousMemoryResponse, MemoryResponse, MemoryUpsertRequest
 from app.schemas.mission import MissionCreateRequest, MissionPlanRequest, MissionResponse
 from app.schemas.pulse import PulseResponse
 from app.schemas.universe import AgentCreateRequest, AgentResponse, UniverseCreateRequest, UniverseResponse
 from app.services.domain import LivingCoreService
+from app.services.god import GodConversationService
 
 router = APIRouter()
 
@@ -46,6 +49,27 @@ def actor(token: TokenPayload = Depends(get_sovereign_creator)) -> Actor:
 
 def service(session: AsyncSession = Depends(get_session)) -> LivingCoreService:
     return LivingCoreService(DomainRepository(session), cache=build_cache_orchestrator())
+
+
+def god_service(session: AsyncSession = Depends(get_session)) -> GodConversationService:
+    return GodConversationService(GodConversationRepository(session))
+
+
+def god_conversation_response(item) -> GodConversationResponse:
+    return GodConversationResponse(
+        id=item.id,
+        conversation_id=item.conversation_id,
+        message_id=item.creator_message_id,
+        god_message_id=item.god_message_id,
+        interaction_type=item.interaction_type,
+        reply=item.response_payload["reply"],
+        potential_detected=item.potential_detected,
+        next_action=item.response_payload["next_action"],
+        memory_context=item.response_payload.get("memory_context", []),
+        fingerprint=item.fingerprint,
+        created_at=item.created_at,
+        completed_at=item.completed_at,
+    )
 
 
 def conversation_response(item) -> ConversationResponse:
@@ -125,6 +149,25 @@ async def add_message(
 ):
     item = await s.add_message(a, str(entity_id), body.content, body.metadata, cid)
     return ConversationMessageResponse(**{name: getattr(item, name) for name in ConversationMessageResponse.model_fields})
+
+
+@router.post(
+    "/living-core/conversations/{entity_id}/god",
+    response_model=GodConversationResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def orchestrate_god_conversation(
+    entity_id: uuid.UUID,
+    body: GodConversationRequest,
+    response: Response,
+    a: Actor = Depends(actor),
+    cid: str = Depends(correlation_id),
+    s: GodConversationService = Depends(god_service),
+):
+    item, created = await s.interact(a, str(entity_id), body.message, body.idempotency_key, cid)
+    if not created:
+        response.status_code = status.HTTP_200_OK
+    return god_conversation_response(item)
 
 
 @router.post("/conversations/{entity_id}/close", response_model=ConversationResponse)
