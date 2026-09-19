@@ -8,7 +8,6 @@ from typing import Any
 
 from app.inference.contracts import InferenceRequest
 
-
 _SPACE_RE = re.compile(r"\s+")
 
 
