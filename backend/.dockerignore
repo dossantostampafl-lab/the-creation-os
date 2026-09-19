@@ -10,3 +10,11 @@ venv
 tests
 .git
 .env
+.venv-*
+.venv_*
+venv-*
+venv_*
+.tox
+.nox
+.cache
+site-packages
