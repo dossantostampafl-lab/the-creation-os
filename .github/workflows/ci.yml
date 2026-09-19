@@ -122,41 +122,15 @@ jobs:
         run: docker compose down -v --remove-orphans
 
   release:
+    name: local-runtime-build
     runs-on: ubuntu-latest
-    env:
-      APP_SECRET_KEY: ci-release-secret-key-at-least-32-characters
-      CREATOR_BOOTSTRAP_USERNAME: creator
-      CREATOR_BOOTSTRAP_PASSWORD: ci-release-password
-      POSTGRES_PASSWORD: ci@strong/pass?word
-      DATABASE_URL: postgresql+asyncpg://creation:ci%40strong%2Fpass%3Fword@postgres:5432/the_creation_os
-      LLM_PROVIDER: openai
-      LLM_MODEL: ci-model
-      LLM_API_KEY: ci-not-a-real-key
-      EMBEDDING_PROVIDER: openai
-      EMBEDDING_MODEL: ci-embedding-model
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - name: Validate OpenAI production configuration
-        run: docker compose -f docker-compose.prod.yml config --quiet
-      - name: Validate FreeLLMAPI production configuration
-        env:
-          LLM_PROVIDER: freellmapi
-          FREELLMAPI_API_KEY: ci-not-a-real-key
-          FREELLMAPI_MODEL: ci-freellm-model
-          FREELLMAPI_BASE_URL: https://freellm.example.invalid/v1
-        run: docker compose -f docker-compose.prod.yml config --quiet
-      - name: Validate OpenAI-compatible production configuration
-        env:
-          LLM_PROVIDER: openai_compatible
-          OPENAI_COMPATIBLE_MODEL: ci-compatible-model
-          OPENAI_COMPATIBLE_BASE_URL: https://compatible.example.invalid/v1
-        run: docker compose -f docker-compose.prod.yml config --quiet
       - name: Validate canonical local LAN Compose
         run: |
           cp .env.example .env
           docker compose config --quiet
-          docker compose -f docker-compose.prod.yml config --quiet
-      - run: docker build -t creation-api:ci ./backend
-      - run: docker build -t creation-frontend:ci ./frontend
+      - name: Build canonical local runtime
+        run: docker compose build
