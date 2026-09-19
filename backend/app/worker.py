@@ -17,6 +17,9 @@ import signal
 import sys
 import time
 import uuid
+from datetime import datetime, timezone
+
+from sqlalchemy import select
 
 from app.admin.worker import SYSTEM_WORKER_UUID, SYSTEM_WORKER_VERSION
 from app.agents.handlers import HandlerError, default_registry
@@ -24,6 +27,7 @@ from app.config import settings
 from app.core.consolidation import ConsolidationError
 from app.core.domain import AuthorizationDenied
 from app.db.session import AsyncSessionLocal
+from app.models.entities import Agent, AgentCapability
 from app.repositories.consolidation import ConsolidationRepository
 from app.repositories.decision import DecisionRepository
 from app.repositories.dispatch import DispatchRepository
@@ -108,6 +112,25 @@ async def _heartbeat(status: str) -> None:
         _, workers, _ = _services(session)
         worker = await workers.authenticate(WORKER_UUID, _credential())
         await workers.heartbeat(worker, SYSTEM_WORKER_VERSION, status)
+
+        capability_ids = [item.id for item in worker.capabilities]
+        if capability_ids:
+            hosted_agents = list((await session.scalars(
+                select(Agent)
+                .join(AgentCapability, AgentCapability.agent_id == Agent.id)
+                .where(
+                    AgentCapability.capability_id.in_(capability_ids),
+                    Agent.enabled.is_(True),
+                    Agent.active.is_(True),
+                )
+                .distinct()
+            )).all())
+            now = datetime.now(timezone.utc)
+            for agent in hosted_agents:
+                agent.heartbeat_at = now
+                if agent.status != "busy":
+                    agent.status = "idle"
+            await session.commit()
     _touch_liveness()
 
 
