@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from app.cache.contracts import CacheIntent, CacheSensitivity
 from app.inference.contracts import InferenceRequest
 
-
 _CACHEABLE = {
     CacheIntent.KNOWLEDGE_STATIC,
     CacheIntent.EXPLANATION,
