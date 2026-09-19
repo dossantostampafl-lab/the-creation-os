@@ -46,6 +46,7 @@ class AgentRuntime:
             execution_id = execution.id
             input_payload = dict(task.input_json or {})
             capabilities = dict(agent.capabilities_json or {})
+            creator_id = mission.creator_id
             mission_correlation_id = correlation_id or str(
                 (mission.authorization_json or {}).get("correlation_id") or uuid.uuid4()
             )
@@ -84,7 +85,12 @@ class AgentRuntime:
             metadata={
                 "task_id": task_id,
                 "mission_id": mission_id,
+                "creator_id": creator_id,
                 "enable_capability_intents": self.capability_runtime is not None,
+                "cache_policy": "bypass",
+                "cache_intent": "SYSTEM_COMMAND",
+                "cache_sensitivity": "PRIVATE",
+                "tool_state_class": "action_capable",
             },
         )
 
