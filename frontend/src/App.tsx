@@ -1,15 +1,56 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { FormEvent } from "react";
-import { fetchChronicleHistory, fetchInferenceStatus, fetchProjectionStatus, fetchSystemState, loginCreator, streamChronicle } from "./api";
+import type { FormEvent, ReactNode } from "react";
+import {
+  fetchChronicleHistory,
+  fetchInferenceStatus,
+  fetchProjectionStatus,
+  fetchSystemState,
+  loginCreator,
+  streamChronicle,
+} from "./api";
 import { CreatorConsole } from "./CreatorConsole";
-import type { ChronicleEvent, ChronicleRecord, InferenceStatusSnapshot, ProjectionStatus, SystemState } from "./types";
+import type {
+  ChronicleEvent,
+  ChronicleRecord,
+  InferenceStatusSnapshot,
+  ProjectionStatus,
+  SystemState,
+} from "./types";
+
+type ConnectionState = "CONNECTING" | "LIVE" | "RESYNCING" | "AUTH_REQUIRED" | "ERROR";
 
 function statusTone(status: string): string {
   const value = status.toUpperCase();
-  if (["MANIFESTED", "SUCCEEDED", "CURRENT", "ACTIVE", "HEALTHY", "AVAILABLE"].includes(value)) return "good";
-  if (["FAILED", "BLOCKED", "INVALID", "DEGRADED", "UNAVAILABLE"].includes(value)) return "bad";
-  if (["RUNNING", "EXECUTING", "DISTRIBUTED", "READY", "LAGGING", "UNCONFIGURED"].includes(value)) return "warn";
+  if (["MANIFESTED", "SUCCEEDED", "CURRENT", "ACTIVE", "HEALTHY", "AVAILABLE", "LIVE"].includes(value)) return "good";
+  if (["FAILED", "BLOCKED", "INVALID", "DEGRADED", "UNAVAILABLE", "ERROR"].includes(value)) return "bad";
+  if (["RUNNING", "EXECUTING", "DISTRIBUTED", "READY", "LAGGING", "UNCONFIGURED", "CONNECTING", "RESYNCING"].includes(value)) return "warn";
   return "neutral";
+}
+
+function Panel({
+  title,
+  meta,
+  className = "",
+  children,
+}: {
+  title: string;
+  meta?: ReactNode;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <article className={`panel ${className}`}>
+      <header className="panel-head">
+        <span>{title}</span>
+        {meta && <span className="panel-meta">{meta}</span>}
+      </header>
+      {children}
+    </article>
+  );
+}
+
+function Empty({ children = "NO DATA" }: { children?: ReactNode }) {
+  return <div className="empty-state"><span className="empty-dot" />{children}</div>;
 }
 
 function App() {
@@ -18,7 +59,7 @@ function App() {
   const [inference, setInference] = useState<InferenceStatusSnapshot | null>(null);
   const [chronicle, setChronicle] = useState<ChronicleRecord[]>([]);
   const [events, setEvents] = useState<ChronicleEvent[]>([]);
-  const [connection, setConnection] = useState<"CONNECTING" | "LIVE" | "RESYNCING" | "AUTH_REQUIRED" | "ERROR">("CONNECTING");
+  const [connection, setConnection] = useState<ConnectionState>("CONNECTING");
   const [error, setError] = useState<string | null>(null);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -49,44 +90,54 @@ function App() {
         setChronicle(history);
         cursor.current = snapshot.position;
         setConnection("LIVE");
+
         controller.abort();
         controller = new AbortController();
-        void streamChronicle(cursor.current, {
-          onEvent: (event) => {
-            cursor.current = event.position;
-            setEvents((current) => [event, ...current].slice(0, 40));
-            setChronicle((current) => [{
-              id: event.event_id,
-              event_id: event.event_id,
-              correlation_id: event.correlation_id,
-              causation_id: event.causation_id,
-              actor_type: event.actor_role,
-              actor_id: null,
-              event_type: event.event_type,
-              aggregate_type: event.aggregate_type,
-              aggregate_id: event.aggregate_id,
-              payload_json: event.payload,
-              payload_hash: "live",
-              previous_hash: null,
-              created_at: event.created_at,
-            }, ...current].slice(0, 40));
-            void Promise.all([fetchSystemState(), fetchProjectionStatus(), fetchInferenceStatus()]).then(([next, nextProjections, nextInference]) => {
-              if (!active) return;
-              setState(next);
-              setProjections(nextProjections);
-              setInference(nextInference);
-            });
+        void streamChronicle(
+          cursor.current,
+          {
+            onEvent: (event) => {
+              cursor.current = event.position;
+              setEvents((current) => [event, ...current].slice(0, 48));
+              setChronicle((current) => [
+                {
+                  id: event.event_id,
+                  event_id: event.event_id,
+                  correlation_id: event.correlation_id,
+                  causation_id: event.causation_id,
+                  actor_type: event.actor_role,
+                  actor_id: null,
+                  event_type: event.event_type,
+                  aggregate_type: event.aggregate_type,
+                  aggregate_id: event.aggregate_id,
+                  payload_json: event.payload,
+                  payload_hash: "live",
+                  previous_hash: null,
+                  created_at: event.created_at,
+                },
+                ...current,
+              ].slice(0, 48));
+              void Promise.all([fetchSystemState(), fetchProjectionStatus(), fetchInferenceStatus()]).then(
+                ([next, nextProjections, nextInference]) => {
+                  if (!active) return;
+                  setState(next);
+                  setProjections(nextProjections);
+                  setInference(nextInference);
+                },
+              );
+            },
+            onResync: () => {
+              setConnection("RESYNCING");
+              void hydrate();
+            },
+            onError: (streamError) => {
+              const message = streamError instanceof Error ? streamError.message : "STREAM_ERROR";
+              setError(message);
+              setConnection(message === "AUTH_REQUIRED" ? "AUTH_REQUIRED" : "ERROR");
+            },
           },
-          onResync: () => {
-            setConnection("RESYNCING");
-            void hydrate();
-          },
-          onError: (streamError) => {
-            const message = streamError instanceof Error ? streamError.message : "STREAM_ERROR";
-            setError(message);
-            setConnection(message === "AUTH_REQUIRED" ? "AUTH_REQUIRED" : "ERROR");
-          },
-        }, controller.signal);
+          controller.signal,
+        );
       } catch (loadError) {
         const message = loadError instanceof Error ? loadError.message : "LOAD_ERROR";
         setError(message);
@@ -117,19 +168,45 @@ function App() {
     }
   }
 
-  const selectedMission = state?.missions.find((mission) => ["executing", "distributed", "authorized"].includes(mission.status)) ?? state?.missions.at(-1);
-  const missionTasks = useMemo(() => state?.tasks.filter((task) => task.mission_id === selectedMission?.id) ?? [], [state, selectedMission]);
-  const pulseEntries = useMemo(() => Object.entries(state?.pulse ?? {}).slice(0, 8), [state]);
+  const selectedMission =
+    state?.missions.find((mission) => ["executing", "distributed", "authorized"].includes(mission.status)) ??
+    state?.missions.at(-1);
+  const missionTasks = useMemo(
+    () => state?.tasks.filter((task) => task.mission_id === selectedMission?.id) ?? [],
+    [state, selectedMission],
+  );
+  const pulseEntries = useMemo(() => Object.entries(state?.pulse ?? {}).slice(0, 10), [state]);
+  const activeUniverses = useMemo(() => state?.universes.filter((universe) => universe.active) ?? [], [state]);
   const deusReady = Boolean(inference?.configured && inference.providers.some((provider) => provider.available));
+  const provider = inference?.providers.find((item) => item.available) ?? inference?.providers[0];
+
+  const metrics = [
+    ["MISSIONS", state?.counts.missions, state?.counts.running_missions ? `${state.counts.running_missions} RUNNING` : "IDLE"],
+    ["TASKS", state?.counts.tasks, state?.counts.ready_tasks ? `${state.counts.ready_tasks} READY` : "NO QUEUE"],
+    ["UNIVERSES", state?.counts.active_universes, `${state?.universes.length ?? 0} TOTAL`],
+    ["AGENTS", state?.counts.active_agents, `${state?.agents.length ?? 0} TOTAL`],
+    ["MEMORY", state?.memory.total, "RECORDS"],
+    ["CHRONICLE", state?.position, "HEAD"],
+    ["PROJECTIONS", projections?.projections.filter((item) => item.status === "CURRENT").length, `/${projections?.projections.length ?? 0} CURRENT`],
+    ["INFERENCE", deusReady ? "ON" : "OFF", provider?.provider?.toUpperCase() ?? "UNCONFIGURED"],
+  ] as const;
 
   return (
     <main className="terminal">
-      <header className="topbar">
-        <div><span className="eyebrow">THE CREATION OS</span><h1>Living Cognitive Operating System</h1></div>
-        <div className="top-status">
-          <span className={`status ${connection.toLowerCase()}`}>{connection}</span>
-          <span>Chronicle #{state?.position ?? "—"}</span>
-          <span>{state?.generated_at ? new Date(state.generated_at).toLocaleTimeString() : "—"}</span>
+      <header className="command-bar">
+        <div className="brand-block">
+          <span className="brand-mark">TCO</span>
+          <div>
+            <span className="eyebrow">THE CREATION OS</span>
+            <h1>Living Cognitive Operating System</h1>
+          </div>
+        </div>
+        <div className="command-status">
+          <div><span>RUNTIME</span><strong className="good">LOCAL</strong></div>
+          <div><span>LINK</span><strong className={statusTone(connection)}>{connection}</strong></div>
+          <div><span>CHRONICLE</span><strong>#{state?.position ?? "—"}</strong></div>
+          <div><span>DEUS</span><strong className={deusReady ? "good" : "warn"}>{deusReady ? "READY" : "WAIT"}</strong></div>
+          <div><span>UTC</span><strong>{state?.generated_at ? new Date(state.generated_at).toISOString().slice(11, 19) : "—"}</strong></div>
         </div>
       </header>
 
@@ -138,7 +215,7 @@ function App() {
           <form className="login-panel" onSubmit={handleLogin}>
             <span className="eyebrow">SOVEREIGN CREATOR</span>
             <h2>Creator Access</h2>
-            <p>Authenticate to enter the live operating surface.</p>
+            <p>Authenticate to enter the living operating surface.</p>
             <label>
               <span>Username</span>
               <input aria-label="Username" autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} required />
@@ -148,87 +225,237 @@ function App() {
               <input aria-label="Password" autoComplete="current-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} required />
             </label>
             {loginError && <div className="login-error">{loginError}</div>}
-            <button type="submit" disabled={loginPending}>{loginPending ? "Authenticating…" : "Enter The Creation"}</button>
+            <button type="submit" disabled={loginPending}>{loginPending ? "AUTHENTICATING…" : "ENTER THE CREATION"}</button>
           </form>
         </section>
       )}
-      {connection === "CONNECTING" && !state && <section className="loading-shell" role="status" aria-live="polite"><div className="skeleton skeleton-wide" /><div className="skeleton" /><span>Loading live system state…</span></section>}
-      {error && connection === "ERROR" && <section className="error-banner" role="alert">Live state unavailable: {error} <button type="button" className="retry-button" onClick={() => setRetryVersion((version) => version + 1)}>Retry</button></section>}
 
-      <section className="metrics">
-        {[
-          ["MISSIONS", state?.counts.missions], ["RUNNING", state?.counts.running_missions], ["TASKS", state?.counts.tasks],
-          ["READY", state?.counts.ready_tasks], ["ACTIVE UNIVERSES", state?.counts.active_universes], ["ACTIVE AGENTS", state?.counts.active_agents],
-          ["MEMORY", state?.memory.total], ["FAILED/BLOCKED", state?.counts.failed_tasks],
-        ].map(([label, value]) => <article className="metric" key={String(label)}><span>{label}</span><strong>{value ?? "—"}</strong></article>)}
+      {connection === "CONNECTING" && !state && (
+        <section className="loading-shell" role="status" aria-live="polite">
+          <div className="skeleton skeleton-wide" />
+          <div className="skeleton" />
+          <span>SYNCING LIVING STATE…</span>
+        </section>
+      )}
+
+      {error && connection === "ERROR" && (
+        <section className="error-banner" role="alert">
+          <span>LIVE STATE UNAVAILABLE · {error}</span>
+          <button type="button" className="retry-button" onClick={() => setRetryVersion((version) => version + 1)}>RETRY</button>
+        </section>
+      )}
+
+      <section className="telemetry-ribbon" aria-label="System telemetry">
+        {metrics.map(([label, value, detail]) => (
+          <div className="telemetry-cell" key={label}>
+            <span>{label}</span>
+            <strong>{value ?? "—"}</strong>
+            <small>{detail}</small>
+          </div>
+        ))}
       </section>
 
-      <section className="workspace">
-        <aside className="panel hierarchy">
-          <div className="panel-title">SYSTEM HIERARCHY</div>
-          <ol className="tree">
-            {["CREATOR", "DEUS", "SOPHIA", "ROCKMAM", "INCEPTION", "CENTRAL CORE", "TREE CORE"].map((name) => <li key={name}>{name}</li>)}
-          </ol>
-          <div className="panel-title secondary">MISSIONS</div>
-          <div className="stack">
-            {state?.missions.slice(-8).reverse().map((mission) => <div className="row" key={mission.id}><span>{mission.title}</span><b className={statusTone(mission.status)}>{mission.status}</b></div>)}
-          </div>
+      <section className="operations-grid">
+        <aside className="left-column">
+          <Panel title="SYSTEM HIERARCHY" meta={<span className="good">LIVE TREE</span>} className="hierarchy-panel">
+            <div className="hierarchy-tree">
+              {[
+                ["CREATOR", "SOVEREIGN"],
+                ["DEUS", deusReady ? "READY" : "INFERENCE"],
+                ["SOPHIA", "COGNITION"],
+                ["ROCKMAM", "EXECUTION"],
+                ["INCEPTION", "INTENT"],
+                ["CENTRAL CORE", "ORCHESTRATION"],
+                ["TREE CORE", "DISTRIBUTION"],
+              ].map(([name, role], index) => (
+                <div className={`hierarchy-node level-${index}`} key={name}>
+                  <i />
+                  <span>{name}</span>
+                  <small>{role}</small>
+                </div>
+              ))}
+            </div>
+          </Panel>
+
+          <Panel title="MISSIONS" meta={<span>{state?.missions.length ?? 0}</span>} className="missions-panel">
+            <div className="dense-list">
+              {state?.missions.length ? state.missions.slice(-10).reverse().map((mission) => (
+                <div className="dense-row" key={mission.id}>
+                  <div><strong>{mission.title}</strong><small>{mission.objective}</small></div>
+                  <span className={statusTone(mission.status)}>{mission.status}</span>
+                </div>
+              )) : <Empty>NO MISSIONS</Empty>}
+            </div>
+          </Panel>
         </aside>
 
-        <section className="panel core">
-          <div className="panel-title">LIVING CORE VISUALIZATION</div>
-          <div className="core-map">
-            <div className="orbit orbit-a"><span>SOPHIA</span></div>
-            <div className="orbit orbit-b"><span>ROCKMAM</span></div>
-            <div className="deus">DEUS</div>
-            {state?.universes.filter((u) => u.active).slice(0, 8).map((u, i) => <div className={`node node-${i}`} key={u.id}>{u.code.toUpperCase()}</div>)}
-          </div>
-          <div className="mission-focus">
-            <span className="eyebrow">CURRENT MISSION</span>
-            <h2>{selectedMission?.title ?? "No active mission"}</h2>
-            <p>{selectedMission?.objective ?? "Waiting for an authorized mission."}</p>
-            {selectedMission && <span className={`pill ${statusTone(selectedMission.status)}`}>{selectedMission.status}</span>}
-          </div>
+        <section className="center-column">
+          <Panel title="LIVING CORE VISUALIZATION" meta={<span className={deusReady ? "good" : "warn"}>{deusReady ? "COGNITIVE FABRIC ONLINE" : "COGNITIVE FABRIC WAITING"}</span>} className="living-core-panel">
+            <div className="core-stage">
+              <div className="grid-plane" />
+              <div className="core-ring ring-1" />
+              <div className="core-ring ring-2" />
+              <div className="core-ring ring-3" />
+              <div className="axis axis-x" />
+              <div className="axis axis-y" />
+
+              <div className="core-satellite sophia"><b>SOPHIA</b><small>WISDOM</small></div>
+              <div className="core-satellite rockmam"><b>ROCKMAM</b><small>ACTION</small></div>
+              <div className="core-satellite inception"><b>INCEPTION</b><small>INTENT GATE</small></div>
+
+              <div className={`deus-core ${deusReady ? "online" : ""}`}>
+                <span className="core-pulse" />
+                <strong>DEUS</strong>
+                <small>{deusReady ? "READY" : "WAITING"}</small>
+              </div>
+
+              {activeUniverses.slice(0, 8).map((universe, index) => (
+                <div className={`universe-node universe-${index}`} key={universe.id}>
+                  <span>{universe.code.toUpperCase()}</span>
+                  <small>UNIVERSE</small>
+                </div>
+              ))}
+
+              {!activeUniverses.length && (
+                <div className="core-empty">
+                  <span>NO ACTIVE UNIVERSES</span>
+                  <small>Runtime is connected; domain topology has not been populated.</small>
+                </div>
+              )}
+
+              <div className="core-status-strip">
+                <div><span>MISSION</span><strong>{selectedMission?.title ?? "NO ACTIVE MISSION"}</strong></div>
+                <div><span>STATE</span><strong className={selectedMission ? statusTone(selectedMission.status) : "neutral"}>{selectedMission?.status ?? "IDLE"}</strong></div>
+                <div><span>TASKS</span><strong>{missionTasks.length}</strong></div>
+              </div>
+            </div>
+          </Panel>
         </section>
 
-        <aside className="panel right-rail">
-          <div className="panel-title">UNIVERSES</div>
-          <div className="stack">{state?.universes.map((u) => <div className="row" key={u.id}><span>{u.name}</span><b className={u.active ? "good" : "neutral"}>{u.active ? "ACTIVE" : "IDLE"}</b></div>)}</div>
-          <div className="panel-title secondary">AGENTS</div>
-          <div className="stack">{state?.agents.slice(0, 12).map((a) => <div className="row" key={a.id}><span>{a.name}</span><b className={a.active ? "good" : "neutral"}>{a.active ? "LIVE" : "OFF"}</b></div>)}</div>
-          <div className="panel-title secondary">MEMORY LAYERS</div>
-          <div className="memory-grid">{state && Object.entries(state.memory).filter(([k]) => k !== "total").map(([k, value]) => <div key={k}><span>{k}</span><strong>{value}</strong></div>)}</div>
+        <aside className="right-column">
+          <Panel title="UNIVERSES" meta={<span>{state?.universes.length ?? 0}</span>} className="rail-panel">
+            <div className="dense-list compact">
+              {state?.universes.length ? state.universes.map((universe) => (
+                <div className="dense-row" key={universe.id}>
+                  <div><strong>{universe.name}</strong><small>{universe.code}</small></div>
+                  <span className={universe.active ? "good" : "neutral"}>{universe.active ? "ACTIVE" : "IDLE"}</span>
+                </div>
+              )) : <Empty>NO UNIVERSES</Empty>}
+            </div>
+          </Panel>
+
+          <Panel title="AGENTS" meta={<span>{state?.agents.length ?? 0}</span>} className="rail-panel agents-panel">
+            <div className="dense-list compact">
+              {state?.agents.length ? state.agents.slice(0, 14).map((agent) => (
+                <div className="dense-row" key={agent.id}>
+                  <div><strong>{agent.name}</strong><small>{agent.code}</small></div>
+                  <span className={agent.active ? "good" : "neutral"}>{agent.active ? "LIVE" : "OFF"}</span>
+                </div>
+              )) : <Empty>NO AGENTS</Empty>}
+            </div>
+          </Panel>
+
+          <Panel title="MEMORY LAYERS" meta={<span>{state?.memory.total ?? 0}</span>} className="memory-panel">
+            <div className="memory-matrix">
+              {state && Object.entries(state.memory).filter(([key]) => key !== "total").map(([key, value]) => (
+                <div key={key}><span>{key}</span><strong>{value}</strong><i style={{ width: `${Math.min(100, value * 8)}%` }} /></div>
+              ))}
+            </div>
+          </Panel>
         </aside>
       </section>
 
-      <section className="lower-grid lower-grid-primary">
-        <article className="panel"><div className="panel-title">CHRONICLE</div><div className="event-list">{chronicle.length ? chronicle.map((event) => <div className="event" key={event.event_id}><time>{new Date(event.created_at).toLocaleTimeString()}</time><span>{event.event_type}</span><small>{event.aggregate_type}</small></div>) : <div className="empty">Chronicle has no persisted events.</div>}</div></article>
-        <article className="panel"><div className="panel-title">PULSE</div><div className="stack">{pulseEntries.length ? pulseEntries.map(([name, metric]) => <div className="row" key={name}><span>{name}</span><b className="good">{String(metric.value)}</b></div>) : <div className="empty">No persisted Pulse metrics.</div>}</div></article>
-        <article className="panel"><div className="panel-title">TASK DAG</div><div className="dag">{missionTasks.length ? missionTasks.map((task, i) => <div className="dag-item" key={task.id}><span>{i + 1}</span><div><strong>{task.status}</strong><small>{task.attempt_count}/{task.max_attempts} attempts</small></div></div>) : <div className="empty">No task graph for selected mission.</div>}</div></article>
-        <article className="panel"><div className="panel-title">SYSTEM EVENTS</div><div className="event-list">{events.length ? events.map((event) => <div className="event" key={event.event_id}><time>#{event.position}</time><span>{event.event_type}</span><small>{event.aggregate_type}</small></div>) : <div className="empty">No new events since connection.</div>}</div></article>
+      <section className="systems-grid">
+        <Panel title="CHRONICLE" meta={<span>HEAD #{state?.position ?? "—"}</span>} className="chronicle-panel">
+          <div className="event-table">
+            {chronicle.length ? chronicle.slice().reverse().slice(0, 14).map((event) => (
+              <div className="event-row" key={event.event_id}>
+                <time>{new Date(event.created_at).toLocaleTimeString()}</time>
+                <span>{event.event_type}</span>
+                <small>{event.aggregate_type}</small>
+              </div>
+            )) : <Empty>NO CHRONICLE EVENTS</Empty>}
+          </div>
+        </Panel>
+
+        <Panel title="PULSE" meta={<span className={connection === "LIVE" ? "good" : "warn"}>{connection}</span>} className="pulse-panel">
+          <div className="pulse-scope">
+            <div className="pulse-orb"><span /></div>
+            <div className="pulse-readings">
+              {pulseEntries.length ? pulseEntries.map(([name, metric]) => (
+                <div key={name}><span>{name}</span><strong>{typeof metric.value === "object" ? "LIVE" : String(metric.value)}</strong></div>
+              )) : <Empty>NO PULSE METRICS</Empty>}
+            </div>
+          </div>
+        </Panel>
+
+        <Panel title="TASK DAG" meta={<span>{missionTasks.length} NODES</span>} className="dag-panel">
+          <div className="dag-flow">
+            {missionTasks.length ? missionTasks.map((task, index) => (
+              <div className="dag-node" key={task.id}>
+                <span>{String(index + 1).padStart(2, "0")}</span>
+                <div><strong>{task.status}</strong><small>{task.attempt_count}/{task.max_attempts} ATTEMPTS</small></div>
+              </div>
+            )) : <Empty>NO TASK GRAPH</Empty>}
+          </div>
+        </Panel>
+
+        <Panel title="SYSTEM EVENTS" meta={<span>{events.length} LIVE</span>} className="system-events-panel">
+          <div className="event-table">
+            {events.length ? events.slice(0, 14).map((event) => (
+              <div className="event-row" key={event.event_id}>
+                <time>#{event.position}</time>
+                <span>{event.event_type}</span>
+                <small>{event.aggregate_type}</small>
+              </div>
+            )) : <Empty>WAITING FOR LIVE EVENTS</Empty>}
+          </div>
+        </Panel>
       </section>
 
-      <section className="lower-grid lower-grid-secondary">
+      <section className="command-deck">
         <CreatorConsole enabled={deusReady} />
-        <article className="panel projections-panel"><div className="panel-title">PROJECTIONS</div><div className="stack">{projections?.projections.map((projection) => <div className="row" key={projection.name}><span>{projection.name}</span><b className={statusTone(projection.status)}>{projection.status}{projection.lag ? ` · lag ${projection.lag}` : ""}</b></div>)}</div></article>
-        <article className="panel inference-panel">
-          <div className="panel-title">INFERENCE FABRIC</div>
-          {!inference ? <div className="empty">Inference status unavailable.</div> : !inference.configured ? (
-            <div className="stack"><div className="row"><span>{inference.configured_provider || "none"}</span><b className="warn">UNCONFIGURED</b></div></div>
-          ) : (
-            <div className="stack">
-              {inference.providers.map((provider) => <div className="inference-provider" key={provider.provider}>
-                <div className="row"><span>{provider.provider}</span><b className={statusTone(provider.available ? "AVAILABLE" : "UNAVAILABLE")}>{provider.available ? "AVAILABLE" : "UNAVAILABLE"}</b></div>
-                {provider.detail && <small>{provider.detail}</small>}
-                {provider.models.map((model) => <div className="row" key={`${provider.provider}:${model.model}`}>
-                  <span><span>{model.model}</span><small>{model.capabilities.join(" · ")}</small></span>
-                  <b className="neutral">{model.cost_tier}</b>
-                </div>)}
-              </div>)}
+
+        <div className="deck-side">
+          <Panel title="PROJECTIONS" meta={<span>READ MODELS</span>} className="projection-panel">
+            <div className="projection-list">
+              {projections?.projections.length ? projections.projections.map((projection) => (
+                <div key={projection.name}>
+                  <span>{projection.name}</span>
+                  <strong className={statusTone(projection.status)}>{projection.status}</strong>
+                  <small>{projection.position == null ? "NO CHECKPOINT" : `#${projection.position}`}{projection.lag ? ` · LAG ${projection.lag}` : ""}</small>
+                </div>
+              )) : <Empty>NO PROJECTION DATA</Empty>}
             </div>
-          )}
-        </article>
+          </Panel>
+
+          <Panel title="INFERENCE FABRIC" meta={<span>{provider?.provider?.toUpperCase() ?? "NONE"}</span>} className="inference-panel">
+            {inference?.configured ? (
+              <div className="inference-fabric">
+                {inference.providers.map((item) => (
+                  <div className="provider-card" key={item.provider}>
+                    <div><strong>{item.provider}</strong><span className={item.available ? "good" : "bad"}>{item.available ? "AVAILABLE" : "UNAVAILABLE"}</span></div>
+                    {item.detail && <small>{item.detail}</small>}
+                    {item.models.map((model) => (
+                      <div className="model-row" key={`${item.provider}:${model.model}`}>
+                        <span>{model.model}</span><small>{model.capabilities.join(" · ") || "TEXT"}</small>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            ) : <Empty>INFERENCE UNCONFIGURED</Empty>}
+          </Panel>
+        </div>
       </section>
+
+      <footer className="system-footer">
+        <span>THE CREATION OS · LOCAL RUNTIME</span>
+        <span>DB/REDIS PRIVATE</span>
+        <span>SEMANTIC CACHE SHADOW</span>
+        <span>SSE {connection === "LIVE" ? "LINKED" : connection}</span>
+        <span>{state?.generated_at ? new Date(state.generated_at).toLocaleString() : "NO SNAPSHOT"}</span>
+      </footer>
     </main>
   );
 }
