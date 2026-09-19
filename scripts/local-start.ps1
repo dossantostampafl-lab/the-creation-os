@@ -14,17 +14,71 @@ if ($LASTEXITCODE -ne 0) {
     throw "Docker Engine is not available. Start Docker Desktop and retry."
 }
 
+$envCreated = $false
 if (-not (Test-Path ".env")) {
     Copy-Item ".env.example" ".env"
-    $secret = ([guid]::NewGuid().ToString("N") + [guid]::NewGuid().ToString("N"))
-    $creatorPassword = ([guid]::NewGuid().ToString("N") + "!Aa1")
+    $envCreated = $true
+}
+
+function Get-DotEnvValue([string]$Name) {
+    $line = Get-Content ".env" | Where-Object { $_ -match ("^" + [regex]::Escape($Name) + "=") } | Select-Object -First 1
+    if (-not $line) { return $null }
+    return ($line -split "=", 2)[1]
+}
+
+function Set-DotEnvValue([string]$Name, [string]$Value) {
     $content = Get-Content ".env" -Raw
-    $content = $content -replace '(?m)^APP_SECRET_KEY=.*$', "APP_SECRET_KEY=$secret"
-    $content = $content -replace '(?m)^CREATOR_BOOTSTRAP_PASSWORD=.*$', "CREATOR_BOOTSTRAP_PASSWORD=$creatorPassword"
+    $pattern = "(?m)^" + [regex]::Escape($Name) + "=.*$"
+    if ($content -match $pattern) {
+        $content = [regex]::Replace($content, $pattern, "$Name=$Value")
+    } else {
+        if ($content.Length -gt 0 -and -not $content.EndsWith([Environment]::NewLine)) {
+            $content += [Environment]::NewLine
+        }
+        $content += "$Name=$Value" + [Environment]::NewLine
+    }
     Set-Content ".env" $content -Encoding UTF8
-    Write-Host "Created .env with generated local secrets."
+}
+
+$generatedCreatorPassword = $null
+
+if (-not (Get-DotEnvValue "APP_ENV")) {
+    Set-DotEnvValue "APP_ENV" "development"
+}
+
+$secret = Get-DotEnvValue "APP_SECRET_KEY"
+if (-not $secret -or $secret -eq "replace-me-with-a-secure-random-value") {
+    $secret = ([guid]::NewGuid().ToString("N") + [guid]::NewGuid().ToString("N"))
+    Set-DotEnvValue "APP_SECRET_KEY" $secret
+}
+
+if (-not (Get-DotEnvValue "CREATOR_BOOTSTRAP_USERNAME")) {
+    Set-DotEnvValue "CREATOR_BOOTSTRAP_USERNAME" "creator"
+}
+
+$creatorPassword = Get-DotEnvValue "CREATOR_BOOTSTRAP_PASSWORD"
+if (-not $creatorPassword -or $creatorPassword -eq "change-me-securely") {
+    $creatorPassword = ([guid]::NewGuid().ToString("N") + "!Aa1")
+    $generatedCreatorPassword = $creatorPassword
+    Set-DotEnvValue "CREATOR_BOOTSTRAP_PASSWORD" $creatorPassword
+}
+
+if (-not (Get-DotEnvValue "DATABASE_URL")) {
+    Set-DotEnvValue "DATABASE_URL" "postgresql+asyncpg://postgres:postgres@postgres:5432/the_creation_os"
+}
+
+if (-not (Get-DotEnvValue "REDIS_URL")) {
+    Set-DotEnvValue "REDIS_URL" "redis://redis:6379/0"
+}
+
+if ($envCreated) {
+    Write-Host "Created .env for the canonical local runtime."
+} else {
+    Write-Host "Validated and repaired local .env when required."
+}
+if ($generatedCreatorPassword) {
     Write-Host "Creator username: creator"
-    Write-Host "Creator password: $creatorPassword"
+    Write-Host "Creator password: $generatedCreatorPassword"
     Write-Host "Store this password securely. It will not be printed again."
 }
 
@@ -71,12 +125,6 @@ $lanIp = Get-NetIPConfiguration |
     Select-Object -ExpandProperty IPAddress
 
 Write-Host ""
-function Get-DotEnvValue([string]$Name) {
-    $line = Get-Content ".env" | Where-Object { $_ -match ("^" + [regex]::Escape($Name) + "=") } | Select-Object -First 1
-    if (-not $line) { return $null }
-    return ($line -split "=", 2)[1]
-}
-
 $bootstrapUsername = Get-DotEnvValue "CREATOR_BOOTSTRAP_USERNAME"
 $bootstrapPassword = Get-DotEnvValue "CREATOR_BOOTSTRAP_PASSWORD"
 if ($bootstrapUsername -and $bootstrapPassword) {
