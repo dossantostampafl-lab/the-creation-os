@@ -10,10 +10,16 @@ from app.config import settings
 from app.db.session import AsyncSessionLocal
 
 
+_orchestrator: CacheOrchestrator | None = None
+
+
 def build_cache_orchestrator() -> CacheOrchestrator | None:
+    global _orchestrator
     mode = CacheMode(settings.semantic_cache_mode)
     if mode == CacheMode.OFF:
         return None
+    if _orchestrator is not None:
+        return _orchestrator
 
     embedding_model = None
     try:
@@ -23,7 +29,7 @@ def build_cache_orchestrator() -> CacheOrchestrator | None:
             "embedding model unavailable; exact cache remains available"
         )
 
-    return CacheOrchestrator(
+    _orchestrator = CacheOrchestrator(
         AsyncSessionLocal,
         RedisCacheStore(settings.redis_url, prefix=settings.semantic_cache_redis_prefix),
         embedding_model=embedding_model,
@@ -40,3 +46,4 @@ def build_cache_orchestrator() -> CacheOrchestrator | None:
         lock_seconds=settings.semantic_cache_lock_seconds,
         singleflight_wait_ms=settings.semantic_cache_singleflight_wait_ms,
     )
+    return _orchestrator
