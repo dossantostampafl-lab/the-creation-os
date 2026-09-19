@@ -28,6 +28,7 @@ class TokenResponse(BaseModel):
     refresh_token: str
     token_type: Literal["bearer"] = "bearer"
     expires_in: int
+    conversation_id: str | None = None
 
 
 class CreatorResponse(BaseModel):

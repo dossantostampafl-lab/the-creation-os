@@ -9,9 +9,11 @@ from pydantic import BaseModel
 class ChronicleResponse(BaseModel):
     id: str
     event_id: str
+    position: int
     correlation_id: str
     causation_id: str | None
     actor_type: str
+    actor_role: str
     actor_id: str | None
     event_type: str
     aggregate_type: str
