@@ -5,9 +5,9 @@ Revises: 0008_memory_provenance
 """
 from __future__ import annotations
 
+import sqlalchemy as sa
 from alembic import op
 from pgvector.sqlalchemy import Vector
-import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 revision = "0009_semantic_cache"
@@ -28,7 +28,7 @@ def upgrade() -> None:
         sa.Column("sensitivity", sa.String(length=32), nullable=False),
         sa.Column("normalized_query", sa.Text(), nullable=False),
         sa.Column("exact_key", sa.String(length=64), nullable=False),
-        sa.Column("embedding", Vector(), nullable=False),
+        sa.Column("embedding", Vector(), nullable=True),
         sa.Column("embedding_model", sa.String(length=128), nullable=False),
         sa.Column("embedding_version", sa.String(length=64), nullable=False),
         sa.Column("embedding_dimensions", sa.Integer(), nullable=False),
