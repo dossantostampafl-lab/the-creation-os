@@ -191,10 +191,9 @@ test("shows a skeleton while real API state is delayed", async ({ page }) => {
 
 test("recovers from an offline API with the explicit Retry action", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("creation_access_token", "e2e-token"));
-  let stateAttempts = 0;
+  let offline = true;
   await page.route("**/api/v1/system/state", (route) => {
-    stateAttempts += 1;
-    if (stateAttempts <= 3) return route.fulfill({ status: 503, body: "offline" });
+    if (offline) return route.fulfill({ status: 503, body: "offline" });
     return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(state) });
   });
   await page.route("**/api/v1/system/projections", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(projections) }));
@@ -203,6 +202,7 @@ test("recovers from an offline API with the explicit Retry action", async ({ pag
   await page.route("**/api/v1/system/events?after=41", (route) => route.fulfill({ status: 200, contentType: "text/event-stream", body: "" }));
   await page.goto("/");
   await expect(page.getByRole("alert")).toContainText("Live state unavailable");
+  offline = false;
   await page.getByRole("button", { name: "Retry" }).click();
   await expect(page.locator(".top-status .status")).toHaveText("LIVE", { timeout: 6000 });
 });
