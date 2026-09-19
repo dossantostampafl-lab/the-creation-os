@@ -1,0 +1,15 @@
+name: Runner Smoke
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Confirm hosted runner
+        run: echo "github-hosted-runner-ok"
