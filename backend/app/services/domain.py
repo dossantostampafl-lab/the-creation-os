@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from loguru import logger
 from sqlalchemy import select
 
 from app.ai.fake import FakeEmbeddingModel
@@ -30,15 +31,29 @@ from app.models.entities import (
 )
 from app.repositories.domain import MEMORY_LAYERS, DomainRepository
 
+if TYPE_CHECKING:
+    from app.cache.orchestrator import CacheOrchestrator
+
 
 class NotFoundError(Exception):
     pass
 
 
 class LivingCoreService:
-    def __init__(self, repository: DomainRepository) -> None:
+    def __init__(self, repository: DomainRepository, cache: CacheOrchestrator | None = None) -> None:
         self.repo = repository
+        self.cache = cache
         self.embeddings = FakeEmbeddingModel()
+
+    async def _invalidate_cache(self, *, tags: list[str], creator_scope: str, reason: str) -> None:
+        if self.cache is None:
+            return
+        try:
+            await self.cache.invalidate(tags=tags, creator_scope=creator_scope, reason=reason)
+        except Exception as exc:
+            logger.bind(component="semantic_cache", error_type=exc.__class__.__name__, reason=reason).warning(
+                "cache invalidation failed open"
+            )
 
     async def _owned(self, model, entity_id: str, actor: Actor, lock: bool = False):
         entity = await (self.repo.get_for_update(model, entity_id) if lock else self.repo.get(model, entity_id))
@@ -76,6 +91,11 @@ class LivingCoreService:
         await self.repo.add_event("conversation_message_added", "conversation", entity_id, actor.id, actor.role,
                                   correlation_id, {"message_id": message.id})
         await self.repo.commit()
+        await self._invalidate_cache(
+            tags=[f"conversation:{entity_id}"],
+            creator_scope=actor.id,
+            reason="conversation_message_added",
+        )
         return message
 
     async def close_conversation(self, actor: Actor, entity_id: str, correlation_id: str):
@@ -246,6 +266,15 @@ class LivingCoreService:
         await self.repo.add_event(f"{layer}_memory_written", f"{layer}_memory", entry.id, actor.id, actor.role,
                                   correlation_id, {"scope_id": scope, "key": key})
         await self.repo.commit()
+        await self._invalidate_cache(
+            tags=[
+                f"{layer}:{scope}",
+                f"memory:{layer}:{scope}",
+                f"memory-key:{layer}:{scope}:{key}",
+            ],
+            creator_scope=actor.id,
+            reason=f"{layer}_memory_written",
+        )
         return entry
 
     async def conscious_memories(self, actor: Actor, source_type: str | None, limit: int, offset: int):
@@ -261,6 +290,11 @@ class LivingCoreService:
         await self.repo.add_event("conscious_memory_recorded", "conscious_memory", item.id, actor.id, actor.role,
                                   correlation_id, {"source_type": source_type, "source_id": source_id})
         await self.repo.commit()
+        await self._invalidate_cache(
+            tags=[f"{source_type}:{source_id}", "memory:conscious"],
+            creator_scope=actor.id,
+            reason="conscious_memory_recorded",
+        )
         return item
 
     async def missions(self, actor: Actor):

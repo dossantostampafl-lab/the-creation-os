@@ -64,7 +64,14 @@ class DeusConversationService:
             messages=messages,
             model=self.model,
             requirements=ModelRequirements(preferred_provider=self.provider),
-            metadata={"conversation_id": conversation_id, "route": "deus"},
+            metadata={
+                "conversation_id": conversation_id,
+                "creator_id": actor.id,
+                "route": "deus",
+                "cache_sensitivity": "PRIVATE",
+                "cache_tags": [f"conversation:{conversation_id}", "route:deus"],
+                "tool_state_class": "read_only",
+            },
         ))
         deus_message = await self.repo.add(Message(
             conversation_id=conversation_id,

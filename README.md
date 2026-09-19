@@ -28,27 +28,68 @@ DEUS permanece como interface conceitual do Criador. Trabalho operacional é exe
 
 `.env.example` na raiz é a única referência canônica de variáveis locais/de desenvolvimento. Copie-o para `.env` e ajuste os valores.
 
-Providers `fake` são permitidos somente em desenvolvimento/testes. Produção deve selecionar explicitamente `openai`, `freellmapi` ou `openai_compatible` e fornecer as credenciais/configurações correspondentes.
+Providers `fake` são permitidos somente para bootstrap/desenvolvimento. Para inferência operacional na máquina local, selecione explicitamente `openai`, `freellmapi` ou `openai_compatible` no arquivo `.env` e forneça as credenciais/configurações correspondentes.
 
 ### Bridge seguro com o PROTO
 
 O worker pode registrar a capability `proto` para enviar Missions apenas ao bridge autenticado `/creation/missions` do PROTO. A integração é habilitada somente quando `PROTO_BASE_URL` e `PROTO_CREATION_SHARED_SECRET` estão configurados; `PROTO_TIMEOUT_SECONDS` controla o timeout de transporte.
 
-O host do PROTO é configuração fixa do processo: Agents e `CapabilityIntent` não podem fornecer URL, token ou headers. Em produção, `PROTO_BASE_URL` deve usar HTTPS. O adapter local aceita somente os jobs `market-data-health`, `opportunity-scan` e `shadow-decision`, nos modos `LIVE_MONITORING`, `SIMULATION`, `PAPER_TRADING` ou `HISTORICAL_REPLAY`.
+O host do PROTO é configuração fixa do processo: Agents e `CapabilityIntent` não podem fornecer URL, token ou headers. Quando o PROTO estiver na mesma máquina, use `host.docker.internal`; em outra máquina da LAN, use o IP privado correspondente. O adapter local aceita somente os jobs `market-data-health`, `opportunity-scan` e `shadow-decision`, nos modos `LIVE_MONITORING`, `SIMULATION`, `PAPER_TRADING` ou `HISTORICAL_REPLAY`.
 
 Este bridge não expõe execução financeira. Respostas do PROTO são rejeitadas se indicarem `financial_connectivity=true` ou `real_money_execution=true`. O shared secret é usado somente no header `X-Proto-Creation-Token` e não deve ser persistido em `CapabilityInvocation`, Chronicle ou logs.
 
-## Executar local
+## Execução local canônica
+
+O runtime suportado do THE CREATION OS é Docker Compose na máquina local. A topologia é:
+
+- `frontend` — exposto à rede local em `0.0.0.0:8080`;
+- `api` — publicado somente em `127.0.0.1:8000` para diagnóstico local;
+- `worker` — sem porta pública;
+- `postgres` — privado na rede Docker, com volume persistente;
+- `redis` — privado na rede Docker, com volume persistente.
+
+No Windows/PowerShell:
+
+```powershell
+.\scripts\local-start.ps1
+```
+
+O script cria `.env` a partir de `.env.example` quando necessário, gera segredos locais, sobe o stack, aguarda os health checks e mostra o endereço LAN.
+
+Status:
+
+```powershell
+.\scripts\local-status.ps1
+```
+
+Parar preservando os dados:
+
+```powershell
+.\scripts\local-stop.ps1
+```
+
+Apagar também os volumes locais do PostgreSQL/Redis:
+
+```powershell
+.\scripts\local-stop.ps1 -PurgeData
+```
+
+Também é possível operar diretamente:
 
 ```bash
-docker compose up --build
+docker compose up -d --build
+docker compose ps
 ```
 
-Readiness da API:
+Health checks:
 
 ```text
-GET /api/v1/health/ready
+http://127.0.0.1:8000/api/v1/health/ready
+http://127.0.0.1:8080/healthz
+http://127.0.0.1:8080/api/v1/health/ready
 ```
+
+Para outro dispositivo da mesma rede, abra `http://<IP-LAN-DO-COMPUTADOR>:8080`. Se o Windows Defender Firewall bloquear a conexão, libere somente a porta TCP 8080 para o perfil de rede privada.
 
 ## Migrations
 
@@ -116,20 +157,10 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-O repositório também possui CI de release, CodeQL/auditoria de dependências e um `Real Provider Gauntlet` manual para provar uma Mission com provider externo real. Esse último gate não deve ser considerado aprovado sem uma execução real bem-sucedida.
+O repositório também possui CI de build do runtime local, CodeQL/auditoria de dependências e um `Real Provider Gauntlet` manual para provar uma Mission com provider externo real. Esse último gate não deve ser considerado aprovado sem uma execução real bem-sucedida.
 
-## Deploy no Render
+## Modelo de implantação
 
-`render.yaml` é o Blueprint canônico de produção e declara:
+O THE CREATION OS não depende de Railway, Render ou outro runtime cloud. O Docker Compose local é a topologia canônica. O repositório não contém gatilho de deploy cloud; persistência operacional fica nos volumes Docker locais.
 
-- `creation-api`
-- `creation-worker`
-- `creation-frontend`
-- `creation-postgres`
-- `creation-redis`
-
-`DATABASE_URL` e `REDIS_URL` são fornecidos pelos serviços gerenciados. `APP_SECRET_KEY` é gerado pela plataforma. Credenciais reais não devem ser commitadas no Git.
-
-Para habilitar o bridge PROTO no Render, configure `PROTO_BASE_URL` e `PROTO_CREATION_SHARED_SECRET` no serviço `creation-api`; o Blueprint replica essas variáveis para `creation-worker`. Sem ambos, o adapter PROTO permanece desligado e o gateway continua fail-closed.
-
-O frontend usa `VITE_API_BASE_URL` para apontar para a API pública. A API executa migrations antes do Uvicorn e expõe `/api/v1/health/ready`; o worker compartilha persistência/configuração e não possui porta pública.
+O GitHub continua sendo usado para versionamento, Pull Requests, CI, CodeQL e auditoria de dependências. Merge em `main` não deve publicar automaticamente a aplicação em nenhum provedor externo.

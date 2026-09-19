@@ -6,10 +6,11 @@ services:
       args:
         VITE_API_BASE_URL: /api/v1
     ports:
-      - "${CREATION_HTTP_PORT:-8080}:8080"
+      - "0.0.0.0:${CREATION_HTTP_PORT:-8080}:8080"
     depends_on:
       api:
         condition: service_healthy
+    restart: unless-stopped
     networks:
       - tco_net
 
@@ -20,51 +21,47 @@ services:
     env_file:
       - .env
     environment: &local_bridge
-      PROTO_BASE_URL: ${PROTO_BASE_URL:-http://host.docker.internal:8000}
-      PROTO_CREATION_SHARED_SECRET: ${PROTO_CREATION_SHARED_SECRET:-local-creation-proto-bridge-change-me-2026}
+      PROTO_BASE_URL: ${PROTO_BASE_URL:-}
+      PROTO_CREATION_SHARED_SECRET: ${PROTO_CREATION_SHARED_SECRET:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
-      - "${CREATION_API_PORT:-8100}:8000"
+      - "127.0.0.1:${CREATION_API_PORT:-8000}:8000"
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-    volumes:
-      - ./backend:/app
-    command: ["sh", "-c", "python -m alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+    command: ["sh", "-c", "python -m alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000"]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health/ready')"]
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
     networks:
       - tco_net
 
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: the_creation_os
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
     networks:
       - tco_net
 
   redis:
     image: redis:7
     command: ["redis-server", "--save", "", "--appendonly", "yes"]
-    ports:
-      - "6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -72,6 +69,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
     networks:
       - tco_net
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.cache.bootstrap import build_cache_orchestrator
+from app.cache.routing import CachingModelRouter
 from app.config import settings
 from app.inference.contracts import ProviderModelProfile
 from app.inference.freellmapi_config import load_freellmapi_config, load_freellmapi_model
@@ -77,4 +79,4 @@ def build_model_router() -> ModelRouter:
         raise RuntimeError("fake inference provider is test-only and cannot power the operational runtime")
     else:
         raise RuntimeError(f"unsupported LLM_PROVIDER: {provider or '<empty>'}")
-    return ModelRouter(registry)
+    return CachingModelRouter(registry, cache=build_cache_orchestrator())

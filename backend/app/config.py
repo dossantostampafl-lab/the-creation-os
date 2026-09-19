@@ -26,6 +26,18 @@ class Settings(BaseSettings):
     llm_api_key: SecretStr | None = Field(None, env="LLM_API_KEY")
     embedding_provider: str = Field("fake", env="EMBEDDING_PROVIDER")
     embedding_model: str = Field("fake", env="EMBEDDING_MODEL")
+    semantic_cache_mode: str = Field("shadow", env="SEMANTIC_CACHE_MODE")
+    semantic_cache_policy_version: str = Field("sc-v1", env="SEMANTIC_CACHE_POLICY_VERSION")
+    semantic_cache_embedding_version: str = Field("v1", env="SEMANTIC_CACHE_EMBEDDING_VERSION")
+    semantic_cache_redis_prefix: str = Field("tco:semantic-cache", env="SEMANTIC_CACHE_REDIS_PREFIX")
+    semantic_cache_similarity_threshold: float = Field(0.94, ge=0.0, le=1.0, env="SEMANTIC_CACHE_SIMILARITY_THRESHOLD")
+    semantic_cache_revalidate_threshold: float = Field(0.90, ge=0.0, le=1.0, env="SEMANTIC_CACHE_REVALIDATE_THRESHOLD")
+    semantic_cache_max_candidates: int = Field(5, ge=1, le=50, env="SEMANTIC_CACHE_MAX_CANDIDATES")
+    semantic_cache_ttl_seconds: int = Field(86400, ge=1, env="SEMANTIC_CACHE_TTL_SECONDS")
+    semantic_cache_document_ttl_seconds: int = Field(3600, ge=1, env="SEMANTIC_CACHE_DOCUMENT_TTL_SECONDS")
+    semantic_cache_deterministic_ttl_seconds: int = Field(3600, ge=1, env="SEMANTIC_CACHE_DETERMINISTIC_TTL_SECONDS")
+    semantic_cache_lock_seconds: int = Field(30, ge=1, le=300, env="SEMANTIC_CACHE_LOCK_SECONDS")
+    semantic_cache_singleflight_wait_ms: int = Field(250, ge=0, le=5000, env="SEMANTIC_CACHE_SINGLEFLIGHT_WAIT_MS")
     proto_base_url: str | None = Field(None, env="PROTO_BASE_URL")
     proto_creation_shared_secret: SecretStr | None = Field(None, env="PROTO_CREATION_SHARED_SECRET")
     proto_timeout_seconds: float = Field(10.0, gt=0.0, le=60.0, env="PROTO_TIMEOUT_SECONDS")
@@ -61,6 +73,32 @@ class Settings(BaseSettings):
         if value not in {"development", "test", "production"}:
             raise ValueError("APP_ENV must be development, test, or production")
         return value
+
+    @validator("semantic_cache_mode")
+    def validate_semantic_cache_mode(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized not in {"off", "shadow", "exact", "semantic"}:
+            raise ValueError("SEMANTIC_CACHE_MODE must be off, shadow, exact, or semantic")
+        return normalized
+
+    @validator("semantic_cache_revalidate_threshold")
+    def validate_semantic_cache_threshold_order(cls, value: float, values: dict[str, object]) -> float:
+        raw_hit_threshold = values.get("semantic_cache_similarity_threshold", 0.94)
+        hit_threshold = (
+            float(raw_hit_threshold)
+            if isinstance(raw_hit_threshold, (int, float, str))
+            else 0.94
+        )
+        if value > hit_threshold:
+            raise ValueError("SEMANTIC_CACHE_REVALIDATE_THRESHOLD must be <= SEMANTIC_CACHE_SIMILARITY_THRESHOLD")
+        return value
+
+    @validator("semantic_cache_policy_version", "semantic_cache_embedding_version", "semantic_cache_redis_prefix")
+    def validate_semantic_cache_nonempty(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("semantic cache version and prefix values must not be empty")
+        return normalized
 
     @validator("cors_allow_origins")
     def validate_cors_allow_origins(cls, value: str, values: dict[str, object]) -> str:

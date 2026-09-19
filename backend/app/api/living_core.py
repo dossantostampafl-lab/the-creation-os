@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.embeddings import build_embedding_model
 from app.auth.dependencies import get_sovereign_creator
+from app.cache.bootstrap import build_cache_orchestrator
 from app.core.domain import Actor, InceptionStatus, InvalidOrigin, MissionStatus
 from app.db.session import get_session
 from app.memory.contracts import MemoryCandidate
@@ -44,7 +45,7 @@ def actor(token: TokenPayload = Depends(get_sovereign_creator)) -> Actor:
 
 
 def service(session: AsyncSession = Depends(get_session)) -> LivingCoreService:
-    return LivingCoreService(DomainRepository(session))
+    return LivingCoreService(DomainRepository(session), cache=build_cache_orchestrator())
 
 
 def conversation_response(item) -> ConversationResponse:

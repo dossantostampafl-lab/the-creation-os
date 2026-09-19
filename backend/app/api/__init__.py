@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 
+from app.api.cache_status import router as cache_status_router
 from app.api.deus import router as deus_router
 from app.api.health import router as health_router
 from app.api.inference_status import router as inference_status_router
@@ -14,3 +15,4 @@ router.include_router(deus_router)
 router.include_router(kernel_router)
 router.include_router(system_state_router)
 router.include_router(inference_status_router)
+router.include_router(cache_status_router)
