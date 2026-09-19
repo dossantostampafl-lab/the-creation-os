@@ -5,8 +5,8 @@ from loguru import logger
 from app.cache.contracts import CacheDecisionType, CacheLookupResult
 from app.cache.orchestrator import CacheOrchestrator
 from app.inference.contracts import InferenceRequest, InferenceResponse
-from app.inference.router import ModelRouter
 from app.inference.registry import ProviderRegistry
+from app.inference.router import ModelRouter
 
 
 class CachingModelRouter(ModelRouter):
