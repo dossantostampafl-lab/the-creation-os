@@ -31,7 +31,6 @@ from app.cache.repository import CacheRepository
 from app.inference.contracts import InferenceRequest, InferenceResponse
 from app.repositories.domain import sanitize
 
-
 _SAFE_METADATA_KEYS = {"cache", "finish_reason", "citations", "source_ids", "grounding"}
 
 
