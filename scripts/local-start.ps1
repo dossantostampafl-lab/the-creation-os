@@ -71,6 +71,29 @@ $lanIp = Get-NetIPConfiguration |
     Select-Object -ExpandProperty IPAddress
 
 Write-Host ""
+function Get-DotEnvValue([string]$Name) {
+    $line = Get-Content ".env" | Where-Object { $_ -match ("^" + [regex]::Escape($Name) + "=") } | Select-Object -First 1
+    if (-not $line) { return $null }
+    return ($line -split "=", 2)[1]
+}
+
+$bootstrapUsername = Get-DotEnvValue "CREATOR_BOOTSTRAP_USERNAME"
+$bootstrapPassword = Get-DotEnvValue "CREATOR_BOOTSTRAP_PASSWORD"
+if ($bootstrapUsername -and $bootstrapPassword) {
+    $bootstrapBody = @{ username = $bootstrapUsername; password = $bootstrapPassword } | ConvertTo-Json
+    try {
+        Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/api/v1/auth/bootstrap" -ContentType "application/json" -Body $bootstrapBody | Out-Null
+        Write-Host "Creator bootstrap initialized."
+    } catch {
+        $statusCode = $null
+        if ($_.Exception.Response) {
+            try { $statusCode = [int]$_.Exception.Response.StatusCode } catch { }
+        }
+        if ($statusCode -ne 409) { throw }
+        Write-Host "Creator bootstrap already exists."
+    }
+}
+
 Write-Host "THE CREATION OS is healthy."
 Write-Host "Local UI: http://localhost:8080"
 if ($lanIp) {
