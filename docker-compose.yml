@@ -6,7 +6,7 @@ services:
       args:
         VITE_API_BASE_URL: /api/v1
     ports:
-      - "${CREATION_HTTP_PORT:-8080}:8080"
+      - "0.0.0.0:${CREATION_HTTP_PORT:-8080}:8080"
     depends_on:
       api:
         condition: service_healthy
@@ -25,7 +25,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
-      - "${CREATION_API_PORT:-8100}:8000"
+      - "127.0.0.1:${CREATION_API_PORT:-8000}:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -50,8 +50,6 @@ services:
       POSTGRES_DB: the_creation_os
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
@@ -63,8 +61,6 @@ services:
   redis:
     image: redis:7
     command: ["redis-server", "--save", "", "--appendonly", "yes"]
-    ports:
-      - "6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
