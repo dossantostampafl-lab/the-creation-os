@@ -122,7 +122,7 @@ class CacheRepository:
         conditions: list[Any] = [SemanticCacheEntry.validation_status == "VALIDATED"]
         if creator_scope is not None:
             conditions.append(SemanticCacheEntry.creator_scope == creator_scope)
-        tag_filters = [tag == any_(SemanticCacheEntry.tags) for tag in tags]
+        tag_filters = [any_(SemanticCacheEntry.tags) == tag for tag in tags]
         statement = (
             update(SemanticCacheEntry)
             .where(and_(*conditions), or_(*tag_filters))
