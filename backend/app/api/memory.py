@@ -10,7 +10,7 @@ from app.core.domain import Actor
 from app.db.session import get_session
 from app.repositories.creator_recall import CreatorRecallRepository
 from app.schemas.auth import TokenPayload
-from app.schemas.memory import MemoryCreateRequest, MemoryResponse, MemorySearchResponse, MemoryTypeLiteral
+from app.schemas.memory import CreatorMemoryResponse, MemoryCreateRequest, MemorySearchResponse, MemoryTypeLiteral
 from app.services.creator_recall import CreatorRecallService, RememberedMemory
 
 # NOTE (Lote: fechar gap de POST /memory, 2026-08-01): this route now
@@ -37,8 +37,8 @@ def service(session: AsyncSession = Depends(get_session)) -> CreatorRecallServic
     return CreatorRecallService(CreatorRecallRepository(session))
 
 
-def memory_response(item: RememberedMemory) -> MemoryResponse:
-    return MemoryResponse(
+def memory_response(item: RememberedMemory) -> CreatorMemoryResponse:
+    return CreatorMemoryResponse(
         id=item.id,
         creator_id=item.creator_id,
         memory_type=item.memory_type,
@@ -51,7 +51,7 @@ def memory_response(item: RememberedMemory) -> MemoryResponse:
     )
 
 
-@router.post("/memory", response_model=MemoryResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/memory", response_model=CreatorMemoryResponse, status_code=status.HTTP_201_CREATED)
 async def remember(
     request: MemoryCreateRequest,
     response: Response,
