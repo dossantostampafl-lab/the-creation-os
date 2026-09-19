@@ -38,6 +38,19 @@ def test_action_capable_task_requests_always_bypass() -> None:
     assert evaluation.intent is CacheIntent.SYSTEM_COMMAND
 
 
+def test_explicit_explanation_cannot_override_action_capable_bypass() -> None:
+    evaluation = evaluate_policy(
+        request(
+            "Explain this task",
+            cache_intent="EXPLANATION",
+            tool_state_class="action_capable",
+        ),
+        "Explain this task",
+    )
+    assert evaluation.eligible is False
+    assert evaluation.intent is CacheIntent.SYSTEM_COMMAND
+
+
 def test_document_qa_requires_both_retrieval_and_knowledge_versions() -> None:
     incomplete = evaluate_policy(
         request("Explain the document", cache_intent="DOCUMENT_QA", knowledge_version="v2"),
