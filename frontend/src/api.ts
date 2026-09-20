@@ -150,6 +150,27 @@ export const fetchChronicleHistory = async (head: number): Promise<ChronicleReco
   return records.reverse();
 };
 
+export type InceptionView = {
+  id: string;
+  conversation_id: string;
+  title: string;
+  description: string;
+  status: string;
+  proposed_at: string;
+  decided_at: string | null;
+  decision_reason: string | null;
+};
+
+export const fetchInceptions = () => api<InceptionView[]>("/inceptions");
+
+export const decideInception = (id: string, decision: "approve" | "reject", reason: string) =>
+  api<InceptionView>(`/inceptions/${id}/${decision}`, {
+    method: "POST",
+    body: JSON.stringify({ reason: reason.trim() || null }),
+  });
+
+export const authorizeMission = (id: string) => api<unknown>(`/missions/${id}/authorize`, { method: "POST" });
+
 export const createConversation = (title = "Creator Session") => api<Conversation>("/conversations", {
   method: "POST",
   body: JSON.stringify({ title }),

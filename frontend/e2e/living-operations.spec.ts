@@ -89,11 +89,12 @@ const inference = {
 };
 
 async function mockOperationalApi(page: import("@playwright/test").Page) {
+  await page.route("**/api/v1/inceptions", (route) => route.fulfill({ status: 200, contentType: "application/json", body: "[]" }));
   await page.route("**/api/v1/system/state", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(state) }));
   await page.route("**/api/v1/system/projections", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(projections) }));
   await page.route("**/api/v1/chronicles?limit=40&offset=*", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(chronicle) }));
   await page.route("**/api/v1/system/inference", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(inference) }));
-  await page.route("**/api/v1/system/events?after=41", (route) => route.fulfill({
+  await page.route("**/api/v1/system/events?after=*", (route) => route.fulfill({
     status: 200,
     contentType: "text/event-stream",
     body: "id: 42\nevent: chronicle\ndata: {\"event_id\":\"event-42\",\"position\":42,\"correlation_id\":\"corr\",\"causation_id\":null,\"actor_role\":\"agent\",\"event_type\":\"task_progressed\",\"aggregate_type\":\"task\",\"aggregate_id\":\"task-1\",\"payload\":{},\"created_at\":\"2026-09-08T15:00:01Z\"}\n\n",
@@ -130,7 +131,7 @@ test("renders an explicit unconfigured inference state without fabricated provid
   await page.route("**/api/v1/system/projections", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(projections) }));
   await page.route("**/api/v1/chronicles?limit=40&offset=*", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(chronicle) }));
   await page.route("**/api/v1/system/inference", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ configured: false, configured_provider: "fake", providers: [] }) }));
-  await page.route("**/api/v1/system/events?after=41", (route) => route.fulfill({ status: 200, contentType: "text/event-stream", body: "" }));
+  await page.route("**/api/v1/system/events?after=*", (route) => route.fulfill({ status: 200, contentType: "text/event-stream", body: "" }));
 
   await page.goto("/");
 
@@ -199,7 +200,7 @@ test("recovers from an offline API with the explicit Retry action", async ({ pag
   await page.route("**/api/v1/system/projections", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(projections) }));
   await page.route("**/api/v1/system/inference", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(inference) }));
   await page.route("**/api/v1/chronicles?limit=40&offset=*", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(chronicle) }));
-  await page.route("**/api/v1/system/events?after=41", (route) => route.fulfill({ status: 200, contentType: "text/event-stream", body: "" }));
+  await page.route("**/api/v1/system/events?after=*", (route) => route.fulfill({ status: 200, contentType: "text/event-stream", body: "" }));
   await page.goto("/");
   await expect(page.getByRole("alert")).toContainText("Live state unavailable");
   offline = false;
@@ -293,4 +294,77 @@ test("signs out and shows the login again", async ({ page }) => {
 
   await expect(page.getByRole("heading", { name: "Creator Access" })).toBeVisible();
   expect(await page.evaluate(() => localStorage.getItem("creation_access_token"))).toBeNull();
+});
+
+const pendingInception = {
+  id: "inception-1", conversation_id: "conversation-1", title: "Open a new universe", description: "Proposal awaiting the Creator",
+  status: "awaiting_creator_decision", proposed_at: "2026-09-18T21:00:00Z", decided_at: null, decision_reason: null,
+};
+
+test("requires a confirmation step before approving an Inception", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("creation_access_token", "e2e-token"));
+  await mockOperationalApi(page);
+  await page.route("**/api/v1/inceptions", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([pendingInception]) }));
+  const decisions: Array<{ url: string; body: string | null }> = [];
+  await page.route("**/api/v1/inceptions/inception-1/approve", (route) => {
+    decisions.push({ url: route.request().url(), body: route.request().postData() });
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ...pendingInception, status: "approved" }) });
+  });
+
+  await page.goto("/");
+  await expect(page.getByText("Open a new universe")).toBeVisible();
+  await page.getByRole("button", { name: "Approve" }).click();
+  expect(decisions).toHaveLength(0);
+  await page.getByLabel("Reason (optional)").fill("Looks sound");
+  await page.getByRole("button", { name: "Confirm approve" }).click();
+
+  await expect.poll(() => decisions.length).toBe(1);
+  expect(JSON.parse(decisions[0].body ?? "{}")).toEqual({ reason: "Looks sound" });
+});
+
+test("cancelling the confirmation sends nothing", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("creation_access_token", "e2e-token"));
+  await mockOperationalApi(page);
+  await page.route("**/api/v1/inceptions", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([pendingInception]) }));
+  let posts = 0;
+  await page.route("**/api/v1/inceptions/inception-1/*", (route) => { posts += 1; return route.fulfill({ status: 200, contentType: "application/json", body: "{}" }); });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Reject" }).click();
+  await page.getByRole("button", { name: "Cancel" }).click();
+
+  await expect(page.getByRole("button", { name: "Approve" })).toBeVisible();
+  expect(posts).toBe(0);
+});
+
+test("shows a clear message when a decision is no longer allowed", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("creation_access_token", "e2e-token"));
+  await mockOperationalApi(page);
+  await page.route("**/api/v1/inceptions", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([pendingInception]) }));
+  await page.route("**/api/v1/inceptions/inception-1/reject", (route) => route.fulfill({ status: 409, contentType: "application/json", body: "{}" }));
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Reject" }).click();
+  await page.getByRole("button", { name: "Confirm reject" }).click();
+
+  await expect(page.getByRole("alert")).toContainText("no longer allowed");
+});
+
+test("authorizes a validated mission only after confirmation", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("creation_access_token", "e2e-token"));
+  await mockOperationalApi(page);
+  await page.route("**/api/v1/system/state", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ ...state, missions: [{ id: "mission-9", title: "Validated Mission", objective: "Ship it", status: "validated", started_at: null, completed_at: null }] }),
+  }));
+  let authorized = 0;
+  await page.route("**/api/v1/missions/mission-9/authorize", (route) => { authorized += 1; return route.fulfill({ status: 200, contentType: "application/json", body: "{}" }); });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Authorize" }).click();
+  expect(authorized).toBe(0);
+  await page.getByRole("button", { name: "Confirm authorize" }).click();
+
+  await expect.poll(() => authorized).toBe(1);
 });

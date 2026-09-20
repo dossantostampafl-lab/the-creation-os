@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
-import { fetchChronicleHistory, fetchInferenceStatus, fetchProjectionStatus, fetchSystemState, loginCreator, logoutCreator, streamChronicle } from "./api";
+import type { InceptionView } from "./api";
+import { DecisionsPanel } from "./DecisionsPanel";
+import { fetchChronicleHistory, fetchInceptions, fetchInferenceStatus, fetchProjectionStatus, fetchSystemState, loginCreator, logoutCreator, streamChronicle } from "./api";
 import { CreatorConsole } from "./CreatorConsole";
 import type { ChronicleEvent, ChronicleRecord, InferenceStatusSnapshot, ProjectionStatus, SystemState } from "./types";
 
@@ -28,13 +30,34 @@ function App() {
   const [loginError, setLoginError] = useState<string | null>(null);
   const [authVersion, setAuthVersion] = useState(0);
   const [retryVersion, setRetryVersion] = useState(0);
+  const [inceptions, setInceptions] = useState<InceptionView[] | null>(null);
   const cursor = useRef(0);
+  const refreshSeq = useRef(0);
+
+  // Refetch live state; a stale response never overwrites a newer one. Inceptions load separately so they never block the dashboard.
+  const refreshLive = useCallback(async () => {
+    const seq = ++refreshSeq.current;
+    void fetchInceptions()
+      .then((next) => { if (seq === refreshSeq.current) setInceptions(next); })
+      .catch(() => { if (seq === refreshSeq.current) setInceptions(null); });
+    try {
+      const [next, nextProjections, nextInference] = await Promise.all([fetchSystemState(), fetchProjectionStatus(), fetchInferenceStatus()]);
+      if (seq !== refreshSeq.current) return;
+      setState(next);
+      setProjections(nextProjections);
+      setInference(nextInference);
+    } catch (refreshError) {
+      if (seq === refreshSeq.current && refreshError instanceof Error && refreshError.message === "AUTH_REQUIRED") {
+        setError(refreshError.message);
+        setConnection("AUTH_REQUIRED");
+      }
+    }
+  }, []);
 
   useEffect(() => {
     let active = true;
     const controller = new AbortController();
     let refreshTimer: number | undefined;
-    let refreshSeq = 0;
 
     const fail = (failure: unknown, fallback: string) => {
       const message = failure instanceof Error ? failure.message : fallback;
@@ -42,21 +65,10 @@ function App() {
       setConnection(message === "AUTH_REQUIRED" ? "AUTH_REQUIRED" : "ERROR");
     };
 
-    // Coalesce bursts of events into one refetch; a stale response never overwrites a newer one.
+    // Coalesce bursts of events into one refetch.
     function scheduleRefresh() {
       window.clearTimeout(refreshTimer);
-      refreshTimer = window.setTimeout(async () => {
-        const seq = ++refreshSeq;
-        try {
-          const [next, nextProjections, nextInference] = await Promise.all([fetchSystemState(), fetchProjectionStatus(), fetchInferenceStatus()]);
-          if (!active || seq !== refreshSeq) return;
-          setState(next);
-          setProjections(nextProjections);
-          setInference(nextInference);
-        } catch (refreshError) {
-          if (active && refreshError instanceof Error && refreshError.message === "AUTH_REQUIRED") fail(refreshError, "AUTH_REQUIRED");
-        }
-      }, 250);
+      refreshTimer = window.setTimeout(() => void refreshLive(), 250);
     }
 
     function handleEvent(event: ChronicleEvent) {
@@ -96,6 +108,7 @@ function App() {
       setInference(inferenceStatus);
       setChronicle(history);
       setEvents([]);
+      void fetchInceptions().then(setInceptions).catch(() => setInceptions(null));
       cursor.current = snapshot.position;
       setConnection("LIVE");
     }
@@ -110,7 +123,7 @@ function App() {
             needsHydrate = false;
           }
           setConnection("LIVE");
-          const end = await streamChronicle(cursor.current, handleEvent, controller.signal);
+          const end = await streamChronicle(cursor.current, (event) => { backoff = 1000; handleEvent(event); }, controller.signal);
           if (!active) return;
           if (end === "resync") {
             setConnection("RESYNCING");
@@ -127,7 +140,6 @@ function App() {
         }
         await new Promise((resolve) => window.setTimeout(resolve, backoff));
         backoff = Math.min(backoff * 2, 15000);
-        if (active) setConnection("CONNECTING");
       }
     }
 
@@ -135,9 +147,10 @@ function App() {
     return () => {
       active = false;
       window.clearTimeout(refreshTimer);
+      refreshSeq.current += 1;
       controller.abort();
     };
-  }, [authVersion, retryVersion]);
+  }, [authVersion, retryVersion, refreshLive]);
 
   async function handleLogout() {
     await logoutCreator();
@@ -147,6 +160,7 @@ function App() {
     setInference(null);
     setChronicle([]);
     setEvents([]);
+    setInceptions(null);
     setAuthVersion((version) => version + 1);
   }
 
@@ -264,6 +278,7 @@ function App() {
       </section>
 
       <section className="lower-grid lower-grid-secondary">
+        <DecisionsPanel inceptions={inceptions} missions={state?.missions ?? []} onChanged={() => void refreshLive()} />
         <CreatorConsole key={authVersion} enabled={deusReady} />
         <article className="panel projections-panel"><div className="panel-title">PROJECTIONS</div><div className="stack">{projections?.projections.map((projection) => <div className="row" key={projection.name}><span>{projection.name}</span><b className={statusTone(projection.status)}>{projection.status}{projection.lag ? ` · lag ${projection.lag}` : ""}</b></div>)}</div></article>
         <article className="panel inference-panel">

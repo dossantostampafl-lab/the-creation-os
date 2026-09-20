@@ -15,5 +15,7 @@ export default defineConfig({
     command: "npm run dev -- --host 127.0.0.1 --port 4173",
     url: "http://127.0.0.1:4173",
     reuseExistingServer: !process.env.CI,
+    // Unmocked API calls must fail closed instead of reaching a real backend on :8000.
+    env: { VITE_DEV_PROXY_TARGET: "http://127.0.0.1:9" },
   },
 });
