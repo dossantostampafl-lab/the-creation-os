@@ -37,7 +37,8 @@ html, body { margin: 0; min-width: 320px; height: 100%; background: var(--space)
 
 /* ---------- The universe ---------- */
 .universe { position: fixed; inset: 0; overflow: hidden; }
-.cosmos { position: absolute; inset: 0; }
+.cosmos { position: absolute; inset: 0; cursor: grab; touch-action: none; }
+.cosmos:active { cursor: grabbing; }
 .cosmos canvas { display: block; width: 100%; height: 100%; }
 .cosmos-labels { position: absolute; inset: 0; pointer-events: none; }
 .cosmic-label { position: absolute; left: 0; top: 0; will-change: transform; transition: opacity .6s; }
@@ -62,6 +63,7 @@ html, body { margin: 0; min-width: 320px; height: 100%; background: var(--space)
   transition: text-shadow .8s;
 }
 .cosmos-thinking .deus-label span.deus { text-shadow: 0 0 22px #d98bff, 0 0 60px #b35cff; animation: breathe 1.4s ease-in-out infinite; }
+.cosmos-listening .deus-label span.deus { text-shadow: 0 0 22px #3fdcff, 0 0 60px #1f9fff; }
 .cosmos-speaking .deus-label span.deus { text-shadow: 0 0 22px #ffd48a, 0 0 60px #ff9f5c; }
 
 /* ---------- Header ---------- */

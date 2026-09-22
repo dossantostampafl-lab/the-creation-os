@@ -3,6 +3,8 @@ from __future__ import annotations
 from app.cache.bootstrap import build_cache_orchestrator
 from app.cache.routing import CachingModelRouter
 from app.config import settings
+from app.inference.anthropic_config import load_anthropic_config
+from app.inference.anthropic_provider import AnthropicProvider
 from app.inference.contracts import ProviderModelProfile
 from app.inference.freellmapi_config import load_freellmapi_config, load_freellmapi_model
 from app.inference.freellmapi_provider import FreeLLMAPIProvider
@@ -29,6 +31,26 @@ def build_model_router() -> ModelRouter:
             ProviderModelProfile(
                 provider="openai",
                 model=settings.llm_model,
+                capabilities=frozenset({"text", "streaming"}),
+                is_default=True,
+            )
+        )
+    elif provider == "anthropic":
+        anthropic_config = load_anthropic_config()
+        registry.register(
+            AnthropicProvider(
+                api_key=anthropic_config.api_key.get_secret_value(),
+                default_model=anthropic_config.model,
+                timeout_seconds=anthropic_config.timeout_seconds,
+                max_output_tokens=anthropic_config.max_output_tokens,
+                effort=anthropic_config.effort,
+                refusal_fallback=anthropic_config.refusal_fallback,
+            )
+        )
+        registry.register_model_profile(
+            ProviderModelProfile(
+                provider="anthropic",
+                model=anthropic_config.model,
                 capabilities=frozenset({"text", "streaming"}),
                 is_default=True,
             )

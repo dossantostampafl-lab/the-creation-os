@@ -9,7 +9,7 @@ THE CREATION OS é um sistema persistente de execução governada com API FastAP
 - `backend/app/cognition` — contratos estruturados para avaliação cognitiva e planejamento.
 - `backend/app/kernel` — distribuição, DAG, claims de tarefas, AgentExecution, supervisão, reconciliação e conclusão de Missions.
 - `backend/app/capabilities` — contratos, autorização, policy, gateway e execução governada de capabilities, incluindo o adapter opcional e restrito do PROTO.
-- `backend/app/inference` — ProviderRegistry, ModelRouter e adapters `openai`, `freellmapi` e `openai_compatible`.
+- `backend/app/inference` — ProviderRegistry, ModelRouter e adapters `anthropic` (Claude), `openai`, `freellmapi` e `openai_compatible`.
 - `backend/app/memory` — contratos e policy de memória governada; persistência é feita no domínio/repositórios.
 - `backend/app/projections` — projeções persistidas usadas pelo dashboard e pelo estado operacional.
 - `backend/app/repositories` — acesso persistente ao domínio e Chronicle append-only.
@@ -28,7 +28,17 @@ DEUS permanece como interface conceitual do Criador. Trabalho operacional é exe
 
 `.env.example` na raiz é a única referência canônica de variáveis locais/de desenvolvimento. Copie-o para `.env` e ajuste os valores.
 
-Providers `fake` são permitidos somente para bootstrap/desenvolvimento. Para inferência operacional na máquina local, selecione explicitamente `openai`, `freellmapi` ou `openai_compatible` no arquivo `.env` e forneça as credenciais/configurações correspondentes.
+Providers `fake` são permitidos somente para bootstrap/desenvolvimento. Para inferência operacional na máquina local, selecione explicitamente `anthropic`, `openai`, `freellmapi` ou `openai_compatible` no arquivo `.env` e forneça as credenciais/configurações correspondentes.
+
+Para o DEUS conversar com Claude, coloque no `.env` (nunca faça commit desse arquivo):
+
+```
+LLM_PROVIDER=anthropic
+LLM_MODEL=claude-opus-5
+ANTHROPIC_API_KEY=<sua chave da Anthropic>
+```
+
+Depois reinicie a stack (`docker compose up -d --build`). O painel "System vitals" → "INFERENCE FABRIC" mostra `anthropic` como `AVAILABLE` quando a chave é válida. A voz do DEUS usa a síntese de fala do navegador (Chrome ou Edge recomendados; o microfone exige permissão do navegador).
 
 ### Bridge seguro com o PROTO
 

@@ -30,6 +30,7 @@ function App() {
   const [retryVersion, setRetryVersion] = useState(0);
   const [mood, setMood] = useState<CosmosMood>("idle");
   const [vitalsOpen, setVitalsOpen] = useState(false);
+  const [spokenWords, setSpokenWords] = useState(0);
   const cursor = useRef(0);
 
   useEffect(() => {
@@ -129,7 +130,7 @@ function App() {
 
   return (
     <main className="universe">
-      <Cosmos universes={universes} signal={events[0]?.position ?? 0} mood={mood} />
+      <Cosmos universes={universes} signal={events[0]?.position ?? 0} wordSignal={spokenWords} mood={mood} />
 
       <header className="cosmic-header">
         <div className="title">
@@ -177,7 +178,7 @@ function App() {
       {connection === "CONNECTING" && !state && <section className="loading-shell" role="status" aria-live="polite"><span className="loading-orb" />Loading live system state…</section>}
       {error && connection === "ERROR" && <section className="error-banner" role="alert">Live state unavailable: {error} <button type="button" className="retry-button" onClick={() => setRetryVersion((version) => version + 1)}>Retry</button></section>}
 
-      {connection !== "AUTH_REQUIRED" && <CreatorConsole enabled={deusReady} onMoodChange={setMood} />}
+      {connection !== "AUTH_REQUIRED" && <CreatorConsole enabled={deusReady} onMoodChange={setMood} onWord={() => setSpokenWords((count) => count + 1)} />}
 
       {vitalsOpen && state && (
         <aside className="vitals" id="system-vitals" aria-label="System vitals">

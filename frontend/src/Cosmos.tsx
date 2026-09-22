@@ -1,12 +1,14 @@
 import { useEffect, useRef } from "react";
 
-export type CosmosMood = "idle" | "thinking" | "speaking";
+export type CosmosMood = "idle" | "listening" | "thinking" | "speaking";
 
 type CosmosUniverse = { id: string; name: string; active: boolean };
 
 type Props = {
   universes: CosmosUniverse[];
   signal: number;
+  /** Increments for every word DEUS speaks aloud. */
+  wordSignal?: number;
   mood: CosmosMood;
 };
 
@@ -142,16 +144,19 @@ function nebulaLayer(width: number, height: number) {
   return canvas;
 }
 
-export function Cosmos({ universes, signal, mood }: Props) {
+export function Cosmos({ universes, signal, wordSignal = 0, mood }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const labelRefs = useRef(new Map<string, HTMLDivElement>());
   const universesRef = useRef(universes);
   const moodRef = useRef(mood);
   const burstRef = useRef(0);
+  const wordRef = useRef(wordSignal);
+  const dragRef = useRef({ active: false, x: 0, y: 0, yaw: 0, pitch: 0, spin: 0 });
 
   universesRef.current = universes;
   moodRef.current = mood;
+  wordRef.current = wordSignal;
 
   useEffect(() => {
     if (signal > 0) burstRef.current += 1;
@@ -184,6 +189,7 @@ export function Cosmos({ universes, signal, mood }: Props) {
     let nebula = nebulaLayer(1, 1);
     let frame = 0;
     let lastBurst = burstRef.current;
+    let lastWord = wordRef.current;
     let flash = 0;
     let energy = 0.3;
     const pulses: Pulse[] = [];
@@ -228,7 +234,7 @@ export function Cosmos({ universes, signal, mood }: Props) {
     function draw(time: number) {
       const t = reducedMotion ? time * 0.08 : time;
       const currentMood = moodRef.current;
-      const targetEnergy = currentMood === "thinking" ? 1 : currentMood === "speaking" ? 0.75 : 0.3;
+      const targetEnergy = { idle: 0.3, listening: 0.6, thinking: 1, speaking: 0.75 }[currentMood];
       energy += (targetEnergy - energy) * 0.03;
       if (burstRef.current !== lastBurst) {
         lastBurst = burstRef.current;
@@ -236,7 +242,18 @@ export function Cosmos({ universes, signal, mood }: Props) {
         spawnComet();
         for (let i = 0; i < 45; i += 1) spawnPulse(true);
       }
+      if (wordRef.current !== lastWord) {
+        lastWord = wordRef.current;
+        flash = Math.max(flash, 0.35);
+        for (let i = 0; i < 14; i += 1) spawnPulse(true);
+      }
       flash *= 0.96;
+      const drag = dragRef.current;
+      if (!drag.active) {
+        drag.yaw += drag.spin;
+        drag.spin *= 0.95;
+        drag.pitch *= 0.97;
+      }
 
       const cx = width / 2;
       const cy = height * (width < 700 ? 0.4 : 0.42);
@@ -268,15 +285,17 @@ export function Cosmos({ universes, signal, mood }: Props) {
       const breath = 0.5 + 0.5 * Math.sin(t * (0.0012 + energy * 0.003));
       const auraRadius = scale * (1.9 + breath * 0.15 + flash * 0.4);
       const aura = ctx.createRadialGradient(cx, cy, 0, cx, cy, auraRadius);
-      aura.addColorStop(0, `rgba(120, 90, 255, ${0.16 + energy * 0.14 + flash * 0.2})`);
+      aura.addColorStop(0, currentMood === "listening"
+        ? `rgba(60, 200, 255, ${0.2 + energy * 0.14 + flash * 0.2})`
+        : `rgba(120, 90, 255, ${0.16 + energy * 0.14 + flash * 0.2})`);
       aura.addColorStop(0.45, `rgba(40, 120, 255, ${0.06 + energy * 0.06})`);
       aura.addColorStop(1, "transparent");
       ctx.fillStyle = aura;
       ctx.fillRect(cx - auraRadius, cy - auraRadius, auraRadius * 2, auraRadius * 2);
 
       // Mostly a side profile (the classic brain silhouette), slowly turning to reveal depth.
-      const yaw = Math.PI / 2 + Math.sin(t * 0.00009) * 0.85;
-      const pitch = -0.14 + Math.sin(t * 0.00017) * 0.05;
+      const yaw = Math.PI / 2 + Math.sin(t * 0.00009) * 0.85 + drag.yaw;
+      const pitch = -0.14 + Math.sin(t * 0.00017) * 0.05 + drag.pitch;
       const cosY = Math.cos(yaw);
       const sinY = Math.sin(yaw);
       const cosP = Math.cos(pitch);
@@ -404,10 +423,36 @@ export function Cosmos({ universes, signal, mood }: Props) {
       frame = requestAnimationFrame(draw);
     }
 
+    // Drag anywhere on the universe to turn the brain; it keeps spinning with inertia.
+    const onDown = (event: PointerEvent) => {
+      dragRef.current = { ...dragRef.current, active: true, x: event.clientX, y: event.clientY, spin: 0 };
+      wrap.setPointerCapture(event.pointerId);
+    };
+    const onMove = (event: PointerEvent) => {
+      const drag = dragRef.current;
+      if (!drag.active) return;
+      const dx = (event.clientX - drag.x) * 0.008;
+      const dy = (event.clientY - drag.y) * 0.006;
+      drag.yaw += dx;
+      drag.spin = dx;
+      drag.pitch = Math.max(-0.7, Math.min(0.7, drag.pitch - dy));
+      drag.x = event.clientX;
+      drag.y = event.clientY;
+    };
+    const onUp = () => { dragRef.current.active = false; };
+    wrap.addEventListener("pointerdown", onDown);
+    wrap.addEventListener("pointermove", onMove);
+    wrap.addEventListener("pointerup", onUp);
+    wrap.addEventListener("pointercancel", onUp);
+
     frame = requestAnimationFrame(draw);
     return () => {
       cancelAnimationFrame(frame);
       observer.disconnect();
+      wrap.removeEventListener("pointerdown", onDown);
+      wrap.removeEventListener("pointermove", onMove);
+      wrap.removeEventListener("pointerup", onUp);
+      wrap.removeEventListener("pointercancel", onUp);
     };
   }, []);
 
