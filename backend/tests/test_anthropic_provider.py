@@ -165,6 +165,23 @@ async def test_stream_yields_text_deltas_only() -> None:
 
 
 @pytest.mark.asyncio
+async def test_stream_raises_on_mid_stream_error_events() -> None:
+    body = "\n".join([
+        'data: {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "Hel"}}',
+        "",
+        'data: {"type": "error", "error": {"type": "overloaded_error"}}',
+        "",
+    ])
+
+    async def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=body)
+
+    with pytest.raises(InferenceUpstreamResponseError):
+        async for _chunk in provider(handler).stream(request()):
+            pass
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("status", "expected_detail"),
     [(200, None), (401, "authentication_failed"), (429, "rate_limited"), (500, "upstream_status_500")],

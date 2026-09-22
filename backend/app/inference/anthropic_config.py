@@ -8,6 +8,7 @@ from pydantic.v1 import SecretStr
 
 DEFAULT_BASE_URL = "https://api.anthropic.com/v1"
 DEFAULT_MAX_OUTPUT_TOKENS = 4096
+LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
 
 @dataclass(frozen=True)
@@ -32,6 +33,8 @@ def load_anthropic_config() -> AnthropicConfig:
     parsed = urlparse(base_url)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise RuntimeError("ANTHROPIC_BASE_URL must use http or https")
+    if parsed.scheme == "http" and parsed.hostname not in LOOPBACK_HOSTS:
+        raise RuntimeError("ANTHROPIC_BASE_URL must use https outside loopback")
 
     raw_timeout = os.getenv("ANTHROPIC_TIMEOUT_SECONDS", "60").strip()
     try:

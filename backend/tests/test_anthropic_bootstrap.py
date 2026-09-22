@@ -5,7 +5,7 @@ import pytest
 from app.config import settings
 from app.inference.anthropic_config import load_anthropic_config
 from app.inference.anthropic_provider import AnthropicProvider
-from app.inference.bootstrap import build_model_router
+from app.inference.bootstrap import build_model_router, resolve_configured_model
 from app.inference.contracts import CostTier
 
 
@@ -47,6 +47,7 @@ def test_config_reads_overrides(anthropic_env) -> None:
         ("ANTHROPIC_API_KEY", "", "ANTHROPIC_API_KEY is required when LLM_PROVIDER=anthropic"),
         ("ANTHROPIC_MODEL", "", "ANTHROPIC_MODEL is required when LLM_PROVIDER=anthropic"),
         ("ANTHROPIC_BASE_URL", "file:///tmp/model", "ANTHROPIC_BASE_URL must use http or https"),
+        ("ANTHROPIC_BASE_URL", "http://proxy.invalid/v1", "ANTHROPIC_BASE_URL must use https outside loopback"),
         ("ANTHROPIC_TIMEOUT_SECONDS", "0", "ANTHROPIC_TIMEOUT_SECONDS must be greater than zero"),
         ("ANTHROPIC_TIMEOUT_SECONDS", "fast", "ANTHROPIC_TIMEOUT_SECONDS must be numeric"),
         ("ANTHROPIC_MAX_OUTPUT_TOKENS", "0", "ANTHROPIC_MAX_OUTPUT_TOKENS must be greater than zero"),
@@ -58,6 +59,19 @@ def test_config_fails_closed_on_invalid_settings(anthropic_env, variable: str, v
 
     with pytest.raises(RuntimeError, match=message):
         load_anthropic_config()
+
+
+def test_config_allows_plain_http_only_on_loopback(anthropic_env) -> None:
+    anthropic_env.setenv("ANTHROPIC_BASE_URL", "http://localhost:8787/v1")
+
+    assert load_anthropic_config().base_url == "http://localhost:8787/v1"
+
+
+def test_deus_uses_the_provider_model_instead_of_llm_model(anthropic_env) -> None:
+    anthropic_env.setattr(settings, "llm_provider", "anthropic")
+    anthropic_env.setattr(settings, "llm_model", "fake")
+
+    assert resolve_configured_model(build_model_router()) == "claude-model"
 
 
 def test_build_model_router_registers_anthropic_provider(anthropic_env) -> None:

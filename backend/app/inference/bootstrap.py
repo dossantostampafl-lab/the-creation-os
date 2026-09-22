@@ -15,6 +15,12 @@ from app.inference.registry import ProviderRegistry
 from app.inference.router import ModelRouter
 
 
+def resolve_configured_model(router: ModelRouter) -> str:
+    """Model the configured provider actually serves, which may differ from LLM_MODEL."""
+    profile = router.registry.get_default_model_profile(settings.llm_provider.strip().lower())
+    return profile.model if profile is not None else settings.llm_model
+
+
 def build_model_router() -> ModelRouter:
     registry = ProviderRegistry()
     provider = settings.llm_provider.strip().lower()

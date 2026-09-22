@@ -172,7 +172,11 @@ class AnthropicProvider:
                             event = json.loads(raw)
                         except json.JSONDecodeError:
                             continue
-                        if not isinstance(event, dict) or event.get("type") != "content_block_delta":
+                        if not isinstance(event, dict):
+                            continue
+                        if event.get("type") == "error":
+                            raise InferenceUpstreamResponseError(self.name, "Anthropic stream returned an error")
+                        if event.get("type") != "content_block_delta":
                             continue
                         delta = event.get("delta")
                         if not isinstance(delta, dict):
