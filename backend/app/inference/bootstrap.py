@@ -3,6 +3,8 @@ from __future__ import annotations
 from app.cache.bootstrap import build_cache_orchestrator
 from app.cache.routing import CachingModelRouter
 from app.config import settings
+from app.inference.anthropic_config import load_anthropic_config
+from app.inference.anthropic_provider import AnthropicProvider
 from app.inference.contracts import ProviderModelProfile
 from app.inference.freellmapi_config import load_freellmapi_config, load_freellmapi_model
 from app.inference.freellmapi_provider import FreeLLMAPIProvider
@@ -11,6 +13,12 @@ from app.inference.openai_compatible_provider import OpenAICompatibleProvider
 from app.inference.openai_provider import OpenAIResponsesProvider
 from app.inference.registry import ProviderRegistry
 from app.inference.router import ModelRouter
+
+
+def resolve_configured_model(router: ModelRouter) -> str:
+    """Model the configured provider actually serves, which may differ from LLM_MODEL."""
+    profile = router.registry.get_default_model_profile(settings.llm_provider.strip().lower())
+    return profile.model if profile is not None else settings.llm_model
 
 
 def build_model_router() -> ModelRouter:
@@ -29,6 +37,25 @@ def build_model_router() -> ModelRouter:
             ProviderModelProfile(
                 provider="openai",
                 model=settings.llm_model,
+                capabilities=frozenset({"text", "streaming"}),
+                is_default=True,
+            )
+        )
+    elif provider == "anthropic":
+        anthropic_config = load_anthropic_config()
+        registry.register(
+            AnthropicProvider(
+                api_key=anthropic_config.api_key.get_secret_value(),
+                default_model=anthropic_config.model,
+                base_url=anthropic_config.base_url,
+                timeout_seconds=anthropic_config.timeout_seconds,
+                max_output_tokens=anthropic_config.max_output_tokens,
+            )
+        )
+        registry.register_model_profile(
+            ProviderModelProfile(
+                provider="anthropic",
+                model=anthropic_config.model,
                 capabilities=frozenset({"text", "streaming"}),
                 is_default=True,
             )

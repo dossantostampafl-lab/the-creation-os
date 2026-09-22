@@ -9,7 +9,7 @@ from app.auth.dependencies import get_sovereign_creator
 from app.config import settings
 from app.core.domain import Actor
 from app.db.session import get_session
-from app.inference.bootstrap import build_model_router
+from app.inference.bootstrap import build_model_router, resolve_configured_model
 from app.models.entities import Conversation
 from app.repositories.domain import DomainRepository
 from app.schemas.auth import TokenPayload
@@ -63,7 +63,7 @@ async def converse_with_deus(
         DomainRepository(session),
         router_instance,
         provider=settings.llm_provider,
-        model=settings.llm_model,
+        model=resolve_configured_model(router_instance),
     )
     try:
         result = await service.respond(a, str(entity_id), body.content, cid)
