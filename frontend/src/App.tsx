@@ -12,6 +12,27 @@ function statusTone(status: string): string {
   return "neutral";
 }
 
+function HudClock() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  return (
+    <div className="hud-clock" aria-label="Local time">
+      <strong>{now.toLocaleTimeString([], { hour12: false })}</strong>
+      <small>{now.toLocaleDateString([], { weekday: "short", day: "2-digit", month: "short", year: "numeric" })}</small>
+    </div>
+  );
+}
+
+function ratio(value: number | undefined, total: number | undefined): number | null {
+  if (value === undefined || !total) return null;
+  return Math.min(100, Math.round((value / total) * 100));
+}
+
+const REACTOR_TICKS = Array.from({ length: 72 }, (_, i) => i);
+
 function App() {
   const [state, setState] = useState<SystemState | null>(null);
   const [projections, setProjections] = useState<ProjectionStatus | null>(null);
@@ -121,12 +142,22 @@ function App() {
   const missionTasks = useMemo(() => state?.tasks.filter((task) => task.mission_id === selectedMission?.id) ?? [], [state, selectedMission]);
   const pulseEntries = useMemo(() => Object.entries(state?.pulse ?? {}).slice(0, 8), [state]);
   const deusReady = Boolean(inference?.configured && inference.providers.some((provider) => provider.available));
+  const activeUniverses = useMemo(() => state?.universes.filter((u) => u.active).slice(0, 8) ?? [], [state]);
+  const integrity = useMemo(() => {
+    const list = projections?.projections ?? [];
+    if (!list.length) return null;
+    return Math.round((list.filter((p) => p.status === "CURRENT").length / list.length) * 100);
+  }, [projections]);
 
   return (
     <main className="terminal">
       <header className="topbar">
-        <div><span className="eyebrow">THE CREATION OS</span><h1>Living Cognitive Operating System</h1></div>
+        <div className="brand">
+          <div className="brand-mark" aria-hidden="true"><span /></div>
+          <div><span className="eyebrow">THE CREATION OS</span><h1>Living Cognitive Operating System</h1></div>
+        </div>
         <div className="top-status">
+          <HudClock />
           <span className={`status ${connection.toLowerCase()}`}>{connection}</span>
           <span>Chronicle #{state?.position ?? "—"}</span>
           <span>{state?.generated_at ? new Date(state.generated_at).toLocaleTimeString() : "—"}</span>
@@ -156,11 +187,19 @@ function App() {
       {error && connection === "ERROR" && <section className="error-banner" role="alert">Live state unavailable: {error} <button type="button" className="retry-button" onClick={() => setRetryVersion((version) => version + 1)}>Retry</button></section>}
 
       <section className="metrics">
-        {[
-          ["MISSIONS", state?.counts.missions], ["RUNNING", state?.counts.running_missions], ["TASKS", state?.counts.tasks],
-          ["READY", state?.counts.ready_tasks], ["ACTIVE UNIVERSES", state?.counts.active_universes], ["ACTIVE AGENTS", state?.counts.active_agents],
-          ["MEMORY", state?.memory.total], ["FAILED/BLOCKED", state?.counts.failed_tasks],
-        ].map(([label, value]) => <article className="metric" key={String(label)}><span>{label}</span><strong>{value ?? "—"}</strong></article>)}
+        {([
+          ["MISSIONS", state?.counts.missions, null], ["RUNNING", state?.counts.running_missions, ratio(state?.counts.running_missions, state?.counts.missions)],
+          ["TASKS", state?.counts.tasks, null], ["READY", state?.counts.ready_tasks, ratio(state?.counts.ready_tasks, state?.counts.tasks)],
+          ["ACTIVE UNIVERSES", state?.counts.active_universes, ratio(state?.counts.active_universes, state?.universes.length)],
+          ["ACTIVE AGENTS", state?.counts.active_agents, ratio(state?.counts.active_agents, state?.agents.length)],
+          ["MEMORY", state?.memory.total, null], ["FAILED/BLOCKED", state?.counts.failed_tasks, ratio(state?.counts.failed_tasks, state?.counts.tasks)],
+        ] as const).map(([label, value, percent]) => (
+          <article className={`metric${label === "FAILED/BLOCKED" && value ? " metric-alert" : ""}`} key={label}>
+            <span>{label}</span>
+            <strong>{value ?? "—"}</strong>
+            <i className="metric-bar" aria-hidden="true"><b style={{ width: `${percent ?? (value ? 100 : 0)}%` }} /></i>
+          </article>
+        ))}
       </section>
 
       <section className="workspace">
@@ -178,10 +217,30 @@ function App() {
         <section className="panel core">
           <div className="panel-title">LIVING CORE VISUALIZATION</div>
           <div className="core-map">
+            <div className="radar-sweep" aria-hidden="true" />
+            <svg className="reactor" viewBox="0 0 400 400" aria-hidden="true">
+              <g className="reactor-ticks">
+                {REACTOR_TICKS.map((i) => <line key={i} x1="200" y1="14" x2="200" y2={i % 6 === 0 ? 30 : 22} transform={`rotate(${i * 5} 200 200)`} />)}
+              </g>
+              <circle className="reactor-ring faint" cx="200" cy="200" r="178" />
+              <circle className="reactor-ring segmented spin-slow" cx="200" cy="200" r="158" />
+              <circle className="reactor-ring dashed spin-reverse" cx="200" cy="200" r="136" />
+              <circle className="reactor-ring arc spin-fast" cx="200" cy="200" r="104" />
+              <circle className="reactor-ring faint" cx="200" cy="200" r="62" />
+            </svg>
             <div className="orbit orbit-a"><span>SOPHIA</span></div>
             <div className="orbit orbit-b"><span>ROCKMAM</span></div>
             <div className="deus">DEUS</div>
-            {state?.universes.filter((u) => u.active).slice(0, 8).map((u, i) => <div className={`node node-${i}`} key={u.id}>{u.code.toUpperCase()}</div>)}
+            {activeUniverses.map((u, i) => {
+              const angle = (i / activeUniverses.length) * Math.PI * 2 - Math.PI / 2;
+              return <div className={`node node-${i}`} key={u.id} style={{ left: `${50 + Math.cos(angle) * 42}%`, top: `${50 + Math.sin(angle) * 40}%` }}>{u.code.toUpperCase()}</div>;
+            })}
+            <div className="core-readout core-readout-left">
+              <span>SYS INTEGRITY</span><strong>{integrity === null ? "—" : `${integrity}%`}</strong>
+            </div>
+            <div className="core-readout core-readout-right">
+              <span>DEUS LINK</span><strong className={deusReady ? "good" : "warn"}>{deusReady ? "ONLINE" : "STANDBY"}</strong>
+            </div>
           </div>
           <div className="mission-focus">
             <span className="eyebrow">CURRENT MISSION</span>
