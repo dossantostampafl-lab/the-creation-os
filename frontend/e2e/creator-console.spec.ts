@@ -46,41 +46,141 @@ test("Creator can start a conversation and receive a DEUS response", async ({ pa
   await expect(page.getByText("System operational.", { exact: true })).toBeVisible();
 });
 
-test("DEUS speaks its reply aloud and the voice can be muted", async ({ page }) => {
+/** Fake speech engines: records what DEUS says and lets the test "say" things to it. */
+async function installFakeSpeech(page: import("@playwright/test").Page) {
   await page.addInitScript(() => {
     localStorage.setItem("creation_access_token", "e2e-token");
+    const scope = window as unknown as Record<string, unknown>;
     const spoken: string[] = [];
-    (window as unknown as { __spoken: string[] }).__spoken = spoken;
+    scope.__spoken = spoken;
     const synth = {
-      speaking: false,
       getVoices: () => [],
       cancel: () => {},
       addEventListener: () => {},
       removeEventListener: () => {},
       speak: (utterance: SpeechSynthesisUtterance) => {
         spoken.push(utterance.text);
-        const fire = (name: "onstart" | "onboundary" | "onend", extra: object = {}) =>
-          (utterance[name] as ((event: unknown) => void) | null)?.({ name: "word", ...extra });
+        const fire = (name: "onstart" | "onboundary" | "onend") =>
+          (utterance[name] as ((event: unknown) => void) | null)?.({ name: "word" });
         setTimeout(() => { fire("onstart"); fire("onboundary"); fire("onend"); }, 10);
       },
     };
     Object.defineProperty(window, "speechSynthesis", { value: synth, configurable: true });
+
+    type Fake = { running: boolean; onresult: ((event: unknown) => void) | null; onend: (() => void) | null };
+    class FakeRecognition {
+      running = false;
+      onresult: ((event: unknown) => void) | null = null;
+      onend: (() => void) | null = null;
+      onerror = null;
+      start() { this.running = true; scope.__recognizer = this; }
+      stop() { this.end(); }
+      abort() { this.end(); }
+      private end() { if (!this.running) return; this.running = false; this.onend?.(); }
+    }
+    for (const name of ["SpeechRecognition", "webkitSpeechRecognition"]) {
+      Object.defineProperty(window, name, { value: FakeRecognition, configurable: true, writable: true });
+    }
+    scope.__say = (text: string) => {
+      const recognizer = scope.__recognizer as Fake | undefined;
+      if (!recognizer?.running) return false;
+      const result = Object.assign([{ transcript: text }], { isFinal: true });
+      recognizer.onresult?.({ resultIndex: 0, results: [result] });
+      return true;
+    };
   });
-  await mockDashboard(page);
+}
+
+async function mockConversation(page: import("@playwright/test").Page, sent: string[]) {
   await page.route("**/api/v1/conversations", (route) => route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ id: "conversation-1" }) }));
-  await page.route("**/api/v1/conversations/conversation-1/deus", (route) => route.fulfill({ status: 201, contentType: "application/json", body: "{}" }));
-  await page.route("**/api/v1/conversations/conversation-1/messages", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([
-    { id: "m1", conversation_id: "conversation-1", actor_id: "creator-1", role: "creator", content: "Status?", route: "deus", metadata_json: {}, correlation_id: "c1", created_at: "2026-09-11T12:00:01Z" },
+  await page.route("**/api/v1/conversations/conversation-1/deus", (route) => {
+    sent.push((route.request().postDataJSON() as { content: string }).content);
+    return route.fulfill({ status: 201, contentType: "application/json", body: "{}" });
+  });
+  await page.route("**/api/v1/conversations/conversation-1/messages", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(sent.length ? [
+    { id: "m1", conversation_id: "conversation-1", actor_id: "creator-1", role: "creator", content: sent[sent.length - 1], route: "deus", metadata_json: {}, correlation_id: "c1", created_at: "2026-09-11T12:00:01Z" },
     { id: "m2", conversation_id: "conversation-1", actor_id: "deus", role: "deus", content: "**All** universes are breathing.", route: "deus", metadata_json: {}, correlation_id: "c1", created_at: "2026-09-11T12:00:02Z" },
-  ]) }));
+  ] : []) }));
+}
+
+const spokenLines = (page: import("@playwright/test").Page) => page.evaluate(() => (window as unknown as { __spoken: string[] }).__spoken);
+
+test("DEUS falls back to the browser voice when ElevenLabs is not configured, and can be muted", async ({ page }) => {
+  await installFakeSpeech(page);
+  await mockDashboard(page);
+  await page.route("**/api/v1/voice/synthesize", (route) => route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ code: "VOICE_SYNTHESIS_DISABLED" }) }));
+  const sent: string[] = [];
+  await mockConversation(page, sent);
 
   await page.goto("/");
   await page.getByLabel("Message DEUS").fill("Status?");
   await page.getByLabel("Message DEUS").press("Enter");
 
   await expect(page.getByText("**All** universes are breathing.", { exact: true })).toBeVisible();
-  await expect.poll(() => page.evaluate(() => (window as unknown as { __spoken: string[] }).__spoken)).toEqual(["All universes are breathing."]);
+  await expect.poll(() => spokenLines(page)).toEqual(["All universes are breathing."]);
 
   await page.getByRole("button", { name: "Mute DEUS voice" }).click();
   await expect(page.getByRole("button", { name: "Unmute DEUS voice" })).toBeVisible();
+});
+
+test("DEUS speaks with the ElevenLabs voice through the backend when it is configured", async ({ page }) => {
+  await installFakeSpeech(page);
+  await page.addInitScript(() => {
+    HTMLMediaElement.prototype.play = function play(this: HTMLMediaElement) {
+      setTimeout(() => this.dispatchEvent(new Event("ended")), 50);
+      return Promise.resolve();
+    };
+  });
+  await mockDashboard(page);
+  const synthesized: string[] = [];
+  await page.route("**/api/v1/voice/synthesize", (route) => {
+    synthesized.push((route.request().postDataJSON() as { text: string }).text);
+    return route.fulfill({ status: 200, contentType: "audio/mpeg", body: Buffer.from("ID3-fake-mp3") });
+  });
+  const sent: string[] = [];
+  await mockConversation(page, sent);
+
+  await page.goto("/");
+  await page.getByLabel("Message DEUS").fill("Status?");
+  await page.getByLabel("Message DEUS").press("Enter");
+
+  await expect.poll(() => synthesized).toEqual(["All universes are breathing."]);
+  expect(await spokenLines(page)).toEqual([]);
+});
+
+test("saying “Deus” wakes DEUS, which answers and then hears the request", async ({ page }) => {
+  await installFakeSpeech(page);
+  await mockDashboard(page);
+  await page.route("**/api/v1/voice/synthesize", (route) => route.fulfill({ status: 409, body: "{}" }));
+  const sent: string[] = [];
+  await mockConversation(page, sent);
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Turn on “Deus” wake word" }).click();
+  await expect(page.getByText("Say “Deus” to call")).toBeVisible();
+
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __say: (t: string) => boolean }).__say("Deus"))).toBe(true);
+  await expect.poll(() => spokenLines(page)).toEqual(["I'm here."]);
+
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __say: (t: string) => boolean }).__say("Status report"))).toBe(true);
+  await expect.poll(() => sent).toEqual(["Status report"]);
+  await expect.poll(() => spokenLines(page)).toEqual(["I'm here.", "All universes are breathing."]);
+});
+
+test("“Deus, <request>” in one breath goes straight to DEUS and ignores other speech", async ({ page }) => {
+  await installFakeSpeech(page);
+  await mockDashboard(page);
+  await page.route("**/api/v1/voice/synthesize", (route) => route.fulfill({ status: 409, body: "{}" }));
+  const sent: string[] = [];
+  await mockConversation(page, sent);
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Turn on “Deus” wake word" }).click();
+  const say = (text: string) => page.evaluate((t) => (window as unknown as { __say: (t: string) => boolean }).__say(t), text);
+
+  await expect.poll(() => say("adeus, see you tomorrow")).toBe(true);
+  await expect.poll(() => say("Deus, how are the universes today?")).toBe(true);
+
+  await expect.poll(() => sent).toEqual(["how are the universes today?"]);
+  expect(await spokenLines(page)).not.toContain("I'm here.");
 });

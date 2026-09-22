@@ -41,6 +41,12 @@ class Settings(BaseSettings):
     proto_base_url: str | None = Field(None, env="PROTO_BASE_URL")
     proto_creation_shared_secret: SecretStr | None = Field(None, env="PROTO_CREATION_SHARED_SECRET")
     proto_timeout_seconds: float = Field(10.0, gt=0.0, le=60.0, env="PROTO_TIMEOUT_SECONDS")
+    elevenlabs_enabled: bool = Field(False, env="ELEVENLABS_ENABLED")
+    elevenlabs_api_key: SecretStr | None = Field(None, env="ELEVENLABS_API_KEY")
+    elevenlabs_voice_id: str = Field("configured-voice-id", env="ELEVENLABS_VOICE_ID")
+    elevenlabs_model_id: str = Field("eleven_multilingual_v2", env="ELEVENLABS_MODEL_ID")
+    elevenlabs_timeout_seconds: float = Field(12.0, env="ELEVENLABS_TIMEOUT_SECONDS")
+    voice_synthesis_max_chars: int = Field(1200, env="VOICE_SYNTHESIS_MAX_CHARS")
     chronicle_embedding_dim: int = 8
 
     class Config:

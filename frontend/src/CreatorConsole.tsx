@@ -3,18 +3,17 @@ import type { FormEvent, KeyboardEvent } from "react";
 import { converseWithDeus, createConversation, fetchConversationMessages } from "./api";
 import type { ConversationMessage } from "./api";
 import type { CosmosMood } from "./Cosmos";
-import { useCreatorListening, useDeusVoice } from "./voice";
+import { useDeusEars, useDeusVoice, voiceText } from "./voice";
 import "./CreatorConsole.css";
 
 type Props = {
   enabled: boolean;
   onMoodChange?: (mood: CosmosMood) => void;
-  onWord?: () => void;
 };
 
 const CONVERSATION_KEY = "creation_conversation_id";
 
-export function CreatorConsole({ enabled, onMoodChange, onWord }: Props) {
+export function CreatorConsole({ enabled, onMoodChange }: Props) {
   const [conversationId, setConversationId] = useState(() => window.localStorage.getItem(CONVERSATION_KEY));
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [input, setInput] = useState("");
@@ -22,15 +21,22 @@ export function CreatorConsole({ enabled, onMoodChange, onWord }: Props) {
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const voice = useDeusVoice();
-  const listening = useCreatorListening((text, final) => {
-    setInput(text);
-    if (final) void send(text);
+  const ears = useDeusEars({
+    paused: pending || voice.speaking,
+    onWake: () => voice.speak(voiceText.greeting()),
+    onCommand: (text) => {
+      setInput(text);
+      void send(text);
+    },
+    onInterim: setInput,
   });
 
   useEffect(() => {
-    if (listening.listening) onMoodChange?.("listening");
-    else if (!pending && !voice.speaking) onMoodChange?.("idle");
-  }, [listening.listening]);
+    if (pending) onMoodChange?.("thinking");
+    else if (voice.speaking) onMoodChange?.("speaking");
+    else if (ears.state === "attentive") onMoodChange?.("listening");
+    else onMoodChange?.("idle");
+  }, [pending, voice.speaking, ears.state, onMoodChange]);
 
   useEffect(() => {
     if (!conversationId) return;
@@ -49,16 +55,7 @@ export function CreatorConsole({ enabled, onMoodChange, onWord }: Props) {
 
   function voiceReply(latest: ConversationMessage[]) {
     const reply = [...latest].reverse().find((message) => message.role === "deus");
-    if (!reply) {
-      onMoodChange?.("idle");
-      return;
-    }
-    onMoodChange?.("speaking");
-    if (!voice.enabled || !voice.supported) {
-      window.setTimeout(() => onMoodChange?.("idle"), 4000);
-      return;
-    }
-    voice.speak(reply.content, { onWord, onEnd: () => onMoodChange?.("idle") });
+    if (reply) voice.speak(reply.content);
   }
 
   async function send(text?: string) {
@@ -67,7 +64,6 @@ export function CreatorConsole({ enabled, onMoodChange, onWord }: Props) {
     voice.stop();
     setPending(true);
     setError(null);
-    onMoodChange?.("thinking");
     try {
       let id = conversationId;
       if (!id) {
@@ -84,7 +80,6 @@ export function CreatorConsole({ enabled, onMoodChange, onWord }: Props) {
     } catch (failure) {
       const message = failure instanceof Error ? failure.message : "CONVERSATION_FAILED";
       setError(message === "HTTP_503" ? "Inference provider is not configured." : "DEUS conversation failed.");
-      onMoodChange?.("idle");
     } finally {
       setPending(false);
     }
@@ -115,7 +110,7 @@ export function CreatorConsole({ enabled, onMoodChange, onWord }: Props) {
           value={input}
           onChange={(event) => setInput(event.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={listening.listening ? "Listening…" : enabled ? "Speak to DEUS…" : "Configure an inference provider to speak to DEUS."}
+          placeholder={ears.state === "attentive" ? voiceText.listening() : enabled ? "Speak to DEUS…" : "Configure an inference provider to speak to DEUS."}
           disabled={!enabled || pending}
           rows={1}
         />
@@ -133,23 +128,36 @@ export function CreatorConsole({ enabled, onMoodChange, onWord }: Props) {
             </svg>
           </button>
         )}
-        {listening.supported && (
-          <button
-            type="button"
-            className={`icon-button mic${listening.listening ? " live" : ""}`}
-            aria-label={listening.listening ? "Stop listening" : "Talk to DEUS"}
-            aria-pressed={listening.listening}
-            disabled={!enabled || pending}
-            onClick={listening.listening ? listening.stop : () => { voice.stop(); listening.start(); }}
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" /></svg>
-          </button>
+        {ears.supported && (
+          <>
+            <button
+              type="button"
+              className={`icon-button wake${ears.wakeEnabled ? " active" : ""}`}
+              aria-label={ears.wakeEnabled ? "Turn off “Deus” wake word" : "Turn on “Deus” wake word"}
+              aria-pressed={ears.wakeEnabled}
+              disabled={!enabled}
+              onClick={ears.toggleWake}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10a5 5 0 0 1 10 0c0 3-2 3.5-2.5 6a3 3 0 0 1-5.5 1.5M9.5 10a2.5 2.5 0 0 1 5 0" /></svg>
+            </button>
+            <button
+              type="button"
+              className={`icon-button mic${ears.state === "attentive" ? " live" : ""}`}
+              aria-label={ears.state === "attentive" ? "Stop listening" : "Talk to DEUS"}
+              aria-pressed={ears.state === "attentive"}
+              disabled={!enabled || pending}
+              onClick={ears.state === "attentive" ? ears.dismiss : () => { voice.stop(); ears.summon(); }}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" /></svg>
+            </button>
+          </>
         )}
         <button type="submit" aria-label="Send to DEUS" disabled={!enabled || pending || !input.trim()}>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h14M13 6l6 6-6 6" /></svg>
         </button>
       </form>
-      {(error ?? listening.error) && <div className="console-error" role="alert">{error ?? listening.error}</div>}
+      {ears.state === "sleeping" && <div className="wake-hint" aria-live="polite"><i />{voiceText.wakeHint()}</div>}
+      {(error ?? ears.error) && <div className="console-error" role="alert">{error ?? ears.error}</div>}
     </section>
   );
 }

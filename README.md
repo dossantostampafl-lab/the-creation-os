@@ -9,7 +9,7 @@ THE CREATION OS é um sistema persistente de execução governada com API FastAP
 - `backend/app/cognition` — contratos estruturados para avaliação cognitiva e planejamento.
 - `backend/app/kernel` — distribuição, DAG, claims de tarefas, AgentExecution, supervisão, reconciliação e conclusão de Missions.
 - `backend/app/capabilities` — contratos, autorização, policy, gateway e execução governada de capabilities, incluindo o adapter opcional e restrito do PROTO.
-- `backend/app/inference` — ProviderRegistry, ModelRouter e adapters `anthropic` (Claude), `openai`, `freellmapi` e `openai_compatible`.
+- `backend/app/inference` — ProviderRegistry, ModelRouter e adapters `openai`, `freellmapi` e `openai_compatible`.
 - `backend/app/memory` — contratos e policy de memória governada; persistência é feita no domínio/repositórios.
 - `backend/app/projections` — projeções persistidas usadas pelo dashboard e pelo estado operacional.
 - `backend/app/repositories` — acesso persistente ao domínio e Chronicle append-only.
@@ -28,17 +28,15 @@ DEUS permanece como interface conceitual do Criador. Trabalho operacional é exe
 
 `.env.example` na raiz é a única referência canônica de variáveis locais/de desenvolvimento. Copie-o para `.env` e ajuste os valores.
 
-Providers `fake` são permitidos somente para bootstrap/desenvolvimento. Para inferência operacional na máquina local, selecione explicitamente `anthropic`, `openai`, `freellmapi` ou `openai_compatible` no arquivo `.env` e forneça as credenciais/configurações correspondentes.
+Providers `fake` são permitidos somente para bootstrap/desenvolvimento. Para inferência operacional na máquina local, selecione explicitamente `openai`, `freellmapi` ou `openai_compatible` no arquivo `.env` e forneça as credenciais/configurações correspondentes.
 
-Para o DEUS conversar com Claude, coloque no `.env` (nunca faça commit desse arquivo):
+### Voz do DEUS (como uma Alexa)
 
-```
-LLM_PROVIDER=anthropic
-LLM_MODEL=claude-opus-5
-ANTHROPIC_API_KEY=<sua chave da Anthropic>
-```
+Na barra de conversa, o botão de orelha liga a palavra de ativação: diga **"Deus"** e ele responde "Estou aqui" e ouve o seu pedido. Também dá para falar tudo de uma vez: "Deus, como estão os universos?". O botão de microfone faz a mesma coisa sem a palavra de ativação, e o de alto-falante liga ou desliga a voz.
 
-Depois reinicie a stack (`docker compose up -d --build`). O painel "System vitals" → "INFERENCE FABRIC" mostra `anthropic` como `AVAILABLE` quando a chave é válida. A voz do DEUS usa a síntese de fala do navegador (Chrome ou Edge recomendados; o microfone exige permissão do navegador).
+- **Voz ElevenLabs (recomendada):** no `.env`, defina `ELEVENLABS_ENABLED=true`, `ELEVENLABS_API_KEY=<sua chave>` e, se quiser, outro `ELEVENLABS_VOICE_ID`. A chave fica só no backend (`POST /api/v1/voice/synthesize`).
+- **Sem ElevenLabs:** o DEUS usa a voz do próprio navegador, automaticamente.
+- **Microfone:** use Chrome ou Edge. Os navegadores só liberam o microfone em `https://` ou em `http://localhost`, então abra `http://localhost:8080` no próprio computador (pelo IP da rede local, o microfone fica bloqueado).
 
 ### Bridge seguro com o PROTO
 

@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { voiceActivity } from "./voice";
 
 export type CosmosMood = "idle" | "listening" | "thinking" | "speaking";
 
@@ -7,8 +8,6 @@ type CosmosUniverse = { id: string; name: string; active: boolean };
 type Props = {
   universes: CosmosUniverse[];
   signal: number;
-  /** Increments for every word DEUS speaks aloud. */
-  wordSignal?: number;
   mood: CosmosMood;
 };
 
@@ -144,19 +143,17 @@ function nebulaLayer(width: number, height: number) {
   return canvas;
 }
 
-export function Cosmos({ universes, signal, wordSignal = 0, mood }: Props) {
+export function Cosmos({ universes, signal, mood }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const labelRefs = useRef(new Map<string, HTMLDivElement>());
   const universesRef = useRef(universes);
   const moodRef = useRef(mood);
   const burstRef = useRef(0);
-  const wordRef = useRef(wordSignal);
   const dragRef = useRef({ active: false, x: 0, y: 0, yaw: 0, pitch: 0, spin: 0 });
 
   universesRef.current = universes;
   moodRef.current = mood;
-  wordRef.current = wordSignal;
 
   useEffect(() => {
     if (signal > 0) burstRef.current += 1;
@@ -189,7 +186,7 @@ export function Cosmos({ universes, signal, wordSignal = 0, mood }: Props) {
     let nebula = nebulaLayer(1, 1);
     let frame = 0;
     let lastBurst = burstRef.current;
-    let lastWord = wordRef.current;
+    let vocal = 0;
     let flash = 0;
     let energy = 0.3;
     const pulses: Pulse[] = [];
@@ -242,10 +239,11 @@ export function Cosmos({ universes, signal, wordSignal = 0, mood }: Props) {
         spawnComet();
         for (let i = 0; i < 45; i += 1) spawnPulse(true);
       }
-      if (wordRef.current !== lastWord) {
-        lastWord = wordRef.current;
-        flash = Math.max(flash, 0.35);
-        for (let i = 0; i < 14; i += 1) spawnPulse(true);
+      // The brain pulses with the loudness of DEUS's voice.
+      vocal += (voiceActivity.level - vocal) * 0.35;
+      if (vocal > 0.05) {
+        flash = Math.max(flash, vocal * 0.45);
+        for (let i = 0; i < Math.round(vocal * 8); i += 1) spawnPulse(true);
       }
       flash *= 0.96;
       const drag = dragRef.current;
@@ -283,7 +281,7 @@ export function Cosmos({ universes, signal, wordSignal = 0, mood }: Props) {
 
       // Aura around the brain — breathes faster while DEUS is thinking.
       const breath = 0.5 + 0.5 * Math.sin(t * (0.0012 + energy * 0.003));
-      const auraRadius = scale * (1.9 + breath * 0.15 + flash * 0.4);
+      const auraRadius = scale * (1.9 + breath * 0.15 + flash * 0.4 + vocal * 0.35);
       const aura = ctx.createRadialGradient(cx, cy, 0, cx, cy, auraRadius);
       aura.addColorStop(0, currentMood === "listening"
         ? `rgba(60, 200, 255, ${0.2 + energy * 0.14 + flash * 0.2})`
@@ -370,7 +368,7 @@ export function Cosmos({ universes, signal, wordSignal = 0, mood }: Props) {
         const [x, y, depth, f] = projected[i];
         const shimmer = 0.6 + 0.4 * Math.sin(t * 0.003 + i * 1.7);
         ctx.globalAlpha = Math.max(0.12, Math.min(1, (0.75 - depth * 0.45) * shimmer));
-        const size = (4 + energy * 3) * f * detail;
+        const size = (4 + energy * 3 + vocal * 3) * f * detail;
         ctx.drawImage(neuron, x - size, y - size, size * 2, size * 2);
       }
       ctx.globalAlpha = 1;

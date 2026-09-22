@@ -111,6 +111,16 @@
 .console-form button:hover:not(:disabled) { transform: scale(1.06); }
 .console-form button svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .console-form button:disabled, .console-form textarea:disabled { opacity: .45; cursor: not-allowed; box-shadow: none; }
+.wake-hint {
+  justify-self: center;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: 11px var(--mono);
+  letter-spacing: .12em;
+  color: #9fb4e6;
+}
+.wake-hint i { width: 7px; height: 7px; border-radius: 50%; background: #3fdcff; box-shadow: 0 0 10px #3fdcff; animation: listen 2.4s ease-in-out infinite; }
 .console-error { justify-self: center; padding: 8px 14px; border-radius: 99px; border: 1px solid #ff7b8f55; background: #2a0b18cc; color: var(--bad); font-size: 12px; }
 
 @keyframes messageIn { from { opacity: 0; transform: translateY(8px); filter: blur(4px); } }
