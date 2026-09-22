@@ -134,6 +134,17 @@ html, body { margin: 0; min-width: 320px; height: 100%; background: var(--space)
   pointer-events: none;
 }
 .mission-whisper h2 { margin: 0; font-size: 17px; font-weight: 400; letter-spacing: .06em; color: #f1efff; text-shadow: 0 0 16px #6d5bff; }
+.mission-whisper p {
+  margin: 0;
+  max-width: 460px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #aab0dc;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
 .mission-whisper .pill { font-size: 9px; }
 
 /* ---------- Overlays: login, loading, error ---------- */
@@ -272,6 +283,7 @@ html, body { margin: 0; min-width: 320px; height: 100%; background: var(--space)
   .chronicle-position { display: none; }
   .mission-whisper { top: 108px; }
   .mission-whisper h2 { font-size: 14px; }
+  .mission-whisper p { display: none; }
   .deus-label span.deus { font-size: 16px; }
   .vitals { top: 104px; left: 8px; right: 8px; bottom: 8px; width: auto; }
   .metrics { grid-template-columns: repeat(2, 1fr); }

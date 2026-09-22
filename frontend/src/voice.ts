@@ -145,10 +145,14 @@ export function useDeusVoice() {
     const load = () => { voices.current = window.speechSynthesis.getVoices(); };
     load();
     window.speechSynthesis.addEventListener("voiceschanged", load);
-    return () => {
-      window.speechSynthesis.removeEventListener("voiceschanged", load);
-      current.current?.stop();
-    };
+    return () => window.speechSynthesis.removeEventListener("voiceschanged", load);
+  }, [browserVoice]);
+
+  useEffect(() => () => {
+    current.current?.stop();
+    current.current = null;
+    if (browserVoice) window.speechSynthesis.cancel();
+    voiceActivity.level = 0;
   }, [browserVoice]);
 
   const stop = useCallback(() => {
@@ -318,6 +322,8 @@ export function useDeusEars({ paused, onWake, onCommand, onInterim }: EarsOption
   const [state, setState] = useState<EarsState>("off");
   const [error, setError] = useState<string | null>(null);
   const recognition = useRef<Recognition | null>(null);
+  const mounted = useRef(false);
+  const failures = useRef(0);
   const attentive = useRef(false);
   const attentionTimer = useRef(0);
   const desired = useRef({ wakeEnabled, paused });
@@ -333,7 +339,10 @@ export function useDeusEars({ paused, onWake, onCommand, onInterim }: EarsOption
   const setAttentive = useCallback((value: boolean) => {
     attentive.current = value;
     window.clearTimeout(attentionTimer.current);
+    // Attention always lapses: an unanswered "Deus" or mic press must not capture later speech.
+    if (value) armAttention();
     publish();
+    // armAttention only touches refs, so the first render's copy stays correct.
   }, [publish]);
 
   function armAttention() {
@@ -371,6 +380,7 @@ export function useDeusEars({ paused, onWake, onCommand, onInterim }: EarsOption
     instance.interimResults = true;
     instance.continuous = true;
     instance.onresult = (event) => {
+      failures.current = 0;
       let interim = "";
       for (let i = event.resultIndex; i < event.results.length; i += 1) {
         const result = event.results[i];
@@ -383,17 +393,23 @@ export function useDeusEars({ paused, onWake, onCommand, onInterim }: EarsOption
       }
     };
     instance.onerror = (event) => {
-      if (event.error === "not-allowed" || event.error === "service-not-allowed") {
-        setError(portuguese() ? "O navegador bloqueou o microfone." : "The browser blocked the microphone.");
+      const blocked = event.error === "not-allowed" || event.error === "service-not-allowed";
+      if (blocked || event.error === "audio-capture") {
+        setError(blocked
+          ? (portuguese() ? "O navegador bloqueou o microfone." : "The browser blocked the microphone.")
+          : (portuguese() ? "Nenhum microfone encontrado." : "No microphone was found."));
         setWakeEnabled(false);
         writePreference(WAKE_KEY, false);
         attentive.current = false;
+      } else if (event.error !== "no-speech" && event.error !== "aborted") {
+        failures.current += 1;
       }
     };
     instance.onend = () => {
       if (recognition.current === instance) recognition.current = null;
-      // Browsers end recognition after silence; keep listening while DEUS is meant to.
-      window.setTimeout(sync, 250);
+      // Browsers end recognition after silence; keep listening while DEUS is meant to,
+      // backing off when the recognition service keeps failing (offline, for example).
+      window.setTimeout(sync, 250 * 2 ** Math.min(failures.current, 6));
     };
     recognition.current = instance;
     try {
@@ -405,6 +421,7 @@ export function useDeusEars({ paused, onWake, onCommand, onInterim }: EarsOption
   }
 
   function sync() {
+    if (!mounted.current) return;
     const { wakeEnabled: wake, paused: hold } = desired.current;
     const shouldListen = !hold && (wake || attentive.current);
     if (shouldListen && !recognition.current) start();
@@ -417,14 +434,19 @@ export function useDeusEars({ paused, onWake, onCommand, onInterim }: EarsOption
   }
 
   useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      window.clearTimeout(attentionTimer.current);
+      const instance = recognition.current;
+      recognition.current = null;
+      instance?.abort();
+    };
+  }, []);
+
+  useEffect(() => {
     sync();
   });
-
-  useEffect(() => () => {
-    window.clearTimeout(attentionTimer.current);
-    recognition.current?.abort();
-    recognition.current = null;
-  }, []);
 
   const toggleWake = useCallback(() => {
     setError(null);

@@ -151,6 +151,7 @@ function App() {
         <div className="mission-whisper">
           <span className="eyebrow">CURRENT MISSION</span>
           <h2>{selectedMission.title}</h2>
+          {selectedMission.objective && <p>{selectedMission.objective}</p>}
           <span className={`pill ${statusTone(selectedMission.status)}`}>{selectedMission.status}</span>
         </div>
       )}

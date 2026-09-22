@@ -22,7 +22,8 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const voice = useDeusVoice();
   const ears = useDeusEars({
-    paused: pending || voice.speaking,
+    // Never listen while DEUS cannot answer, is thinking, or is speaking (it would hear itself).
+    paused: !enabled || pending || voice.speaking,
     onWake: () => voice.speak(voiceText.greeting()),
     onCommand: (text) => {
       setInput(text);
@@ -37,6 +38,8 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
     else if (ears.state === "attentive") onMoodChange?.("listening");
     else onMoodChange?.("idle");
   }, [pending, voice.speaking, ears.state, onMoodChange]);
+
+  useEffect(() => () => onMoodChange?.("idle"), [onMoodChange]);
 
   useEffect(() => {
     if (!conversationId) return;

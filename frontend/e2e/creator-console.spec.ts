@@ -184,3 +184,35 @@ test("“Deus, <request>” in one breath goes straight to DEUS and ignores othe
   await expect.poll(() => sent).toEqual(["how are the universes today?"]);
   expect(await spokenLines(page)).not.toContain("I'm here.");
 });
+
+test("DEUS stops listening when nobody speaks after it is summoned", async ({ page }) => {
+  await page.clock.install();
+  await installFakeSpeech(page);
+  await mockDashboard(page);
+  await page.route("**/api/v1/voice/synthesize", (route) => route.fulfill({ status: 409, body: "{}" }));
+  await mockConversation(page, []);
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Turn on “Deus” wake word" }).click();
+  await expect(page.getByText("Say “Deus” to call")).toBeVisible();
+
+  // Push-to-talk while the wake word is already listening must still time out.
+  await page.getByRole("button", { name: "Talk to DEUS" }).click();
+  await expect(page.getByRole("button", { name: "Stop listening" })).toBeVisible();
+  await page.clock.runFor(9000);
+  await expect(page.getByRole("button", { name: "Talk to DEUS" })).toBeVisible();
+  await expect(page.getByText("Say “Deus” to call")).toBeVisible();
+});
+
+test("the microphone stays closed while DEUS has no configured inference", async ({ page }) => {
+  await installFakeSpeech(page);
+  await page.addInitScript(() => localStorage.setItem("creation_wake_word", "on"));
+  await mockDashboard(page);
+  await page.route("**/api/v1/system/inference", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ configured: false, configured_provider: "fake", providers: [] }) }));
+
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "Turn off “Deus” wake word" })).toBeDisabled();
+  await page.waitForTimeout(500);
+  expect(await page.evaluate(() => Boolean((window as unknown as { __recognizer?: { running: boolean } }).__recognizer?.running))).toBe(false);
+  await expect(page.getByText("Say “Deus” to call")).toHaveCount(0);
+});
