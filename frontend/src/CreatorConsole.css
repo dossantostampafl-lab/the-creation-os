@@ -1,1 +1,106 @@
-.creator-console{min-height:260px}.console-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:14px 16px;border-bottom:1px solid #16263a}.console-heading h2{margin:4px 0 0;font-size:16px}.console-messages{display:grid;gap:8px;max-height:280px;overflow:auto;padding:12px}.console-message{max-width:82%;padding:9px 11px;border:1px solid #1e3248;background:#07101b}.console-message>span{font:600 9px/1 "IBM Plex Mono","JetBrains Mono",monospace;letter-spacing:.12em;color:#71839a}.console-message p{margin:6px 0 0;font-size:12px;line-height:1.5;white-space:pre-wrap}.creator-message{justify-self:end;border-color:#2b455f;background:#0a1725}.deus-message{justify-self:start;border-color:#27513f;background:#071812}.console-form{display:grid;grid-template-columns:1fr auto;gap:8px;padding:12px;border-top:1px solid #16263a}.console-form textarea{resize:vertical;min-height:54px;border:1px solid #263a51;background:#050b14;color:#d9e3f0;padding:10px;outline:none}.console-form textarea:focus{border-color:#4b6f91}.console-form button{border:1px solid #3d725d;background:#0e2a20;color:#8df0be;padding:0 14px;font-weight:650;cursor:pointer}.console-form button:disabled{opacity:.5;cursor:not-allowed}.console-error{margin:0 12px 12px;padding:8px 10px;border:1px solid #6b3033;background:#220e12;color:#f37b80;font-size:11px}@media(max-width:760px){.console-heading{flex-direction:column}.console-form{grid-template-columns:1fr}.console-form button{min-height:42px}.console-message{max-width:95%}}
+/* The conversation floats at the bottom of the universe, beneath the cosmic brain. */
+.creator-console {
+  position: absolute;
+  left: 50%;
+  bottom: 22px;
+  z-index: 8;
+  transform: translateX(-50%);
+  width: min(720px, calc(100% - 24px));
+  display: grid;
+  gap: 10px;
+}
+.console-messages {
+  display: grid;
+  align-content: end;
+  gap: 10px;
+  max-height: 30vh;
+  overflow-y: auto;
+  padding: 24px 4px 4px;
+  -webkit-mask: linear-gradient(180deg, transparent, #000 36px);
+  mask: linear-gradient(180deg, transparent, #000 36px);
+  scrollbar-width: none;
+}
+.console-message { max-width: 86%; animation: messageIn .5s ease-out; }
+.console-message span { display: block; margin-bottom: 4px; font: 600 9px var(--mono); letter-spacing: .3em; color: var(--muted); }
+.console-message p {
+  margin: 0;
+  padding: 11px 16px;
+  border-radius: 18px;
+  white-space: pre-wrap;
+  font-size: 15px;
+  line-height: 1.5;
+  backdrop-filter: blur(10px);
+}
+.deus-message { justify-self: start; }
+.deus-message span { color: #c7b6ff; }
+.deus-message p {
+  border: 1px solid #a78bfa44;
+  background: linear-gradient(135deg, #2a1f66aa, #0f0c2eaa);
+  color: #f3f0ff;
+  box-shadow: 0 0 30px #6d5bff33;
+  border-top-left-radius: 4px;
+}
+.creator-message { justify-self: end; text-align: right; }
+.creator-message p { border: 1px solid #ffffff14; background: #ffffff0f; color: #e7e9ff; border-top-right-radius: 4px; text-align: left; }
+.console-thinking { justify-self: start; display: flex; gap: 6px; padding: 12px 16px; }
+.console-thinking i { width: 7px; height: 7px; border-radius: 50%; background: #d98bff; box-shadow: 0 0 10px #d98bff; animation: thinking 1.2s ease-in-out infinite; }
+.console-thinking i:nth-child(2) { animation-delay: .15s; }
+.console-thinking i:nth-child(3) { animation-delay: .3s; }
+
+.console-form {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 6px 6px 6px 20px;
+  border-radius: 28px;
+  border: 1px solid #a78bfa44;
+  background: #0b0926cc;
+  box-shadow: 0 0 50px #6d5bff2e, inset 0 1px #ffffff10;
+  backdrop-filter: blur(18px);
+  transition: border-color .3s, box-shadow .3s;
+}
+.console-form:focus-within { border-color: #b8a6ff; box-shadow: 0 0 60px #8b6bff55, inset 0 1px #ffffff10; }
+.console-form textarea {
+  flex: 1;
+  min-width: 0;
+  max-height: 140px;
+  padding: 12px 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 15px;
+  line-height: 1.4;
+  resize: none;
+  outline: none;
+  field-sizing: content;
+}
+.console-form textarea::placeholder { color: #8d90c0; }
+.console-form textarea:focus-visible { outline: none; }
+.console-form button {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 0;
+  background: linear-gradient(135deg, #6d5bff, #b35cff);
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 0 22px #8b6bff88;
+  transition: transform .2s, opacity .2s;
+}
+.console-form button:hover:not(:disabled) { transform: scale(1.06); }
+.console-form button svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.console-form button:disabled, .console-form textarea:disabled { opacity: .45; cursor: not-allowed; box-shadow: none; }
+.console-error { justify-self: center; padding: 8px 14px; border-radius: 99px; border: 1px solid #ff7b8f55; background: #2a0b18cc; color: var(--bad); font-size: 12px; }
+
+@keyframes messageIn { from { opacity: 0; transform: translateY(8px); filter: blur(4px); } }
+@keyframes thinking { 50% { transform: translateY(-5px); opacity: .5; } }
+
+@media (max-width: 760px) {
+  .creator-console { bottom: 12px; }
+  .console-messages { max-height: 32vh; }
+  .console-message p { font-size: 14px; }
+}

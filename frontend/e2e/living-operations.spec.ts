@@ -111,17 +111,22 @@ test("renders the Living Operations Terminal from projection-backed state", asyn
   await expect(page.locator(".orbit-a span")).toHaveText("SOPHIA");
   await expect(page.locator(".orbit-b span")).toHaveText("ROCKMAM");
   await expect(page.getByRole("heading", { name: "Manifest Gate D" })).toBeVisible();
-  await expect(page.getByText("Engineering", { exact: true })).toBeVisible();
-  await expect(page.getByText("Builder", { exact: true })).toBeVisible();
-  await expect(page.getByText("mission_distributed", { exact: true })).toBeVisible();
-  await expect(page.getByText("kernel_health", { exact: true })).toBeVisible();
-  await expect(page.locator(".lower-grid-primary article:nth-child(4) .event-list").getByText("task_progressed", { exact: true })).toBeVisible();
+  await expect(page.locator(".universe-label")).toHaveText("Engineering");
   await expect(page.locator(".top-status .status")).toHaveText("LIVE");
-  await expect(page.getByText("INFERENCE FABRIC", { exact: true })).toBeVisible();
-  await expect(page.getByText("freellmapi", { exact: true })).toBeVisible();
-  await expect(page.getByText("auto:default", { exact: true })).toBeVisible();
-  await expect(page.getByText("streaming · text", { exact: true })).toBeVisible();
-  await expect(page.getByText("UNKNOWN", { exact: true })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Message DEUS" })).toBeVisible();
+
+  await page.getByRole("button", { name: "System vitals" }).click();
+  const vitals = page.getByRole("complementary", { name: "System vitals" });
+  await expect(vitals.getByText("Engineering", { exact: true })).toBeVisible();
+  await expect(vitals.getByText("Builder", { exact: true })).toBeVisible();
+  await expect(vitals.getByText("mission_distributed", { exact: true })).toBeVisible();
+  await expect(vitals.getByText("kernel_health", { exact: true })).toBeVisible();
+  await expect(vitals.locator(".system-events .event-list").getByText("task_progressed", { exact: true })).toBeVisible();
+  await expect(vitals.getByText("INFERENCE FABRIC", { exact: true })).toBeVisible();
+  await expect(vitals.getByText("freellmapi", { exact: true })).toBeVisible();
+  await expect(vitals.getByText("auto:default", { exact: true })).toBeVisible();
+  await expect(vitals.getByText("streaming · text", { exact: true })).toBeVisible();
+  await expect(vitals.getByText("UNKNOWN", { exact: true })).toBeVisible();
 });
 
 test("renders an explicit unconfigured inference state without fabricated providers", async ({ page }) => {
@@ -133,6 +138,7 @@ test("renders an explicit unconfigured inference state without fabricated provid
   await page.route("**/api/v1/system/events?after=41", (route) => route.fulfill({ status: 200, contentType: "text/event-stream", body: "" }));
 
   await page.goto("/");
+  await page.getByRole("button", { name: "System vitals" }).click();
 
   await expect(page.getByText("INFERENCE FABRIC", { exact: true })).toBeVisible();
   await expect(page.getByText("UNCONFIGURED", { exact: true })).toBeVisible();

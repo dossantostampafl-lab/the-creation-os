@@ -38,7 +38,7 @@ test("Creator can start a conversation and receive a DEUS response", async ({ pa
   await page.route("**/api/v1/conversations/conversation-1/deus", (route) => route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ message_id: "m1", conversation_id: "conversation-1", route: "deus", response: "System operational.", inception: null, system_state: null, correlation_id: "c1" }) }));
 
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Creator Console" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Creator Console" })).toBeVisible();
   await page.getByLabel("Message DEUS").fill("Status?");
   await page.getByRole("button", { name: "Send to DEUS" }).click();
 

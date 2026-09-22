@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { fetchChronicleHistory, fetchInferenceStatus, fetchProjectionStatus, fetchSystemState, loginCreator, streamChronicle } from "./api";
+import { Cosmos } from "./Cosmos";
+import type { CosmosMood } from "./Cosmos";
 import { CreatorConsole } from "./CreatorConsole";
 import type { ChronicleEvent, ChronicleRecord, InferenceStatusSnapshot, ProjectionStatus, SystemState } from "./types";
 
@@ -11,27 +13,6 @@ function statusTone(status: string): string {
   if (["RUNNING", "EXECUTING", "DISTRIBUTED", "READY", "LAGGING", "UNCONFIGURED"].includes(value)) return "warn";
   return "neutral";
 }
-
-function HudClock() {
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(new Date()), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
-  return (
-    <div className="hud-clock" aria-label="Local time">
-      <strong>{now.toLocaleTimeString([], { hour12: false })}</strong>
-      <small>{now.toLocaleDateString([], { weekday: "short", day: "2-digit", month: "short", year: "numeric" })}</small>
-    </div>
-  );
-}
-
-function ratio(value: number | undefined, total: number | undefined): number | null {
-  if (value === undefined || !total) return null;
-  return Math.min(100, Math.round((value / total) * 100));
-}
-
-const REACTOR_TICKS = Array.from({ length: 72 }, (_, i) => i);
 
 function App() {
   const [state, setState] = useState<SystemState | null>(null);
@@ -47,6 +28,8 @@ function App() {
   const [loginError, setLoginError] = useState<string | null>(null);
   const [authVersion, setAuthVersion] = useState(0);
   const [retryVersion, setRetryVersion] = useState(0);
+  const [mood, setMood] = useState<CosmosMood>("idle");
+  const [vitalsOpen, setVitalsOpen] = useState(false);
   const cursor = useRef(0);
 
   useEffect(() => {
@@ -142,34 +125,42 @@ function App() {
   const missionTasks = useMemo(() => state?.tasks.filter((task) => task.mission_id === selectedMission?.id) ?? [], [state, selectedMission]);
   const pulseEntries = useMemo(() => Object.entries(state?.pulse ?? {}).slice(0, 8), [state]);
   const deusReady = Boolean(inference?.configured && inference.providers.some((provider) => provider.available));
-  const activeUniverses = useMemo(() => state?.universes.filter((u) => u.active).slice(0, 8) ?? [], [state]);
-  const integrity = useMemo(() => {
-    const list = projections?.projections ?? [];
-    if (!list.length) return null;
-    return Math.round((list.filter((p) => p.status === "CURRENT").length / list.length) * 100);
-  }, [projections]);
+  const universes = useMemo(() => state?.universes.slice(0, 12) ?? [], [state]);
 
   return (
-    <main className="terminal">
-      <header className="topbar">
-        <div className="brand">
-          <div className="brand-mark" aria-hidden="true"><span /></div>
-          <div><span className="eyebrow">THE CREATION OS</span><h1>Living Cognitive Operating System</h1></div>
+    <main className="universe">
+      <Cosmos universes={universes} signal={events[0]?.position ?? 0} mood={mood} />
+
+      <header className="cosmic-header">
+        <div className="title">
+          <span className="eyebrow">THE CREATION OS</span>
+          <h1>Living Cognitive Operating System</h1>
         </div>
         <div className="top-status">
-          <HudClock />
           <span className={`status ${connection.toLowerCase()}`}>{connection}</span>
-          <span>Chronicle #{state?.position ?? "—"}</span>
-          <span>{state?.generated_at ? new Date(state.generated_at).toLocaleTimeString() : "—"}</span>
+          <span className="chronicle-position">Chronicle #{state?.position ?? "—"}</span>
+          {state && (
+            <button type="button" className="vitals-toggle" aria-expanded={vitalsOpen} aria-controls="system-vitals" onClick={() => setVitalsOpen((open) => !open)}>
+              {vitalsOpen ? "Close vitals" : "System vitals"}
+            </button>
+          )}
         </div>
       </header>
+
+      {selectedMission && (
+        <div className="mission-whisper">
+          <span className="eyebrow">CURRENT MISSION</span>
+          <h2>{selectedMission.title}</h2>
+          <span className={`pill ${statusTone(selectedMission.status)}`}>{selectedMission.status}</span>
+        </div>
+      )}
 
       {connection === "AUTH_REQUIRED" && (
         <section className="login-shell" aria-live="polite">
           <form className="login-panel" onSubmit={handleLogin}>
             <span className="eyebrow">SOVEREIGN CREATOR</span>
             <h2>Creator Access</h2>
-            <p>Authenticate to enter the live operating surface.</p>
+            <p>Authenticate to enter the living universe.</p>
             <label>
               <span>Username</span>
               <input aria-label="Username" autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} required />
@@ -183,111 +174,60 @@ function App() {
           </form>
         </section>
       )}
-      {connection === "CONNECTING" && !state && <section className="loading-shell" role="status" aria-live="polite"><div className="skeleton skeleton-wide" /><div className="skeleton" /><span>Loading live system state…</span></section>}
+      {connection === "CONNECTING" && !state && <section className="loading-shell" role="status" aria-live="polite"><span className="loading-orb" />Loading live system state…</section>}
       {error && connection === "ERROR" && <section className="error-banner" role="alert">Live state unavailable: {error} <button type="button" className="retry-button" onClick={() => setRetryVersion((version) => version + 1)}>Retry</button></section>}
 
-      <section className="metrics">
-        {([
-          ["MISSIONS", state?.counts.missions, null], ["RUNNING", state?.counts.running_missions, ratio(state?.counts.running_missions, state?.counts.missions)],
-          ["TASKS", state?.counts.tasks, null], ["READY", state?.counts.ready_tasks, ratio(state?.counts.ready_tasks, state?.counts.tasks)],
-          ["ACTIVE UNIVERSES", state?.counts.active_universes, ratio(state?.counts.active_universes, state?.universes.length)],
-          ["ACTIVE AGENTS", state?.counts.active_agents, ratio(state?.counts.active_agents, state?.agents.length)],
-          ["MEMORY", state?.memory.total, null], ["FAILED/BLOCKED", state?.counts.failed_tasks, ratio(state?.counts.failed_tasks, state?.counts.tasks)],
-        ] as const).map(([label, value, percent]) => (
-          <article className={`metric${label === "FAILED/BLOCKED" && value ? " metric-alert" : ""}`} key={label}>
-            <span>{label}</span>
-            <strong>{value ?? "—"}</strong>
-            <i className="metric-bar" aria-hidden="true"><b style={{ width: `${percent ?? (value ? 100 : 0)}%` }} /></i>
+      {connection !== "AUTH_REQUIRED" && <CreatorConsole enabled={deusReady} onMoodChange={setMood} />}
+
+      {vitalsOpen && state && (
+        <aside className="vitals" id="system-vitals" aria-label="System vitals">
+          <section className="metrics">
+            {[
+              ["MISSIONS", state.counts.missions], ["RUNNING", state.counts.running_missions], ["TASKS", state.counts.tasks],
+              ["READY", state.counts.ready_tasks], ["ACTIVE UNIVERSES", state.counts.active_universes], ["ACTIVE AGENTS", state.counts.active_agents],
+              ["MEMORY", state.memory.total], ["FAILED/BLOCKED", state.counts.failed_tasks],
+            ].map(([label, value]) => <article className="metric" key={String(label)}><span>{label}</span><strong>{value}</strong></article>)}
+          </section>
+
+          <article className="panel"><div className="panel-title">SYSTEM HIERARCHY</div>
+            <ol className="tree">{["CREATOR", "DEUS", "SOPHIA", "ROCKMAM", "INCEPTION", "CENTRAL CORE", "TREE CORE"].map((name) => <li key={name}>{name}</li>)}</ol>
           </article>
-        ))}
-      </section>
-
-      <section className="workspace">
-        <aside className="panel hierarchy">
-          <div className="panel-title">SYSTEM HIERARCHY</div>
-          <ol className="tree">
-            {["CREATOR", "DEUS", "SOPHIA", "ROCKMAM", "INCEPTION", "CENTRAL CORE", "TREE CORE"].map((name) => <li key={name}>{name}</li>)}
-          </ol>
-          <div className="panel-title secondary">MISSIONS</div>
-          <div className="stack">
-            {state?.missions.slice(-8).reverse().map((mission) => <div className="row" key={mission.id}><span>{mission.title}</span><b className={statusTone(mission.status)}>{mission.status}</b></div>)}
-          </div>
-        </aside>
-
-        <section className="panel core">
-          <div className="panel-title">LIVING CORE VISUALIZATION</div>
-          <div className="core-map">
-            <div className="radar-sweep" aria-hidden="true" />
-            <svg className="reactor" viewBox="0 0 400 400" aria-hidden="true">
-              <g className="reactor-ticks">
-                {REACTOR_TICKS.map((i) => <line key={i} x1="200" y1="14" x2="200" y2={i % 6 === 0 ? 30 : 22} transform={`rotate(${i * 5} 200 200)`} />)}
-              </g>
-              <circle className="reactor-ring faint" cx="200" cy="200" r="178" />
-              <circle className="reactor-ring segmented spin-slow" cx="200" cy="200" r="158" />
-              <circle className="reactor-ring dashed spin-reverse" cx="200" cy="200" r="136" />
-              <circle className="reactor-ring arc spin-fast" cx="200" cy="200" r="104" />
-              <circle className="reactor-ring faint" cx="200" cy="200" r="62" />
-            </svg>
-            <div className="orbit orbit-a"><span>SOPHIA</span></div>
-            <div className="orbit orbit-b"><span>ROCKMAM</span></div>
-            <div className="deus">DEUS</div>
-            {activeUniverses.map((u, i) => {
-              const angle = (i / activeUniverses.length) * Math.PI * 2 - Math.PI / 2;
-              return <div className={`node node-${i}`} key={u.id} style={{ left: `${50 + Math.cos(angle) * 42}%`, top: `${50 + Math.sin(angle) * 40}%` }}>{u.code.toUpperCase()}</div>;
-            })}
-            <div className="core-readout core-readout-left">
-              <span>SYS INTEGRITY</span><strong>{integrity === null ? "—" : `${integrity}%`}</strong>
-            </div>
-            <div className="core-readout core-readout-right">
-              <span>DEUS LINK</span><strong className={deusReady ? "good" : "warn"}>{deusReady ? "ONLINE" : "STANDBY"}</strong>
-            </div>
-          </div>
-          <div className="mission-focus">
-            <span className="eyebrow">CURRENT MISSION</span>
-            <h2>{selectedMission?.title ?? "No active mission"}</h2>
-            <p>{selectedMission?.objective ?? "Waiting for an authorized mission."}</p>
-            {selectedMission && <span className={`pill ${statusTone(selectedMission.status)}`}>{selectedMission.status}</span>}
-          </div>
-        </section>
-
-        <aside className="panel right-rail">
-          <div className="panel-title">UNIVERSES</div>
-          <div className="stack">{state?.universes.map((u) => <div className="row" key={u.id}><span>{u.name}</span><b className={u.active ? "good" : "neutral"}>{u.active ? "ACTIVE" : "IDLE"}</b></div>)}</div>
-          <div className="panel-title secondary">AGENTS</div>
-          <div className="stack">{state?.agents.slice(0, 12).map((a) => <div className="row" key={a.id}><span>{a.name}</span><b className={a.active ? "good" : "neutral"}>{a.active ? "LIVE" : "OFF"}</b></div>)}</div>
-          <div className="panel-title secondary">MEMORY LAYERS</div>
-          <div className="memory-grid">{state && Object.entries(state.memory).filter(([k]) => k !== "total").map(([k, value]) => <div key={k}><span>{k}</span><strong>{value}</strong></div>)}</div>
-        </aside>
-      </section>
-
-      <section className="lower-grid lower-grid-primary">
-        <article className="panel"><div className="panel-title">CHRONICLE</div><div className="event-list">{chronicle.length ? chronicle.map((event) => <div className="event" key={event.event_id}><time>{new Date(event.created_at).toLocaleTimeString()}</time><span>{event.event_type}</span><small>{event.aggregate_type}</small></div>) : <div className="empty">Chronicle has no persisted events.</div>}</div></article>
-        <article className="panel"><div className="panel-title">PULSE</div><div className="stack">{pulseEntries.length ? pulseEntries.map(([name, metric]) => <div className="row" key={name}><span>{name}</span><b className="good">{String(metric.value)}</b></div>) : <div className="empty">No persisted Pulse metrics.</div>}</div></article>
-        <article className="panel"><div className="panel-title">TASK DAG</div><div className="dag">{missionTasks.length ? missionTasks.map((task, i) => <div className="dag-item" key={task.id}><span>{i + 1}</span><div><strong>{task.status}</strong><small>{task.attempt_count}/{task.max_attempts} attempts</small></div></div>) : <div className="empty">No task graph for selected mission.</div>}</div></article>
-        <article className="panel"><div className="panel-title">SYSTEM EVENTS</div><div className="event-list">{events.length ? events.map((event) => <div className="event" key={event.event_id}><time>#{event.position}</time><span>{event.event_type}</span><small>{event.aggregate_type}</small></div>) : <div className="empty">No new events since connection.</div>}</div></article>
-      </section>
-
-      <section className="lower-grid lower-grid-secondary">
-        <CreatorConsole enabled={deusReady} />
-        <article className="panel projections-panel"><div className="panel-title">PROJECTIONS</div><div className="stack">{projections?.projections.map((projection) => <div className="row" key={projection.name}><span>{projection.name}</span><b className={statusTone(projection.status)}>{projection.status}{projection.lag ? ` · lag ${projection.lag}` : ""}</b></div>)}</div></article>
-        <article className="panel inference-panel">
-          <div className="panel-title">INFERENCE FABRIC</div>
-          {!inference ? <div className="empty">Inference status unavailable.</div> : !inference.configured ? (
-            <div className="stack"><div className="row"><span>{inference.configured_provider || "none"}</span><b className="warn">UNCONFIGURED</b></div></div>
-          ) : (
-            <div className="stack">
-              {inference.providers.map((provider) => <div className="inference-provider" key={provider.provider}>
-                <div className="row"><span>{provider.provider}</span><b className={statusTone(provider.available ? "AVAILABLE" : "UNAVAILABLE")}>{provider.available ? "AVAILABLE" : "UNAVAILABLE"}</b></div>
-                {provider.detail && <small>{provider.detail}</small>}
-                {provider.models.map((model) => <div className="row" key={`${provider.provider}:${model.model}`}>
-                  <span><span>{model.model}</span><small>{model.capabilities.join(" · ")}</small></span>
-                  <b className="neutral">{model.cost_tier}</b>
+          <article className="panel"><div className="panel-title">MISSIONS</div>
+            <div className="stack">{state.missions.slice(-8).reverse().map((mission) => <div className="row" key={mission.id}><span>{mission.title}</span><b className={statusTone(mission.status)}>{mission.status}</b></div>)}</div>
+          </article>
+          <article className="panel"><div className="panel-title">UNIVERSES</div>
+            <div className="stack">{state.universes.map((u) => <div className="row" key={u.id}><span>{u.name}</span><b className={u.active ? "good" : "neutral"}>{u.active ? "ACTIVE" : "IDLE"}</b></div>)}</div>
+          </article>
+          <article className="panel"><div className="panel-title">AGENTS</div>
+            <div className="stack">{state.agents.slice(0, 12).map((a) => <div className="row" key={a.id}><span>{a.name}</span><b className={a.active ? "good" : "neutral"}>{a.active ? "LIVE" : "OFF"}</b></div>)}</div>
+          </article>
+          <article className="panel"><div className="panel-title">MEMORY LAYERS</div>
+            <div className="memory-grid">{Object.entries(state.memory).filter(([k]) => k !== "total").map(([k, value]) => <div key={k}><span>{k}</span><strong>{value}</strong></div>)}</div>
+          </article>
+          <article className="panel"><div className="panel-title">CHRONICLE</div><div className="event-list">{chronicle.length ? chronicle.map((event) => <div className="event" key={event.event_id}><time>{new Date(event.created_at).toLocaleTimeString()}</time><span>{event.event_type}</span><small>{event.aggregate_type}</small></div>) : <div className="empty">Chronicle has no persisted events.</div>}</div></article>
+          <article className="panel system-events"><div className="panel-title">SYSTEM EVENTS</div><div className="event-list">{events.length ? events.map((event) => <div className="event" key={event.event_id}><time>#{event.position}</time><span>{event.event_type}</span><small>{event.aggregate_type}</small></div>) : <div className="empty">No new events since connection.</div>}</div></article>
+          <article className="panel"><div className="panel-title">PULSE</div><div className="stack">{pulseEntries.length ? pulseEntries.map(([name, metric]) => <div className="row" key={name}><span>{name}</span><b className="good">{String(metric.value)}</b></div>) : <div className="empty">No persisted Pulse metrics.</div>}</div></article>
+          <article className="panel"><div className="panel-title">TASK DAG</div><div className="dag">{missionTasks.length ? missionTasks.map((task, i) => <div className="dag-item" key={task.id}><span>{i + 1}</span><div><strong>{task.status}</strong><small>{task.attempt_count}/{task.max_attempts} attempts</small></div></div>) : <div className="empty">No task graph for selected mission.</div>}</div></article>
+          <article className="panel"><div className="panel-title">PROJECTIONS</div><div className="stack">{projections?.projections.map((projection) => <div className="row" key={projection.name}><span>{projection.name}</span><b className={statusTone(projection.status)}>{projection.status}{projection.lag ? ` · lag ${projection.lag}` : ""}</b></div>)}</div></article>
+          <article className="panel inference-panel">
+            <div className="panel-title">INFERENCE FABRIC</div>
+            {!inference ? <div className="empty">Inference status unavailable.</div> : !inference.configured ? (
+              <div className="stack"><div className="row"><span>{inference.configured_provider || "none"}</span><b className="warn">UNCONFIGURED</b></div></div>
+            ) : (
+              <div className="stack">
+                {inference.providers.map((provider) => <div className="inference-provider" key={provider.provider}>
+                  <div className="row"><span>{provider.provider}</span><b className={statusTone(provider.available ? "AVAILABLE" : "UNAVAILABLE")}>{provider.available ? "AVAILABLE" : "UNAVAILABLE"}</b></div>
+                  {provider.detail && <small>{provider.detail}</small>}
+                  {provider.models.map((model) => <div className="row" key={`${provider.provider}:${model.model}`}>
+                    <span><span>{model.model}</span><small>{model.capabilities.join(" · ")}</small></span>
+                    <b className="neutral">{model.cost_tier}</b>
+                  </div>)}
                 </div>)}
-              </div>)}
-            </div>
-          )}
-        </article>
-      </section>
+              </div>
+            )}
+          </article>
+        </aside>
+      )}
     </main>
   );
 }
