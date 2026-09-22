@@ -122,7 +122,7 @@ jobs:
         run: docker compose down -v --remove-orphans
 
   release:
-    name: local-runtime-build
+    name: runtime-build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -143,5 +143,20 @@ jobs:
               exit 1
             }
           }
+      - name: Validate hardened production Compose
+        env:
+          APP_SECRET_KEY: ci-secret-key-at-least-32-characters
+          CREATOR_BOOTSTRAP_USERNAME: creator
+          CREATOR_BOOTSTRAP_PASSWORD: ci-password
+          DATABASE_URL: postgresql+asyncpg://creation:ci-password@postgres:5432/the_creation_os
+          POSTGRES_PASSWORD: ci-password
+          LLM_PROVIDER: openai
+          EMBEDDING_PROVIDER: openai
+          EMBEDDING_MODEL: text-embedding-3-small
+        run: docker compose -f docker-compose.prod.yml config --quiet
+      - name: Validate Render blueprint
+        run: python -c "import yaml; yaml.safe_load(open('render.yaml'))"
       - name: Build canonical local runtime
         run: docker compose build
+      - name: Build Render frontend image
+        run: docker build -f frontend/Dockerfile.render --build-arg VITE_API_BASE_URL=https://example.invalid/api/v1 frontend

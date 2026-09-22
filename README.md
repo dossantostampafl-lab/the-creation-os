@@ -161,6 +161,28 @@ O repositório também possui CI de build do runtime local, CodeQL/auditoria de 
 
 ## Modelo de implantação
 
-O THE CREATION OS não depende de Railway, Render ou outro runtime cloud. O Docker Compose local é a topologia canônica. O repositório não contém gatilho de deploy cloud; persistência operacional fica nos volumes Docker locais.
+O THE CREATION OS suporta dois modos de execução, ambos mantidos e validados no CI:
 
-O GitHub continua sendo usado para versionamento, Pull Requests, CI, CodeQL e auditoria de dependências. Merge em `main` não deve publicar automaticamente a aplicação em nenhum provedor externo.
+### (a) Local / LAN via Docker Compose
+
+Topologia canônica para uso em estação de trabalho ou rede local. Somente o frontend é publicado na LAN (`8080`); API, PostgreSQL e Redis permanecem restritos ao host ou à rede Docker.
+
+```bash
+cp .env.example .env
+docker compose up -d --build
+curl --fail http://localhost:8000/api/v1/health/ready
+curl --fail http://localhost:8080/healthz
+curl --fail http://localhost:8080/api/v1/health/ready
+```
+
+Para um perfil endurecido (containers read-only, rede interna para dados, segredos obrigatórios via variáveis de ambiente) use `docker-compose.prod.yml`:
+
+```bash
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+### (b) Cloud via Render
+
+`render.yaml` é um blueprint Render que descreve `creation-api` (web), `creation-worker` (worker), `creation-frontend` (web, build por `frontend/Dockerfile.render` e servido por `frontend/nginx.render.conf` na porta `10000`), `creation-redis` (keyvalue) e o banco gerenciado `creation-postgres`. Migrações rodam no `preDeployCommand`; `DATABASE_URL` e `REDIS_URL` vêm de referências gerenciadas, e segredos/providers são `sync: false` (informados no painel). Não há defaults `fake` de provider nesse modo.
+
+Nenhum dos modos é publicado automaticamente em merge para `main`: o GitHub continua sendo usado apenas para versionamento, Pull Requests, CI, CodeQL e auditoria de dependências.

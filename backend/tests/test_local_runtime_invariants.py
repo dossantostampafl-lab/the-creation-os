@@ -12,12 +12,12 @@ def _service_block(text: str, service: str, next_service: str | None) -> str:
     return text[start:end]
 
 
-def test_local_compose_is_canonical_and_cloud_artifacts_are_absent() -> None:
+def test_local_and_cloud_runtimes_are_both_available() -> None:
     assert COMPOSE.is_file()
-    assert not (ROOT / "render.yaml").exists()
-    assert not (ROOT / "docker-compose.prod.yml").exists()
-    assert not (ROOT / "frontend" / "Dockerfile.render").exists()
-    assert not (ROOT / "frontend" / "nginx.render.conf").exists()
+    assert (ROOT / "docker-compose.prod.yml").is_file()
+    assert (ROOT / "render.yaml").is_file()
+    assert (ROOT / "frontend" / "Dockerfile.render").is_file()
+    assert (ROOT / "frontend" / "nginx.render.conf").is_file()
 
 
 def test_only_frontend_is_exposed_to_the_lan() -> None:
