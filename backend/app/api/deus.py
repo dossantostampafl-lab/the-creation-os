@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import actor, correlation_id
+from app.cognition.trinity import TrinityEngine
 from app.config import settings
 from app.core.domain import Actor
 from app.db.session import get_session
@@ -50,11 +51,19 @@ async def converse_with_deus(
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail="Inference provider is not configured") from exc
 
+    model = resolve_configured_model(router_instance)
+    trinity = TrinityEngine(
+        router_instance,
+        provider=settings.llm_provider,
+        model=model,
+        min_confidence=settings.trinity_min_confidence,
+    ) if settings.trinity_enabled else None
     service = DeusConversationService(
         DomainRepository(session),
         router_instance,
         provider=settings.llm_provider,
-        model=resolve_configured_model(router_instance),
+        model=model,
+        trinity=trinity,
     )
     try:
         result = await service.respond(a, str(entity_id), body.content, cid)
@@ -66,7 +75,7 @@ async def converse_with_deus(
         conversation_id=result.conversation_id,
         route="deus",
         response=result.response,
-        inception=None,
+        inception=result.inception,
         system_state=None,
         correlation_id=cid,
     )

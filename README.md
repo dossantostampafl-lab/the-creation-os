@@ -51,6 +51,19 @@ Na barra de conversa, o botão de orelha liga a palavra de ativação: diga **"D
 - **Sem ElevenLabs:** o DEUS usa a voz do próprio navegador, automaticamente.
 - **Microfone:** use Chrome ou Edge. Os navegadores só liberam o microfone em `https://` ou em `http://localhost`, então abra `http://localhost:8080` no próprio computador (pelo IP da rede local, o microfone fica bloqueado).
 
+### Trinity: SOPHIA e ROCKMAM
+
+Cada mensagem ao DEUS passa antes pela **SOPHIA**, que entende a intenção: conversa, pergunta, pedido de missão, decisão ou comando. Quando você pede para algo ser criado ou realizado ("Deus, cria uma landing page para o produto"), a Trinity delibera:
+
+1. **SOPHIA** avalia oportunidades, riscos e recomenda o que fazer.
+2. **ROCKMAM** transforma isso em objetivo, restrições e um plano de missão em etapas, cada uma num Universo.
+3. Uma **guarda determinística** dá o veredito: *viável* se todos os Universos do plano estão ativos, ou *precisa do Creator* se falta criar ou ativar algum.
+
+O resultado vira uma **Inception** aguardando a sua decisão. Ela aparece no chat como um cartão com **Aprovar** e **Rejeitar**, e numa conversa por voz basta dizer "sim, aprova" ou "rejeita". Nada é executado sem a sua aprovação. Tudo fica registrado no Chronicle (`sophia_intent_perceived`, `inception_created`, `inception_submitted`, ou `trinity_failed`, se o modelo falhar; nesse caso o DEUS responde normalmente).
+
+- **Custo:** a percepção é uma chamada curta por mensagem. A deliberação soma duas chamadas, só nos pedidos de missão. Essas chamadas não passam pelo Semantic Cache.
+- **Configuração:** `TRINITY_ENABLED=false` desliga a Trinity. `TRINITY_MIN_CONFIDENCE` (padrão `0.7`) é a confiança mínima da SOPHIA para deliberar.
+
 ### Bridge seguro com o PROTO
 
 O worker pode registrar a capability `proto` para enviar Missions apenas ao bridge autenticado `/creation/missions` do PROTO. A integração é habilitada somente quando `PROTO_BASE_URL` e `PROTO_CREATION_SHARED_SECRET` estão configurados; `PROTO_TIMEOUT_SECONDS` controla o timeout de transporte.

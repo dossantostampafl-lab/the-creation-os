@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isFarewell, splitWakePhrase } from "./voice";
+import { isFarewell, splitWakePhrase, spokenDecision } from "./voice";
 
 describe("splitWakePhrase", () => {
   it("wakes on the bare wake word", () => {
@@ -29,5 +29,22 @@ describe("isFarewell", () => {
   it("keeps requests that merely start politely", () => {
     expect(isFarewell("obrigado, e como está a missão de engenharia agora?")).toBe(false);
     expect(isFarewell("qual é o status dos universos")).toBe(false);
+  });
+});
+
+describe("spokenDecision", () => {
+  it("hears short approvals and rejections", () => {
+    for (const phrase of ["aprova", "Sim, aprova!", "pode aprovar", "aprovado", "approve", "yes approve it"]) {
+      expect(spokenDecision(phrase)).toBe("approve");
+    }
+    for (const phrase of ["rejeita", "não, rejeita", "recusa", "reject", "rejeitado."]) {
+      expect(spokenDecision(phrase)).toBe("reject");
+    }
+  });
+
+  it("leaves other requests alone", () => {
+    expect(spokenDecision("sim")).toBeNull();
+    expect(spokenDecision("aprova e depois me conta como vai ficar a missão inteira")).toBeNull();
+    expect(spokenDecision("qual é o plano")).toBeNull();
   });
 });

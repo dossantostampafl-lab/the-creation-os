@@ -1,9 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
-import { converseWithDeus, createConversation, fetchConversationMessages } from "./api";
-import type { ConversationMessage } from "./api";
+import {
+  converseWithDeus,
+  createConversation,
+  decideInception,
+  fetchConversationMessages,
+  fetchInception,
+  fetchInceptions,
+} from "./api";
+import type { ConversationMessage, Inception } from "./api";
 import type { CosmosMood } from "./Cosmos";
-import { useDeusEars, useDeusVoice, voiceText } from "./voice";
+import { TrinityProposal } from "./TrinityProposal";
+import { spokenDecision, useDeusEars, useDeusVoice, voiceText } from "./voice";
 import "./CreatorConsole.css";
 
 type Props = {
@@ -13,12 +21,25 @@ type Props = {
 
 const CONVERSATION_KEY = "creation_conversation_id";
 
+type Entry = { kind: "message"; at: string; message: ConversationMessage } | { kind: "proposal"; at: string; inception: Inception };
+
+/** Messages and Trinity proposals in the order they happened; a proposal follows the exchange that raised it. */
+function timeline(messages: ConversationMessage[], proposals: Inception[]): Entry[] {
+  const entries: Entry[] = [
+    ...messages.map((message) => ({ kind: "message" as const, at: message.created_at, message })),
+    ...proposals.map((inception) => ({ kind: "proposal" as const, at: inception.proposed_at, inception })),
+  ];
+  return entries.sort((a, b) => Date.parse(a.at) - Date.parse(b.at) || (a.kind === b.kind ? 0 : a.kind === "message" ? -1 : 1));
+}
+
 export function CreatorConsole({ enabled, onMoodChange }: Props) {
   const [conversationId, setConversationId] = useState(() => window.localStorage.getItem(CONVERSATION_KEY));
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [proposals, setProposals] = useState<Inception[]>([]);
+  const [deciding, setDeciding] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   // Text the ears put in the box; only that text may be replaced or cleared by them.
   const voiceDraft = useRef("");
@@ -40,6 +61,17 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
     },
     onCommand: (text) => {
       setConversing(true);
+      const decision = spokenDecision(text);
+      // A spoken answer is about the proposal DEUS presented last.
+      const awaiting = proposals
+        .filter((item) => item.status === "awaiting_creator_decision")
+        .sort((a, b) => Date.parse(a.proposed_at) - Date.parse(b.proposed_at))
+        .at(-1);
+      if (decision && awaiting) {
+        setInput("");
+        void decide(awaiting.id, decision, true);
+        return;
+      }
       setInput(text);
       void send(text);
     },
@@ -75,8 +107,40 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
   }, [conversationId]);
 
   useEffect(() => {
+    if (!conversationId) return;
+    // Proposals still waiting for the Creator survive a reload.
+    void fetchInceptions()
+      .then((items) => setProposals(items.filter((item) =>
+        item.conversation_id === conversationId && item.status === "awaiting_creator_decision" && item.trinity_assessment.verdict)))
+      .catch(() => undefined);
+  }, [conversationId]);
+
+  useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [messages, pending]);
+  }, [messages, proposals, pending]);
+
+  function upsertProposal(inception: Inception) {
+    setProposals((items) => [...items.filter((item) => item.id !== inception.id), inception]);
+  }
+
+  async function decide(id: string, decision: "approve" | "reject", spoken = false) {
+    setDeciding(id);
+    setError(null);
+    try {
+      upsertProposal(await decideInception(id, decision));
+      if (spoken) {
+        voice.speak(decision === "approve" ? voiceText.approved() : voiceText.rejected(), {
+          onEnd: () => { if (conversing.current) ears.summon(); },
+        });
+      }
+    } catch {
+      setError("The decision could not be recorded.");
+      // No confirmation will be spoken, so nothing would reopen the ears.
+      if (spoken) setConversing(false);
+    } finally {
+      setDeciding(null);
+    }
+  }
 
   function voiceReply(latest: ConversationMessage[]) {
     const reply = [...latest].reverse().find((message) => message.role === "deus");
@@ -100,9 +164,12 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
         setConversationId(id);
       }
       setInput("");
-      await converseWithDeus(id, content);
+      const reply = await converseWithDeus(id, content);
       const latest = await fetchConversationMessages(id);
       setMessages(latest);
+      if (reply.inception) {
+        await fetchInception(reply.inception.id).then(upsertProposal).catch(() => undefined);
+      }
       voiceReply(latest);
     } catch (failure) {
       const message = failure instanceof Error ? failure.message : "CONVERSATION_FAILED";
@@ -124,10 +191,17 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
     <section className="creator-console" aria-labelledby="creator-console-title">
       <h2 id="creator-console-title" className="sr-only">Creator Console</h2>
       <div className="console-messages" ref={scrollRef} aria-live="polite">
-        {messages.map((message) => (
-          <div className={`console-message ${message.role === "deus" ? "deus-message" : "creator-message"}`} key={message.id}>
-            <span>{message.role === "deus" ? "DEUS" : "CREATOR"}</span>
-            <p>{message.content}</p>
+        {timeline(messages, proposals).map((entry) => entry.kind === "proposal" ? (
+          <TrinityProposal
+            key={entry.inception.id}
+            inception={entry.inception}
+            busy={deciding === entry.inception.id}
+            onDecide={(decision) => void decide(entry.inception.id, decision)}
+          />
+        ) : (
+          <div className={`console-message ${entry.message.role === "deus" ? "deus-message" : "creator-message"}`} key={entry.message.id}>
+            <span>{entry.message.role === "deus" ? "DEUS" : "CREATOR"}</span>
+            <p>{entry.message.content}</p>
           </div>
         ))}
         {pending && <div className="console-thinking" aria-label="DEUS is thinking"><i /><i /><i /></div>}

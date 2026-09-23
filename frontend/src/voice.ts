@@ -26,6 +26,8 @@ export const voiceText = {
   listening: () => (portuguese() ? "Ouvindo…" : "Listening…"),
   farewell: () => (portuguese() ? "Até logo." : "Goodbye."),
   conversationHint: () => (portuguese() ? "Em conversa — diga “tchau” para encerrar" : "In conversation — say “bye” to end"),
+  approved: () => (portuguese() ? "Inception aprovada." : "Inception approved."),
+  rejected: () => (portuguese() ? "Inception rejeitada." : "Inception rejected."),
 };
 
 // Short phrases that close a voice conversation ("tchau", "obrigado", "pode parar", "bye"...).
@@ -35,6 +37,19 @@ const FAREWELL = /^(tchau|até logo|até mais|até amanhã|obrigad[oa]|valeu|pod
 export function isFarewell(transcript: string): boolean {
   const text = transcript.trim().replace(/[.!?]+$/u, "");
   return text.split(/\s+/).filter(Boolean).length <= 4 && FAREWELL.test(text);
+}
+
+// Short answers to a Trinity proposal ("sim, aprova", "rejeita", "approve it"...).
+const APPROVE = /^((sim|pode|yes|ok)[,]?\s+)?(aprov[ae]r?|aprovad[oa]|approve|approved)\b/iu;
+const REJECT = /^((não|nao|no)[,]?\s+)?(rejeit[ae]r?|rejeitad[oa]|recus[ae]r?|reject|rejected|decline)\b/iu;
+
+/** The Creator's spoken decision on a pending proposal, or null when the utterance is anything else. */
+export function spokenDecision(transcript: string): "approve" | "reject" | null {
+  const text = transcript.trim().replace(/[.!?]+$/u, "");
+  if (text.split(/\s+/).filter(Boolean).length > 5) return null;
+  if (APPROVE.test(text)) return "approve";
+  if (REJECT.test(text)) return "reject";
+  return null;
 }
 
 /** Live loudness of DEUS's voice (0–1), read by the cosmic brain every frame. */

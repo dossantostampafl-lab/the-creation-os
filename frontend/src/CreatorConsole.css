@@ -42,6 +42,54 @@
 }
 .creator-message { justify-self: end; text-align: right; }
 .creator-message p { border: 1px solid #ffffff14; background: #ffffff0f; color: #e7e9ff; border-top-right-radius: 4px; text-align: left; }
+.trinity-proposal {
+  justify-self: start;
+  width: min(100%, 600px);
+  box-sizing: border-box;
+  padding: 14px 18px;
+  border-radius: 18px;
+  border: 1px solid #3fdcff55;
+  background: linear-gradient(135deg, #0b2a44cc, #120c30cc);
+  box-shadow: 0 0 36px #3fdcff26;
+  backdrop-filter: blur(12px);
+  color: #e7f7ff;
+  font-size: 14px;
+  line-height: 1.45;
+  animation: messageIn .5s ease-out;
+}
+.trinity-proposal header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.trinity-proposal header span { font: 600 9px var(--mono); letter-spacing: .3em; color: #b9f3ff; }
+.trinity-proposal .verdict { font: 600 10px var(--mono); letter-spacing: .08em; padding: 3px 9px; border-radius: 99px; }
+.trinity-proposal .verdict.viable { color: #7dffc4; border: 1px solid #7dffc466; }
+.trinity-proposal .verdict.needs-creator { color: #ffd27d; border: 1px solid #ffd27d66; }
+.trinity-proposal h3 { margin: 8px 0 4px; font-size: 16px; color: #fff; }
+.trinity-proposal h4 { margin: 10px 0 2px; font: 600 9px var(--mono); letter-spacing: .3em; color: #9fb4e6; }
+.trinity-proposal p { margin: 0; }
+.trinity-proposal .objective { color: #cfe9ff; }
+.trinity-proposal .risks { margin-top: 4px; color: #ffc6a8; font-size: 13px; }
+.trinity-proposal ol { margin: 2px 0 0; padding-left: 20px; }
+.proposal-body { display: grid; grid-template-columns: 1fr 1fr; gap: 0 20px; }
+/* Leave room for a proposal without hiding the conversation behind the fade. */
+.console-messages:has(.trinity-proposal) { max-height: 44vh; }
+.trinity-proposal li em { margin-left: 6px; font: 10px var(--mono); font-style: normal; color: #9fb4e6; }
+.proposal-actions { display: flex; gap: 8px; margin-top: 12px; }
+.proposal-actions button {
+  padding: 8px 18px;
+  border-radius: 99px;
+  border: 1px solid transparent;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform .2s, opacity .2s;
+}
+.proposal-actions button:hover:not(:disabled) { transform: scale(1.04); }
+.proposal-actions button:disabled { opacity: .45; cursor: wait; }
+.proposal-actions .approve { background: linear-gradient(135deg, #1fbf8f, #3fdcff); color: #04121c; }
+.proposal-actions .reject { background: transparent; border-color: #ff7b8f88; color: #ffb3bf; }
+.trinity-proposal .decided { margin-top: 10px; font: 600 10px var(--mono); letter-spacing: .2em; text-transform: uppercase; }
+.trinity-proposal .decided.approved { color: #7dffc4; }
+.trinity-proposal .decided.rejected, .trinity-proposal .decided.cancelled { color: #ff9aaa; }
 .console-thinking { justify-self: start; display: flex; gap: 6px; padding: 12px 16px; }
 .console-thinking i { width: 7px; height: 7px; border-radius: 50%; background: #d98bff; box-shadow: 0 0 10px #d98bff; animation: thinking 1.2s ease-in-out infinite; }
 .console-thinking i:nth-child(2) { animation-delay: .15s; }
@@ -130,6 +178,7 @@
 
 @media (max-width: 760px) {
   .creator-console { bottom: 12px; }
+  .proposal-body { grid-template-columns: 1fr; }
   .console-messages { max-height: 32vh; }
   .console-message p { font-size: 14px; }
 }

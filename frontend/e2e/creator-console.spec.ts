@@ -19,6 +19,7 @@ async function mockDashboard(page: import("@playwright/test").Page) {
   await page.route("**/api/v1/chronicles?limit=40&offset=0", (route) => route.fulfill({ status: 200, contentType: "application/json", body: "[]" }));
   await page.route("**/api/v1/system/inference", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ configured: true, configured_provider: "stub", providers: [{ provider: "stub", available: true, detail: null, models: [{ model: "stub-model", is_default: true, capabilities: ["text"], cost_tier: "UNKNOWN" }] }] }) }));
   await page.route("**/api/v1/system/events?after=1", (route) => route.fulfill({ status: 200, contentType: "text/event-stream", body: "" }));
+  await page.route("**/api/v1/inceptions", (route) => route.fulfill({ status: 200, contentType: "application/json", body: "[]" }));
 }
 
 test("Creator can start a conversation and receive a DEUS response", async ({ page }) => {
@@ -261,4 +262,113 @@ test("after “Deus” the conversation continues without the wake word until go
   await expect.poll(() => spokenLines(page)).toEqual(["I'm here.", "All universes are breathing.", "All universes are breathing.", "Goodbye."]);
   expect(sent).toEqual(["Status report", "And the missions?"]);
   await expect(page.getByText("Say “Deus” to call")).toBeVisible();
+});
+
+const proposal = {
+  id: "inception-1",
+  conversation_id: "conversation-1",
+  title: "Landing page",
+  description: "Publish a landing page.",
+  status: "awaiting_creator_decision",
+  proposed_at: "2026-09-11T12:00:02Z",
+  trinity_assessment: {
+    sophia: { opportunities: ["Reach visitors"], risks: ["Copy needs review"], recommendation: "Start with one simple page." },
+    rockmam: { objective: "Publish a landing page.", constraints: [], completion_criteria: [] },
+    mission_plan: { strategy: "Write, then build.", steps: [
+      { step_key: "build", title: "Build the page", universe: "WEB", position: 2 },
+      { step_key: "write", title: "Write the copy", universe: "CONTENT", position: 1 },
+    ] },
+    verdict: { result: "REQUIRES_CREATOR", unavailable_universes: ["WEB"] },
+  },
+};
+
+async function mockTrinity(page: import("@playwright/test").Page, sent: string[], decisions: string[]) {
+  await mockConversation(page, sent);
+  await page.route("**/api/v1/conversations/conversation-1/deus", (route) => {
+    sent.push((route.request().postDataJSON() as { content: string }).content);
+    return route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({
+      response: "SOPHIA and ROCKMAM propose a landing page.",
+      inception: { id: "inception-1", title: "Landing page", status: "awaiting_creator_decision", verdict: "REQUIRES_CREATOR" },
+    }) });
+  });
+  await page.route("**/api/v1/inceptions/inception-1", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(proposal) }));
+  for (const [decision, status] of [["approve", "approved"], ["reject", "rejected"]]) {
+    await page.route(`**/api/v1/inceptions/inception-1/${decision}`, (route) => {
+      decisions.push(decision);
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ...proposal, status }) });
+    });
+  }
+}
+
+test("a Mission request shows the Trinity proposal, which the Creator can approve", async ({ page }) => {
+  await installFakeSpeech(page);
+  await mockDashboard(page);
+  await page.route("**/api/v1/voice/synthesize", (route) => route.fulfill({ status: 501, body: "{}" }));
+  const sent: string[] = [];
+  const decisions: string[] = [];
+  await mockTrinity(page, sent, decisions);
+
+  await page.goto("/");
+  await page.getByLabel("Message DEUS").fill("Build a landing page");
+  await page.getByLabel("Message DEUS").press("Enter");
+
+  const card = page.getByRole("article", { name: "Trinity proposal: Landing page" });
+  await expect(card).toBeVisible();
+  await expect(card.getByText("Needs WEB")).toBeVisible();
+  await expect(card.getByText("Start with one simple page.")).toBeVisible();
+  await expect(card.getByText("Risks: Copy needs review")).toBeVisible();
+  await expect(card.getByRole("listitem")).toHaveText(["Write the copy CONTENT", "Build the page WEB"]);
+
+  await card.getByRole("button", { name: "Approve" }).click();
+  await expect(card.getByText("Approved")).toBeVisible();
+  await expect(card.getByRole("button", { name: "Approve" })).toHaveCount(0);
+  expect(decisions).toEqual(["approve"]);
+});
+
+test("in a voice conversation, “sim, aprova” approves the pending proposal instead of messaging DEUS", async ({ page }) => {
+  await installFakeSpeech(page);
+  await mockDashboard(page);
+  await page.route("**/api/v1/voice/synthesize", (route) => route.fulfill({ status: 501, body: "{}" }));
+  const sent: string[] = [];
+  const decisions: string[] = [];
+  await mockTrinity(page, sent, decisions);
+  const say = (text: string) => page.evaluate((t) => (window as unknown as { __say: (t: string) => boolean }).__say(t), text);
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Turn on “Deus” wake word" }).click();
+  await expect.poll(() => say("Deus, build a landing page")).toBe(true);
+  await expect(page.getByRole("article", { name: "Trinity proposal: Landing page" })).toBeVisible();
+
+  await expect.poll(() => spokenLines(page)).toHaveLength(1);
+  await expect.poll(() => say("sim, aprova")).toBe(true);
+  await expect.poll(() => decisions).toEqual(["approve"]);
+  await expect.poll(() => spokenLines(page)).toEqual(["All universes are breathing.", "Inception approved."]);
+  expect(sent).toEqual(["build a landing page"]);
+});
+
+test("a spoken decision answers the newest proposal, not an older one still pending", async ({ page }) => {
+  await installFakeSpeech(page);
+  await mockDashboard(page);
+  await page.addInitScript(() => localStorage.setItem("creation_conversation_id", "conversation-1"));
+  const older = { ...proposal, id: "inception-0", title: "Older idea", proposed_at: "2026-09-10T08:00:00Z" };
+  await page.route("**/api/v1/inceptions", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([older]) }));
+  await page.route("**/api/v1/voice/synthesize", (route) => route.fulfill({ status: 501, body: "{}" }));
+  const sent: string[] = [];
+  const decisions: string[] = [];
+  await mockTrinity(page, sent, decisions);
+  await page.route("**/api/v1/inceptions/inception-0/approve", (route) => {
+    decisions.push("approve-older");
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ...older, status: "approved" }) });
+  });
+  const say = (text: string) => page.evaluate((t) => (window as unknown as { __say: (t: string) => boolean }).__say(t), text);
+
+  await page.goto("/");
+  await expect(page.getByRole("article", { name: "Trinity proposal: Older idea" })).toBeVisible();
+  await page.getByRole("button", { name: "Turn on “Deus” wake word" }).click();
+  await expect.poll(() => say("Deus, build a landing page")).toBe(true);
+  await expect(page.getByRole("article", { name: "Trinity proposal: Landing page" })).toBeVisible();
+
+  await expect.poll(() => spokenLines(page)).toHaveLength(1);
+  await expect.poll(() => say("aprova")).toBe(true);
+  await expect.poll(() => decisions).toEqual(["approve"]);
 });
