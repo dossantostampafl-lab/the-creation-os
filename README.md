@@ -161,6 +161,17 @@ Acesse a porta encaminhada **8080** ("Frontend (UI + API proxy)"): o nginx serve
 
 As migrations continuam sendo aplicadas pelo `command` do serviço `api` no boot do stack.
 
+Ao abrir, `.devcontainer/prepare-env.sh` deixa o `.env` pronto, e pode ser rodado de novo a qualquer momento sem estragar nada:
+
+- cria o `.env` a partir do `.env.example` quando ele não existe;
+- **acrescenta as configurações que o `.env.example` ganhou depois**, preservando tudo o que você já preencheu. Um `.env` antigo é o motivo mais comum de uma chave parecer configurada e o provider não responder: a variável que ele precisa simplesmente não está no arquivo;
+- **preenche os segredos em branco a partir do ambiente**, então um Codespace secret basta e a chave nunca precisa ser colada no editor — o que o navegador bloqueia em tablet e celular;
+- se uma chave chegou e o `LLM_PROVIDER` ainda era `fake`, aponta para o provider correspondente.
+
+Ele nunca sobrescreve um valor já preenchido e nunca imprime um segredo.
+
+Para usar Codespace secrets, cadastre em **github.com/settings/codespaces** os nomes que quiser (`ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `FREELLMAPI_API_KEY`, `ELEVENLABS_API_KEY`, entre outros), dando acesso a este repositório, e recrie o Codespace.
+
 Em host Windows, crie o `.env` antes de abrir o dev container (`.\scripts\local-start.ps1` já faz isso, ou copie `.env.example` manualmente): a criação automática do `.env` depende de um shell POSIX no host.
 
 ## Migrations

@@ -10,8 +10,8 @@
   "overrideCommand": false,
   "shutdownAction": "stopCompose",
   "remoteUser": "root",
-  "initializeCommand": "sh -c 'cd \"${localWorkspaceFolder}\" && cp -n .env.example .env'",
-  "postCreateCommand": "cp -n .env.example .env || true",
+  "initializeCommand": "sh -c 'cd \"${localWorkspaceFolder}\" && sh .devcontainer/prepare-env.sh'",
+  "postCreateCommand": "sh .devcontainer/prepare-env.sh || true",
   "forwardPorts": [8080, 8000],
   "portsAttributes": {
     "8080": {
