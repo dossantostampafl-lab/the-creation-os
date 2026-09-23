@@ -36,12 +36,20 @@ Providers `fake` são permitidos somente para bootstrap/desenvolvimento. Para in
 | --- | --- | --- |
 | `openai` | `LLM_MODEL`, `LLM_API_KEY` | `https://api.openai.com/v1/responses` |
 | `anthropic` | `ANTHROPIC_MODEL`, `ANTHROPIC_API_KEY` | `https://api.anthropic.com/v1/messages` |
-| `freellmapi` | `FREELLMAPI_MODEL`, `FREELLMAPI_API_KEY`, `FREELLMAPI_BASE_URL` | gateway configurado |
+| `freellmapi` | `FREELLMAPI_MODEL` (ex.: `auto`), `FREELLMAPI_API_KEY` (chave `freellmapi-…` gerada pelo próprio FreeLLMAPI), `FREELLMAPI_BASE_URL` | FreeLLMAPI rodando no computador (`http://host.docker.internal:3001/v1`) |
 | `openai_compatible` | `OPENAI_COMPATIBLE_MODEL`, `OPENAI_COMPATIBLE_BASE_URL` | gateway compatível (Ollama, vLLM, …) |
 
 O provider `anthropic` usa a Messages API nativa do Claude: mensagens `system` são elevadas ao campo `system` da requisição, `ANTHROPIC_MAX_OUTPUT_TOKENS` define o teto padrão de saída (exigido pela API) e `ANTHROPIC_BASE_URL`/`ANTHROPIC_TIMEOUT_SECONDS` permitem apontar para um proxy corporativo.
 
 Enquanto o provider selecionado for `fake`, o status de inferência é reportado como `UNCONFIGURED` e o Creator Console permanece desabilitado — o sistema recusa fabricar respostas do DEUS.
+
+### Voz do DEUS (como uma Alexa)
+
+Na barra de conversa, o botão de orelha liga a palavra de ativação: diga **"Deus"** e ele responde "Estou aqui" e ouve o seu pedido. Também dá para falar tudo de uma vez: "Deus, como estão os universos?". Depois da primeira fala a conversa continua: quando o DEUS termina de responder ele volta a ouvir sozinho, sem precisar dizer "Deus" de novo. A conversa termina depois de alguns segundos de silêncio ou quando você diz "tchau", "obrigado", "pode parar" ou "é só isso". O botão de microfone faz a mesma coisa sem a palavra de ativação, e o de alto-falante liga ou desliga a voz.
+
+- **Voz ElevenLabs (recomendada):** no `.env`, defina `ELEVENLABS_ENABLED=true`, `ELEVENLABS_API_KEY=<sua chave>` e, se quiser, outro `ELEVENLABS_VOICE_ID`. A chave fica só no backend (`POST /api/v1/voice/synthesize`).
+- **Sem ElevenLabs:** o DEUS usa a voz do próprio navegador, automaticamente.
+- **Microfone:** use Chrome ou Edge. Os navegadores só liberam o microfone em `https://` ou em `http://localhost`, então abra `http://localhost:8080` no próprio computador (pelo IP da rede local, o microfone fica bloqueado).
 
 ### Bridge seguro com o PROTO
 

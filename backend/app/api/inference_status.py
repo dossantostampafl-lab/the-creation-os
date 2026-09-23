@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from app.api.living_core import actor
+from app.api.dependencies import actor
 from app.config import settings
 from app.core.domain import Actor
 from app.inference.status import InferenceStatusSnapshot, configured_inference_status

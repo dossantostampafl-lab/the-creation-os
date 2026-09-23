@@ -131,3 +131,20 @@ async def test_tag_invalidation_removes_redis_and_database_hit(cache_runtime: Ca
     after = await cache_runtime.lookup(req)
     assert after.decision.decision is CacheDecisionType.MISS
     await cache_runtime.abort(after)
+
+
+@pytest.mark.asyncio
+async def test_shared_exact_entry_stays_invalidatable_by_every_conversation(cache_runtime: CacheOrchestrator) -> None:
+    # Two conversations miss concurrently on the same question and both admit an answer.
+    first = request("Explain the Central Core", cache_tags=["conversation:a"])
+    second = request("Explain the Central Core", cache_tags=["conversation:b"])
+    first_lookup = await cache_runtime.lookup(first)
+    second_lookup = await cache_runtime.lookup(second)
+    assert first_lookup.exact_key == second_lookup.exact_key
+    answer = InferenceResponse(provider="provider-a", model="model-a", content="The Central Core is shared.")
+    await cache_runtime.admit(first, answer, first_lookup)
+    await cache_runtime.admit(second, answer, second_lookup)
+
+    assert await cache_runtime.invalidate(tags=["conversation:a"], creator_scope="creator-a") == 1
+    third = await cache_runtime.lookup(request("Explain the Central Core", cache_tags=["conversation:c"]))
+    assert third.decision.decision != CacheDecisionType.HIT

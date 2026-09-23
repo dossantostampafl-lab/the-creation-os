@@ -6,7 +6,8 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.living_core import actor, correlation_id, mission_response, service
+from app.api.dependencies import actor, correlation_id
+from app.api.living_core import mission_response, service
 from app.capabilities.mission_authorization import set_mission_authorization
 from app.core.domain import Actor, MissionStatus
 from app.db.session import get_session

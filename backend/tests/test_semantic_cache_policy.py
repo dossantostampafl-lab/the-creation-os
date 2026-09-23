@@ -85,3 +85,11 @@ def test_exact_identity_changes_across_creator_scope() -> None:
     key_b = build_exact_key(normalized_query=normalized, context={"creator_scope": "creator-b"})
     assert normalized == "explain central core"
     assert key_a != key_b
+
+
+def test_exact_identity_ignores_invalidation_tags() -> None:
+    normalized = normalize_query("O que é a Criação?")
+    context = {"creator_scope": "creator-a", "context_hash": "same"}
+    key_a = build_exact_key(normalized_query=normalized, context={**context, "tags": ["conversation:one"]})
+    key_b = build_exact_key(normalized_query=normalized, context={**context, "tags": ["conversation:two"]})
+    assert key_a == key_b

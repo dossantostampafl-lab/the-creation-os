@@ -97,6 +97,21 @@ export const converseWithDeus = (conversationId: string, content: string) =>
     body: JSON.stringify({ content, metadata: {} }),
   });
 
+/** DEUS voice through the backend's ElevenLabs proxy; the provider key never reaches the browser. */
+export async function synthesizeVoice(text: string, signal?: AbortSignal): Promise<Blob> {
+  const response = await fetch(`${API_BASE}/voice/synthesize`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token()}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+    signal,
+  });
+  if (response.status === 401 || response.status === 403) throw new Error("AUTH_REQUIRED");
+  if (!response.ok) throw new Error(`HTTP_${response.status}`);
+  const audio = await response.blob();
+  if (!audio.size || !audio.type.startsWith("audio/")) throw new Error("VOICE_INVALID_AUDIO");
+  return audio;
+}
+
 export type StreamHandlers = {
   onEvent: (event: ChronicleEvent) => void;
   onResync: () => void;

@@ -36,7 +36,8 @@ def test_frontend_nginx_configs_apply_browser_security_headers() -> None:
         'add_header X-Content-Type-Options "nosniff" always;',
         'add_header X-Frame-Options "DENY" always;',
         'add_header Referrer-Policy "no-referrer" always;',
-        'add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()" always;',
+        # The microphone is allowed for this origin only, so the Creator can speak to DEUS.
+        'add_header Permissions-Policy "camera=(), microphone=(self), geolocation=(), payment=(), usb=()" always;',
         "add_header Content-Security-Policy",
         "server_tokens off;",
     }
