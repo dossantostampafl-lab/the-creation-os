@@ -124,6 +124,8 @@ Acesse a porta encaminhada **8080** ("Frontend (UI + API proxy)"): o nginx serve
 
 As migrations continuam sendo aplicadas pelo `command` do serviço `api` no boot do stack.
 
+Em host Windows, crie o `.env` antes de abrir o dev container (`.\scripts\local-start.ps1` já faz isso, ou copie `.env.example` manualmente): a criação automática do `.env` depende de um shell POSIX no host.
+
 ## Migrations
 
 ```bash
