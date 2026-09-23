@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.capabilities.contracts import CapabilityIntent, MissionAuthorization
 from app.capabilities.runtime import CapabilityRuntime
+from app.config import settings
 from app.inference.contracts import InferenceRequest, ModelRequirements, ProviderUnavailable
 from app.inference.router import ModelRouter
 from app.kernel.completion_engine import MissionCompletionEngine
@@ -55,6 +56,10 @@ class AgentRuntime:
         preferred_provider = capabilities.get("inference_provider")
         fallback_providers = list(capabilities.get("fallback_providers", []))
         model = capabilities.get("model")
+        if not fallback_providers and model is None:
+            chain = settings.inference_provider_chain
+            if preferred_provider == chain[0]:
+                fallback_providers = chain[1:]
         if not preferred_provider:
             await self._finish_failure(
                 mission_id,
