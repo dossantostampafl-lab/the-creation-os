@@ -233,3 +233,32 @@ test("typing while DEUS listens keeps the typed text and ends listening", async 
   await page.clock.runFor(9000);
   await expect(page.getByLabel("Message DEUS")).toHaveValue("typed by hand");
 });
+
+test("after “Deus” the conversation continues without the wake word until goodbye", async ({ page }) => {
+  await installFakeSpeech(page);
+  await mockDashboard(page);
+  await page.route("**/api/v1/voice/synthesize", (route) => route.fulfill({ status: 501, body: "{}" }));
+  const sent: string[] = [];
+  await mockConversation(page, sent);
+  const say = (text: string) => page.evaluate((t) => (window as unknown as { __say: (t: string) => boolean }).__say(t), text);
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Turn on “Deus” wake word" }).click();
+
+  await expect.poll(() => say("Deus")).toBe(true);
+  await expect.poll(() => spokenLines(page)).toEqual(["I'm here."]);
+  await expect.poll(() => say("Status report")).toBe(true);
+  await expect.poll(() => sent).toEqual(["Status report"]);
+  await expect(page.getByText("In conversation — say “bye” to end")).toBeVisible();
+
+  // No wake word needed for the follow-up.
+  await expect.poll(() => spokenLines(page)).toHaveLength(2);
+  await expect.poll(() => say("And the missions?")).toBe(true);
+  await expect.poll(() => sent).toEqual(["Status report", "And the missions?"]);
+
+  await expect.poll(() => spokenLines(page)).toHaveLength(3);
+  await expect.poll(() => say("tchau")).toBe(true);
+  await expect.poll(() => spokenLines(page)).toEqual(["I'm here.", "All universes are breathing.", "All universes are breathing.", "Goodbye."]);
+  expect(sent).toEqual(["Status report", "And the missions?"]);
+  await expect(page.getByText("Say “Deus” to call")).toBeVisible();
+});

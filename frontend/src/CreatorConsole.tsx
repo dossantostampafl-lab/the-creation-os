@@ -22,14 +22,31 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   // Text the ears put in the box; only that text may be replaced or cleared by them.
   const voiceDraft = useRef("");
+  // A voice conversation: after each spoken reply DEUS listens again without the wake word,
+  // until the Creator goes quiet, says goodbye, or starts typing.
+  const [inConversation, setInConversation] = useState(false);
+  const conversing = useRef(false);
+  const setConversing = (value: boolean) => {
+    conversing.current = value;
+    setInConversation(value);
+  };
   const voice = useDeusVoice();
   const ears = useDeusEars({
     // Never listen while DEUS cannot answer, is thinking, or is speaking (it would hear itself).
     paused: !enabled || pending || voice.speaking,
-    onWake: () => voice.speak(voiceText.greeting()),
+    onWake: () => {
+      setConversing(true);
+      voice.speak(voiceText.greeting());
+    },
     onCommand: (text) => {
+      setConversing(true);
       setInput(text);
       void send(text);
+    },
+    onLapse: () => setConversing(false),
+    onFarewell: () => {
+      setConversing(false);
+      voice.speak(voiceText.farewell());
     },
     onInterim: (text) => {
       setInput((typed) => (typed === voiceDraft.current || typed === "" ? text : typed));
@@ -63,7 +80,9 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
 
   function voiceReply(latest: ConversationMessage[]) {
     const reply = [...latest].reverse().find((message) => message.role === "deus");
-    if (reply) voice.speak(reply.content);
+    if (!reply) return;
+    // Keep the conversation going: listen for the follow-up once DEUS has finished speaking.
+    voice.speak(reply.content, { onEnd: () => { if (conversing.current) ears.summon(); } });
   }
 
   async function send(text?: string) {
@@ -88,6 +107,7 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
     } catch (failure) {
       const message = failure instanceof Error ? failure.message : "CONVERSATION_FAILED";
       setError(message === "HTTP_503" ? "Inference provider is not configured." : "DEUS conversation failed.");
+      setConversing(false);
     } finally {
       setPending(false);
     }
@@ -119,6 +139,7 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
           onChange={(event) => {
             // Typing takes over from listening.
             if (ears.state === "attentive") ears.dismiss();
+            setConversing(false);
             setInput(event.target.value);
           }}
           onKeyDown={handleKeyDown}
@@ -158,7 +179,7 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
               aria-label={ears.state === "attentive" ? "Stop listening" : "Talk to DEUS"}
               aria-pressed={ears.state === "attentive"}
               disabled={!enabled || pending}
-              onClick={ears.state === "attentive" ? ears.dismiss : () => { voice.stop(); ears.summon(); }}
+              onClick={ears.state === "attentive" ? () => { setConversing(false); ears.dismiss(); } : () => { voice.stop(); setConversing(true); ears.summon(); }}
             >
               <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" /></svg>
             </button>
@@ -168,7 +189,9 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h14M13 6l6 6-6 6" /></svg>
         </button>
       </form>
-      {ears.state === "sleeping" && <div className="wake-hint" aria-live="polite"><i />{voiceText.wakeHint()}</div>}
+      {inConversation
+        ? <div className="wake-hint conversing" aria-live="polite"><i />{voiceText.conversationHint()}</div>
+        : ears.state === "sleeping" && <div className="wake-hint" aria-live="polite"><i />{voiceText.wakeHint()}</div>}
       {(error ?? ears.error) && <div className="console-error" role="alert">{error ?? ears.error}</div>}
     </section>
   );

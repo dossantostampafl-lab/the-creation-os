@@ -24,7 +24,18 @@ export const voiceText = {
   greeting: () => (portuguese() ? "Estou aqui." : "I'm here."),
   wakeHint: () => (portuguese() ? "Diga “Deus” para chamar" : "Say “Deus” to call"),
   listening: () => (portuguese() ? "Ouvindo…" : "Listening…"),
+  farewell: () => (portuguese() ? "Até logo." : "Goodbye."),
+  conversationHint: () => (portuguese() ? "Em conversa — diga “tchau” para encerrar" : "In conversation — say “bye” to end"),
 };
+
+// Short phrases that close a voice conversation ("tchau", "obrigado", "pode parar", "bye"...).
+const FAREWELL = /^(tchau|até logo|até mais|até amanhã|obrigad[oa]|valeu|pode parar|para de ouvir|chega|encerrar|encerra|é só isso|só isso|bye|goodbye|thanks|thank you|stop listening|that's all)\b/iu;
+
+/** True when a short utterance only says goodbye, so a longer "obrigado, e a missão?" still counts as a request. */
+export function isFarewell(transcript: string): boolean {
+  const text = transcript.trim().replace(/[.!?]+$/u, "");
+  return text.split(/\s+/).filter(Boolean).length <= 4 && FAREWELL.test(text);
+}
 
 /** Live loudness of DEUS's voice (0–1), read by the cosmic brain every frame. */
 export const voiceActivity = { level: 0 };
@@ -321,6 +332,10 @@ type EarsOptions = {
   onCommand: (text: string) => void;
   /** Live transcript while DEUS is attentive. */
   onInterim: (text: string) => void;
+  /** Attention lapsed because nobody spoke. */
+  onLapse?: () => void;
+  /** The Creator said goodbye while DEUS was attentive. */
+  onFarewell?: () => void;
 };
 
 /** The wake word ("Deus") followed by a pause makes DEUS attentive; "Deus, <request>" sends the request at once. */
@@ -331,7 +346,7 @@ export function splitWakePhrase(transcript: string): { woke: boolean; request: s
   return { woke: true, request };
 }
 
-export function useDeusEars({ paused, onWake, onCommand, onInterim }: EarsOptions) {
+export function useDeusEars({ paused, onWake, onCommand, onInterim, onLapse, onFarewell }: EarsOptions) {
   const supported = typeof window !== "undefined" && recognitionConstructor() !== null;
   const [wakeEnabled, setWakeEnabled] = useState(() => supported && readPreference(WAKE_KEY, false));
   const [state, setState] = useState<EarsState>("off");
@@ -342,8 +357,8 @@ export function useDeusEars({ paused, onWake, onCommand, onInterim }: EarsOption
   const attentive = useRef(false);
   const attentionTimer = useRef(0);
   const desired = useRef({ wakeEnabled, paused });
-  const handlers = useRef({ onWake, onCommand, onInterim });
-  handlers.current = { onWake, onCommand, onInterim };
+  const handlers = useRef({ onWake, onCommand, onInterim, onLapse, onFarewell });
+  handlers.current = { onWake, onCommand, onInterim, onLapse, onFarewell };
   desired.current = { wakeEnabled, paused };
 
   const publish = useCallback(() => {
@@ -365,6 +380,7 @@ export function useDeusEars({ paused, onWake, onCommand, onInterim }: EarsOption
     attentionTimer.current = window.setTimeout(() => {
       attentive.current = false;
       handlers.current.onInterim("");
+      handlers.current.onLapse?.();
       sync();
     }, ATTENTION_MS);
   }
@@ -374,7 +390,14 @@ export function useDeusEars({ paused, onWake, onCommand, onInterim }: EarsOption
     if (!text) return;
     if (attentive.current) {
       setAttentive(false);
-      handlers.current.onCommand(text);
+      if (isFarewell(text)) {
+        handlers.current.onInterim("");
+        handlers.current.onFarewell?.();
+        return;
+      }
+      // Already listening, so a leading "Deus, ..." is just a form of address.
+      const { woke, request } = splitWakePhrase(text);
+      handlers.current.onCommand(woke && request ? request : text);
       return;
     }
     const { woke, request } = splitWakePhrase(text);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { splitWakePhrase } from "./voice";
+import { isFarewell, splitWakePhrase } from "./voice";
 
 describe("splitWakePhrase", () => {
   it("wakes on the bare wake word", () => {
@@ -16,5 +16,18 @@ describe("splitWakePhrase", () => {
   it("ignores words that merely contain the wake word", () => {
     expect(splitWakePhrase("adeus, até amanhã")).toEqual({ woke: false, request: "" });
     expect(splitWakePhrase("deusa da criação")).toEqual({ woke: false, request: "" });
+  });
+});
+
+describe("isFarewell", () => {
+  it("recognises short goodbyes in Portuguese and English", () => {
+    for (const phrase of ["tchau", "Tchau!", "até logo", "obrigado", "pode parar", "é só isso", "bye", "thanks"]) {
+      expect(isFarewell(phrase)).toBe(true);
+    }
+  });
+
+  it("keeps requests that merely start politely", () => {
+    expect(isFarewell("obrigado, e como está a missão de engenharia agora?")).toBe(false);
+    expect(isFarewell("qual é o status dos universos")).toBe(false);
   });
 });
