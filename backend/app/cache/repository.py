@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import and_, any_, cast, func, or_, select, update
+from sqlalchemy import and_, any_, cast, func, literal_column, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -101,7 +101,11 @@ class CacheRepository:
                     "response_json": excluded.response_json,
                     "validation_status": "VALIDATED",
                     "confidence": excluded.confidence,
-                    "tags": excluded.tags,
+                    # Merge rather than replace: an entry shared by several conversations
+                    # must stay reachable by every one of their invalidation tags.
+                    "tags": literal_column(
+                        "ARRAY(SELECT DISTINCT unnest(semantic_cache_entries.tags || excluded.tags))"
+                    ),
                     "expires_at": excluded.expires_at,
                 },
             )
