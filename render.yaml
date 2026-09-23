@@ -30,6 +30,8 @@ services:
         sync: false
       - key: LLM_PROVIDER
         sync: false
+      - key: LLM_FALLBACK_PROVIDERS
+        sync: false
       - key: LLM_MODEL
         sync: false
       - key: LLM_API_KEY
@@ -42,6 +44,32 @@ services:
         sync: false
       - key: FREELLMAPI_TIMEOUT_SECONDS
         value: "60"
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: ANTHROPIC_MODEL
+        sync: false
+      - key: ANTHROPIC_BASE_URL
+        sync: false
+      - key: ANTHROPIC_TIMEOUT_SECONDS
+        value: "60"
+      - key: ANTHROPIC_MAX_OUTPUT_TOKENS
+        value: "4096"
+      - key: TRINITY_ENABLED
+        value: "true"
+      - key: TRINITY_MIN_CONFIDENCE
+        value: "0.7"
+      - key: ELEVENLABS_ENABLED
+        value: "false"
+      - key: ELEVENLABS_API_KEY
+        sync: false
+      - key: ELEVENLABS_VOICE_ID
+        sync: false
+      - key: ELEVENLABS_MODEL_ID
+        value: eleven_multilingual_v2
+      - key: ELEVENLABS_TIMEOUT_SECONDS
+        value: "12"
+      - key: VOICE_SYNTHESIS_MAX_CHARS
+        value: "1200"
       - key: OPENAI_COMPATIBLE_API_KEY
         sync: false
       - key: OPENAI_COMPATIBLE_MODEL
@@ -116,6 +144,11 @@ services:
           type: web
           name: creation-api
           envVarKey: LLM_PROVIDER
+      - key: LLM_FALLBACK_PROVIDERS
+        fromService:
+          type: web
+          name: creation-api
+          envVarKey: LLM_FALLBACK_PROVIDERS
       - key: LLM_MODEL
         fromService:
           type: web
@@ -143,6 +176,29 @@ services:
           envVarKey: FREELLMAPI_BASE_URL
       - key: FREELLMAPI_TIMEOUT_SECONDS
         value: "60"
+      - key: ANTHROPIC_API_KEY
+        fromService:
+          type: web
+          name: creation-api
+          envVarKey: ANTHROPIC_API_KEY
+      - key: ANTHROPIC_MODEL
+        fromService:
+          type: web
+          name: creation-api
+          envVarKey: ANTHROPIC_MODEL
+      - key: ANTHROPIC_BASE_URL
+        fromService:
+          type: web
+          name: creation-api
+          envVarKey: ANTHROPIC_BASE_URL
+      - key: ANTHROPIC_TIMEOUT_SECONDS
+        value: "60"
+      - key: ANTHROPIC_MAX_OUTPUT_TOKENS
+        value: "4096"
+      - key: TRINITY_ENABLED
+        value: "true"
+      - key: TRINITY_MIN_CONFIDENCE
+        value: "0.7"
       - key: OPENAI_COMPATIBLE_API_KEY
         fromService:
           type: web

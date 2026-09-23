@@ -54,11 +54,14 @@ class AgentRuntime:
             await session.commit()
 
         preferred_provider = capabilities.get("inference_provider")
-        fallback_providers = list(capabilities.get("fallback_providers", []))
+        fallback_providers = [str(name) for name in capabilities.get("fallback_providers", [])]
         model = capabilities.get("model")
         if not fallback_providers and model is None:
+            # An Agent that pins neither a model nor its own chain follows the configured one.
+            # The router built by bootstrap already appends it, so this only matters for a router
+            # constructed elsewhere; provider names are compared normalized, as the registry does.
             chain = settings.inference_provider_chain
-            if preferred_provider == chain[0]:
+            if str(preferred_provider or "").strip().lower() == chain[0]:
                 fallback_providers = chain[1:]
         if not preferred_provider:
             await self._finish_failure(
@@ -85,7 +88,7 @@ class AgentRuntime:
             model=model,
             requirements=ModelRequirements(
                 preferred_provider=str(preferred_provider),
-                fallback_providers=[str(name) for name in fallback_providers],
+                fallback_providers=fallback_providers,
             ),
             metadata={
                 "task_id": task_id,
