@@ -1,0 +1,46 @@
+{
+  "name": "THE CREATION OS",
+  "dockerComposeFile": [
+    "../docker-compose.yml",
+    "docker-compose.extend.yml"
+  ],
+  "service": "api",
+  "workspaceFolder": "/workspace",
+  "runServices": ["api", "frontend", "worker", "postgres", "redis"],
+  "overrideCommand": false,
+  "shutdownAction": "stopCompose",
+  "remoteUser": "root",
+  "initializeCommand": "sh -c 'cd \"${localWorkspaceFolder}\" && cp -n .env.example .env'",
+  "postCreateCommand": "cp -n .env.example .env || true",
+  "forwardPorts": [8080, 8000],
+  "portsAttributes": {
+    "8080": {
+      "label": "Frontend (UI + API proxy)",
+      "onAutoForward": "openPreview"
+    },
+    "8000": {
+      "label": "API",
+      "onAutoForward": "silent"
+    }
+  },
+  "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "installZsh": false,
+      "upgradePackages": false
+    },
+    "ghcr.io/devcontainers/features/git:1": {}
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-azuretools.vscode-docker",
+        "dbaeumer.vscode-eslint"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python"
+      }
+    }
+  }
+}
