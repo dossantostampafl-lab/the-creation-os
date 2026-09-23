@@ -189,6 +189,18 @@ curl -X POST http://localhost:8000/api/v1/auth/login \
   -d '{"username":"creator","password":"change-me-securely"}'
 ```
 
+## Universos e Agents iniciais
+
+Com o banco vazio não existe Universo nem Agent, e o ROCKMAM devolve toda Missão como "não viável": um plano só é viável quando cada Universo dele está ativo e tem um Agent ativo. Depois de criar o Criador, rode uma vez:
+
+```bash
+docker compose exec api seed-universes
+```
+
+Isso cria e ativa `engineering`, `content`, `research` e `operations`, cada um com um Agent ativo que usa o `LLM_PROVIDER` configurado. O comando pode ser repetido à vontade: ele só preenche o que falta e reativa o que foi desligado, sem duplicar nada. Tudo fica no Chronicle.
+
+Esses são só um ponto de partida. Crie, renomeie ou desative os seus pelos endpoints `/api/v1/universes/*` e `/api/v1/agents/*` assim que souber quais domínios você realmente usa.
+
 ## Superfície operacional
 
 Principais grupos de endpoints:
