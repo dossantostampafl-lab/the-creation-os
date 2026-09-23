@@ -1,0 +1,7 @@
+services:
+  api:
+    volumes:
+      - ..:/workspace:cached
+    working_dir: /workspace/backend
+    user: root
+    restart: "no"

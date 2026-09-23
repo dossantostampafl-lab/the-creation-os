@@ -112,6 +112,18 @@ http://127.0.0.1:8080/api/v1/health/ready
 
 Para outro dispositivo da mesma rede, abra `http://<IP-LAN-DO-COMPUTADOR>:8080`. Se o Windows Defender Firewall bloquear a conexão, libere somente a porta TCP 8080 para o perfil de rede privada.
 
+## Ambiente de desenvolvimento online (Codespaces)
+
+Além da execução local canônica, o repositório traz um dev container (`.devcontainer/`) que reaproveita o mesmo `docker-compose.yml`. É um caminho adicional para desenvolvimento, não um substituto da topologia local.
+
+Como abrir: no GitHub, "Code" > "Codespaces" > "Create codespace on main". Também funciona localmente em VS Code com "Dev Containers: Reopen in Container".
+
+O dev container sobe a stack completa (`api`, `frontend`, `worker`, `postgres`, `redis`), cria `.env` a partir de `.env.example` quando ainda não existe e anexa o VS Code ao container `api` (Python 3.12), com o repositório montado em `/workspace`.
+
+Acesse a porta encaminhada **8080** ("Frontend (UI + API proxy)"): o nginx serve a UI e faz proxy de `/api/` para a `api`, de modo que UI e API ficam no mesmo origin. A porta 8000 é encaminhada apenas para acesso direto à API (`/api/v1/health/ready`).
+
+As migrations continuam sendo aplicadas pelo `command` do serviço `api` no boot do stack.
+
 ## Migrations
 
 ```bash
