@@ -1,0 +1,28 @@
+# Cloud server overlay: HTTPS through Caddy on ports 80/443 instead of plain HTTP on 8080.
+#   docker compose -f docker-compose.yml -f docker-compose.cloud.yml up -d --build
+# CREATION_DOMAIN (in .env) is the public name, e.g. 129-146-10-20.sslip.io or a DuckDNS name.
+services:
+  frontend:
+    # Only Caddy talks to the frontend; nothing is published directly.
+    ports: !reset []
+
+  caddy:
+    image: caddy:2
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      CREATION_DOMAIN: ${CREATION_DOMAIN:?set CREATION_DOMAIN in .env}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - frontend
+    restart: unless-stopped
+    networks:
+      - tco_net
+
+volumes:
+  caddy_data:
+  caddy_config:

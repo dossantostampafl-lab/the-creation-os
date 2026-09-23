@@ -141,6 +141,10 @@ http://127.0.0.1:8080/api/v1/health/ready
 
 Para outro dispositivo da mesma rede, abra `http://<IP-LAN-DO-COMPUTADOR>:8080`. Se o Windows Defender Firewall bloquear a conexão, libere somente a porta TCP 8080 para o perfil de rede privada.
 
+## Colocar online (grátis)
+
+Para publicar na internet com HTTPS, sem pagar hospedagem, use uma máquina *Always Free* da Oracle Cloud. O passo a passo está em [`deploy/oracle/README.md`](deploy/oracle/README.md), e um único script instala e sobe tudo: `sudo ./deploy/oracle/install.sh`. Ele usa o `docker-compose.cloud.yml`, que põe o Caddy com HTTPS automático nas portas 80 e 443 e não expõe mais nada.
+
 ## Migrations
 
 ```bash
