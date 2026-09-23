@@ -71,8 +71,10 @@ function speakable(text: string): string {
 
 type SpeakHandlers = { onStart?: () => void; onEnd?: () => void };
 
-// ElevenLabs is tried first; after a failure (not configured, offline) the session uses the browser voice.
-let premiumVoiceAvailable = true;
+// ElevenLabs is tried first. When it is not configured (HTTP 501) the session keeps the browser voice;
+// after a temporary failure (rate limit, outage, network) it is retried after a short cooldown.
+const PREMIUM_RETRY_MS = 60_000;
+let premiumRetryAt = 0;
 const phraseCache = new Map<string, Blob>();
 let audioContext: AudioContext | null = null;
 
@@ -139,6 +141,10 @@ export function useDeusVoice() {
   const [speaking, setSpeaking] = useState(false);
   const voices = useRef<SpeechSynthesisVoice[]>([]);
   const current = useRef<{ stop: () => void } | null>(null);
+  // Each speak() is a new turn; callbacks from an interrupted turn must not touch the current one.
+  const turn = useRef(0);
+  const enabledRef = useRef(enabled);
+  enabledRef.current = enabled;
 
   useEffect(() => {
     if (!browserVoice) return;
@@ -156,6 +162,7 @@ export function useDeusVoice() {
   }, [browserVoice]);
 
   const stop = useCallback(() => {
+    turn.current += 1;
     current.current?.stop();
     current.current = null;
     if (browserVoice) window.speechSynthesis.cancel();
@@ -177,6 +184,7 @@ export function useDeusVoice() {
       return;
     }
     window.speechSynthesis.cancel();
+    const myTurn = turn.current;
     const lang = voiceLanguage();
     const utterance = new SpeechSynthesisUtterance(content);
     utterance.lang = lang;
@@ -189,6 +197,7 @@ export function useDeusVoice() {
     // Some browsers never fire "end" for long utterances; never leave DEUS stuck speaking.
     const watchdog = window.setTimeout(() => finish(), 4000 + content.length * 90);
     utterance.onstart = () => {
+      if (turn.current !== myTurn) return;
       setSpeaking(true);
       handlers.onStart?.();
     };
@@ -203,6 +212,7 @@ export function useDeusVoice() {
       finished = true;
       window.clearTimeout(settle);
       window.clearTimeout(watchdog);
+      if (turn.current !== myTurn) return;
       voiceActivity.level = 0;
       setSpeaking(false);
       handlers.onEnd?.();
@@ -216,11 +226,12 @@ export function useDeusVoice() {
   const speak = useCallback((text: string, handlers: SpeakHandlers = {}) => {
     const content = speakable(text);
     stop();
-    if (!enabled || !content) {
+    // Read the live preference: a reply that arrives after the Creator muted DEUS must stay silent.
+    if (!enabledRef.current || !content) {
       handlers.onEnd?.();
       return;
     }
-    if (!premiumVoiceAvailable) {
+    if (Date.now() < premiumRetryAt) {
       speakWithBrowser(content, handlers);
       return;
     }
@@ -234,10 +245,12 @@ export function useDeusVoice() {
       release();
       if (url) URL.revokeObjectURL(url);
     };
+    const myTurn = turn.current;
     const finish = () => {
       if (finished) return;
       finished = true;
       cleanup();
+      if (turn.current !== myTurn) return;
       setSpeaking(false);
       handlers.onEnd?.();
     };
@@ -267,11 +280,13 @@ export function useDeusVoice() {
       .catch((failure: unknown) => {
         if (finished || (failure instanceof DOMException && failure.name === "AbortError")) return;
         cleanup();
-        // Autoplay refusals are momentary; anything else means ElevenLabs is not usable this session.
-        if (!(failure instanceof DOMException && failure.name === "NotAllowedError")) premiumVoiceAvailable = false;
+        const notConfigured = failure instanceof Error && failure.message === "HTTP_501";
+        const autoplayBlocked = failure instanceof DOMException && failure.name === "NotAllowedError";
+        if (notConfigured) premiumRetryAt = Number.POSITIVE_INFINITY;
+        else if (!autoplayBlocked) premiumRetryAt = Date.now() + PREMIUM_RETRY_MS;
         speakWithBrowser(content, { onEnd: finish });
       });
-  }, [enabled, speakWithBrowser, stop]);
+  }, [speakWithBrowser, stop]);
 
   return { supported, enabled, speaking, toggle, speak, stop };
 }
@@ -364,7 +379,7 @@ export function useDeusEars({ paused, onWake, onCommand, onInterim }: EarsOption
     }
     const { woke, request } = splitWakePhrase(text);
     if (!woke) return;
-    if (request.split(/\s+/).filter(Boolean).length >= 2) {
+    if (request) {
       handlers.current.onCommand(request);
     } else {
       setAttentive(true);

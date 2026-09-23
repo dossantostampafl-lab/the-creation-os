@@ -108,7 +108,7 @@ const spokenLines = (page: import("@playwright/test").Page) => page.evaluate(() 
 test("DEUS falls back to the browser voice when ElevenLabs is not configured, and can be muted", async ({ page }) => {
   await installFakeSpeech(page);
   await mockDashboard(page);
-  await page.route("**/api/v1/voice/synthesize", (route) => route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ code: "VOICE_SYNTHESIS_DISABLED" }) }));
+  await page.route("**/api/v1/voice/synthesize", (route) => route.fulfill({ status: 501, contentType: "application/json", body: JSON.stringify({ detail: "ElevenLabs voice synthesis is disabled" }) }));
   const sent: string[] = [];
   await mockConversation(page, sent);
 
@@ -151,7 +151,7 @@ test("DEUS speaks with the ElevenLabs voice through the backend when it is confi
 test("saying “Deus” wakes DEUS, which answers and then hears the request", async ({ page }) => {
   await installFakeSpeech(page);
   await mockDashboard(page);
-  await page.route("**/api/v1/voice/synthesize", (route) => route.fulfill({ status: 409, body: "{}" }));
+  await page.route("**/api/v1/voice/synthesize", (route) => route.fulfill({ status: 501, body: "{}" }));
   const sent: string[] = [];
   await mockConversation(page, sent);
 
@@ -170,7 +170,7 @@ test("saying “Deus” wakes DEUS, which answers and then hears the request", a
 test("“Deus, <request>” in one breath goes straight to DEUS and ignores other speech", async ({ page }) => {
   await installFakeSpeech(page);
   await mockDashboard(page);
-  await page.route("**/api/v1/voice/synthesize", (route) => route.fulfill({ status: 409, body: "{}" }));
+  await page.route("**/api/v1/voice/synthesize", (route) => route.fulfill({ status: 501, body: "{}" }));
   const sent: string[] = [];
   await mockConversation(page, sent);
 
@@ -189,7 +189,7 @@ test("DEUS stops listening when nobody speaks after it is summoned", async ({ pa
   await page.clock.install();
   await installFakeSpeech(page);
   await mockDashboard(page);
-  await page.route("**/api/v1/voice/synthesize", (route) => route.fulfill({ status: 409, body: "{}" }));
+  await page.route("**/api/v1/voice/synthesize", (route) => route.fulfill({ status: 501, body: "{}" }));
   await mockConversation(page, []);
 
   await page.goto("/");
@@ -215,4 +215,21 @@ test("the microphone stays closed while DEUS has no configured inference", async
   await page.waitForTimeout(500);
   expect(await page.evaluate(() => Boolean((window as unknown as { __recognizer?: { running: boolean } }).__recognizer?.running))).toBe(false);
   await expect(page.getByText("Say “Deus” to call")).toHaveCount(0);
+});
+
+test("typing while DEUS listens keeps the typed text and ends listening", async ({ page }) => {
+  await page.clock.install();
+  await installFakeSpeech(page);
+  await mockDashboard(page);
+  await page.route("**/api/v1/voice/synthesize", (route) => route.fulfill({ status: 501, body: "{}" }));
+  await mockConversation(page, []);
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Talk to DEUS" }).click();
+  await expect(page.getByRole("button", { name: "Stop listening" })).toBeVisible();
+
+  await page.getByLabel("Message DEUS").fill("typed by hand");
+  await expect(page.getByRole("button", { name: "Talk to DEUS" })).toBeVisible();
+  await page.clock.runFor(9000);
+  await expect(page.getByLabel("Message DEUS")).toHaveValue("typed by hand");
 });

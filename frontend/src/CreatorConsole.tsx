@@ -20,6 +20,8 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Text the ears put in the box; only that text may be replaced or cleared by them.
+  const voiceDraft = useRef("");
   const voice = useDeusVoice();
   const ears = useDeusEars({
     // Never listen while DEUS cannot answer, is thinking, or is speaking (it would hear itself).
@@ -29,7 +31,10 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
       setInput(text);
       void send(text);
     },
-    onInterim: setInput,
+    onInterim: (text) => {
+      setInput((typed) => (typed === voiceDraft.current || typed === "" ? text : typed));
+      voiceDraft.current = text;
+    },
   });
 
   useEffect(() => {
@@ -111,7 +116,11 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
         <textarea
           aria-label="Message DEUS"
           value={input}
-          onChange={(event) => setInput(event.target.value)}
+          onChange={(event) => {
+            // Typing takes over from listening.
+            if (ears.state === "attentive") ears.dismiss();
+            setInput(event.target.value);
+          }}
           onKeyDown={handleKeyDown}
           placeholder={ears.state === "attentive" ? voiceText.listening() : enabled ? "Speak to DEUS…" : "Configure an inference provider to speak to DEUS."}
           disabled={!enabled || pending}
