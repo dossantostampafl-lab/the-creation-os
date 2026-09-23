@@ -10,12 +10,13 @@ from app.cognition.trinity import (
     RockmamVerdict,
     TrinityEngine,
     TrinityError,
+    UniverseReadiness,
     judge,
     parse_json_document,
 )
 from app.core.domain import Actor
 from app.inference.contracts import InferenceRequest, InferenceResponse
-from app.models.entities import Conversation, Inception, Message, Universe
+from app.models.entities import Agent, Conversation, Inception, Message, Mission, MissionPlan, MissionStep, Universe
 from app.services.deus import DeusConversationService
 
 MISSION_INTENT = {"intent_class": "mission_candidate", "summary": "Build a landing page", "confidence": 0.92}
@@ -59,13 +60,23 @@ class ScriptedRouter:
         return [request.metadata["route"] for request in self.requests]
 
 
+def universe(code: str, *, active: bool = True, staffed: bool = True) -> tuple[Universe, Agent | None]:
+    item = Universe(id=str(uuid.uuid4()), code=code, name=code.title(), active=active)
+    agent = Agent(id=str(uuid.uuid4()), code=f"{code.lower()}-agent", name="Agent", universe_id=item.id, active=True)
+    return item, agent if staffed else None
+
+
 class FakeRepository:
-    def __init__(self, actor: Actor, universes: list[Universe] | None = None) -> None:
+    def __init__(self, actor: Actor, universes: list[tuple[Universe, Agent | None]] | None = None) -> None:
         self.actor = actor
         self.conversation = Conversation(id=str(uuid.uuid4()), creator_id=actor.id, title="Creator", status="active")
-        self.universes = universes or []
+        self.universes = [item for item, _ in universes or []]
+        self.agents = [agent for _, agent in universes or [] if agent is not None]
         self.messages: list[Message] = []
         self.inceptions: list[Inception] = []
+        self.missions: list[Mission] = []
+        self.plans: list[MissionPlan] = []
+        self.steps: list[MissionStep] = []
         self.events: list[dict] = []
         self.commits = 0
 
@@ -80,12 +91,17 @@ class FakeRepository:
             entity.id = str(uuid.uuid4())
         if isinstance(entity, Message):
             self.messages.append(entity)
-        if isinstance(entity, Inception):
-            self.inceptions.append(entity)
+        for kind, bucket in ((Inception, self.inceptions), (Mission, self.missions),
+                             (MissionPlan, self.plans), (MissionStep, self.steps)):
+            if isinstance(entity, kind):
+                bucket.append(entity)
         return entity
 
     async def list_all(self, model):
         return self.universes if model is Universe else []
+
+    async def list_agents(self, universe_id):
+        return [agent for agent in self.agents if universe_id is None or agent.universe_id == universe_id]
 
     async def list_messages(self, conversation_id: str, limit: int = 20):
         return [message for message in self.messages if message.conversation_id == conversation_id][-limit:]
@@ -121,13 +137,18 @@ def test_parse_json_document_rejects_invalid_replies(reply: str) -> None:
         parse_json_document(reply, IntentEnvelope)
 
 
-def test_rockmam_guard_requires_the_creator_for_unavailable_universes() -> None:
+def test_rockmam_guard_is_viable_only_when_every_universe_can_take_work() -> None:
     plan = MissionPlanCandidate.model_validate(ROCKMAM_REPLY["mission_plan"])
+    ready = UniverseReadiness.READY
 
-    assert judge(plan, {"CONTENT", "WEB"}).result == RockmamVerdict.VIABLE
-    verdict = judge(plan, {"CONTENT"})
-    assert verdict.result == RockmamVerdict.REQUIRES_CREATOR
-    assert verdict.unavailable_universes == ["WEB"]
+    assert judge(plan, {"CONTENT": ready, "WEB": ready}).result == RockmamVerdict.VIABLE
+    for readiness, reason in (({"CONTENT": ready, "WEB": UniverseReadiness.INACTIVE}, "inactive"),
+                              ({"CONTENT": ready, "WEB": UniverseReadiness.NO_ACTIVE_AGENT}, "no_active_agent"),
+                              ({"CONTENT": ready}, "unknown")):
+        verdict = judge(plan, readiness)
+        assert verdict.result == RockmamVerdict.REQUIRES_CREATOR
+        assert verdict.unavailable_universes == ["WEB"]
+        assert [(blocker.universe, blocker.reason.value) for blocker in verdict.blockers] == [("WEB", reason)]
 
 
 def test_low_confidence_mission_intent_does_not_deliberate() -> None:
@@ -138,10 +159,45 @@ def test_low_confidence_mission_intent_does_not_deliberate() -> None:
 
 
 @pytest.mark.asyncio
-async def test_mission_request_becomes_an_inception_awaiting_the_creator() -> None:
+async def test_viable_request_becomes_a_validated_mission_awaiting_only_authorization() -> None:
     actor = creator()
-    repo = FakeRepository(actor, [Universe(code="CONTENT", name="Content", active=True),
-                                  Universe(code="WEB", name="Web", active=False)])
+    repo = FakeRepository(actor, [universe("CONTENT"), universe("WEB")])
+    router = ScriptedRouter([
+        json.dumps(MISSION_INTENT), json.dumps(SOPHIA_REPLY), json.dumps(ROCKMAM_REPLY), "Ready when you are.",
+    ])
+
+    result = await service_for(repo, router).respond(actor, repo.conversation.id, "Build a landing page",
+                                                     str(uuid.uuid4()))
+
+    [inception] = repo.inceptions
+    [mission] = repo.missions
+    assert inception.status == "approved" and inception.decided_by == actor.id
+    assert mission.status == "validated"
+    assert mission.inception_id == inception.id and mission.creator_id == actor.id
+    assert mission.objective == "Publish a landing page for the product."
+    assert mission.authorization_json == {}
+    [plan] = repo.plans
+    assert plan.mission_id == mission.id and plan.strategy == "Write, then build."
+    assert [(step.step_key, step.universe, step.depends_on_json) for step in repo.steps] == [
+        ("write-copy", "CONTENT", []), ("build-page", "WEB", ["write-copy"]),
+    ]
+    assert inception.trinity_assessment_json["mission_id"] == mission.id
+    assert inception.trinity_assessment_json["verdict"]["result"] == "VIABLE"
+    note = router.requests[-1].messages[-1]["content"]
+    assert "has NOT started" in note and "autoriza" in note
+    assert result.inception == {"id": inception.id, "title": "Landing page", "status": "approved",
+                                "verdict": "VIABLE", "mission_id": mission.id, "mission_status": "validated"}
+    assert [event["event_type"] for event in repo.events] == [
+        "sophia_intent_perceived", "inception_created", "inception_submitted", "inception_approved",
+        "mission_created", "mission_planned", "mission_validated", "deus_response_generated",
+    ]
+    assert repo.commits == 1
+
+
+@pytest.mark.asyncio
+async def test_unviable_request_stays_an_inception_and_names_what_is_missing() -> None:
+    actor = creator()
+    repo = FakeRepository(actor, [universe("CONTENT"), universe("WEB", active=False)])
     router = ScriptedRouter([
         json.dumps(MISSION_INTENT), json.dumps(SOPHIA_REPLY), json.dumps(ROCKMAM_REPLY), "I have a proposal.",
     ])
@@ -160,11 +216,14 @@ async def test_mission_request_becomes_an_inception_awaiting_the_creator() -> No
     assert assessment["sophia"]["intent"]["intent_class"] == "mission_candidate"
     assert assessment["rockmam"]["objective"] == "Publish a landing page for the product."
     assert [step["step_key"] for step in assessment["mission_plan"]["steps"]] == ["write-copy", "build-page"]
-    assert assessment["verdict"] == {"result": "REQUIRES_CREATOR", "reasons": [
-        "The plan needs Universes that are not active yet."], "unavailable_universes": ["WEB"]}
+    assert assessment["verdict"] == {"result": "REQUIRES_CREATOR",
+                                     "blockers": [{"universe": "WEB", "reason": "inactive"}],
+                                     "unavailable_universes": ["WEB"]}
+    assert repo.missions == []
     deus_prompt = router.requests[-1].messages
     assert deus_prompt[-1]["role"] == "system" and "Landing page" in deus_prompt[-1]["content"]
-    assert "nothing has been executed" in deus_prompt[-1]["content"]
+    assert "Universe WEB is not active" in deus_prompt[-1]["content"]
+    assert "Nothing was prepared or executed" in deus_prompt[-1]["content"]
     assert result.inception == {"id": inception.id, "title": "Landing page",
                                 "status": "awaiting_creator_decision", "verdict": "REQUIRES_CREATOR"}
     assert [event["event_type"] for event in repo.events] == [

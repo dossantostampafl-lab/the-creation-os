@@ -42,9 +42,23 @@ describe("spokenDecision", () => {
     }
   });
 
+  it("hears the go and the stop for a prepared Mission", () => {
+    for (const phrase of ["autoriza", "Pode iniciar!", "inicia a missão", "sim, autoriza", "começa", "pode começar", "start", "authorize"]) {
+      expect(spokenDecision(phrase)).toBe("authorize");
+    }
+    for (const phrase of ["cancela", "não, cancela", "cancelar a missão", "abort", "cancel"]) {
+      expect(spokenDecision(phrase)).toBe("cancel");
+    }
+  });
+
   it("leaves other requests alone", () => {
     expect(spokenDecision("sim")).toBeNull();
     expect(spokenDecision("aprova e depois me conta como vai ficar a missão inteira")).toBeNull();
     expect(spokenDecision("qual é o plano")).toBeNull();
+    expect(spokenDecision("inicia uma missão para criar o site e depois publica")).toBeNull();
+    expect(spokenDecision("inicia uma nova missão")).toBeNull();
+    expect(spokenDecision("start a landing page")).toBeNull();
+    expect(spokenDecision("cancela o lembrete")).toBeNull();
+    expect(spokenDecision("aprova e depois me conta")).toBeNull();
   });
 });

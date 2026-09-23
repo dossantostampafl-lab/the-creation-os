@@ -7,11 +7,16 @@ import {
   fetchConversationMessages,
   fetchInception,
   fetchInceptions,
+  cancelMission,
+  fetchMission,
+  startMission,
 } from "./api";
 import type { ConversationMessage, Inception } from "./api";
 import type { CosmosMood } from "./Cosmos";
-import { TrinityProposal } from "./TrinityProposal";
+import { TrinityProposal, proposalStage } from "./TrinityProposal";
+import type { Proposal, ProposalAction } from "./TrinityProposal";
 import { spokenDecision, useDeusEars, useDeusVoice, voiceText } from "./voice";
+import type { SpokenDecision } from "./voice";
 import "./CreatorConsole.css";
 
 type Props = {
@@ -21,15 +26,28 @@ type Props = {
 
 const CONVERSATION_KEY = "creation_conversation_id";
 
-type Entry = { kind: "message"; at: string; message: ConversationMessage } | { kind: "proposal"; at: string; inception: Inception };
+type Entry = { kind: "message"; at: string; message: ConversationMessage } | { kind: "proposal"; at: string; proposal: Proposal };
 
 /** Messages and Trinity proposals in the order they happened; a proposal follows the exchange that raised it. */
-function timeline(messages: ConversationMessage[], proposals: Inception[]): Entry[] {
+function timeline(messages: ConversationMessage[], proposals: Proposal[]): Entry[] {
   const entries: Entry[] = [
     ...messages.map((message) => ({ kind: "message" as const, at: message.created_at, message })),
-    ...proposals.map((inception) => ({ kind: "proposal" as const, at: inception.proposed_at, inception })),
+    ...proposals.map((proposal) => ({ kind: "proposal" as const, at: proposal.inception.proposed_at, proposal })),
   ];
   return entries.sort((a, b) => Date.parse(a.at) - Date.parse(b.at) || (a.kind === b.kind ? 0 : a.kind === "message" ? -1 : 1));
+}
+
+async function loadProposal(inception: Inception): Promise<Proposal> {
+  const missionId = inception.trinity_assessment.mission_id;
+  return { inception, mission: missionId ? await fetchMission(missionId) : null };
+}
+
+/** What a spoken answer means for a proposal at its current stage; null lets DEUS hear it instead. */
+function spokenAction(proposal: Proposal, decision: SpokenDecision): ProposalAction | null {
+  const stage = proposalStage(proposal);
+  if (stage === "ready") return decision === "authorize" || decision === "approve" ? "start" : "cancel";
+  if (stage === "blocked" && (decision === "cancel" || decision === "reject")) return "dismiss";
+  return null;
 }
 
 export function CreatorConsole({ enabled, onMoodChange }: Props) {
@@ -38,7 +56,7 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [proposals, setProposals] = useState<Inception[]>([]);
+  const [proposals, setProposals] = useState<Proposal[]>([]);
   const [deciding, setDeciding] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   // Text the ears put in the box; only that text may be replaced or cleared by them.
@@ -63,13 +81,14 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
       setConversing(true);
       const decision = spokenDecision(text);
       // A spoken answer is about the proposal DEUS presented last.
-      const awaiting = proposals
-        .filter((item) => item.status === "awaiting_creator_decision")
-        .sort((a, b) => Date.parse(a.proposed_at) - Date.parse(b.proposed_at))
+      const latest = proposals
+        .filter((item) => proposalStage(item) !== "settled")
+        .sort((a, b) => Date.parse(a.inception.proposed_at) - Date.parse(b.inception.proposed_at))
         .at(-1);
-      if (decision && awaiting) {
+      const action = decision && latest ? spokenAction(latest, decision) : null;
+      if (action && latest) {
         setInput("");
-        void decide(awaiting.id, decision, true);
+        void act(latest, action, true);
         return;
       }
       setInput(text);
@@ -110,8 +129,11 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
     if (!conversationId) return;
     // Proposals still waiting for the Creator survive a reload.
     void fetchInceptions()
-      .then((items) => setProposals(items.filter((item) =>
-        item.conversation_id === conversationId && item.status === "awaiting_creator_decision" && item.trinity_assessment.verdict)))
+      .then((items) => Promise.all(items
+        .filter((item) => item.conversation_id === conversationId && item.trinity_assessment.verdict
+          && ["awaiting_creator_decision", "approved"].includes(item.status))
+        .map(loadProposal)))
+      .then((loaded) => setProposals(loaded.filter((item) => proposalStage(item) !== "settled")))
       .catch(() => undefined);
   }, [conversationId]);
 
@@ -119,22 +141,31 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, proposals, pending]);
 
-  function upsertProposal(inception: Inception) {
-    setProposals((items) => [...items.filter((item) => item.id !== inception.id), inception]);
+  function upsertProposal(proposal: Proposal) {
+    setProposals((items) => [...items.filter((item) => item.inception.id !== proposal.inception.id), proposal]);
   }
 
-  async function decide(id: string, decision: "approve" | "reject", spoken = false) {
-    setDeciding(id);
+  async function act(proposal: Proposal, action: ProposalAction, spoken = false) {
+    const { inception, mission } = proposal;
+    setDeciding(inception.id);
     setError(null);
     try {
-      upsertProposal(await decideInception(id, decision));
+      if (action === "start" && mission) {
+        upsertProposal({ inception, mission: await startMission(mission.id) });
+      } else if (action === "cancel" && mission && mission.status !== "validated") {
+        // A start that stopped halfway (authorized or distributed) is cancelled on the Mission itself.
+        upsertProposal({ inception, mission: await cancelMission(mission.id) });
+      } else if (action === "cancel") {
+        upsertProposal(await loadProposal(await decideInception(inception.id, "cancel")));
+      } else {
+        upsertProposal({ inception: await decideInception(inception.id, "reject"), mission });
+      }
       if (spoken) {
-        voice.speak(decision === "approve" ? voiceText.approved() : voiceText.rejected(), {
-          onEnd: () => { if (conversing.current) ears.summon(); },
-        });
+        const confirmation = { start: voiceText.started, cancel: voiceText.cancelled, dismiss: voiceText.dismissed }[action];
+        voice.speak(confirmation(), { onEnd: () => { if (conversing.current) ears.summon(); } });
       }
     } catch {
-      setError("The decision could not be recorded.");
+      setError(action === "start" ? "The Mission could not start." : "The decision could not be recorded.");
       // No confirmation will be spoken, so nothing would reopen the ears.
       if (spoken) setConversing(false);
     } finally {
@@ -168,7 +199,7 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
       const latest = await fetchConversationMessages(id);
       setMessages(latest);
       if (reply.inception) {
-        await fetchInception(reply.inception.id).then(upsertProposal).catch(() => undefined);
+        await fetchInception(reply.inception.id).then(loadProposal).then(upsertProposal).catch(() => undefined);
       }
       voiceReply(latest);
     } catch (failure) {
@@ -193,10 +224,10 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
       <div className="console-messages" ref={scrollRef} aria-live="polite">
         {timeline(messages, proposals).map((entry) => entry.kind === "proposal" ? (
           <TrinityProposal
-            key={entry.inception.id}
-            inception={entry.inception}
-            busy={deciding === entry.inception.id}
-            onDecide={(decision) => void decide(entry.inception.id, decision)}
+            key={entry.proposal.inception.id}
+            proposal={entry.proposal}
+            busy={deciding === entry.proposal.inception.id}
+            onAct={(action) => void act(entry.proposal, action)}
           />
         ) : (
           <div className={`console-message ${entry.message.role === "deus" ? "deus-message" : "creator-message"}`} key={entry.message.id}>

@@ -2,8 +2,9 @@
 
 SOPHIA reads every Creator message for intent. When the Creator asks for something to be
 brought into being, SOPHIA weighs its opportunities and risks and ROCKMAM turns it into an
-objective and an executable plan. A deterministic guard has the final word on viability, so
-the model can propose but never grant itself an unavailable Universe.
+objective and an executable plan. A deterministic guard has the final word on viability: a plan
+is viable only when every step lands on an active Universe with an active Agent, so the Mission
+can be distributed the moment the Creator authorizes it.
 """
 
 from __future__ import annotations
@@ -38,9 +39,21 @@ class RockmamVerdict(StrEnum):
     REQUIRES_CREATOR = "REQUIRES_CREATOR"
 
 
+class UniverseReadiness(StrEnum):
+    READY = "ready"
+    INACTIVE = "inactive"
+    NO_ACTIVE_AGENT = "no_active_agent"
+    UNKNOWN = "unknown"
+
+
+class Blocker(BaseModel):
+    universe: str
+    reason: UniverseReadiness
+
+
 class Verdict(BaseModel):
     result: RockmamVerdict
-    reasons: list[str] = Field(default_factory=list)
+    blockers: list[Blocker] = Field(default_factory=list)
     unavailable_universes: list[str] = Field(default_factory=list)
 
 
@@ -115,15 +128,19 @@ def parse_json_document(content: str, model: type[ModelT]) -> ModelT:
         raise TrinityError(f"{model.__name__}: {exc.__class__.__name__}") from exc
 
 
-def judge(plan: MissionPlanCandidate, available_universes: set[str]) -> Verdict:
-    """ROCKMAM's deterministic guard: a plan is viable only if every step has an active Universe."""
-    unavailable = sorted({step.universe for step in plan.steps if step.universe not in available_universes})
-    if not unavailable:
+def judge(plan: MissionPlanCandidate, readiness: dict[str, UniverseReadiness]) -> Verdict:
+    """ROCKMAM's deterministic guard: viable only if every step's Universe can take work right now."""
+    blockers = [
+        Blocker(universe=universe, reason=readiness.get(universe, UniverseReadiness.UNKNOWN))
+        for universe in sorted({step.universe for step in plan.steps})
+        if readiness.get(universe) != UniverseReadiness.READY
+    ]
+    if not blockers:
         return Verdict(result=RockmamVerdict.VIABLE)
     return Verdict(
         result=RockmamVerdict.REQUIRES_CREATOR,
-        reasons=["The plan needs Universes that are not active yet."],
-        unavailable_universes=unavailable,
+        blockers=blockers,
+        unavailable_universes=[blocker.universe for blocker in blockers],
     )
 
 
@@ -186,7 +203,7 @@ class TrinityEngine:
         self,
         message: str,
         intent: IntentEnvelope,
-        available_universes: set[str],
+        readiness: dict[str, UniverseReadiness],
         *,
         creator_id: str,
     ) -> TrinityDeliberation:
@@ -199,7 +216,8 @@ class TrinityEngine:
             creator_id=creator_id,
         )
         assessment = SophiaAssessment(intent=intent, **sophia.model_dump())
-        universes = ", ".join(sorted(available_universes)) or "(none active)"
+        ready = sorted(code for code, state in readiness.items() if state == UniverseReadiness.READY)
+        universes = ", ".join(ready) or "(none ready)"
         proposal = await self._ask(
             "rockmam",
             ROCKMAM_PROMPT,
@@ -218,5 +236,5 @@ class TrinityEngine:
             sophia=assessment,
             rockmam=proposal.synthesis,
             mission_plan=proposal.mission_plan,
-            verdict=judge(proposal.mission_plan, available_universes),
+            verdict=judge(proposal.mission_plan, readiness),
         )

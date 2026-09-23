@@ -276,3 +276,40 @@ async def test_deus_trinity_proposes_an_inception_the_creator_can_approve(client
     assert approved.json()["status"] == "approved"
     integrity = (await client.get("/api/v1/chronicles/verify", headers=headers)).json()
     assert integrity["valid"] is True
+
+
+@pytest.mark.asyncio
+async def test_viable_trinity_mission_waits_for_the_creator_then_starts(client, http_database, monkeypatch):
+    _, creator_id, _ = http_database
+    monkeypatch.setattr("app.api.deus.build_model_router", TrinityScriptRouter)
+    monkeypatch.setattr("app.api.deus.resolve_configured_model", lambda _router: "stub-model")
+    monkeypatch.setattr(settings, "trinity_enabled", True)
+    headers = auth(creator_id)
+    universe_id = (await client.post("/api/v1/universes", headers=headers,
+                                     json={"code": "engineering", "name": "Engineering"})).json()["id"]
+    assert (await client.post(f"/api/v1/universes/{universe_id}/activate", headers=auth(creator_id))).status_code == 200
+    assert (await client.post("/api/v1/agents", headers=auth(creator_id), json={
+        "code": "builder", "name": "Builder", "universe_id": universe_id})).status_code == 201
+    conversation_id = (await client.post("/api/v1/conversations", headers=auth(creator_id),
+                                         json={"title": "Trinity"})).json()["id"]
+
+    reply = await client.post(f"/api/v1/conversations/{conversation_id}/deus", headers=auth(creator_id),
+                              json={"content": "Prove the Trinity works"})
+
+    proposal = reply.json()["inception"]
+    assert proposal["verdict"] == "VIABLE"
+    assert proposal["status"] == "approved"
+    assert proposal["mission_status"] == "validated"
+    mission_id = proposal["mission_id"]
+    assert (await client.get(f"/api/v1/missions/{mission_id}/tasks", headers=headers)).json() == []
+
+    started = await client.post(f"/api/v1/missions/{mission_id}/start", headers=auth(creator_id))
+
+    assert started.status_code == 200
+    assert started.json()["status"] == "executing"
+    assert started.json()["authorization_json"]["authorized_by"] == creator_id
+    tasks = (await client.get(f"/api/v1/missions/{mission_id}/tasks", headers=headers)).json()
+    assert [task["status"] for task in tasks] == ["READY"]
+    again = await client.post(f"/api/v1/missions/{mission_id}/start", headers=auth(creator_id))
+    assert again.status_code == 409
+    assert (await client.get("/api/v1/chronicles/verify", headers=headers)).json()["valid"] is True

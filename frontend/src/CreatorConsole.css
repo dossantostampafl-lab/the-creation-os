@@ -88,8 +88,10 @@
 .proposal-actions .approve { background: linear-gradient(135deg, #1fbf8f, #3fdcff); color: #04121c; }
 .proposal-actions .reject { background: transparent; border-color: #ff7b8f88; color: #ffb3bf; }
 .trinity-proposal .decided { margin-top: 10px; font: 600 10px var(--mono); letter-spacing: .2em; text-transform: uppercase; }
-.trinity-proposal .decided.approved { color: #7dffc4; }
-.trinity-proposal .decided.rejected, .trinity-proposal .decided.cancelled { color: #ff9aaa; }
+.trinity-proposal .decided.approved, .trinity-proposal .decided.executing, .trinity-proposal .decided.manifested { color: #7dffc4; }
+.trinity-proposal.blocked { border-color: #ffd27d55; box-shadow: 0 0 36px #ffd27d1f; }
+.trinity-proposal .blockers { margin: 10px 0 0; padding-left: 18px; color: #ffd27d; font-size: 13px; }
+.trinity-proposal .decided.rejected, .trinity-proposal .decided.cancelled, .trinity-proposal .decided.failed { color: #ff9aaa; }
 .console-thinking { justify-self: start; display: flex; gap: 6px; padding: 12px 16px; }
 .console-thinking i { width: 7px; height: 7px; border-radius: 50%; background: #d98bff; box-shadow: 0 0 10px #d98bff; animation: thinking 1.2s ease-in-out infinite; }
 .console-thinking i:nth-child(2) { animation-delay: .15s; }

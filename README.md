@@ -57,9 +57,12 @@ Cada mensagem ao DEUS passa antes pela **SOPHIA**, que entende a intenção: con
 
 1. **SOPHIA** avalia oportunidades, riscos e recomenda o que fazer.
 2. **ROCKMAM** transforma isso em objetivo, restrições e um plano de missão em etapas, cada uma num Universo.
-3. Uma **guarda determinística** dá o veredito: *viável* se todos os Universos do plano estão ativos, ou *precisa do Creator* se falta criar ou ativar algum.
+3. A **guarda do ROCKMAM** decide a viabilidade sem depender do modelo: o plano é viável só se cada Universo dele existe, está ativo e tem um Agent ativo.
 
-O resultado vira uma **Inception** aguardando a sua decisão. Ela aparece no chat como um cartão com **Aprovar** e **Rejeitar**, e numa conversa por voz basta dizer "sim, aprova" ou "rejeita". Nada é executado sem a sua aprovação. Tudo fica registrado no Chronicle (`sophia_intent_perceived`, `inception_created`, `inception_submitted`, ou `trinity_failed`, se o modelo falhar; nesse caso o DEUS responde normalmente).
+- **Viável:** o ROCKMAM já entrega a Missão pronta. A Inception é aprovada (o pedido foi seu), a Missão é criada, planejada e validada, e **fica aguardando só a sua autorização**. Diga **"autoriza"** ou **"pode iniciar"** e ela é autorizada, distribuída aos Agents e entra em execução (`POST /api/v1/missions/{id}/start`). Diga **"cancela"** para descartar. No chat, o cartão "MISSION READY" tem os botões **Authorize & start** e **Cancel**.
+- **Ainda não viável:** nada é preparado. O cartão "NOT VIABLE YET" diz o que falta (por exemplo, "Universe web is not active") e o DEUS explica o que você precisa configurar.
+
+Nada entra em execução sem a sua autorização. Tudo fica no Chronicle: `sophia_intent_perceived`, `inception_created`, `inception_submitted`, `inception_approved`, `mission_created`, `mission_planned`, `mission_validated` e, na autorização, `mission_authorized`, `mission_distributed` e `mission_execution_started`. Se o modelo falhar, fica `trinity_failed` e o DEUS responde normalmente.
 
 - **Custo:** a percepção é uma chamada curta por mensagem. A deliberação soma duas chamadas, só nos pedidos de missão. Essas chamadas não passam pelo Semantic Cache.
 - **Configuração:** `TRINITY_ENABLED=false` desliga a Trinity. `TRINITY_MIN_CONFIDENCE` (padrão `0.7`) é a confiança mínima da SOPHIA para deliberar.

@@ -1,23 +1,52 @@
-import type { Inception } from "./api";
+import type { Inception, Mission } from "./api";
+
+export type Proposal = { inception: Inception; mission: Mission | null };
+export type ProposalAction = "start" | "cancel" | "dismiss";
 
 type Props = {
-  inception: Inception;
+  proposal: Proposal;
   busy: boolean;
-  onDecide: (decision: "approve" | "reject") => void;
+  onAct: (action: ProposalAction) => void;
 };
 
-const DECIDED: Record<string, string> = { approved: "Approved", rejected: "Rejected", cancelled: "Cancelled" };
+const READY = new Set(["validated", "authorized", "distributed"]);
 
-/** A Mission proposed by SOPHIA and ROCKMAM, waiting for the Creator's word. */
-export function TrinityProposal({ inception, busy, onDecide }: Props) {
+const BLOCKER_TEXT = {
+  inactive: "is not active",
+  no_active_agent: "has no active Agent",
+  unknown: "does not exist yet",
+} as const;
+
+const OUTCOME: Record<string, string> = {
+  executing: "Executing",
+  manifested: "Manifested",
+  failed: "Failed",
+  cancelled: "Cancelled",
+  rejected: "Dismissed",
+  approved: "Approved",
+};
+
+/** What the Creator can do with a proposal right now. */
+export function proposalStage(proposal: Proposal): "ready" | "blocked" | "settled" {
+  if (proposal.mission) return READY.has(proposal.mission.status) ? "ready" : "settled";
+  const blocked = proposal.inception.status === "awaiting_creator_decision"
+    && proposal.inception.trinity_assessment.verdict?.result === "REQUIRES_CREATOR";
+  return blocked ? "blocked" : "settled";
+}
+
+const HEADING = { ready: "MISSION READY", blocked: "NOT VIABLE YET", settled: "TRINITY MISSION" } as const;
+
+/** A Mission shaped by SOPHIA and ROCKMAM: ready to start on the Creator's word, or blocked with the reason. */
+export function TrinityProposal({ proposal, busy, onAct }: Props) {
+  const { inception, mission } = proposal;
   const { sophia, rockmam, mission_plan: plan, verdict } = inception.trinity_assessment;
-  const awaiting = inception.status === "awaiting_creator_decision";
+  const stage = proposalStage(proposal);
   const steps = [...(plan?.steps ?? [])].sort((a, b) => a.position - b.position);
 
   return (
-    <article className="trinity-proposal" aria-label={`Trinity proposal: ${inception.title}`}>
+    <article className={`trinity-proposal ${stage}`} aria-label={`Trinity proposal: ${inception.title}`}>
       <header>
-        <span>TRINITY PROPOSAL</span>
+        <span>{HEADING[stage]}</span>
         {verdict && (
           <b className={`verdict ${verdict.result === "VIABLE" ? "viable" : "needs-creator"}`}>
             {verdict.result === "VIABLE" ? "Viable" : `Needs ${verdict.unavailable_universes.join(", ")}`}
@@ -45,13 +74,28 @@ export function TrinityProposal({ inception, busy, onDecide }: Props) {
           </section>
         )}
       </div>
-      {awaiting ? (
+      {stage === "blocked" && (verdict?.blockers ?? []).length > 0 && (
+        <ul className="blockers">
+          {(verdict?.blockers ?? []).map((blocker) => (
+            <li key={blocker.universe}>Universe {blocker.universe} {BLOCKER_TEXT[blocker.reason]}</li>
+          ))}
+        </ul>
+      )}
+      {stage === "ready" && (
         <div className="proposal-actions">
-          <button type="button" className="approve" disabled={busy} onClick={() => onDecide("approve")}>Approve</button>
-          <button type="button" className="reject" disabled={busy} onClick={() => onDecide("reject")}>Reject</button>
+          <button type="button" className="approve" disabled={busy} onClick={() => onAct("start")}>Authorize &amp; start</button>
+          <button type="button" className="reject" disabled={busy} onClick={() => onAct("cancel")}>Cancel</button>
         </div>
-      ) : (
-        <p className={`decided ${inception.status}`}>{DECIDED[inception.status] ?? inception.status}</p>
+      )}
+      {stage === "blocked" && (
+        <div className="proposal-actions">
+          <button type="button" className="reject" disabled={busy} onClick={() => onAct("dismiss")}>Dismiss</button>
+        </div>
+      )}
+      {stage === "settled" && (
+        <p className={`decided ${mission?.status ?? inception.status}`}>
+          {OUTCOME[mission?.status ?? inception.status] ?? mission?.status ?? inception.status}
+        </p>
       )}
     </article>
   );

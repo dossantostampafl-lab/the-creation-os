@@ -1,17 +1,26 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from loguru import logger
 
 from app.cognition.contracts import IntentEnvelope
-from app.cognition.trinity import RockmamVerdict, TrinityDeliberation, TrinityEngine
-from app.core.domain import Actor, ConversationStatus, InceptionStatus, InvalidOrigin, require_creator, transition
+from app.cognition.trinity import RockmamVerdict, TrinityDeliberation, TrinityEngine, UniverseReadiness
+from app.core.domain import (
+    Actor,
+    ConversationStatus,
+    InceptionStatus,
+    InvalidOrigin,
+    MissionStatus,
+    require_creator,
+    transition,
+)
 from app.inference.contracts import InferenceRequest, ModelRequirements
 from app.inference.router import ModelRouter
-from app.models.entities import Conversation, Inception, Message, Universe
+from app.models.entities import Conversation, Inception, Message, Mission, Universe
 from app.repositories.domain import DomainRepository
-from app.services.domain import NotFoundError
+from app.services.domain import NotFoundError, add_mission_plan
 
 SYSTEM_PROMPT = (
     "You are DEUS, the Creator-facing interface of THE CREATION OS. "
@@ -43,20 +52,46 @@ class TrinityOutcome:
     error: str | None = None
 
 
+BLOCKER_TEXT = {
+    UniverseReadiness.INACTIVE: "is not active",
+    UniverseReadiness.NO_ACTIVE_AGENT: "has no active Agent",
+    UniverseReadiness.UNKNOWN: "does not exist yet",
+}
+
+
 def proposal_note(deliberation: TrinityDeliberation) -> str:
-    """What DEUS is told about a proposal, so it can present it without claiming it was executed."""
-    if deliberation.verdict.result == RockmamVerdict.VIABLE:
-        viability = "ROCKMAM judged it viable with the active Universes."
-    else:
-        needed = ", ".join(deliberation.verdict.unavailable_universes)
-        viability = f"ROCKMAM found it needs Universes that are not active yet: {needed}."
-    return (
-        "SOPHIA and ROCKMAM have just deliberated on the Creator's latest message and proposed an "
-        f"Inception titled \"{deliberation.title}\" with the objective: {deliberation.rockmam.objective} "
-        f"The plan has {len(deliberation.mission_plan.steps)} steps. {viability} "
-        "It now awaits the Creator's decision and nothing has been executed. Briefly present the "
-        "proposal and ask the Creator whether to approve it."
+    """What DEUS is told about the Trinity's work, so it can present it without claiming execution."""
+    summary = (
+        "SOPHIA and ROCKMAM have just deliberated on the Creator's latest message. "
+        f"Mission \"{deliberation.title}\": {deliberation.rockmam.objective} "
+        f"The plan has {len(deliberation.mission_plan.steps)} steps. "
     )
+    if deliberation.verdict.result == RockmamVerdict.VIABLE:
+        return summary + (
+            "ROCKMAM judged it viable and has prepared the Mission: planned and validated, ready to start. "
+            "It has NOT started. It waits only for the Creator's authorization. Briefly present it and "
+            "tell the Creator to say \"autoriza\" to start it or \"cancela\" to drop it."
+        )
+    blockers = "; ".join(
+        f"Universe {blocker.universe} {BLOCKER_TEXT[blocker.reason]}" for blocker in deliberation.verdict.blockers
+    )
+    return summary + (
+        f"ROCKMAM found it is not viable yet: {blockers}. Nothing was prepared or executed. Briefly "
+        "explain what the Creator must set up first."
+    )
+
+
+async def universe_readiness(repo: DomainRepository) -> dict[str, UniverseReadiness]:
+    """Which Universes could take a Mission step right now."""
+    staffed = {agent.universe_id for agent in await repo.list_agents(None) if agent.active}
+    return {
+        universe.code: (
+            UniverseReadiness.INACTIVE if not universe.active
+            else UniverseReadiness.READY if universe.id in staffed
+            else UniverseReadiness.NO_ACTIVE_AGENT
+        )
+        for universe in await repo.list_all(Universe)
+    }
 
 
 class DeusConversationService:
@@ -87,8 +122,8 @@ class DeusConversationService:
             if not self.trinity.calls_for_deliberation(intent):
                 return TrinityOutcome(intent=intent)
             stage = "deliberation"
-            universes = {item.code for item in await self.repo.list_all(Universe) if item.active}
-            deliberation = await self.trinity.deliberate(content, intent, universes, creator_id=actor.id)
+            readiness = await universe_readiness(self.repo)
+            deliberation = await self.trinity.deliberate(content, intent, readiness, creator_id=actor.id)
             return TrinityOutcome(intent=intent, deliberation=deliberation)
         except Exception as exc:
             logger.bind(component="trinity", stage=stage, error_type=exc.__class__.__name__).warning(
@@ -142,12 +177,55 @@ class DeusConversationService:
             "inception_submitted", "inception", inception.id, actor.id, actor.role, correlation_id,
             {"origin": "trinity", "verdict": deliberation.verdict.result.value},
         )
-        return {
+        summary = {
             "id": inception.id,
             "title": inception.title,
             "status": inception.status,
             "verdict": deliberation.verdict.result.value,
         }
+        if deliberation.verdict.result != RockmamVerdict.VIABLE:
+            return summary
+        mission = await self._prepare_mission(actor, inception, deliberation, correlation_id)
+        return {**summary, "status": inception.status, "mission_id": mission.id, "mission_status": mission.status}
+
+    async def _prepare_mission(
+        self,
+        actor: Actor,
+        inception: Inception,
+        deliberation: TrinityDeliberation,
+        correlation_id: str,
+    ) -> Mission:
+        """A viable request is the Creator's own ask, so ROCKMAM carries it to a validated Mission.
+
+        Only authorization — the step that lets work begin — is left for the Creator.
+        """
+        inception.status = transition(
+            "inception", InceptionStatus.AWAITING_CREATOR_DECISION, InceptionStatus.APPROVED,
+        )
+        inception.decided_at = datetime.now(timezone.utc)
+        inception.decided_by = actor.id
+        inception.decision_reason = "Requested by the Creator; ROCKMAM judged the Mission viable."
+        await self.repo.add_event(
+            "inception_approved", "inception", inception.id, actor.id, actor.role, correlation_id,
+            {"origin": "trinity", "reason": inception.decision_reason},
+        )
+        mission = await self.repo.add(Mission(
+            inception_id=inception.id, creator_id=actor.id, title=deliberation.title,
+            objective=deliberation.rockmam.objective, status=MissionStatus.DRAFTED.value, authorization_json={},
+        ))
+        await self.repo.add_event(
+            "mission_created", "mission", mission.id, actor.id, actor.role, correlation_id,
+            {"inception_id": inception.id, "origin": "trinity"},
+        )
+        await add_mission_plan(self.repo, mission.id, deliberation.mission_plan.model_dump(mode="json"))
+        mission.status = transition("mission", MissionStatus.DRAFTED, MissionStatus.PLANNED)
+        await self.repo.add_event("mission_planned", "mission", mission.id, actor.id, actor.role, correlation_id,
+                                  {"origin": "trinity"})
+        mission.status = transition("mission", MissionStatus.PLANNED, MissionStatus.VALIDATED)
+        await self.repo.add_event("mission_validated", "mission", mission.id, actor.id, actor.role, correlation_id,
+                                  {"origin": "trinity", "verdict": deliberation.verdict.result.value})
+        inception.trinity_assessment_json = {**inception.trinity_assessment_json, "mission_id": mission.id}
+        return mission
 
     async def respond(self, actor: Actor, conversation_id: str, content: str, correlation_id: str) -> DeusReply:
         require_creator(actor, "speak with DEUS")
