@@ -333,7 +333,21 @@ export function Cosmos({ universes, signal, mood }: Props) {
 
       const drawBody = (body: (typeof bodies)[number]) => {
         if (body.kind === "moon") {
-          const size = 30 * body.f * detail;
+          // While DEUS thinks, SOPHIA and ROCKMAM reason with it: they swell and link to the brain.
+          const reasoning = currentMood === "thinking";
+          const swell = reasoning ? 1.45 + Math.sin(t * 0.008 + body.index * Math.PI) * 0.2 : 1;
+          if (reasoning) {
+            const link = ctx.createLinearGradient(body.x, body.y, cx, cy);
+            link.addColorStop(0, "rgba(185, 243, 255, 0.55)");
+            link.addColorStop(1, "rgba(217, 139, 255, 0)");
+            ctx.strokeStyle = link;
+            ctx.lineWidth = 1.4 * body.f;
+            ctx.beginPath();
+            ctx.moveTo(body.x, body.y);
+            ctx.lineTo(cx, cy);
+            ctx.stroke();
+          }
+          const size = 30 * body.f * detail * swell;
           ctx.drawImage(moonSprite, body.x - size, body.y - size, size * 2, size * 2);
         } else {
           const size = (body.active ? 70 : 46) * body.f * Math.min(1, scale / 180);

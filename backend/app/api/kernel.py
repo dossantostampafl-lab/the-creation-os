@@ -37,6 +37,16 @@ async def scope_mission_authorization(
     return mission_response(mission)
 
 
+@router.post("/missions/{entity_id}/start", response_model=MissionResponse)
+async def start_mission(
+    entity_id: uuid.UUID,
+    a: Actor = Depends(actor),
+    cid: str = Depends(correlation_id),
+    s: LivingCoreService = Depends(service),
+):
+    return mission_response(await s.start_mission(a, str(entity_id), cid))
+
+
 @router.post("/missions/{entity_id}/distribute", response_model=MissionResponse)
 async def distribute_mission(
     entity_id: uuid.UUID,

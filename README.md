@@ -43,7 +43,7 @@ O provider `anthropic` usa a Messages API nativa do Claude: mensagens `system` s
 
 #### Cadeia de fallback
 
-`LLM_PROVIDER` define o provider primário e `LLM_FALLBACK_PROVIDERS` (lista separada por vírgula) define a ordem de fallback usada quando o primário está indisponível, em rate limit ou com o circuito aberto. Para FreeLLMAPI primeiro e Anthropic como reserva:
+`LLM_PROVIDER` é o provider primário e `LLM_FALLBACK_PROVIDERS` (lista separada por vírgula) é a ordem de reserva, usada só quando o primário falha de vez: fora do ar, inacessível, estourando o tempo, sem cota (429), com erro 5xx ou com o circuito aberto. Para FreeLLMAPI primeiro e Anthropic como reserva:
 
 ```dotenv
 LLM_PROVIDER=freellmapi
@@ -54,7 +54,9 @@ ANTHROPIC_API_KEY=sk-ant-…
 ANTHROPIC_MODEL=claude-sonnet-4-5
 ```
 
-Todos os providers da cadeia precisam estar completamente configurados: se faltar credencial/modelo de um deles, o boot da inferência falha explicitamente em vez de silenciar a reserva. Cada provider responde com o seu próprio modelo padrão, e o `provider`/`model` efetivamente usados são registrados na mensagem e no Chronicle. `fake` não é aceito como fallback.
+Enquanto o FreeLLMAPI responde, nenhuma chamada vai para a Anthropic — nem do DEUS, nem da Trinity, nem do worker. Depois de 3 falhas seguidas o FreeLLMAPI fica 30 segundos fora da rota (circuit breaker), valendo para todas as requisições, e então volta a ser tentado primeiro. Uma chave recusada (401/403) não aciona a reserva: é erro de configuração e aparece como erro.
+
+Todos os providers da cadeia precisam estar completamente configurados: se faltar credencial ou modelo de um deles, o boot da inferência falha explicitamente em vez de silenciar a reserva. O primário responde com o modelo configurado e cada reserva com o seu próprio modelo padrão; o `provider`/`model` efetivamente usados são registrados na mensagem e no Chronicle. `fake` não é aceito como fallback.
 
 Enquanto o provider selecionado for `fake`, o status de inferência é reportado como `UNCONFIGURED` e o Creator Console permanece desabilitado — o sistema recusa fabricar respostas do DEUS.
 
@@ -65,6 +67,22 @@ Na barra de conversa, o botão de orelha liga a palavra de ativação: diga **"D
 - **Voz ElevenLabs (recomendada):** no `.env`, defina `ELEVENLABS_ENABLED=true`, `ELEVENLABS_API_KEY=<sua chave>` e, se quiser, outro `ELEVENLABS_VOICE_ID`. A chave fica só no backend (`POST /api/v1/voice/synthesize`).
 - **Sem ElevenLabs:** o DEUS usa a voz do próprio navegador, automaticamente.
 - **Microfone:** use Chrome ou Edge. Os navegadores só liberam o microfone em `https://` ou em `http://localhost`, então abra `http://localhost:8080` no próprio computador (pelo IP da rede local, o microfone fica bloqueado).
+
+### Trinity: SOPHIA e ROCKMAM
+
+Cada mensagem ao DEUS passa antes pela **SOPHIA**, que entende a intenção: conversa, pergunta, pedido de missão, decisão ou comando. Quando você pede para algo ser criado ou realizado ("Deus, cria uma landing page para o produto"), a Trinity delibera:
+
+1. **SOPHIA** avalia oportunidades, riscos e recomenda o que fazer.
+2. **ROCKMAM** transforma isso em objetivo, restrições e um plano de missão em etapas, cada uma num Universo.
+3. A **guarda do ROCKMAM** decide a viabilidade sem depender do modelo: o plano é viável só se cada Universo dele existe, está ativo e tem um Agent ativo.
+
+- **Viável:** o ROCKMAM já entrega a Missão pronta. A Inception é aprovada (o pedido foi seu), a Missão é criada, planejada e validada, e **fica aguardando só a sua autorização**. Diga **"autoriza"** ou **"pode iniciar"** e ela é autorizada, distribuída aos Agents e entra em execução (`POST /api/v1/missions/{id}/start`). Diga **"cancela"** para descartar. No chat, o cartão "MISSION READY" tem os botões **Authorize & start** e **Cancel**.
+- **Ainda não viável:** nada é preparado. O cartão "NOT VIABLE YET" diz o que falta (por exemplo, "Universe web is not active") e o DEUS explica o que você precisa configurar.
+
+Nada entra em execução sem a sua autorização. Tudo fica no Chronicle: `sophia_intent_perceived`, `inception_created`, `inception_submitted`, `inception_approved`, `mission_created`, `mission_planned`, `mission_validated` e, na autorização, `mission_authorized`, `mission_distributed` e `mission_execution_started`. Se o modelo falhar, fica `trinity_failed` e o DEUS responde normalmente.
+
+- **Custo:** a percepção é uma chamada curta por mensagem. A deliberação soma duas chamadas, só nos pedidos de missão. Essas chamadas não passam pelo Semantic Cache.
+- **Configuração:** `TRINITY_ENABLED=false` desliga a Trinity. `TRINITY_MIN_CONFIDENCE` (padrão `0.7`) é a confiança mínima da SOPHIA para deliberar.
 
 ### Bridge seguro com o PROTO
 
@@ -127,6 +145,10 @@ http://127.0.0.1:8080/api/v1/health/ready
 
 Para outro dispositivo da mesma rede, abra `http://<IP-LAN-DO-COMPUTADOR>:8080`. Se o Windows Defender Firewall bloquear a conexão, libere somente a porta TCP 8080 para o perfil de rede privada.
 
+## Colocar online (grátis)
+
+Para publicar na internet com HTTPS, sem pagar hospedagem, use uma máquina *Always Free* da Oracle Cloud. O passo a passo está em [`deploy/oracle/README.md`](deploy/oracle/README.md), e um único script instala e sobe tudo: `sudo ./deploy/oracle/install.sh`. Ele usa o `docker-compose.cloud.yml`, que põe o Caddy com HTTPS automático nas portas 80 e 443 e não expõe mais nada.
+
 ## Ambiente de desenvolvimento online (Codespaces)
 
 Além da execução local canônica, o repositório traz um dev container (`.devcontainer/`) que reaproveita o mesmo `docker-compose.yml`. É um caminho adicional para desenvolvimento, não um substituto da topologia local.
@@ -138,6 +160,17 @@ O dev container sobe a stack completa (`api`, `frontend`, `worker`, `postgres`, 
 Acesse a porta encaminhada **8080** ("Frontend (UI + API proxy)"): o nginx serve a UI e faz proxy de `/api/` para a `api`, de modo que UI e API ficam no mesmo origin. A porta 8000 é encaminhada apenas para acesso direto à API (`/api/v1/health/ready`).
 
 As migrations continuam sendo aplicadas pelo `command` do serviço `api` no boot do stack.
+
+Ao abrir, `.devcontainer/prepare-env.sh` deixa o `.env` pronto, e pode ser rodado de novo a qualquer momento sem estragar nada:
+
+- cria o `.env` a partir do `.env.example` quando ele não existe;
+- **acrescenta as configurações que o `.env.example` ganhou depois**, preservando tudo o que você já preencheu. Um `.env` antigo é o motivo mais comum de uma chave parecer configurada e o provider não responder: a variável que ele precisa simplesmente não está no arquivo;
+- **preenche os segredos em branco a partir do ambiente**, então um Codespace secret basta e a chave nunca precisa ser colada no editor — o que o navegador bloqueia em tablet e celular;
+- se uma chave chegou e o `LLM_PROVIDER` ainda era `fake`, aponta para o provider correspondente.
+
+Ele nunca sobrescreve um valor já preenchido e nunca imprime um segredo.
+
+Para usar Codespace secrets, cadastre em **github.com/settings/codespaces** os nomes que quiser (`ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `FREELLMAPI_API_KEY`, `ELEVENLABS_API_KEY`, entre outros), dando acesso a este repositório, e recrie o Codespace.
 
 Em host Windows, crie o `.env` antes de abrir o dev container (`.\scripts\local-start.ps1` já faz isso, ou copie `.env.example` manualmente): a criação automática do `.env` depende de um shell POSIX no host.
 
@@ -166,6 +199,18 @@ curl -X POST http://localhost:8000/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username":"creator","password":"change-me-securely"}'
 ```
+
+## Universos e Agents iniciais
+
+Com o banco vazio não existe Universo nem Agent, e o ROCKMAM devolve toda Missão como "não viável": um plano só é viável quando cada Universo dele está ativo e tem um Agent ativo. Depois de criar o Criador, rode uma vez:
+
+```bash
+docker compose exec api seed-universes
+```
+
+Isso cria e ativa `engineering`, `content`, `research` e `operations`, cada um com um Agent ativo que usa o `LLM_PROVIDER` configurado. O comando pode ser repetido à vontade: ele só preenche o que falta e reativa o que foi desligado, sem duplicar nada. Tudo fica no Chronicle.
+
+Esses são só um ponto de partida. Crie, renomeie ou desative os seus pelos endpoints `/api/v1/universes/*` e `/api/v1/agents/*` assim que souber quais domínios você realmente usa.
 
 ## Superfície operacional
 

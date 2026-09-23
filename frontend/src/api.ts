@@ -91,11 +91,59 @@ export const createConversation = (title = "Creator Session") => api<Conversatio
 export const fetchConversationMessages = (conversationId: string) =>
   api<ConversationMessage[]>(`/conversations/${conversationId}/messages`);
 
+export type ProposalSummary = {
+  id: string;
+  title: string;
+  status: string;
+  verdict: string;
+  mission_id?: string;
+  mission_status?: string;
+};
+
 export const converseWithDeus = (conversationId: string, content: string) =>
-  api<{ response: string }>(`/conversations/${conversationId}/deus`, {
+  api<{ response: string; inception: ProposalSummary | null }>(`/conversations/${conversationId}/deus`, {
     method: "POST",
     body: JSON.stringify({ content, metadata: {} }),
   });
+
+/** What SOPHIA and ROCKMAM concluded about a Creator request (empty for hand-made Inceptions). */
+export type TrinityAssessment = {
+  sophia?: { opportunities: string[]; risks: string[]; recommendation: string };
+  rockmam?: { objective: string; constraints: string[]; completion_criteria: string[] };
+  mission_plan?: { strategy: string; steps: Array<{ step_key: string; title: string; universe: string; position: number }> };
+  verdict?: {
+    result: "VIABLE" | "REQUIRES_CREATOR";
+    blockers?: Array<{ universe: string; reason: "inactive" | "no_active_agent" | "unknown" }>;
+    unavailable_universes: string[];
+  };
+  /** Set when ROCKMAM prepared the Mission because the plan was viable. */
+  mission_id?: string;
+};
+
+export type Inception = {
+  id: string;
+  conversation_id: string;
+  title: string;
+  description: string;
+  status: string;
+  trinity_assessment: TrinityAssessment;
+  proposed_at: string;
+};
+
+export const fetchInceptions = () => api<Inception[]>("/inceptions");
+export const fetchInception = (id: string) => api<Inception>(`/inceptions/${id}`);
+
+export const decideInception = (id: string, decision: "approve" | "reject" | "cancel") =>
+  api<Inception>(`/inceptions/${id}/${decision}`, { method: "POST", body: JSON.stringify({}) });
+
+export type Mission = { id: string; inception_id: string; title: string; objective: string; status: string };
+
+export const fetchMission = (id: string) => api<Mission>(`/missions/${id}`);
+
+/** The Creator's go: authorizes, distributes and starts executing a Mission ROCKMAM prepared. */
+export const startMission = (id: string) => api<Mission>(`/missions/${id}/start`, { method: "POST" });
+
+export const cancelMission = (id: string) => api<Mission>(`/missions/${id}/cancel`, { method: "POST" });
 
 /** DEUS voice through the backend's ElevenLabs proxy; the provider key never reaches the browser. */
 export async function synthesizeVoice(text: string, signal?: AbortSignal): Promise<Blob> {

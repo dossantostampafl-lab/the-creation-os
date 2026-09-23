@@ -26,6 +26,9 @@ export const voiceText = {
   listening: () => (portuguese() ? "Ouvindo…" : "Listening…"),
   farewell: () => (portuguese() ? "Até logo." : "Goodbye."),
   conversationHint: () => (portuguese() ? "Em conversa — diga “tchau” para encerrar" : "In conversation — say “bye” to end"),
+  dismissed: () => (portuguese() ? "Proposta descartada." : "Proposal dismissed."),
+  started: () => (portuguese() ? "Missão autorizada. Iniciando." : "Mission authorized. Starting."),
+  cancelled: () => (portuguese() ? "Missão cancelada." : "Mission cancelled."),
 };
 
 // Short phrases that close a voice conversation ("tchau", "obrigado", "pode parar", "bye"...).
@@ -35,6 +38,29 @@ const FAREWELL = /^(tchau|até logo|até mais|até amanhã|obrigad[oa]|valeu|pod
 export function isFarewell(transcript: string): boolean {
   const text = transcript.trim().replace(/[.!?]+$/u, "");
   return text.split(/\s+/).filter(Boolean).length <= 4 && FAREWELL.test(text);
+}
+
+// Bare answers to the Trinity ("autoriza", "pode iniciar", "cancela a missão", "sim, aprova"...).
+// The whole utterance must be the command, so "inicia uma nova missão" still reaches DEUS.
+const YES = String.raw`(?:(?:sim|pode|ok|yes)[,]?\s+)?`;
+const NO = String.raw`(?:(?:não|nao|no)[,]?\s+)?`;
+const OBJECT = String.raw`(?:\s+(?:a\s+miss[aã]o|ela|isso|agora|j[aá]|the\s+mission|it|now))?`;
+const command = (prefix: string, verbs: string) => new RegExp(`^${prefix}(?:${verbs})${OBJECT}$`, "iu");
+const AUTHORIZE = command(YES, "autoriz[ae]r?|autorizad[oa]|inici[ae]r?|come[cç][ae]r?|authori[sz]e|start|launch|go(?:\\s+ahead)?");
+const CANCEL = command(NO, "cancel[ae]r?|cancelad[oa]|abort[ae]r?|cancel|abort");
+const APPROVE = command(YES, "aprov[ae]r?|aprovad[oa]|approve|approved");
+const REJECT = command(NO, "rejeit[ae]r?|rejeitad[oa]|recus[ae]r?|reject|rejected|decline");
+
+export type SpokenDecision = "authorize" | "cancel" | "approve" | "reject";
+
+/** The Creator's spoken decision on the Trinity's latest proposal, or null when the utterance is anything else. */
+export function spokenDecision(transcript: string): SpokenDecision | null {
+  const text = transcript.trim().replace(/[.!?]+$/u, "").replace(/\s+/gu, " ");
+  if (AUTHORIZE.test(text)) return "authorize";
+  if (CANCEL.test(text)) return "cancel";
+  if (APPROVE.test(text)) return "approve";
+  if (REJECT.test(text)) return "reject";
+  return null;
 }
 
 /** Live loudness of DEUS's voice (0–1), read by the cosmic brain every frame. */

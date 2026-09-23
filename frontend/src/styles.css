@@ -52,6 +52,7 @@ html, body { margin: 0; min-width: 320px; height: 100%; background: var(--space)
   text-shadow: 0 0 10px #8b7bff, 0 0 2px #000;
 }
 .moon-label span { font-size: 9px; color: #b9f3ff; letter-spacing: .32em; }
+.cosmos-thinking .moon-label span { color: #fff; text-shadow: 0 0 14px #b9f3ff, 0 0 30px #3fdcff; animation: breathe 1.4s ease-in-out infinite; }
 .universe-label span { padding: 3px 8px; font-size: 10px; border-radius: 99px; background: #07061a99; border: 1px solid #a78bfa33; }
 .universe-label.dormant span { opacity: .55; }
 .deus-label span.deus {

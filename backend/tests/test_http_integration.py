@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.config import settings
 from app.db.session import get_session
+from app.inference.contracts import InferenceResponse
 from app.main import app
 from app.models.entities import Conversation, Creator
 
@@ -229,3 +230,86 @@ async def test_kernel_routes_are_registered_and_guard_missing_missions(client, h
     for action in ("distribute", "execute", "manifest", "fail"):
         assert (await client.post(f"/api/v1/missions/{missing}/{action}", headers=headers)).status_code == 404
     assert (await client.get(f"/api/v1/missions/{missing}/tasks", headers=headers)).status_code == 404
+
+
+class TrinityScriptRouter:
+    """Stands in for the model: SOPHIA sees a Mission, ROCKMAM plans it, DEUS presents it."""
+
+    def __init__(self) -> None:
+        self.replies = [
+            '{"intent_class": "mission_candidate", "summary": "Prove the Trinity", "confidence": 0.9}',
+            '{"opportunities": ["Proof"], "risks": ["None"], "recommendation": "Proceed."}',
+            '{"title": "Trinity proof", "synthesis": {"objective": "Prove the Trinity end to end."}, '
+            '"mission_plan": {"strategy": "One step.", "steps": [{"step_key": "prove_http", "title": "Prove", '
+            '"description": "Prove it", "universe": "engineering", "position": 1}]}}',
+            "SOPHIA and ROCKMAM propose a Mission. Shall I proceed?",
+        ]
+
+    async def generate(self, request):
+        return InferenceResponse(provider="stub", model="stub-model", content=self.replies.pop(0))
+
+
+@pytest.mark.asyncio
+async def test_deus_trinity_proposes_an_inception_the_creator_can_approve(client, http_database, monkeypatch):
+    _, creator_id, _ = http_database
+    monkeypatch.setattr("app.api.deus.build_model_router", TrinityScriptRouter)
+    monkeypatch.setattr("app.api.deus.resolve_configured_model", lambda _router: "stub-model")
+    monkeypatch.setattr(settings, "trinity_enabled", True)
+    headers = auth(creator_id)
+    conversation_id = (await client.post("/api/v1/conversations", headers=headers,
+                                         json={"title": "Trinity"})).json()["id"]
+
+    reply = await client.post(f"/api/v1/conversations/{conversation_id}/deus", headers=headers,
+                              json={"content": "Prove the Trinity works"})
+
+    assert reply.status_code == 201
+    proposal = reply.json()["inception"]
+    assert proposal["title"] == "Trinity proof"
+    assert proposal["status"] == "awaiting_creator_decision"
+    assert proposal["verdict"] == "REQUIRES_CREATOR"
+    stored = (await client.get(f"/api/v1/inceptions/{proposal['id']}", headers=headers)).json()
+    assert stored["description"] == "Prove the Trinity end to end."
+    assert stored["trinity_assessment"]["verdict"]["unavailable_universes"] == ["engineering"]
+    assert stored["trinity_assessment"]["mission_plan"]["steps"][0]["step_key"] == "prove_http"
+    approved = await client.post(f"/api/v1/inceptions/{proposal['id']}/approve", headers=auth(creator_id), json={})
+    assert approved.status_code == 200
+    assert approved.json()["status"] == "approved"
+    integrity = (await client.get("/api/v1/chronicles/verify", headers=headers)).json()
+    assert integrity["valid"] is True
+
+
+@pytest.mark.asyncio
+async def test_viable_trinity_mission_waits_for_the_creator_then_starts(client, http_database, monkeypatch):
+    _, creator_id, _ = http_database
+    monkeypatch.setattr("app.api.deus.build_model_router", TrinityScriptRouter)
+    monkeypatch.setattr("app.api.deus.resolve_configured_model", lambda _router: "stub-model")
+    monkeypatch.setattr(settings, "trinity_enabled", True)
+    headers = auth(creator_id)
+    universe_id = (await client.post("/api/v1/universes", headers=headers,
+                                     json={"code": "engineering", "name": "Engineering"})).json()["id"]
+    assert (await client.post(f"/api/v1/universes/{universe_id}/activate", headers=auth(creator_id))).status_code == 200
+    assert (await client.post("/api/v1/agents", headers=auth(creator_id), json={
+        "code": "builder", "name": "Builder", "universe_id": universe_id})).status_code == 201
+    conversation_id = (await client.post("/api/v1/conversations", headers=auth(creator_id),
+                                         json={"title": "Trinity"})).json()["id"]
+
+    reply = await client.post(f"/api/v1/conversations/{conversation_id}/deus", headers=auth(creator_id),
+                              json={"content": "Prove the Trinity works"})
+
+    proposal = reply.json()["inception"]
+    assert proposal["verdict"] == "VIABLE"
+    assert proposal["status"] == "approved"
+    assert proposal["mission_status"] == "validated"
+    mission_id = proposal["mission_id"]
+    assert (await client.get(f"/api/v1/missions/{mission_id}/tasks", headers=headers)).json() == []
+
+    started = await client.post(f"/api/v1/missions/{mission_id}/start", headers=auth(creator_id))
+
+    assert started.status_code == 200
+    assert started.json()["status"] == "executing"
+    assert started.json()["authorization_json"]["authorized_by"] == creator_id
+    tasks = (await client.get(f"/api/v1/missions/{mission_id}/tasks", headers=headers)).json()
+    assert [task["status"] for task in tasks] == ["READY"]
+    again = await client.post(f"/api/v1/missions/{mission_id}/start", headers=auth(creator_id))
+    assert again.status_code == 409
+    assert (await client.get("/api/v1/chronicles/verify", headers=headers)).json()["valid"] is True

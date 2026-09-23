@@ -39,6 +39,31 @@ class NotFoundError(Exception):
     pass
 
 
+async def add_mission_plan(repo: DomainRepository, mission_id: str, plan: dict[str, Any]) -> MissionPlan:
+    """Persist a validated plan and its steps for a Mission, without committing."""
+    steps = plan.get("steps", [])
+    if not steps:
+        raise InvalidOrigin("Mission plan requires executable steps")
+    persisted = await repo.add(MissionPlan(
+        mission_id=mission_id,
+        strategy=plan.get("strategy", ""),
+        completion_criteria_json=plan.get("completion_criteria", {}),
+    ))
+    for raw_step in steps:
+        await repo.add(MissionStep(
+            plan_id=persisted.id,
+            step_key=raw_step["step_key"],
+            title=raw_step["title"],
+            description=raw_step["description"],
+            universe=raw_step["universe"],
+            position=raw_step["position"],
+            depends_on_json=raw_step.get("depends_on", []),
+            completion_criteria_json=raw_step.get("completion_criteria", {}),
+            status="PENDING",
+        ))
+    return persisted
+
+
 class LivingCoreService:
     def __init__(self, repository: DomainRepository, cache: CacheOrchestrator | None = None) -> None:
         self.repo = repository
@@ -375,28 +400,10 @@ class LivingCoreService:
             require_creator(actor, "authorize Mission")
 
         if target == MissionStatus.PLANNED:
-            plan_data = plan or {}
-            steps_data = plan_data.get("steps", [])
-            if not steps_data:
+            if not (plan or {}).get("steps"):
                 raise InvalidOrigin("Mission plan requires executable steps")
             item.status = transition("mission", current, target)
-            persisted_plan = await self.repo.add(MissionPlan(
-                mission_id=item.id,
-                strategy=plan_data.get("strategy", ""),
-                completion_criteria_json=plan_data.get("completion_criteria", {}),
-            ))
-            for raw_step in steps_data:
-                await self.repo.add(MissionStep(
-                    plan_id=persisted_plan.id,
-                    step_key=raw_step["step_key"],
-                    title=raw_step["title"],
-                    description=raw_step["description"],
-                    universe=raw_step["universe"],
-                    position=raw_step["position"],
-                    depends_on_json=raw_step.get("depends_on", []),
-                    completion_criteria_json=raw_step.get("completion_criteria", {}),
-                    status="PENDING",
-                ))
+            await add_mission_plan(self.repo, item.id, plan or {})
             event = "mission_planned"
         elif target == MissionStatus.VALIDATED:
             await self._plan_for_mission(item.id)
@@ -445,4 +452,23 @@ class LivingCoreService:
         if event is not None:
             await self.repo.add_event(event, "mission", item.id, actor.id, actor.role, correlation_id)
         await self.repo.commit()
+        return item
+
+    async def start_mission(self, actor: Actor, entity_id: str, correlation_id: str):
+        """The Creator's go: authorize, distribute and begin executing a ready Mission.
+
+        Resumes from wherever an earlier start stopped (for example a Universe that was
+        deactivated between authorization and distribution).
+        """
+        require_creator(actor, "start Mission")
+        item = await self._owned(Mission, entity_id, actor)
+        steps = {
+            MissionStatus.VALIDATED.value: MissionStatus.AUTHORIZED,
+            MissionStatus.AUTHORIZED.value: MissionStatus.DISTRIBUTED,
+            MissionStatus.DISTRIBUTED.value: MissionStatus.EXECUTING,
+        }
+        if item.status not in steps:
+            raise InvalidOrigin(f"Mission cannot start while {item.status}")
+        while item.status in steps:
+            item = await self.transition_mission(actor, entity_id, steps[item.status], correlation_id)
         return item

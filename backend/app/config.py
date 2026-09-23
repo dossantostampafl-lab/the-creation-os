@@ -45,6 +45,8 @@ class Settings(BaseSettings):
     semantic_cache_deterministic_ttl_seconds: int = Field(3600, ge=1, env="SEMANTIC_CACHE_DETERMINISTIC_TTL_SECONDS")
     semantic_cache_lock_seconds: int = Field(30, ge=1, le=300, env="SEMANTIC_CACHE_LOCK_SECONDS")
     semantic_cache_singleflight_wait_ms: int = Field(250, ge=0, le=5000, env="SEMANTIC_CACHE_SINGLEFLIGHT_WAIT_MS")
+    trinity_enabled: bool = Field(True, env="TRINITY_ENABLED")
+    trinity_min_confidence: float = Field(0.7, ge=0.0, le=1.0, env="TRINITY_MIN_CONFIDENCE")
     proto_base_url: str | None = Field(None, env="PROTO_BASE_URL")
     proto_creation_shared_secret: SecretStr | None = Field(None, env="PROTO_CREATION_SHARED_SECRET")
     proto_timeout_seconds: float = Field(10.0, gt=0.0, le=60.0, env="PROTO_TIMEOUT_SECONDS")

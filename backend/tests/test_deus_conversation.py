@@ -86,24 +86,20 @@ async def test_deus_uses_model_router_and_persists_both_sides_of_conversation() 
 
 
 @pytest.mark.asyncio
-async def test_deus_routes_through_the_configured_fallback_chain() -> None:
+async def test_deus_keeps_its_model_and_leaves_the_chain_to_the_router() -> None:
+    """The router built by bootstrap carries the fallback chain, so DEUS pins the primary's model
+    and each fallback still serves its own default (see test_inference_fallback)."""
     actor = Actor(str(uuid.uuid4()), "creator")
     repo = FakeRepository(actor)
     router = StubRouter()
-    service = DeusConversationService(
-        repo,
-        router,
-        provider="freellmapi",
-        model="auto:default",
-        fallback_providers=["anthropic"],
-    )
+    service = DeusConversationService(repo, router, provider="freellmapi", model="auto:default")
 
     await service.respond(actor, repo.conversation.id, "What is our status?", str(uuid.uuid4()))
 
     request = router.requests[0]
     assert request.requirements.preferred_provider == "freellmapi"
-    assert request.requirements.fallback_providers == ["anthropic"]
-    assert request.model is None
+    assert request.requirements.fallback_providers == []
+    assert request.model == "auto:default"
 
 
 @pytest.mark.asyncio

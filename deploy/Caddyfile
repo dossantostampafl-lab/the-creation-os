@@ -1,0 +1,7 @@
+# Public HTTPS entry point for a cloud server. Caddy obtains and renews the certificate on its own;
+# nginx inside the frontend container keeps serving the app and proxying /api to the API.
+{$CREATION_DOMAIN} {
+	encode zstd gzip
+	header Strict-Transport-Security "max-age=31536000"
+	reverse_proxy frontend:8080
+}

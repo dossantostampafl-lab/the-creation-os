@@ -8,11 +8,17 @@ from app.inference.anthropic_provider import AnthropicProvider
 from app.inference.contracts import ProviderModelProfile
 from app.inference.freellmapi_config import load_freellmapi_config, load_freellmapi_model
 from app.inference.freellmapi_provider import FreeLLMAPIProvider
+from app.inference.health import ProviderCircuitBreaker, ProviderRateLimitCooldown
 from app.inference.openai_compatible_config import load_openai_compatible_config
 from app.inference.openai_compatible_provider import OpenAICompatibleProvider
 from app.inference.openai_provider import OpenAIResponsesProvider
 from app.inference.registry import ProviderRegistry
 from app.inference.router import ModelRouter
+
+# Routers are built per request, but a provider's health is a fact about the process's world:
+# once FreeLLMAPI's circuit opens, every request should go straight to the fallback until it recovers.
+_CIRCUIT_BREAKER = ProviderCircuitBreaker()
+_RATE_LIMIT_COOLDOWN = ProviderRateLimitCooldown()
 
 
 def resolve_configured_model(router: ModelRouter) -> str:
@@ -107,7 +113,15 @@ def _register_provider(registry: ProviderRegistry, provider: str) -> None:
 
 
 def build_model_router() -> ModelRouter:
+    """Every request is served by the configured provider; the chain's fallbacks only when it fails."""
     registry = ProviderRegistry()
-    for provider in settings.inference_provider_chain:
+    chain = settings.inference_provider_chain
+    for provider in chain:
         _register_provider(registry, provider)
-    return CachingModelRouter(registry, cache=build_cache_orchestrator())
+    return CachingModelRouter(
+        registry,
+        cache=build_cache_orchestrator(),
+        fallback_providers=chain[1:],
+        circuit_breaker=_CIRCUIT_BREAKER,
+        rate_limit_cooldown=_RATE_LIMIT_COOLDOWN,
+    )
