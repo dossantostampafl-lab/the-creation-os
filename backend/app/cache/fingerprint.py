@@ -78,4 +78,6 @@ def build_authorization_fingerprint(request: InferenceRequest) -> str:
 
 
 def build_exact_key(*, normalized_query: str, context: dict[str, Any]) -> str:
-    return stable_hash({"query": normalized_query, "context": context})
+    # Tags only drive invalidation; they are not part of an entry's identity (see docs/semantic-cache.md).
+    identity = {key: value for key, value in context.items() if key != "tags"}
+    return stable_hash({"query": normalized_query, "context": identity})
