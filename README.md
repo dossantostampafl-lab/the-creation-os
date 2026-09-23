@@ -39,6 +39,19 @@ Providers `fake` são permitidos somente para bootstrap/desenvolvimento. Para in
 | `freellmapi` | `FREELLMAPI_MODEL` (ex.: `auto`), `FREELLMAPI_API_KEY` (chave `freellmapi-…` gerada pelo próprio FreeLLMAPI), `FREELLMAPI_BASE_URL` | FreeLLMAPI rodando no computador (`http://host.docker.internal:3001/v1`) |
 | `openai_compatible` | `OPENAI_COMPATIBLE_MODEL`, `OPENAI_COMPATIBLE_BASE_URL` | gateway compatível (Ollama, vLLM, …) |
 
+**Provider reserva.** `LLM_FALLBACK_PROVIDER` define um provider usado só quando o principal falha de vez: fora do ar, inacessível, estourando o tempo, sem cota (429) ou com erro 5xx. Para usar sempre o FreeLLMAPI e o Claude só como reserva:
+
+```
+LLM_PROVIDER=freellmapi
+LLM_FALLBACK_PROVIDER=anthropic
+FREELLMAPI_API_KEY=freellmapi-...
+FREELLMAPI_MODEL=auto
+ANTHROPIC_API_KEY=sk-ant-...
+ANTHROPIC_MODEL=<modelo Claude>
+```
+
+Enquanto o FreeLLMAPI responde, nenhuma chamada vai para a Anthropic. Depois de 3 falhas seguidas o FreeLLMAPI fica 30 segundos fora da rota (circuit breaker) e então volta a ser tentado primeiro. Uma chave recusada (401/403) não aciona a reserva: é erro de configuração e aparece como erro. Cada resposta do DEUS guarda no histórico qual provider respondeu.
+
 O provider `anthropic` usa a Messages API nativa do Claude: mensagens `system` são elevadas ao campo `system` da requisição, `ANTHROPIC_MAX_OUTPUT_TOKENS` define o teto padrão de saída (exigido pela API) e `ANTHROPIC_BASE_URL`/`ANTHROPIC_TIMEOUT_SECONDS` permitem apontar para um proxy corporativo.
 
 Enquanto o provider selecionado for `fake`, o status de inferência é reportado como `UNCONFIGURED` e o Creator Console permanece desabilitado — o sistema recusa fabricar respostas do DEUS.

@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     llm_provider: str = Field("fake", env="LLM_PROVIDER")
     llm_model: str = Field("fake", env="LLM_MODEL")
     llm_api_key: SecretStr | None = Field(None, env="LLM_API_KEY")
+    llm_fallback_provider: str = Field("", env="LLM_FALLBACK_PROVIDER")
     embedding_provider: str = Field("fake", env="EMBEDDING_PROVIDER")
     embedding_model: str = Field("fake", env="EMBEDDING_MODEL")
     semantic_cache_mode: str = Field("shadow", env="SEMANTIC_CACHE_MODE")
