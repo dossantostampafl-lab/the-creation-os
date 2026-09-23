@@ -41,6 +41,21 @@ Providers `fake` são permitidos somente para bootstrap/desenvolvimento. Para in
 
 O provider `anthropic` usa a Messages API nativa do Claude: mensagens `system` são elevadas ao campo `system` da requisição, `ANTHROPIC_MAX_OUTPUT_TOKENS` define o teto padrão de saída (exigido pela API) e `ANTHROPIC_BASE_URL`/`ANTHROPIC_TIMEOUT_SECONDS` permitem apontar para um proxy corporativo.
 
+#### Cadeia de fallback
+
+`LLM_PROVIDER` define o provider primário e `LLM_FALLBACK_PROVIDERS` (lista separada por vírgula) define a ordem de fallback usada quando o primário está indisponível, em rate limit ou com o circuito aberto. Para FreeLLMAPI primeiro e Anthropic como reserva:
+
+```dotenv
+LLM_PROVIDER=freellmapi
+LLM_FALLBACK_PROVIDERS=anthropic
+FREELLMAPI_API_KEY=freellmapi-…
+FREELLMAPI_MODEL=auto
+ANTHROPIC_API_KEY=sk-ant-…
+ANTHROPIC_MODEL=claude-sonnet-4-5
+```
+
+Todos os providers da cadeia precisam estar completamente configurados: se faltar credencial/modelo de um deles, o boot da inferência falha explicitamente em vez de silenciar a reserva. Cada provider responde com o seu próprio modelo padrão, e o `provider`/`model` efetivamente usados são registrados na mensagem e no Chronicle. `fake` não é aceito como fallback.
+
 Enquanto o provider selecionado for `fake`, o status de inferência é reportado como `UNCONFIGURED` e o Creator Console permanece desabilitado — o sistema recusa fabricar respostas do DEUS.
 
 ### Voz do DEUS (como uma Alexa)

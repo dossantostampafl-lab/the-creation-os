@@ -55,6 +55,7 @@ async def converse_with_deus(
         router_instance,
         provider=settings.llm_provider,
         model=resolve_configured_model(router_instance),
+        fallback_providers=settings.inference_provider_chain[1:],
     )
     try:
         result = await service.respond(a, str(entity_id), body.content, cid)
