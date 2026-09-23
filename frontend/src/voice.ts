@@ -14,7 +14,7 @@ const MAX_SPOKEN_CHARS = 1200;
 const ATTENTION_MS = 8000;
 const WAKE_WORD = /(^|[^\p{L}])(deus|zeus)(?![\p{L}])/iu;
 
-export function voiceLanguage(): string {
+function voiceLanguage(): string {
   return navigator.language || "en-US";
 }
 
@@ -295,7 +295,7 @@ function recognitionConstructor(): RecognitionConstructor | null {
   return scope.SpeechRecognition ?? scope.webkitSpeechRecognition ?? null;
 }
 
-export type EarsState = "off" | "sleeping" | "attentive";
+type EarsState = "off" | "sleeping" | "attentive";
 
 type EarsOptions = {
   /** DEUS is thinking or speaking: stop listening so it does not hear itself. */

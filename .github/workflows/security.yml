@@ -84,5 +84,5 @@ jobs:
       - name: Audit frontend dependencies
         working-directory: frontend
         run: |
-          npm install
+          npm ci
           npm audit --audit-level=high

@@ -33,3 +33,9 @@ coverage.xml
 # IDEs
 .vscode/
 .idea/
+
+# Frontend build and test artifacts
+node_modules/
+frontend/dist/
+frontend/test-results/
+frontend/playwright-report/
