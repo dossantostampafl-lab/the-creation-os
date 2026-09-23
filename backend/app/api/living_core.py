@@ -3,11 +3,11 @@ from __future__ import annotations
 import uuid
 from enum import StrEnum
 
-from fastapi import APIRouter, Depends, Header, Query, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.embeddings import build_embedding_model
-from app.auth.dependencies import get_sovereign_creator
+from app.api.dependencies import actor, correlation_id
 from app.cache.bootstrap import build_cache_orchestrator
 from app.core.domain import Actor, InceptionStatus, InvalidOrigin, MissionStatus
 from app.db.session import get_session
@@ -15,7 +15,6 @@ from app.memory.contracts import MemoryCandidate
 from app.memory.policy import MemoryPolicy, MemoryProvenanceError
 from app.observability.probes import database_probe, redis_probes
 from app.repositories.domain import DomainRepository
-from app.schemas.auth import TokenPayload
 from app.schemas.chronicle import ChronicleResponse, ChronicleVerifyResponse
 from app.schemas.conversation import ConversationCreateRequest, ConversationMessageResponse, ConversationResponse, MessageRequest
 from app.schemas.inception import InceptionCreateRequest, InceptionDecisionRequest, InceptionResponse
@@ -32,16 +31,6 @@ class MemoryLayer(StrEnum):
     CONVERSATION = "conversation"
     MISSION = "mission"
     UNIVERSE = "universe"
-
-
-def correlation_id(x_correlation_id: str | None = Header(None)) -> str:
-    if x_correlation_id is None:
-        return str(uuid.uuid4())
-    return str(uuid.UUID(x_correlation_id))
-
-
-def actor(token: TokenPayload = Depends(get_sovereign_creator)) -> Actor:
-    return Actor(id=token.sub, role="creator")
 
 
 def service(session: AsyncSession = Depends(get_session)) -> LivingCoreService:

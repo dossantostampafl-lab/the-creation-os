@@ -9,7 +9,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.living_core import actor
+from app.api.dependencies import actor
 from app.core.domain import Actor
 from app.db.session import AsyncSessionLocal, get_session
 from app.models.entities import Chronicle

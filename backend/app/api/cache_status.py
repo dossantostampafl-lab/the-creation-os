@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from app.api.living_core import actor
+from app.api.dependencies import actor
 from app.cache.status import CacheStatusSnapshot, configured_cache_status
 from app.core.domain import Actor
 

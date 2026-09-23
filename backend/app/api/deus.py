@@ -2,30 +2,21 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.dependencies import get_sovereign_creator
+from app.api.dependencies import actor, correlation_id
 from app.config import settings
 from app.core.domain import Actor
 from app.db.session import get_session
 from app.inference.bootstrap import build_model_router, resolve_configured_model
 from app.models.entities import Conversation
 from app.repositories.domain import DomainRepository
-from app.schemas.auth import TokenPayload
 from app.schemas.conversation import ConversationMessageResponse, MessageRequest, MessageResponse
 from app.services.deus import DeusConversationService
 from app.services.domain import NotFoundError
 
 router = APIRouter()
-
-
-def correlation_id(x_correlation_id: str | None = Header(None)) -> str:
-    return str(uuid.uuid4()) if x_correlation_id is None else str(uuid.UUID(x_correlation_id))
-
-
-def actor(token: TokenPayload = Depends(get_sovereign_creator)) -> Actor:
-    return Actor(id=token.sub, role="creator")
 
 
 @router.get("/conversations/{entity_id}/messages", response_model=list[ConversationMessageResponse])
