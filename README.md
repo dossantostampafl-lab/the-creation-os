@@ -36,7 +36,7 @@ Providers `fake` são permitidos somente para bootstrap/desenvolvimento. Para in
 | --- | --- | --- |
 | `openai` | `LLM_MODEL`, `LLM_API_KEY` | `https://api.openai.com/v1/responses` |
 | `anthropic` | `ANTHROPIC_MODEL`, `ANTHROPIC_API_KEY` | `https://api.anthropic.com/v1/messages` |
-| `freellmapi` | `FREELLMAPI_MODEL`, `FREELLMAPI_API_KEY`, `FREELLMAPI_BASE_URL` | gateway configurado |
+| `freellmapi` | `FREELLMAPI_MODEL` (ex.: `auto`), `FREELLMAPI_API_KEY` (chave `freellmapi-…` gerada pelo próprio FreeLLMAPI), `FREELLMAPI_BASE_URL` | FreeLLMAPI rodando no computador (`http://host.docker.internal:3001/v1`) |
 | `openai_compatible` | `OPENAI_COMPATIBLE_MODEL`, `OPENAI_COMPATIBLE_BASE_URL` | gateway compatível (Ollama, vLLM, …) |
 
 O provider `anthropic` usa a Messages API nativa do Claude: mensagens `system` são elevadas ao campo `system` da requisição, `ANTHROPIC_MAX_OUTPUT_TOKENS` define o teto padrão de saída (exigido pela API) e `ANTHROPIC_BASE_URL`/`ANTHROPIC_TIMEOUT_SECONDS` permitem apontar para um proxy corporativo.
