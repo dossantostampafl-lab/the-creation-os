@@ -1,7 +1,8 @@
 services:
   api:
     volumes:
-      - ..:/workspace:cached
+      # Relative to the project directory (root docker-compose.yml), not this file.
+      - .:/workspace:cached
     working_dir: /workspace/backend
     user: root
     restart: "no"
