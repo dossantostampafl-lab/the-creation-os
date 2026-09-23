@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from app.core.domain import Actor, ConversationStatus, InvalidOrigin, require_creator
@@ -31,11 +32,20 @@ class DeusReply:
 
 
 class DeusConversationService:
-    def __init__(self, repository: DomainRepository, router: ModelRouter, *, provider: str, model: str) -> None:
+    def __init__(
+        self,
+        repository: DomainRepository,
+        router: ModelRouter,
+        *,
+        provider: str,
+        model: str,
+        fallback_providers: Sequence[str] = (),
+    ) -> None:
         self.repo = repository
         self.router = router
         self.provider = provider
         self.model = model
+        self.fallback_providers = [str(name) for name in fallback_providers]
 
     async def respond(self, actor: Actor, conversation_id: str, content: str, correlation_id: str) -> DeusReply:
         require_creator(actor, "speak with DEUS")
@@ -64,8 +74,13 @@ class DeusConversationService:
 
         inference = await self.router.generate(InferenceRequest(
             messages=messages,
-            model=self.model,
-            requirements=ModelRequirements(preferred_provider=self.provider),
+            # Each provider serves its own default model, so pinning the primary model
+            # would make the fallbacks unroutable.
+            model=None if self.fallback_providers else self.model,
+            requirements=ModelRequirements(
+                preferred_provider=self.provider,
+                fallback_providers=self.fallback_providers,
+            ),
             metadata={
                 "conversation_id": conversation_id,
                 "creator_id": actor.id,
