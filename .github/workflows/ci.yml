@@ -158,7 +158,9 @@ jobs:
         with:
           python-version: "3.12"
       - name: Validate Render blueprint
-        run: python .github/scripts/validate_render_blueprint.py
+        run: |
+          pip install --quiet pyyaml
+          python .github/scripts/validate_render_blueprint.py
       - name: Build canonical local runtime
         run: docker compose build
       - name: Build Render frontend image
