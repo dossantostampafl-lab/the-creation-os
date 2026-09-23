@@ -116,7 +116,7 @@ async def test_an_open_primary_circuit_goes_straight_to_the_fallback() -> None:
 @pytest.fixture
 def freellmapi_with_anthropic_fallback(monkeypatch):
     monkeypatch.setattr(settings, "llm_provider", "freellmapi")
-    monkeypatch.setattr(settings, "llm_fallback_provider", "anthropic")
+    monkeypatch.setattr(settings, "llm_fallback_providers", "anthropic")
     monkeypatch.setenv("FREELLMAPI_API_KEY", "gateway-secret")
     monkeypatch.setenv("FREELLMAPI_MODEL", "auto")
     monkeypatch.setenv("FREELLMAPI_BASE_URL", "http://freellmapi:3001/v1")
@@ -143,7 +143,7 @@ def test_routers_built_per_request_share_provider_health(freellmapi_with_anthrop
 
 
 def test_bootstrap_without_a_fallback_uses_only_the_primary(freellmapi_with_anthropic_fallback) -> None:
-    freellmapi_with_anthropic_fallback.setattr(settings, "llm_fallback_provider", "")
+    freellmapi_with_anthropic_fallback.setattr(settings, "llm_fallback_providers", "")
 
     router = build_model_router()
 

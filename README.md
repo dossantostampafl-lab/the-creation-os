@@ -39,20 +39,24 @@ Providers `fake` são permitidos somente para bootstrap/desenvolvimento. Para in
 | `freellmapi` | `FREELLMAPI_MODEL` (ex.: `auto`), `FREELLMAPI_API_KEY` (chave `freellmapi-…` gerada pelo próprio FreeLLMAPI), `FREELLMAPI_BASE_URL` | FreeLLMAPI rodando no computador (`http://host.docker.internal:3001/v1`) |
 | `openai_compatible` | `OPENAI_COMPATIBLE_MODEL`, `OPENAI_COMPATIBLE_BASE_URL` | gateway compatível (Ollama, vLLM, …) |
 
-**Provider reserva.** `LLM_FALLBACK_PROVIDER` define um provider usado só quando o principal falha de vez: fora do ar, inacessível, estourando o tempo, sem cota (429) ou com erro 5xx. Para usar sempre o FreeLLMAPI e o Claude só como reserva:
-
-```
-LLM_PROVIDER=freellmapi
-LLM_FALLBACK_PROVIDER=anthropic
-FREELLMAPI_API_KEY=freellmapi-...
-FREELLMAPI_MODEL=auto
-ANTHROPIC_API_KEY=sk-ant-...
-ANTHROPIC_MODEL=<modelo Claude>
-```
-
-Enquanto o FreeLLMAPI responde, nenhuma chamada vai para a Anthropic. Depois de 3 falhas seguidas o FreeLLMAPI fica 30 segundos fora da rota (circuit breaker) e então volta a ser tentado primeiro. Uma chave recusada (401/403) não aciona a reserva: é erro de configuração e aparece como erro. Cada resposta do DEUS guarda no histórico qual provider respondeu.
-
 O provider `anthropic` usa a Messages API nativa do Claude: mensagens `system` são elevadas ao campo `system` da requisição, `ANTHROPIC_MAX_OUTPUT_TOKENS` define o teto padrão de saída (exigido pela API) e `ANTHROPIC_BASE_URL`/`ANTHROPIC_TIMEOUT_SECONDS` permitem apontar para um proxy corporativo.
+
+#### Cadeia de fallback
+
+`LLM_PROVIDER` é o provider primário e `LLM_FALLBACK_PROVIDERS` (lista separada por vírgula) é a ordem de reserva, usada só quando o primário falha de vez: fora do ar, inacessível, estourando o tempo, sem cota (429), com erro 5xx ou com o circuito aberto. Para FreeLLMAPI primeiro e Anthropic como reserva:
+
+```dotenv
+LLM_PROVIDER=freellmapi
+LLM_FALLBACK_PROVIDERS=anthropic
+FREELLMAPI_API_KEY=freellmapi-…
+FREELLMAPI_MODEL=auto
+ANTHROPIC_API_KEY=sk-ant-…
+ANTHROPIC_MODEL=claude-sonnet-4-5
+```
+
+Enquanto o FreeLLMAPI responde, nenhuma chamada vai para a Anthropic — nem do DEUS, nem da Trinity, nem do worker. Depois de 3 falhas seguidas o FreeLLMAPI fica 30 segundos fora da rota (circuit breaker), valendo para todas as requisições, e então volta a ser tentado primeiro. Uma chave recusada (401/403) não aciona a reserva: é erro de configuração e aparece como erro.
+
+Todos os providers da cadeia precisam estar completamente configurados: se faltar credencial ou modelo de um deles, o boot da inferência falha explicitamente em vez de silenciar a reserva. O primário responde com o modelo configurado e cada reserva com o seu próprio modelo padrão; o `provider`/`model` efetivamente usados são registrados na mensagem e no Chronicle. `fake` não é aceito como fallback.
 
 Enquanto o provider selecionado for `fake`, o status de inferência é reportado como `UNCONFIGURED` e o Creator Console permanece desabilitado — o sistema recusa fabricar respostas do DEUS.
 
@@ -145,6 +149,20 @@ Para outro dispositivo da mesma rede, abra `http://<IP-LAN-DO-COMPUTADOR>:8080`.
 
 Para publicar na internet com HTTPS, sem pagar hospedagem, use uma máquina *Always Free* da Oracle Cloud. O passo a passo está em [`deploy/oracle/README.md`](deploy/oracle/README.md), e um único script instala e sobe tudo: `sudo ./deploy/oracle/install.sh`. Ele usa o `docker-compose.cloud.yml`, que põe o Caddy com HTTPS automático nas portas 80 e 443 e não expõe mais nada.
 
+## Ambiente de desenvolvimento online (Codespaces)
+
+Além da execução local canônica, o repositório traz um dev container (`.devcontainer/`) que reaproveita o mesmo `docker-compose.yml`. É um caminho adicional para desenvolvimento, não um substituto da topologia local.
+
+Como abrir: no GitHub, "Code" > "Codespaces" > "Create codespace on main". Também funciona localmente em VS Code com "Dev Containers: Reopen in Container".
+
+O dev container sobe a stack completa (`api`, `frontend`, `worker`, `postgres`, `redis`), cria `.env` a partir de `.env.example` quando ainda não existe e anexa o VS Code ao container `api` (Python 3.12), com o repositório montado em `/workspace`.
+
+Acesse a porta encaminhada **8080** ("Frontend (UI + API proxy)"): o nginx serve a UI e faz proxy de `/api/` para a `api`, de modo que UI e API ficam no mesmo origin. A porta 8000 é encaminhada apenas para acesso direto à API (`/api/v1/health/ready`).
+
+As migrations continuam sendo aplicadas pelo `command` do serviço `api` no boot do stack.
+
+Em host Windows, crie o `.env` antes de abrir o dev container (`.\scripts\local-start.ps1` já faz isso, ou copie `.env.example` manualmente): a criação automática do `.env` depende de um shell POSIX no host.
+
 ## Migrations
 
 ```bash
@@ -215,6 +233,28 @@ O repositório também possui CI de build do runtime local, CodeQL/auditoria de 
 
 ## Modelo de implantação
 
-O THE CREATION OS não depende de Railway, Render ou outro runtime cloud. O Docker Compose local é a topologia canônica. O repositório não contém gatilho de deploy cloud; persistência operacional fica nos volumes Docker locais.
+O THE CREATION OS suporta dois modos de execução, ambos mantidos e validados no CI:
 
-O GitHub continua sendo usado para versionamento, Pull Requests, CI, CodeQL e auditoria de dependências. Merge em `main` não deve publicar automaticamente a aplicação em nenhum provedor externo.
+### (a) Local / LAN via Docker Compose
+
+Topologia canônica para uso em estação de trabalho ou rede local. Somente o frontend é publicado na LAN (`8080`); API, PostgreSQL e Redis permanecem restritos ao host ou à rede Docker.
+
+```bash
+cp .env.example .env
+docker compose up -d --build
+curl --fail http://localhost:8000/api/v1/health/ready
+curl --fail http://localhost:8080/healthz
+curl --fail http://localhost:8080/api/v1/health/ready
+```
+
+Para um perfil endurecido (containers read-only, rede interna para dados, segredos obrigatórios via variáveis de ambiente) use `docker-compose.prod.yml`:
+
+```bash
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+### (b) Cloud via Render
+
+`render.yaml` é um blueprint Render que descreve `creation-api` (web), `creation-worker` (worker), `creation-frontend` (web, build por `frontend/Dockerfile.render` e servido por `frontend/nginx.render.conf` na porta `10000`), `creation-redis` (keyvalue) e o banco gerenciado `creation-postgres`. Migrações rodam no `preDeployCommand`; `DATABASE_URL` e `REDIS_URL` vêm de referências gerenciadas, e segredos/providers são `sync: false` (informados no painel). Não há defaults `fake` de provider nesse modo.
+
+Nenhum dos modos é publicado automaticamente em merge para `main`: o GitHub continua sendo usado apenas para versionamento, Pull Requests, CI, CodeQL e auditoria de dependências.

@@ -6,6 +6,12 @@ from urllib.parse import urlsplit
 
 from pydantic.v1 import BaseSettings, Field, SecretStr, validator
 
+SUPPORTED_LLM_PROVIDERS = frozenset({"openai", "anthropic", "freellmapi", "openai_compatible"})
+
+
+def _split_providers(value: str) -> list[str]:
+    return [name.strip().lower() for name in value.split(",") if name.strip()]
+
 
 class Settings(BaseSettings):
     app_env: str = Field(..., env="APP_ENV")
@@ -22,9 +28,9 @@ class Settings(BaseSettings):
     log_level: str = Field("INFO", env="LOG_LEVEL")
     cors_allow_origins: str = Field("", env="CORS_ALLOW_ORIGINS")
     llm_provider: str = Field("fake", env="LLM_PROVIDER")
+    llm_fallback_providers: str = Field("", env="LLM_FALLBACK_PROVIDERS")
     llm_model: str = Field("fake", env="LLM_MODEL")
     llm_api_key: SecretStr | None = Field(None, env="LLM_API_KEY")
-    llm_fallback_provider: str = Field("", env="LLM_FALLBACK_PROVIDER")
     embedding_provider: str = Field("fake", env="EMBEDDING_PROVIDER")
     embedding_model: str = Field("fake", env="EMBEDDING_MODEL")
     semantic_cache_mode: str = Field("shadow", env="SEMANTIC_CACHE_MODE")
@@ -61,6 +67,17 @@ class Settings(BaseSettings):
         return [origin.strip() for origin in self.cors_allow_origins.split(",") if origin.strip()]
 
     @property
+    def inference_provider_chain(self) -> list[str]:
+        """Configured provider followed by the declared fallbacks, in order."""
+        chain = [self.llm_provider.strip().lower()]
+        chain.extend(
+            name
+            for name in _split_providers(self.llm_fallback_providers)
+            if name not in chain
+        )
+        return chain
+
+    @property
     def access_token_expires(self) -> timedelta:
         return timedelta(minutes=self.access_token_expire_minutes)
 
@@ -82,6 +99,24 @@ class Settings(BaseSettings):
         if value not in {"development", "test", "production"}:
             raise ValueError("APP_ENV must be development, test, or production")
         return value
+
+    @validator("llm_fallback_providers")
+    def validate_llm_fallback_providers(cls, value: str, values: dict[str, object]) -> str:
+        names = _split_providers(value)
+        if "fake" in names:
+            raise ValueError("LLM_FALLBACK_PROVIDERS must not contain fake")
+        unsupported = [name for name in names if name not in SUPPORTED_LLM_PROVIDERS]
+        if unsupported:
+            raise ValueError(
+                "LLM_FALLBACK_PROVIDERS must list supported providers: "
+                + ", ".join(sorted(SUPPORTED_LLM_PROVIDERS))
+            )
+        if len(set(names)) != len(names):
+            raise ValueError("LLM_FALLBACK_PROVIDERS must not repeat a provider")
+        primary = str(values.get("llm_provider", "")).strip().lower()
+        if primary in names:
+            raise ValueError("LLM_FALLBACK_PROVIDERS must not repeat LLM_PROVIDER")
+        return ",".join(names)
 
     @validator("semantic_cache_mode")
     def validate_semantic_cache_mode(cls, value: str) -> str:

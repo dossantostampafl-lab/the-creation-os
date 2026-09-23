@@ -113,21 +113,15 @@ def _register_provider(registry: ProviderRegistry, provider: str) -> None:
 
 
 def build_model_router() -> ModelRouter:
-    """The configured provider serves every request; LLM_FALLBACK_PROVIDER only when it is unavailable."""
+    """Every request is served by the configured provider; the chain's fallbacks only when it fails."""
     registry = ProviderRegistry()
-    provider = settings.llm_provider.strip().lower()
-    _register_provider(registry, provider)
-    fallback = settings.llm_fallback_provider.strip().lower()
-    fallbacks: list[str] = []
-    if fallback and fallback != provider:
-        if fallback == "fake":
-            raise RuntimeError("fake inference provider cannot be LLM_FALLBACK_PROVIDER")
-        _register_provider(registry, fallback)
-        fallbacks.append(fallback)
+    chain = settings.inference_provider_chain
+    for provider in chain:
+        _register_provider(registry, provider)
     return CachingModelRouter(
         registry,
         cache=build_cache_orchestrator(),
-        fallback_providers=fallbacks,
+        fallback_providers=chain[1:],
         circuit_breaker=_CIRCUIT_BREAKER,
         rate_limit_cooldown=_RATE_LIMIT_COOLDOWN,
     )
