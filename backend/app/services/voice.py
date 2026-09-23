@@ -46,45 +46,36 @@ class VoiceSynthesisService:
         if not settings.elevenlabs_enabled:
             raise VOICE_SYNTHESIS_DISABLED("ElevenLabs voice synthesis is disabled")
         if settings.elevenlabs_api_key is None:
-            raise VOICE_PROVIDER_UNAVAILABLE("ElevenLabs API key is not configured")
+            raise VOICE_SYNTHESIS_DISABLED("ElevenLabs API key is not configured")
 
         event_id = str(uuid.uuid4())
-        await self.repository.add_event(
-            "voice.synthesis.requested",
-            "voice_synthesis",
-            event_id,
-            actor.id,
-            actor.role,
-            correlation_id,
+        await self._record(
+            "voice.synthesis.requested", event_id, actor, correlation_id,
             {"provider": "elevenlabs", "text_length": len(normalized), "voice_id": settings.elevenlabs_voice_id},
         )
+        # Commit before calling the provider: add_event holds the global Chronicle lock
+        # until commit, and a slow provider must not stall every other writer.
         try:
             audio, content_type = await self._call_elevenlabs(normalized)
-            await self.repository.add_event(
-                "voice.synthesis.succeeded",
-                "voice_synthesis",
-                event_id,
-                actor.id,
-                actor.role,
-                correlation_id,
-                {"provider": "elevenlabs", "content_type": content_type, "audio_bytes": len(audio)},
-            )
-            await self.repository.commit()
-            return audio, content_type
         except Exception as exc:
-            await self.repository.add_event(
-                "voice.synthesis.failed",
-                "voice_synthesis",
-                event_id,
-                actor.id,
-                actor.role,
-                correlation_id,
+            await self._record(
+                "voice.synthesis.failed", event_id, actor, correlation_id,
                 {"provider": "elevenlabs", "code": exc.__class__.__name__},
             )
-            await self.repository.commit()
             if isinstance(exc, VoiceSynthesisError):
                 raise
             raise VOICE_PROVIDER_UNAVAILABLE("ElevenLabs voice provider is unavailable") from exc
+        await self._record(
+            "voice.synthesis.succeeded", event_id, actor, correlation_id,
+            {"provider": "elevenlabs", "content_type": content_type, "audio_bytes": len(audio)},
+        )
+        return audio, content_type
+
+    async def _record(self, event_type: str, event_id: str, actor: Actor, correlation_id: str, payload: dict) -> None:
+        await self.repository.add_event(
+            event_type, "voice_synthesis", event_id, actor.id, actor.role, correlation_id, payload,
+        )
+        await self.repository.commit()
 
     async def _call_elevenlabs(self, text: str) -> tuple[bytes, str]:
         timeout = httpx.Timeout(settings.elevenlabs_timeout_seconds)

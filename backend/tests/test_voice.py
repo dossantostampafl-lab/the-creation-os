@@ -115,3 +115,55 @@ async def test_voice_synthesize_endpoint_returns_audio():
     assert response.status_code == 200
     assert response.content == b"audio-bytes"
     assert response.headers["content-type"] == "audio/mpeg"
+
+
+@pytest.mark.asyncio
+async def test_voice_synthesis_commits_before_calling_the_provider(monkeypatch):
+    repository = FakeVoiceRepository()
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        # The requested event must already be committed so the Chronicle lock is released.
+        assert repository.commits == 1
+        return httpx.Response(200, content=b"audio", headers={"content-type": "audio/mpeg"})
+
+    monkeypatch.setattr("app.services.voice.settings.elevenlabs_enabled", True)
+    monkeypatch.setattr("app.services.voice.settings.elevenlabs_api_key", SecretStr("secret-key"))
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    service = VoiceSynthesisService(repository, client=client)  # type: ignore[arg-type]
+
+    await service.synthesize(Actor("creator-1", "creator"), "DEUS presente", "c")
+
+    await client.aclose()
+    assert repository.commits == 2
+
+
+class RaisingVoiceService:
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+
+    async def synthesize(self, actor: Actor, text: str, correlation_id: str):
+        raise self.error
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("error", "status"),
+    [
+        (VOICE_SYNTHESIS_DISABLED("disabled"), 501),
+        (VOICE_SYNTHESIS_EMPTY_TEXT("empty"), 422),
+        (VOICE_PROVIDER_UNAVAILABLE("down"), 503),
+    ],
+)
+async def test_voice_synthesize_endpoint_maps_failures_to_http_status(error, status):
+    async def fake_creator():
+        return TokenPayload(sub="creator-1", type="access", jti="jti", exp=9999999999)
+
+    app.dependency_overrides[get_sovereign_creator] = fake_creator
+    app.dependency_overrides[voice_service_dependency] = lambda: RaisingVoiceService(error)
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post("/api/v1/voice/synthesize", json={"text": "DEUS presente"})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == status
