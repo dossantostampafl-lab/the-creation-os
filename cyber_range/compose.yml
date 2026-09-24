@@ -1,0 +1,55 @@
+name: creation-cyber-range
+
+services:
+  controller:
+    build:
+      context: ./controller
+    profiles: ["cyber-range"]
+    environment:
+      RANGE_SCENARIO_CATALOG: /app/scenarios/catalog.json
+      RANGE_EVIDENCE_DIR: /evidence
+      RANGE_STATE_DIR: /state
+    ports:
+      - "127.0.0.1:7070:7070"
+    volumes:
+      - ./scenarios:/app/scenarios:ro
+      - ./evidence:/evidence
+      - range_state:/state
+    networks:
+      - range_control
+      - range_targets
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+  juice-shop:
+    image: bkimminich/juice-shop:latest
+    profiles: ["cyber-range"]
+    ports:
+      - "127.0.0.1:3000:3000"
+    networks:
+      - range_targets
+    security_opt:
+      - no-new-privileges:true
+
+  webgoat:
+    image: webgoat/webgoat:latest
+    profiles: ["cyber-range"]
+    ports:
+      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:9090:9090"
+    networks:
+      - range_targets
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  range_control:
+    internal: true
+  range_targets:
+    internal: true
+
+volumes:
+  range_state:
