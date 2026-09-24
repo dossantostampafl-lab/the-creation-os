@@ -23,6 +23,7 @@ services:
     read_only: true
     tmpfs:
       - /tmp
+      - /home/range
     security_opt:
       - no-new-privileges:true
 
