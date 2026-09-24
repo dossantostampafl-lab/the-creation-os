@@ -64,3 +64,6 @@ Canonical project state lives in version-controlled artifacts. Chat memory is su
 
 ## FD-018 — Implementation status must be evidence-based
 The terms `DESIGN_APPROVED`, `IMPLEMENTED`, `TESTED`, and `VERIFIED_OPERATIONAL` are not interchangeable. A component is only promoted to a stronger status when repository/runtime evidence supports it.
+
+## FD-019 — Security Task Force may operate in real explicitly authorized environments
+After the required validation gates are satisfied, the Security Task Force is not permanently restricted to the Cyber Range. It may execute missions in real environments only when the Creator has explicitly authorized the environment, target scope, mission objective and applicable risk ceiling. Authority remains bounded by the Mission Contract, R0–R5 risk model, Authorization Plane, capability grants, Rust Gateway, time window, target selector, action class, rollback requirements and kill switches. No general, ambient or permanent authority is granted. R3 and R4 require Creator approval as already defined; R5 remains a new mission. The Cyber Range remains the default environment for experimentation, training, replay and pre-operational validation.
