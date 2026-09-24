@@ -23,10 +23,10 @@ context_policy:
     - "Before substantial work, read CONTEXT_BOOTSTRAP.md and this file."
 
 canonical_checkpoint:
-  id: PHASE_9_CREATOR_SPEC_REVIEW
-  status: FROZEN_ACTIVE
+  id: PHASE_9_CODEX_HANDOFF_READY
+  status: FROZEN_READY
   frozen_on: 2026-09-23
-  resume_rule: "Resume at Phase 9 Creator spec review. Do not reopen Phases 1-8 or frozen decisions unless the Creator explicitly supersedes them."
+  resume_rule: "Resume from the Codex implementation plan. Do not reopen Phases 1-9 or frozen decisions unless the Creator explicitly supersedes them. Implementation starts with Task 1 reconciliation audit."
   completed_design_scope:
     - phase_1
     - phase_2
@@ -36,26 +36,24 @@ canonical_checkpoint:
     - phase_6
     - phase_7
     - phase_8
-  active_scope:
     - phase_9
+  active_scope:
+    - codex_implementation_handoff
 
 program:
   current_track: security_task_force_and_cyber_range
-  objective: "Finish the complete design through Phase 9, then hand the reviewed implementation package to Codex."
+  objective: "Execute the reviewed implementation plan from the reconciled repository baseline and promote statuses only with test/runtime evidence."
 
 phases:
   phase_1:
     name: concept
     status: CLOSED
-    result: "Security Task Force defined as a mission-oriented cyber capability under Creator authority."
   phase_2:
     name: architecture_and_stress_test
     status: CLOSED
-    result: "Architecture stress-tested; separation of command, authorization, execution and evidence accepted."
   phase_3:
     name: mission_protocol
     status: DESIGN_APPROVED
-    result: "Creator gives intent in natural language; system compiles a mission contract and escalates only beyond delegated authority."
   phase_4:
     name: contracts_and_components
     status: DESIGN_CONSOLIDATED
@@ -73,8 +71,11 @@ phases:
     status: DESIGN_CONSOLIDATED
   phase_9:
     name: codex_handoff
-    status: SPEC_REVIEW_GATE
-    note: "Detailed implementation plan is generated only after Creator review of the written spec."
+    status: HANDOFF_READY
+    specification: docs/superpowers/specs/2026-09-23-security-task-force-cyber-range-design.md
+    normative_amendment: docs/superpowers/specs/2026-09-23-security-task-force-review-amendment.md
+    implementation_plan: docs/superpowers/plans/2026-09-23-security-task-force-codex-implementation.md
+    first_implementation_task: reconciliation_audit
 
 mission_protocol:
   human_interface: natural_language_intent
@@ -95,8 +96,12 @@ mission_protocol:
     event_bus: NATS_JetStream
     policy_engine: OPA
     privileged_boundary: Rust_gateway
-    isolated_execution: Kata_or_Firecracker
+    isolated_execution: Kata_or_Firecracker_selected_by_SOPHIA_after_host_capability_gate
     knowledge_model: ATTACK_plus_graph
+  contract_requirements:
+    authorized_environments_required: true
+    environment_mismatch_behavior: fail_closed
+    compiler_output: schema_valid_policy_valid_versioned_normalized_reproducibly_verifiable
   risk_classes:
     R0: "read-only / informational; automatic"
     R1: "safe reversible low-impact; automatic within mission scope"
@@ -120,7 +125,7 @@ security_task_force:
     - Container
     - Network
     - Forensics
-  authority_model: "ephemeral capability tokens bound to mission, task, target, duration and action class"
+  authority_model: "ephemeral capability tokens bound to mission, task, target, environment, duration and action class"
   scope_rule: "Discovered assets may enter Target Graph but never become executable targets without authorization."
 
 cyber_range:
@@ -128,7 +133,7 @@ cyber_range:
   relationship: "Task Force uses the Range; Range is not the Task Force."
   prior_context_state: "Cyber Range v1 was previously reported as a completed isolated foundation."
   repository_verification_on_main: PENDING
-  verification_note: "Current canonicalization has not yet located direct main-branch evidence for the previously reported v1 completion; do not downgrade or re-create it blindly. Verify before implementation work."
+  verification_note: "Task 1 of the implementation plan must verify the historical Range before any recreation or migration."
   previously_reported_v1_components:
     - Juice_Shop
     - WebGoat_WebWolf_localhost_only
@@ -137,9 +142,6 @@ cyber_range:
     - evidence_journal
     - qualification_rubric
     - start_stop_reset_verify_scripts
-  deferred_from_previous_design:
-    - Security_Onion_external
-    - CALDERA_v1_1
 
 certification:
   internal_ladder:
@@ -147,7 +149,7 @@ certification:
     - SH_2_Advanced
     - SH_3_Elite
     - SH_X_Super_Hacker_Certified
-  rule: "SH-X is an internal project certification target, not an external professional credential; it requires implemented Range evidence and reproducible validation."
+  rule: "SH-X remains an internal evidence-based qualification target; operational certification requires implemented and reproducibly validated gates."
 
 known_repository_divergence:
   legacy_branch: fix/creator-interface-living-functional-scene
@@ -155,9 +157,11 @@ known_repository_divergence:
   ahead_by: 55
   behind_by: 463
   status: diverged
-  handling: "Preserve legacy branch; do not treat it as canonical code baseline."
+  handling: "Preserve legacy branch; reconcile evidence during implementation Task 1; do not treat it as canonical baseline."
 
 next_gate:
-  action: CREATOR_SPEC_REVIEW
-  document: docs/superpowers/specs/2026-09-23-security-task-force-cyber-range-design.md
-  after_approval: "Use Superpowers writing-plans in Codex to produce the executable implementation plan."
+  action: CODEX_IMPLEMENTATION
+  execution_method: subagent_driven_recommended
+  plan: docs/superpowers/plans/2026-09-23-security-task-force-codex-implementation.md
+  first_task: "Task 1 — Reconciliation audit and implementation baseline"
+  rule: "Use a dedicated worktree/feature branch; execute TDD task-by-task; no direct implementation push to main."
