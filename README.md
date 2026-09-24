@@ -84,6 +84,27 @@ Nada entra em execução sem a sua autorização. Tudo fica no Chronicle: `sophi
 - **Custo:** a percepção é uma chamada curta por mensagem. A deliberação soma duas chamadas, só nos pedidos de missão. Essas chamadas não passam pelo Semantic Cache.
 - **Configuração:** `TRINITY_ENABLED=false` desliga a Trinity. `TRINITY_MIN_CONFIDENCE` (padrão `0.7`) é a confiança mínima da SOPHIA para deliberar.
 
+### O que um Agent pode fazer: capabilities
+
+Um Agent nunca executa nada por conta própria. Ele pede, através do mecanismo de tools do modelo
+(`capability_intent`), e a policy do gateway decide a partir da autorização da Mission: sem a
+capability na lista de permitidas, o pedido é negado e registrado em `CapabilityInvocation`.
+
+- **`workspace`** (`write`, `read`, `list`, `append`) — arquivos de trabalho. Cada Mission tem o seu
+  próprio diretório dentro de `WORKSPACE_ROOT` e não alcança nada fora dele: caminhos absolutos,
+  `..`, separadores do Windows e symlinks que saiam do diretório são recusados. `WORKSPACE_MAX_BYTES`
+  limita o tamanho de cada arquivo. No Docker o diretório é o volume `workspace_data`.
+- **`web`** (`fetch`) — leitura de páginas públicas. Só `http` e `https`; cada endereço é resolvido e
+  recusado se não estiver na internet pública (loopback, redes privadas, o serviço de metadados da
+  nuvem). Redirects são seguidos manualmente e cada salto é verificado de novo, no máximo três.
+  O Criador pode restringir a Mission a hosts nomeados com `scope.web_allowed_hosts`.
+  `WEB_CAPABILITY_ENABLED=false` desliga a capability; `WEB_TIMEOUT_SECONDS` e `WEB_MAX_BYTES`
+  controlam o timeout e o tamanho lido.
+
+Nenhuma das duas tem efeito externo (`external_effect`), portanto nenhuma precisa de
+`external_effects_allowed` na autorização — mas ambas continuam sujeitas à lista de capabilities
+permitidas, ao escopo de ações e recursos, e à expiração da autorização.
+
 ### Bridge seguro com o PROTO
 
 O worker pode registrar a capability `proto` para enviar Missions apenas ao bridge autenticado `/creation/missions` do PROTO. A integração é habilitada somente quando `PROTO_BASE_URL` e `PROTO_CREATION_SHARED_SECRET` estão configurados; `PROTO_TIMEOUT_SECONDS` controla o timeout de transporte.

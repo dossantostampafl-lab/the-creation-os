@@ -7,7 +7,12 @@ import pytest
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.capabilities.contracts import CapabilityIntent, CapabilityResult, MissionAuthorization
+from app.capabilities.contracts import (
+    CapabilityContext,
+    CapabilityIntent,
+    CapabilityResult,
+    MissionAuthorization,
+)
 from app.capabilities.gateway import CapabilityGateway
 from app.capabilities.mission_authorization import set_mission_authorization
 from app.capabilities.policy import CapabilityDenied
@@ -24,7 +29,7 @@ pytestmark = pytest.mark.integration
 class EchoAdapter:
     name = "echo"
 
-    async def execute(self, intent: CapabilityIntent) -> CapabilityResult:
+    async def execute(self, intent: CapabilityIntent, context: CapabilityContext) -> CapabilityResult:
         return CapabilityResult(
             capability=intent.capability,
             action=intent.action,

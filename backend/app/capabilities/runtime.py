@@ -4,7 +4,13 @@ from datetime import datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.capabilities.contracts import CapabilityIntent, CapabilityResult, IdempotencyClass, MissionAuthorization
+from app.capabilities.contracts import (
+    CapabilityContext,
+    CapabilityIntent,
+    CapabilityResult,
+    IdempotencyClass,
+    MissionAuthorization,
+)
 from app.capabilities.gateway import CapabilityGateway
 from app.capabilities.policy import CapabilityDenied, authorize_capability
 from app.models.execution import CapabilityInvocation
@@ -58,7 +64,10 @@ class CapabilityRuntime:
             await session.commit()
 
         try:
-            result = await self.gateway.execute(intent, authorization)
+            context = CapabilityContext(
+                mission_id=mission_id, task_id=task_id, authorization=authorization,
+            )
+            result = await self.gateway.execute(intent, context)
         except Exception as exc:
             status = "UNCERTAIN" if intent.idempotency_class is IdempotencyClass.AT_MOST_ONCE else "FAILED"
             async with self.session_factory() as session:

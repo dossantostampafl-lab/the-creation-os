@@ -45,6 +45,11 @@ services:
       ANTHROPIC_MAX_OUTPUT_TOKENS: ${ANTHROPIC_MAX_OUTPUT_TOKENS:-4096}
       TRINITY_ENABLED: ${TRINITY_ENABLED:-true}
       TRINITY_MIN_CONFIDENCE: ${TRINITY_MIN_CONFIDENCE:-0.7}
+      WORKSPACE_ROOT: ${WORKSPACE_ROOT:-/var/lib/creation/workspaces}
+      WORKSPACE_MAX_BYTES: ${WORKSPACE_MAX_BYTES:-1000000}
+      WEB_CAPABILITY_ENABLED: ${WEB_CAPABILITY_ENABLED:-true}
+      WEB_TIMEOUT_SECONDS: ${WEB_TIMEOUT_SECONDS:-15}
+      WEB_MAX_BYTES: ${WEB_MAX_BYTES:-500000}
       ELEVENLABS_ENABLED: ${ELEVENLABS_ENABLED:-false}
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
       ELEVENLABS_VOICE_ID: ${ELEVENLABS_VOICE_ID:-NFmEzNOony1UsEJGXLth}
@@ -105,6 +110,8 @@ services:
       api:
         condition: service_healthy
     command: ["python", "-m", "app.worker"]
+    volumes:
+      - workspace_data:${WORKSPACE_ROOT:-/var/lib/creation/workspaces}
     read_only: true
     tmpfs:
       - /tmp
@@ -149,6 +156,7 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  workspace_data:
 
 networks:
   edge:

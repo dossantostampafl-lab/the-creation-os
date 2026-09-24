@@ -35,6 +35,14 @@ class MissionAuthorization(BaseModel):
     authorized_at: str
 
 
+class CapabilityContext(BaseModel):
+    """Who a capability is running for. An adapter needs this to keep Missions apart."""
+
+    mission_id: str = Field(..., min_length=1)
+    task_id: str | None = None
+    authorization: MissionAuthorization
+
+
 class CapabilityResult(BaseModel):
     capability: str
     action: str

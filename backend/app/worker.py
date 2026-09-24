@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from pathlib import Path
 
 from loguru import logger
 from sqlalchemy import select
@@ -9,6 +10,8 @@ from sqlalchemy import select
 from app.capabilities.gateway import CapabilityGateway
 from app.capabilities.proto import ProtoCapabilityAdapter
 from app.capabilities.runtime import CapabilityRuntime
+from app.capabilities.web import WebCapabilityAdapter
+from app.capabilities.workspace import WorkspaceCapabilityAdapter
 from app.config import settings
 from app.db.session import AsyncSessionLocal
 from app.inference.bootstrap import build_model_router
@@ -24,6 +27,21 @@ POLL_INTERVAL_SECONDS = 1.0
 
 def build_capability_gateway() -> CapabilityGateway:
     gateway = CapabilityGateway()
+    # Registering an adapter only makes it reachable; a Mission still executes nothing
+    # until the Creator's authorization names the capability.
+    gateway.register(
+        WorkspaceCapabilityAdapter(
+            root=Path(settings.workspace_root),
+            max_bytes=settings.workspace_max_bytes,
+        )
+    )
+    if settings.web_capability_enabled:
+        gateway.register(
+            WebCapabilityAdapter(
+                timeout_seconds=settings.web_timeout_seconds,
+                max_bytes=settings.web_max_bytes,
+            )
+        )
     if settings.proto_bridge_configured:
         assert settings.proto_base_url is not None
         assert settings.proto_creation_shared_secret is not None

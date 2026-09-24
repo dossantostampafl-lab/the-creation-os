@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from app.capabilities.contracts import (
+    CapabilityContext,
     CapabilityIntent,
     CapabilityResult,
     IdempotencyClass,
@@ -15,13 +16,18 @@ from app.capabilities.policy import CapabilityDenied
 class EchoAdapter:
     name = "echo"
 
-    async def execute(self, intent: CapabilityIntent) -> CapabilityResult:
+    async def execute(self, intent: CapabilityIntent, context: CapabilityContext) -> CapabilityResult:
         return CapabilityResult(
             capability=intent.capability,
             action=intent.action,
             ok=True,
             data={"arguments": intent.arguments},
         )
+
+
+def context(**overrides) -> CapabilityContext:
+    """A Mission and what it is allowed to do, as the runtime hands it to the gateway."""
+    return CapabilityContext(mission_id="mission-a", authorization=authorization(**overrides))
 
 
 def authorization(**overrides) -> MissionAuthorization:
@@ -46,7 +52,7 @@ async def test_gateway_executes_only_explicitly_allowed_capability() -> None:
     gateway.register(EchoAdapter())
     result = await gateway.execute(
         CapabilityIntent(capability="echo", action="say", arguments={"value": "ok"}),
-        authorization(),
+        context(),
     )
     assert result.ok is True
     assert result.data["arguments"] == {"value": "ok"}
@@ -59,7 +65,7 @@ async def test_deny_wins_over_allow() -> None:
     with pytest.raises(CapabilityDenied, match="denied"):
         await gateway.execute(
             CapabilityIntent(capability="echo", action="say"),
-            authorization(denied_capabilities=["echo"]),
+            context(denied_capabilities=["echo"]),
         )
 
 
@@ -70,7 +76,7 @@ async def test_external_effect_requires_explicit_authorization() -> None:
     with pytest.raises(CapabilityDenied, match="external effects"):
         await gateway.execute(
             CapabilityIntent(capability="echo", action="send", external_effect=True),
-            authorization(),
+            context(),
         )
 
 
@@ -85,7 +91,7 @@ async def test_at_most_once_requires_idempotency_key() -> None:
                 action="send",
                 idempotency_class=IdempotencyClass.AT_MOST_ONCE,
             ),
-            authorization(),
+            context(),
         )
 
 
@@ -93,7 +99,7 @@ async def test_at_most_once_requires_idempotency_key() -> None:
 async def test_scope_restricts_action_and_resource() -> None:
     gateway = CapabilityGateway()
     gateway.register(EchoAdapter())
-    scoped = authorization(scope={"actions": {"echo": ["say"]}, "resources": ["project:alpha"]})
+    scoped = context(scope={"actions": {"echo": ["say"]}, "resources": ["project:alpha"]})
     with pytest.raises(CapabilityDenied, match="action not authorized"):
         await gateway.execute(CapabilityIntent(capability="echo", action="delete"), scoped)
     with pytest.raises(CapabilityDenied, match="resource not authorized"):
@@ -110,5 +116,5 @@ async def test_expired_authorization_is_denied() -> None:
     with pytest.raises(CapabilityDenied, match="expired"):
         await gateway.execute(
             CapabilityIntent(capability="echo", action="say"),
-            authorization(expires_at="2020-01-01T00:00:00Z"),
+            context(expires_at="2020-01-01T00:00:00Z"),
         )
