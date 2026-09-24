@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Awaitable, Callable
 
 from .events import STFEvent
 
@@ -12,7 +12,10 @@ class OutboxItem:
     published: bool = False
 
 
-async def publish_pending(items: list[OutboxItem], publish: Callable[[STFEvent], Awaitable[None]]) -> None:
+async def publish_pending(
+    items: list[OutboxItem],
+    publish: Callable[[STFEvent], Awaitable[None]],
+) -> None:
     for item in items:
         if item.published:
             continue
