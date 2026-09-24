@@ -11,6 +11,7 @@ from app.capabilities.contracts import (
     CapabilityContext,
     CapabilityIntent,
     CapabilityResult,
+    IdempotencyClass,
     MissionAuthorization,
 )
 from app.capabilities.gateway import CapabilityGateway
@@ -28,6 +29,8 @@ pytestmark = pytest.mark.integration
 
 class EchoAdapter:
     name = "echo"
+    external_effect = False
+    minimum_idempotency_class = IdempotencyClass.SAFE
 
     async def execute(self, intent: CapabilityIntent, context: CapabilityContext) -> CapabilityResult:
         return CapabilityResult(

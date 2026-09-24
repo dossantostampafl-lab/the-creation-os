@@ -23,7 +23,12 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from app.capabilities.contracts import CapabilityContext, CapabilityIntent, CapabilityResult
+from app.capabilities.contracts import (
+    CapabilityContext,
+    CapabilityIntent,
+    CapabilityResult,
+    IdempotencyClass,
+)
 
 CAPABILITY = "web"
 ACTION = "fetch"
@@ -54,6 +59,9 @@ def _public_address(raw: str) -> None:
 
 class WebCapabilityAdapter:
     name = CAPABILITY
+    # Reading a page changes nothing out there, and reading it twice is the same as once.
+    external_effect = False
+    minimum_idempotency_class = IdempotencyClass.SAFE
 
     def __init__(
         self,

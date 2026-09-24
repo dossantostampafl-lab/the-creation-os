@@ -29,7 +29,20 @@ env_set() {
 
 log "Docker"
 if ! command -v docker >/dev/null 2>&1; then
-  curl -fsSL https://get.docker.com | sh
+  # From Docker's own apt repository with its signing key, rather than piping a script from the
+  # network into a root shell: the packages are then verified by apt on this and every upgrade.
+  apt-get update -qq
+  apt-get install -y -qq ca-certificates curl gnupg
+  install -m 0755 -d /etc/apt/keyrings
+  curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /tmp/docker.gpg
+  gpg --dearmor --yes -o /etc/apt/keyrings/docker.gpg /tmp/docker.gpg
+  rm -f /tmp/docker.gpg
+  chmod a+r /etc/apt/keyrings/docker.gpg
+  printf 'deb [arch=%s signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu %s stable\n' \
+    "$(dpkg --print-architecture)" "$(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")" \
+    > /etc/apt/sources.list.d/docker.list
+  apt-get update -qq
+  apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 fi
 systemctl enable --now docker >/dev/null
 if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
@@ -87,6 +100,18 @@ if [ "$(env_get CREATOR_BOOTSTRAP_PASSWORD)" = "change-me-securely" ] || [ -z "$
 fi
 # Production mode: only the configured Creator credentials can claim the empty system.
 env_set APP_ENV production
+
+# The database password. This server is on the public internet, so it is never left at the
+# development default. It can only be set before Postgres initializes its data directory, so it
+# is changed once, while the volume does not exist yet.
+if ! docker volume ls --format '{{.Name}}' | grep -qx 'the-creation-os_postgres_data'; then
+  db_password="$(openssl rand -hex 24)"
+  env_set POSTGRES_PASSWORD "$db_password"
+  env_set DATABASE_URL "postgresql+asyncpg://postgres:$db_password@postgres:5432/the_creation_os"
+elif [ "$(env_get POSTGRES_PASSWORD)" = "postgres" ]; then
+  echo "WARNING: the database still uses the development password. To change it, stop the stack," >&2
+  echo "         remove the volume the-creation-os_postgres_data (this erases the data) and run again." >&2
+fi
 
 domain="${CREATION_DOMAIN:-$(env_get CREATION_DOMAIN)}"
 if [ -z "$domain" ]; then

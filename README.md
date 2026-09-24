@@ -84,6 +84,30 @@ Nada entra em execução sem a sua autorização. Tudo fica no Chronicle: `sophi
 - **Custo:** a percepção é uma chamada curta por mensagem. A deliberação soma duas chamadas, só nos pedidos de missão. Essas chamadas não passam pelo Semantic Cache.
 - **Configuração:** `TRINITY_ENABLED=false` desliga a Trinity. `TRINITY_MIN_CONFIDENCE` (padrão `0.7`) é a confiança mínima da SOPHIA para deliberar.
 
+### Limites de segurança
+
+- **Bootstrap**: `POST /auth/bootstrap` só aceita as credenciais configuradas em
+  `CREATOR_BOOTSTRAP_USERNAME`/`CREATOR_BOOTSTRAP_PASSWORD`, em qualquer ambiente. Antes o
+  bloqueio valia só em produção, então qualquer um que chegasse primeiro reclamava a conta
+  soberana de uma instalação de desenvolvimento exposta na rede.
+- **Chave de assinatura**: em produção `APP_SECRET_KEY` precisa ter 32 caracteres ou mais e não
+  pode ser o valor publicado no `.env.example`; o mesmo vale para `CREATOR_BOOTSTRAP_PASSWORD`.
+- **Sessão**: um Creator desativado não passa mais em `/auth/me`, `/auth/refresh` nem
+  `/auth/logout` — o refresh token deixa de girar no momento da desativação.
+- **Efeito externo é declarado pelo adapter**, não pelo pedido do modelo: `external_effect` e a
+  classe mínima de idempotência vêm do código do adapter, então um modelo que escreve
+  `"external_effect": false` não transforma uma capability que alcança o mundo em uma que não
+  alcança. Um adapter que não declara nada é tratado como o pior caso.
+- **Escopo fecha, nunca abre**: uma entrada de `scope` que não pode ser lida como lista nega o
+  pedido em vez de virar "sem restrição", e uma Mission restrita a recursos nomeados recusa um
+  pedido sem recurso.
+- **Chave de provedor nunca em claro**: um `*_BASE_URL` com `http://` só é aceito para esta
+  máquina, um container ou a rede privada; para um host público é exigido `https`, e a URL não
+  pode carregar credenciais nem query string.
+- **Servidor na nuvem**: `docker-compose.cloud.yml` sobe a pilha com sistema de arquivos
+  somente-leitura, `no-new-privileges` e o banco e o Redis em uma rede interna sem rota para
+  fora; o `install.sh` gera a senha do Postgres na primeira instalação.
+
 ### O que um Agent pode fazer: capabilities
 
 Um Agent nunca executa nada por conta própria. Ele pede, através do mecanismo de tools do modelo

@@ -109,6 +109,7 @@ class FreeLLMAPIProvider:
         calls = message.get("tool_calls")
         if not isinstance(calls, list):
             return None
+        found: dict[str, Any] | None = None
         for call in calls:
             if not isinstance(call, dict):
                 continue
@@ -122,8 +123,13 @@ class FreeLLMAPIProvider:
                 except json.JSONDecodeError:
                     continue
             if isinstance(arguments, dict):
-                return arguments
-        return None
+                if found is not None:
+                    # Only one request is carried onward; two would lose one silently.
+                    raise InferenceUpstreamResponseError(
+                        "freellmapi", "FreeLLMAPI asked for more than one capability at once"
+                    )
+                found = arguments
+        return found
 
     @staticmethod
     def _raise_for_status(status_code: int) -> None:

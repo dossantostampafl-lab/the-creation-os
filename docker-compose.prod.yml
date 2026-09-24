@@ -15,6 +15,8 @@ services:
       - /tmp
       - /var/cache/nginx
       - /var/run
+    security_opt:
+      - no-new-privileges:true
     restart: unless-stopped
     networks:
       - edge

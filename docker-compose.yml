@@ -47,7 +47,7 @@ services:
     image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: the_creation_os
     volumes:
       - postgres_data:/var/lib/postgresql/data

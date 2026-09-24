@@ -10,7 +10,12 @@ from __future__ import annotations
 
 from pathlib import Path, PurePosixPath
 
-from app.capabilities.contracts import CapabilityContext, CapabilityIntent, CapabilityResult
+from app.capabilities.contracts import (
+    CapabilityContext,
+    CapabilityIntent,
+    CapabilityResult,
+    IdempotencyClass,
+)
 
 CAPABILITY = "workspace"
 ACTIONS = ("write", "read", "list", "append")
@@ -46,6 +51,9 @@ def _relative(resource: str | None) -> Path:
 
 class WorkspaceCapabilityAdapter:
     name = CAPABILITY
+    # Nothing leaves the machine, and writing the same file twice ends in the same place.
+    external_effect = False
+    minimum_idempotency_class = IdempotencyClass.IDEMPOTENT
 
     def __init__(self, *, root: Path, max_bytes: int = 1_000_000) -> None:
         if max_bytes <= 0:

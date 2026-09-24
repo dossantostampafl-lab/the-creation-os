@@ -105,10 +105,12 @@ class OpenAIResponsesProvider:
                     json=payload,
                 ) as response:
                     if response.status_code >= 400:
-                        body = await response.aread()
+                        # The upstream body lands in the task's error record, so it is reduced
+                        # to the error type the same way the non-streaming path does it.
+                        await response.aread()
                         raise ProviderUnavailable(
                             self.name,
-                            f"OpenAI stream returned HTTP {response.status_code}: {body[:256]!r}",
+                            f"OpenAI stream returned HTTP {response.status_code}: {self._safe_error(response)}",
                         )
                     async for line in response.aiter_lines():
                         if not line.startswith("data: "):

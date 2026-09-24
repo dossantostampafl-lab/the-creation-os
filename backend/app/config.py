@@ -8,6 +8,9 @@ from pydantic.v1 import BaseSettings, Field, SecretStr, validator
 
 SUPPORTED_LLM_PROVIDERS = frozenset({"openai", "anthropic", "freellmapi", "openai_compatible"})
 
+# The values .env.example ships. They are published, so they are not credentials anywhere.
+PLACEHOLDER_SECRETS = frozenset({"replace-me-with-a-secure-random-value", "change-me-securely"})
+
 
 def _split_providers(value: str) -> list[str]:
     return [name.strip().lower() for name in value.split(",") if name.strip()]
@@ -98,6 +101,24 @@ class Settings(BaseSettings):
             and configured_value is not None
             and configured_value.get_secret_value().strip()
         )
+
+    @validator("secret_key")
+    def validate_secret_key(cls, value: SecretStr, values: dict[str, object]) -> SecretStr:
+        raw = value.get_secret_value()
+        # This key signs every access and refresh token, so in production it must be a real
+        # secret: the example value is published, and a short one is guessable.
+        if values.get("app_env") == "production":
+            if raw in PLACEHOLDER_SECRETS:
+                raise ValueError("APP_SECRET_KEY is still the published example value; generate a new one")
+            if len(raw) < 32:
+                raise ValueError("APP_SECRET_KEY must be at least 32 characters in production")
+        return value
+
+    @validator("creator_bootstrap_password")
+    def validate_creator_bootstrap_password(cls, value: SecretStr, values: dict[str, object]) -> SecretStr:
+        if values.get("app_env") == "production" and value.get_secret_value() in PLACEHOLDER_SECRETS:
+            raise ValueError("CREATOR_BOOTSTRAP_PASSWORD is still the published example value")
+        return value
 
     @validator("app_env")
     def validate_env(cls, value: str) -> str:

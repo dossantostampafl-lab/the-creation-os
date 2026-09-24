@@ -154,6 +154,12 @@ class AnthropicProvider:
             elif block.get("type") == "tool_use" and block.get("name") == "capability_intent":
                 arguments = block.get("input")
                 if isinstance(arguments, dict):
+                    if "capability_intent" in metadata:
+                        # Only one request is carried onward, so a reply asking for two would
+                        # lose one without a record. Refuse it instead.
+                        raise InferenceUpstreamResponseError(
+                            self.name, "Anthropic asked for more than one capability at once"
+                        )
                     metadata["capability_intent"] = arguments
         # A turn that only asks for a capability carries no text, and that is a complete answer.
         if not text_parts and "capability_intent" not in metadata:

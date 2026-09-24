@@ -5,6 +5,8 @@ from dataclasses import dataclass
 
 from pydantic.v1 import SecretStr
 
+from app.inference.base_url import checked_base_url
+
 
 @dataclass(frozen=True)
 class FreeLLMAPIConfig:
@@ -18,9 +20,10 @@ def load_freellmapi_config() -> FreeLLMAPIConfig:
     if not raw_api_key:
         raise RuntimeError("FREELLMAPI_API_KEY is required when LLM_PROVIDER=freellmapi")
 
-    base_url = os.getenv("FREELLMAPI_BASE_URL", "").strip()
-    if not base_url:
+    raw_base_url = os.getenv("FREELLMAPI_BASE_URL", "").strip()
+    if not raw_base_url:
         raise RuntimeError("FREELLMAPI_BASE_URL is required when LLM_PROVIDER=freellmapi")
+    base_url = checked_base_url("FREELLMAPI_BASE_URL", raw_base_url)
 
     raw_timeout = os.getenv("FREELLMAPI_TIMEOUT_SECONDS", "60").strip()
     try:

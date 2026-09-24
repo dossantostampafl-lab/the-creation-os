@@ -154,3 +154,23 @@ async def test_another_tool_is_ignored(name: str) -> None:
     response = await provider.generate(request_for(enable=True))
 
     assert "capability_intent" not in response.metadata
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("name", ["anthropic", "freellmapi"])
+async def test_two_requests_in_one_reply_are_refused_rather_than_half_lost(name: str) -> None:
+    """Only one request is carried onward, so a reply asking for two must not lose one quietly."""
+    reply = (anthropic_reply([
+        {"type": "tool_use", "name": "capability_intent", "input": INTENT},
+        {"type": "tool_use", "name": "capability_intent", "input": {**INTENT, "action": "read"}},
+    ]) if name == "anthropic" else freellmapi_reply({
+        "content": None,
+        "tool_calls": [
+            {"function": {"name": "capability_intent", "arguments": json.dumps(INTENT)}},
+            {"function": {"name": "capability_intent", "arguments": json.dumps({**INTENT, "action": "read"})}},
+        ],
+    }))
+    provider = provider_for(name, reply, [])
+
+    with pytest.raises(InferenceUpstreamResponseError):
+        await provider.generate(request_for(enable=True))

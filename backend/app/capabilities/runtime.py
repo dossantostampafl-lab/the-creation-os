@@ -33,7 +33,8 @@ class CapabilityRuntime:
         authorization: MissionAuthorization,
     ) -> CapabilityResult:
         try:
-            authorize_capability(intent, authorization)
+            # The adapter's own declaration of what it does, not the model's claim.
+            authorize_capability(intent, authorization, self.gateway.declaration(intent.capability))
         except CapabilityDenied as exc:
             async with self.session_factory() as session:
                 session.add(self._invocation(
