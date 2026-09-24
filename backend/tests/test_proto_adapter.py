@@ -6,7 +6,11 @@ import httpx
 import pytest
 from pydantic.v1 import ValidationError
 
-from app.capabilities.contracts import CapabilityIntent
+from app.capabilities.contracts import (
+    CapabilityContext,
+    CapabilityIntent,
+    MissionAuthorization,
+)
 from app.config import Settings
 
 
@@ -21,6 +25,17 @@ def _settings(**overrides: object) -> Settings:
     }
     values.update(overrides)
     return Settings(**values)
+
+
+def _context() -> CapabilityContext:
+    return CapabilityContext(
+        mission_id="550e8400-e29b-41d4-a716-446655440000",
+        authorization=MissionAuthorization(
+            allowed_capabilities=["proto"],
+            authorized_by="creator",
+            authorized_at="2026-01-01T00:00:00Z",
+        ),
+    )
 
 
 def _intent(**arguments: object) -> CapabilityIntent:
@@ -140,7 +155,7 @@ async def test_proto_adapter_waits_for_terminal_result_without_leaking_secret() 
         client=client,
     )
 
-    result = await adapter.execute(_intent())
+    result = await adapter.execute(_intent(), _context())
     await client.aclose()
 
     assert result.ok is True
@@ -188,7 +203,7 @@ async def test_proto_adapter_rejects_unsafe_jobs_and_modes(jobs: list[str], mode
     )
 
     with pytest.raises(ValueError):
-        await adapter.execute(_intent(requested_jobs=jobs, execution_mode=mode))
+        await adapter.execute(_intent(requested_jobs=jobs, execution_mode=mode), _context())
     await client.aclose()
     assert called is False
 
@@ -210,7 +225,8 @@ async def test_proto_adapter_rejects_transport_override_arguments() -> None:
             _intent(
                 base_url="https://attacker.example",
                 token="attacker-token",
-            )
+            ),
+            _context(),
         )
     await client.aclose()
 
@@ -241,7 +257,7 @@ async def test_proto_adapter_rejects_financial_invariant_violation() -> None:
     )
 
     with pytest.raises(RuntimeError, match="financial boundary"):
-        await adapter.execute(_intent())
+        await adapter.execute(_intent(), _context())
     await client.aclose()
 
 
@@ -293,7 +309,7 @@ async def test_proto_adapter_rejects_unsafe_job_returned_by_status() -> None:
     )
 
     with pytest.raises(RuntimeError, match="invalid response"):
-        await adapter.execute(_intent())
+        await adapter.execute(_intent(), _context())
     await client.aclose()
 
 

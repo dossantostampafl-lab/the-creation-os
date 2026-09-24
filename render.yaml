@@ -288,3 +288,5 @@ databases:
   - name: creation-postgres
     databaseName: the_creation_os
     user: creation
+    # Without this the database gets a public endpoint; only the services need it.
+    ipAllowList: []

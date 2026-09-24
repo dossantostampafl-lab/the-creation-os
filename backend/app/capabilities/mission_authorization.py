@@ -29,6 +29,17 @@ async def set_mission_authorization(
     if requested_version <= previous_version:
         raise InvalidOrigin("Mission authorization version must increase")
 
+    expires_at = authorization.get("expires_at")
+    if expires_at is not None:
+        try:
+            expiry = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise InvalidOrigin("Mission authorization expires_at is not a valid timestamp") from exc
+        if expiry.tzinfo is None:
+            expiry = expiry.replace(tzinfo=timezone.utc)
+        if expiry <= datetime.now(timezone.utc):
+            raise InvalidOrigin("Mission authorization expires_at is already in the past")
+
     mission.authorization_json = {
         "allowed_capabilities": list(authorization.get("allowed_capabilities", [])),
         "denied_capabilities": list(authorization.get("denied_capabilities", [])),

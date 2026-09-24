@@ -2,10 +2,19 @@ import type { ChronicleEvent, ChronicleRecord, InferenceStatusSnapshot, Projecti
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ?? "http://localhost:8000/api/v1";
 
+const ACCESS_TOKEN_KEY = "creation_access_token";
+
 function token(): string {
-  const value = window.localStorage.getItem("creation_access_token");
+  const value = window.localStorage.getItem(ACCESS_TOKEN_KEY);
   if (!value) throw new Error("AUTH_REQUIRED");
   return value;
+}
+
+/** Forget the session. A token the API no longer accepts is only a liability if it stays here. */
+export function clearSession(): void {
+  window.localStorage.removeItem(ACCESS_TOKEN_KEY);
+  // Older versions kept a refresh token here as well; remove it wherever it is still stored.
+  window.localStorage.removeItem("creation_refresh_token");
 }
 
 type TokenResponse = {
@@ -45,8 +54,9 @@ export async function loginCreator(username: string, password: string): Promise<
   if (response.status === 401 || response.status === 403) throw new Error("INVALID_CREDENTIALS");
   if (!response.ok) throw new Error(`HTTP_${response.status}`);
   const tokens = await response.json() as TokenResponse;
-  window.localStorage.setItem("creation_access_token", tokens.access_token);
-  window.localStorage.setItem("creation_refresh_token", tokens.refresh_token);
+  // Only the access token is kept. The long-lived refresh token was stored and never used, so
+  // it was nothing but a second credential sitting in the browser.
+  window.localStorage.setItem(ACCESS_TOKEN_KEY, tokens.access_token);
 }
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -63,7 +73,10 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
           ...init?.headers,
         },
       });
-      if (response.status === 401 || response.status === 403) throw new Error("AUTH_REQUIRED");
+      if (response.status === 401 || response.status === 403) {
+        clearSession();
+        throw new Error("AUTH_REQUIRED");
+      }
       if (!response.ok) {
         if (response.status < 500 || attempt === attempts - 1) throw new Error(`HTTP_${response.status}`);
         throw new Error(`RETRYABLE_HTTP_${response.status}`);

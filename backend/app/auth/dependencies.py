@@ -21,10 +21,22 @@ async def get_current_token(
     return auth_service.decode_token(token)
 
 
-async def get_current_creator(token_payload: TokenPayload = Depends(get_current_token)) -> TokenPayload:
+async def get_current_creator(
+    token_payload: TokenPayload = Depends(get_current_token),
+    session: AsyncSession = Depends(get_session),
+) -> TokenPayload:
     if token_payload.type != "access":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type")
+    await require_active_creator(token_payload, session)
     return token_payload
+
+
+async def require_active_creator(token_payload: TokenPayload, session: AsyncSession) -> None:
+    """A token is only good while the Creator behind it still exists and is active."""
+    auth_service = await get_auth_service(session)
+    creator = await auth_service.repository.get_by_id(token_payload.sub)
+    if creator is None or not creator.is_active:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Creator is not active")
 
 
 async def get_sovereign_creator(

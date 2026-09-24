@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.dependencies import get_current_creator, get_current_token
+from app.auth.dependencies import get_current_creator, get_current_token, require_active_creator
 from app.config import settings
+from app.db.session import get_session
 from app.schemas.auth import BootstrapRequest, CreatorResponse, LoginRequest, TokenPayload, TokenResponse
 from app.services.auth import get_auth_service
 
@@ -45,9 +47,15 @@ async def me(token_payload = Depends(get_current_creator), auth_service = Depend
 
 
 @router.post("/refresh", response_model=TokenResponse)
-async def refresh(token_payload: TokenPayload = Depends(get_current_token), auth_service = Depends(get_auth_service)) -> TokenResponse:
+async def refresh(
+    token_payload: TokenPayload = Depends(get_current_token),
+    auth_service = Depends(get_auth_service),
+    session: AsyncSession = Depends(get_session),
+) -> TokenResponse:
     if token_payload.type != "refresh":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type")
+    # A deactivated Creator must not be able to keep rotating a refresh token.
+    await require_active_creator(token_payload, session)
     refresh_token = await auth_service.rotate_refresh_token(token_payload)
     access_token = auth_service.create_access_token(token_payload.sub)
     return TokenResponse(access_token=access_token, refresh_token=refresh_token, expires_in=settings.access_token_expire_minutes)

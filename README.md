@@ -84,6 +84,51 @@ Nada entra em execução sem a sua autorização. Tudo fica no Chronicle: `sophi
 - **Custo:** a percepção é uma chamada curta por mensagem. A deliberação soma duas chamadas, só nos pedidos de missão. Essas chamadas não passam pelo Semantic Cache.
 - **Configuração:** `TRINITY_ENABLED=false` desliga a Trinity. `TRINITY_MIN_CONFIDENCE` (padrão `0.7`) é a confiança mínima da SOPHIA para deliberar.
 
+### Limites de segurança
+
+- **Bootstrap**: `POST /auth/bootstrap` só aceita as credenciais configuradas em
+  `CREATOR_BOOTSTRAP_USERNAME`/`CREATOR_BOOTSTRAP_PASSWORD`, em qualquer ambiente. Antes o
+  bloqueio valia só em produção, então qualquer um que chegasse primeiro reclamava a conta
+  soberana de uma instalação de desenvolvimento exposta na rede.
+- **Chave de assinatura**: em produção `APP_SECRET_KEY` precisa ter 32 caracteres ou mais e não
+  pode ser o valor publicado no `.env.example`; o mesmo vale para `CREATOR_BOOTSTRAP_PASSWORD`.
+- **Sessão**: um Creator desativado não passa mais em `/auth/me`, `/auth/refresh` nem
+  `/auth/logout` — o refresh token deixa de girar no momento da desativação.
+- **Efeito externo é declarado pelo adapter**, não pelo pedido do modelo: `external_effect` e a
+  classe mínima de idempotência vêm do código do adapter, então um modelo que escreve
+  `"external_effect": false` não transforma uma capability que alcança o mundo em uma que não
+  alcança. Um adapter que não declara nada é tratado como o pior caso.
+- **Escopo fecha, nunca abre**: uma entrada de `scope` que não pode ser lida como lista nega o
+  pedido em vez de virar "sem restrição", e uma Mission restrita a recursos nomeados recusa um
+  pedido sem recurso.
+- **Chave de provedor nunca em claro**: um `*_BASE_URL` com `http://` só é aceito para esta
+  máquina, um container ou a rede privada; para um host público é exigido `https`, e a URL não
+  pode carregar credenciais nem query string.
+- **Servidor na nuvem**: `docker-compose.cloud.yml` sobe a pilha com sistema de arquivos
+  somente-leitura, `no-new-privileges` e o banco e o Redis em uma rede interna sem rota para
+  fora; o `install.sh` gera a senha do Postgres na primeira instalação.
+
+### O que um Agent pode fazer: capabilities
+
+Um Agent nunca executa nada por conta própria. Ele pede, através do mecanismo de tools do modelo
+(`capability_intent`), e a policy do gateway decide a partir da autorização da Mission: sem a
+capability na lista de permitidas, o pedido é negado e registrado em `CapabilityInvocation`.
+
+- **`workspace`** (`write`, `read`, `list`, `append`) — arquivos de trabalho. Cada Mission tem o seu
+  próprio diretório dentro de `WORKSPACE_ROOT` e não alcança nada fora dele: caminhos absolutos,
+  `..`, separadores do Windows e symlinks que saiam do diretório são recusados. `WORKSPACE_MAX_BYTES`
+  limita o tamanho de cada arquivo. No Docker o diretório é o volume `workspace_data`.
+- **`web`** (`fetch`) — leitura de páginas públicas. Só `http` e `https`; cada endereço é resolvido e
+  recusado se não estiver na internet pública (loopback, redes privadas, o serviço de metadados da
+  nuvem). Redirects são seguidos manualmente e cada salto é verificado de novo, no máximo três.
+  O Criador pode restringir a Mission a hosts nomeados com `scope.web_allowed_hosts`.
+  `WEB_CAPABILITY_ENABLED=false` desliga a capability; `WEB_TIMEOUT_SECONDS` e `WEB_MAX_BYTES`
+  controlam o timeout e o tamanho lido.
+
+Nenhuma das duas tem efeito externo (`external_effect`), portanto nenhuma precisa de
+`external_effects_allowed` na autorização — mas ambas continuam sujeitas à lista de capabilities
+permitidas, ao escopo de ações e recursos, e à expiração da autorização.
+
 ### Bridge seguro com o PROTO
 
 O worker pode registrar a capability `proto` para enviar Missions apenas ao bridge autenticado `/creation/missions` do PROTO. A integração é habilitada somente quando `PROTO_BASE_URL` e `PROTO_CREATION_SHARED_SECRET` estão configurados; `PROTO_TIMEOUT_SECONDS` controla o timeout de transporte.

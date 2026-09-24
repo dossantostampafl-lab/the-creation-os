@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from loguru import logger
 
-from app.ai.embeddings import build_embedding_model
+from app.ai.embeddings import DeterministicTestEmbeddingModel, build_embedding_model
 from app.cache.contracts import CacheMode
 from app.cache.orchestrator import CacheOrchestrator
 from app.cache.redis_store import RedisCacheStore
@@ -22,7 +22,17 @@ def build_cache_orchestrator() -> CacheOrchestrator | None:
 
     embedding_model = None
     try:
-        embedding_model = build_embedding_model()
+        candidate = build_embedding_model()
+        # The deterministic test embeddings read the first eight characters of the text, so
+        # unrelated questions score as near-identical and would be served to each other as
+        # semantic hits. They are fine for memory, never for deciding a cache hit: without an
+        # embedding model the orchestrator keeps only the exact cache, which is what we want.
+        if isinstance(candidate, DeterministicTestEmbeddingModel):
+            logger.bind(component="semantic_cache").warning(
+                "fake embeddings cannot decide similarity; only the exact cache stays available"
+            )
+        else:
+            embedding_model = candidate
     except Exception as exc:
         logger.bind(component="semantic_cache", error_type=exc.__class__.__name__).warning(
             "embedding model unavailable; exact cache remains available"

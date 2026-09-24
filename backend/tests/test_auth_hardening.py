@@ -14,7 +14,11 @@ from app.main import app
 
 pytestmark = pytest.mark.integration
 
-CREDENTIALS = {"username": "sovereign", "password": "sovereign-password"}
+# Bootstrap only accepts the configured sovereign credentials, in every environment.
+CREDENTIALS = {
+    "username": settings.creator_bootstrap_username,
+    "password": settings.creator_bootstrap_password.get_secret_value(),
+}
 
 
 @pytest.fixture

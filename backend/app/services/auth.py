@@ -29,17 +29,20 @@ class AuthService:
         existing = await self.repository.get_one()
         if existing is not None:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Creator already exists")
-        if settings.app_env == "production":
-            configured_username = settings.creator_bootstrap_username
-            configured_password = settings.creator_bootstrap_password.get_secret_value()
-            if not (
-                hmac.compare_digest(username, configured_username)
-                and hmac.compare_digest(password, configured_password)
-            ):
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Production bootstrap credentials do not match configured sovereign credentials",
-                )
+        # This route is unauthenticated and creates the sovereign Creator, so it is gated in
+        # every environment: whoever holds the configured credentials claims the system, and
+        # nobody else. It used to be gated only in production, which made any development or
+        # LAN deployment a race won by the first caller.
+        configured_username = settings.creator_bootstrap_username
+        configured_password = settings.creator_bootstrap_password.get_secret_value()
+        if not (
+            hmac.compare_digest(username, configured_username)
+            and hmac.compare_digest(password, configured_password)
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Bootstrap credentials do not match the configured sovereign credentials",
+            )
         creator = await self.repository.create(username=username, password=password)
         await self.session.commit()
         return creator

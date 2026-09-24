@@ -58,6 +58,17 @@ def main() -> int:
         if missing:
             problems.append(f"{name}: missing env var(s) {missing}")
 
+    # A database or key-value store without an empty ipAllowList gets a public endpoint on
+    # Render; only the services need to reach it.
+    for store in blueprint.get("databases", []) + [
+        service for service in blueprint.get("services", []) if service.get("type") == "keyvalue"
+    ]:
+        if store.get("ipAllowList") != []:
+            problems.append(
+                f"{store.get('name', 'unnamed')}: ipAllowList must be [] so it is not reachable "
+                "from the internet"
+            )
+
     for problem in problems:
         print(f"render.yaml: {problem}", file=sys.stderr)
     if problems:

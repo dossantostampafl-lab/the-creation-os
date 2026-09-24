@@ -8,6 +8,9 @@ from pydantic.v1 import BaseSettings, Field, SecretStr, validator
 
 SUPPORTED_LLM_PROVIDERS = frozenset({"openai", "anthropic", "freellmapi", "openai_compatible"})
 
+# The values .env.example ships. They are published, so they are not credentials anywhere.
+PLACEHOLDER_SECRETS = frozenset({"replace-me-with-a-secure-random-value", "change-me-securely"})
+
 
 def _split_providers(value: str) -> list[str]:
     return [name.strip().lower() for name in value.split(",") if name.strip()]
@@ -47,6 +50,11 @@ class Settings(BaseSettings):
     semantic_cache_singleflight_wait_ms: int = Field(250, ge=0, le=5000, env="SEMANTIC_CACHE_SINGLEFLIGHT_WAIT_MS")
     trinity_enabled: bool = Field(True, env="TRINITY_ENABLED")
     trinity_min_confidence: float = Field(0.7, ge=0.0, le=1.0, env="TRINITY_MIN_CONFIDENCE")
+    workspace_root: str = Field("/var/lib/creation/workspaces", env="WORKSPACE_ROOT")
+    workspace_max_bytes: int = Field(1_000_000, ge=1, env="WORKSPACE_MAX_BYTES")
+    web_capability_enabled: bool = Field(True, env="WEB_CAPABILITY_ENABLED")
+    web_timeout_seconds: float = Field(15.0, gt=0.0, env="WEB_TIMEOUT_SECONDS")
+    web_max_bytes: int = Field(500_000, ge=1, env="WEB_MAX_BYTES")
     proto_base_url: str | None = Field(None, env="PROTO_BASE_URL")
     proto_creation_shared_secret: SecretStr | None = Field(None, env="PROTO_CREATION_SHARED_SECRET")
     proto_timeout_seconds: float = Field(10.0, gt=0.0, le=60.0, env="PROTO_TIMEOUT_SECONDS")
@@ -93,6 +101,24 @@ class Settings(BaseSettings):
             and configured_value is not None
             and configured_value.get_secret_value().strip()
         )
+
+    @validator("secret_key")
+    def validate_secret_key(cls, value: SecretStr, values: dict[str, object]) -> SecretStr:
+        raw = value.get_secret_value()
+        # This key signs every access and refresh token, so in production it must be a real
+        # secret: the example value is published, and a short one is guessable.
+        if values.get("app_env") == "production":
+            if raw in PLACEHOLDER_SECRETS:
+                raise ValueError("APP_SECRET_KEY is still the published example value; generate a new one")
+            if len(raw) < 32:
+                raise ValueError("APP_SECRET_KEY must be at least 32 characters in production")
+        return value
+
+    @validator("creator_bootstrap_password")
+    def validate_creator_bootstrap_password(cls, value: SecretStr, values: dict[str, object]) -> SecretStr:
+        if values.get("app_env") == "production" and value.get_secret_value() in PLACEHOLDER_SECRETS:
+            raise ValueError("CREATOR_BOOTSTRAP_PASSWORD is still the published example value")
+        return value
 
     @validator("app_env")
     def validate_env(cls, value: str) -> str:

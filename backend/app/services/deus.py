@@ -203,8 +203,10 @@ class DeusConversationService:
             "inception", InceptionStatus.AWAITING_CREATOR_DECISION, InceptionStatus.APPROVED,
         )
         inception.decided_at = datetime.now(timezone.utc)
-        inception.decided_by = actor.id
-        inception.decision_reason = "Requested by the Creator; ROCKMAM judged the Mission viable."
+        # ROCKMAM made this call, not the Creator: the Creator's decision is the authorization
+        # that lets the work begin, and the record has to say who decided what.
+        inception.decided_by = "rockmam"
+        inception.decision_reason = "ROCKMAM judged the Mission viable; it waits for the Creator's authorization."
         await self.repo.add_event(
             "inception_approved", "inception", inception.id, actor.id, actor.role, correlation_id,
             {"origin": "trinity", "reason": inception.decision_reason},

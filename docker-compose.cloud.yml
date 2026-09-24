@@ -1,10 +1,57 @@
-# Cloud server overlay: HTTPS through Caddy on ports 80/443 instead of plain HTTP on 8080.
+# Cloud server overlay: HTTPS through Caddy on ports 80/443 instead of plain HTTP on 8080,
+# and the hardening a server on the public internet needs — a read-only filesystem, no new
+# privileges, and the database and Redis on a network the internet-facing containers reach
+# but that has no route out.
 #   docker compose -f docker-compose.yml -f docker-compose.cloud.yml up -d --build
 # CREATION_DOMAIN (in .env) is the public name, e.g. 129-146-10-20.sslip.io or a DuckDNS name.
+x-hardening: &hardening
+  read_only: true
+  security_opt:
+    - no-new-privileges:true
+
 services:
   frontend:
     # Only Caddy talks to the frontend; nothing is published directly.
     ports: !reset []
+    <<: *hardening
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+      - /var/run
+
+  api:
+    <<: *hardening
+    tmpfs:
+      - /tmp
+    # The API no longer needs a route to the host: on a server there is no FreeLLMAPI on
+    # host.docker.internal, and nothing else should be reachable that way.
+    extra_hosts: !reset []
+    ports: !reset []
+    networks:
+      - tco_net
+      - tco_internal
+
+  worker:
+    <<: *hardening
+    tmpfs:
+      - /tmp
+    extra_hosts: !reset []
+    networks:
+      - tco_net
+      - tco_internal
+
+  postgres:
+    security_opt:
+      - no-new-privileges:true
+    networks: !reset
+      - tco_internal
+
+  redis:
+    <<: *hardening
+    tmpfs:
+      - /tmp
+    networks: !reset
+      - tco_internal
 
   caddy:
     image: caddy:2
@@ -26,3 +73,8 @@ services:
 volumes:
   caddy_data:
   caddy_config:
+
+networks:
+  # No route to the internet: only the containers attached to it talk to the database and Redis.
+  tco_internal:
+    internal: true
