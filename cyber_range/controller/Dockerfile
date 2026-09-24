@@ -5,7 +5,9 @@ COPY requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 COPY app.py ./app.py
 
-RUN useradd --create-home --uid 10001 range && chown -R range:range /app
+RUN useradd --create-home --uid 10001 range \
+    && mkdir -p /state /snapshots /evidence \
+    && chown -R range:range /app /state /snapshots /evidence
 USER range
 
 EXPOSE 7070

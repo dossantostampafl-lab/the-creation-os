@@ -13,7 +13,8 @@ The historical package was documented under `cyber-range-v1/`. Repository reconc
 - OWASP WebGoat on `127.0.0.1:8080`
 - OWASP WebWolf on `127.0.0.1:9090`
 - declared scenario catalog
-- append-style evidence files under `./evidence`
+- append-style evidence files in the `range_evidence` Docker volume, read with
+  `docker compose -f cyber_range/compose.yml cp controller:/evidence ./evidence-export`
 - disposable scenario state
 - SaveRange snapshot/restore lifecycle for controller state
 - start/stop/reset/verify lifecycle scripts
@@ -57,7 +58,9 @@ The qualification baseline is stored at `cyber_range/qualification/rubric.json`.
 ./cyber_range/scripts/reset.sh
 ```
 
-Evidence under `cyber_range/evidence/` is intentionally preserved by controller reset; Docker state is disposable.
+Evidence in the `range_evidence` volume is intentionally preserved by controller reset; Docker state
+is disposable. It lives in a volume rather than a bind mount because the controller runs as a
+non-root user, which cannot write into a directory the host owns.
 
 
 ## SaveRange
