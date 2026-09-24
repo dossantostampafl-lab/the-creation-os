@@ -4,6 +4,8 @@ mod auth;
 mod contracts;
 #[path = "../src/replay.rs"]
 mod replay;
+#[path = "../src/signature.rs"]
+mod signature;
 
 use contracts::ExecutionEnvelope;
 
@@ -43,4 +45,13 @@ fn rejects_nonce_replay() {
     let mut guard = replay::ReplayGuard::default();
     assert!(guard.consume("n1"));
     assert!(!guard.consume("n1"));
+}
+
+#[test]
+fn signature_detects_tampering() {
+    let mut e = envelope();
+    e.signature = signature::expected_signature(&e, b"test-key");
+    assert!(signature::verify_signature(&e, b"test-key"));
+    e.target = "other-target".into();
+    assert!(!signature::verify_signature(&e, b"test-key"));
 }
