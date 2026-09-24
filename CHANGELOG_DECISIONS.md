@@ -47,6 +47,13 @@ The Creator delegated the final selection between Kata Containers and Firecracke
 
 The Creator approved Phase 3 after review. Two technical clarifications are mandatory in the next consolidated spec revision: (1) `MissionContract` must explicitly bind authorized execution environments in addition to authorized targets, preventing reuse of Range authorization in a real environment; and (2) the Mission Compiler may use AI/reasoning internally, but its output must be schema-valid, policy-valid, versioned and reproducibly verifiable rather than being described as intrinsically deterministic. These clarifications do not change the approved R0–R5 model, mission states, dynamic team assembly, escalation rules, kill-switch semantics or scope-expansion rules.
 
+### DEC-2026-09-23-10 — Canonical resume checkpoint frozen at Phase 9
+**Status:** accepted
+
+The Creator explicitly froze the current project checkpoint at **Phase 9 — Creator specification review / Codex handoff gate**. Phases 1–8 and all frozen decisions remain closed to silent reinterpretation. Future sessions must resume from the Phase 9 review gate unless the Creator explicitly supersedes a prior decision. This checkpoint records continuity state only; it does not falsely promote unverified implementation claims.
+
+Affected canonical file: `PROJECT_STATE.yaml`.
+
 ## Change procedure
 
 A new decision entry must include:
