@@ -67,10 +67,16 @@ def _write_audit_record(kind: str, payload: dict[str, Any]) -> str:
         "payload": payload,
         "recorded_at": datetime.now(timezone.utc).isoformat(),
     }
-    EVIDENCE_DIR / f"{evidence_id}.json".write_text(
+    _safe_child(EVIDENCE_DIR, f"{evidence_id}.json").write_text(
         json.dumps(record, sort_keys=True), encoding="utf-8"
     )
     return evidence_id
+
+
+def _validated_name(name: str, pattern: re.Pattern[str]) -> str:
+    if not pattern.fullmatch(name):
+        raise RuntimeError("cyber range identifier is not allowed")
+    return name
 
 
 def _safe_child(base: Path, filename: str) -> Path:
@@ -108,7 +114,7 @@ def start_scenario(scenario_id: str) -> dict[str, Any]:
         "status": "active",
         "started_at": datetime.now(timezone.utc).isoformat(),
     }
-    STATE_DIR / f"{_validated_name(scenario_id, SCENARIO_ID)}.json".write_text(
+    _safe_child(STATE_DIR, f"{_validated_name(scenario_id, SCENARIO_ID)}.json").write_text(
         json.dumps(record, sort_keys=True), encoding="utf-8"
     )
     return record
