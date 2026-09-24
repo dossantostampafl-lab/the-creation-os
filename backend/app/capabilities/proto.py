@@ -9,7 +9,12 @@ from uuid import UUID
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.capabilities.contracts import CapabilityIntent, CapabilityResult
+from app.capabilities.contracts import (
+    CapabilityContext,
+    CapabilityIntent,
+    CapabilityResult,
+    IdempotencyClass,
+)
 
 _ALLOWED_JOBS = frozenset({"market-data-health", "opportunity-scan", "shadow-decision"})
 _ALLOWED_MODES = frozenset({"LIVE_MONITORING", "SIMULATION", "PAPER_TRADING", "HISTORICAL_REPLAY"})
@@ -156,6 +161,10 @@ class ProtoMissionStatus(BaseModel):
 
 class ProtoCapabilityAdapter:
     name = "proto"
+    # This one reaches another system, so it runs only when the Creator allowed external
+    # effects — whatever the model writes in its request.
+    external_effect = True
+    minimum_idempotency_class = IdempotencyClass.IDEMPOTENT
 
     def __init__(
         self,
@@ -176,7 +185,7 @@ class ProtoCapabilityAdapter:
         self._poll_interval_seconds = poll_interval_seconds
         self._client = client
 
-    async def execute(self, intent: CapabilityIntent) -> CapabilityResult:
+    async def execute(self, intent: CapabilityIntent, context: CapabilityContext) -> CapabilityResult:
         if intent.capability != self.name:
             raise ValueError("PROTO adapter received a different capability")
         if intent.action != "submit_mission":

@@ -67,10 +67,43 @@ def _write_audit_record(kind: str, payload: dict[str, Any]) -> str:
         "payload": payload,
         "recorded_at": datetime.now(timezone.utc).isoformat(),
     }
-    (EVIDENCE_DIR / f"{evidence_id}.json").write_text(
+    _safe_child(EVIDENCE_DIR, f"{evidence_id}.json").write_text(
         json.dumps(record, sort_keys=True), encoding="utf-8"
     )
     return evidence_id
+
+
+def _validated_name(name: str, pattern: re.Pattern[str]) -> str:
+    if not pattern.fullmatch(name):
+        raise RuntimeError("cyber range identifier is not allowed")
+    return name
+
+
+def _declared_id(scenario: dict[str, Any]) -> str:
+    """The scenario's id as the catalog declares it, which is what may name a file."""
+    return _validated_name(str(scenario["id"]), SCENARIO_ID)
+
+
+def _snapshot_path(snapshot_id: str) -> Path:
+    """The snapshot the Creator asked for, found among the files that exist.
+
+    The path comes from the directory listing rather than from the request, so the request
+    value is only ever compared, never built into a path.
+    """
+    if not SNAPSHOT_ID.fullmatch(snapshot_id):
+        raise HTTPException(status_code=404, detail="snapshot not found")
+    for path in sorted(SNAPSHOT_DIR.glob("*.json")):
+        if path.stem == snapshot_id:
+            return path
+    raise HTTPException(status_code=404, detail="snapshot not found")
+
+
+def _safe_child(base: Path, filename: str) -> Path:
+    candidate = (base / filename).resolve()
+    root = base.resolve()
+    if candidate.parent != root:
+        raise RuntimeError("path escapes cyber range storage root")
+    return candidate
 
 
 app = FastAPI(title="Creation Cyber Range Controller", version="1.1")
@@ -100,7 +133,7 @@ def start_scenario(scenario_id: str) -> dict[str, Any]:
         "status": "active",
         "started_at": datetime.now(timezone.utc).isoformat(),
     }
-    (STATE_DIR / f"{scenario_id}.json").write_text(
+    _safe_child(STATE_DIR, f"{_declared_id(scenario)}.json").write_text(
         json.dumps(record, sort_keys=True), encoding="utf-8"
     )
     return record
@@ -126,7 +159,7 @@ def save_range() -> dict[str, Any]:
         "created_at": datetime.now(timezone.utc).isoformat(),
         "state": _state_records(),
     }
-    destination = SNAPSHOT_DIR / f"{snapshot_id}.json"
+    destination = _safe_child(SNAPSHOT_DIR, f"{_validated_name(snapshot_id, SNAPSHOT_ID)}.json")
     destination.write_text(json.dumps(record, sort_keys=True), encoding="utf-8")
     evidence_id = _write_audit_record(
         "range_snapshot_saved",
@@ -158,9 +191,7 @@ def list_range_snapshots() -> dict[str, Any]:
 def restore_range(snapshot_id: str) -> dict[str, Any]:
     if not SNAPSHOT_ID.fullmatch(snapshot_id):
         raise HTTPException(status_code=404, detail="snapshot not found")
-    source = SNAPSHOT_DIR / f"{snapshot_id}.json"
-    if not source.is_file():
-        raise HTTPException(status_code=404, detail="snapshot not found")
+    source = _snapshot_path(snapshot_id)
     record = json.loads(source.read_text(encoding="utf-8"))
     if record.get("environment") != "CYBER_RANGE" or record.get("snapshot_id") != snapshot_id:
         raise HTTPException(status_code=409, detail="invalid cyber range snapshot")
@@ -172,8 +203,8 @@ def restore_range(snapshot_id: str) -> dict[str, Any]:
         scenario_id = state_record.get("scenario_id")
         if not isinstance(scenario_id, str):
             raise HTTPException(status_code=409, detail="invalid snapshot state")
-        _scenario(scenario_id)
-        (STATE_DIR / f"{scenario_id}.json").write_text(
+        scenario = _scenario(scenario_id)
+        _safe_child(STATE_DIR, f"{_declared_id(scenario)}.json").write_text(
             json.dumps(state_record, sort_keys=True), encoding="utf-8"
         )
         restored_ids.append(scenario_id)
@@ -200,7 +231,7 @@ def write_evidence(request: EvidenceRequest) -> dict[str, Any]:
         "payload": request.payload,
         "recorded_at": datetime.now(timezone.utc).isoformat(),
     }
-    destination = EVIDENCE_DIR / f"{evidence_id}.json"
+    destination = _safe_child(EVIDENCE_DIR, f"{evidence_id}.json")
     destination.write_text(json.dumps(record, sort_keys=True), encoding="utf-8")
     return {
         "evidence_id": evidence_id,

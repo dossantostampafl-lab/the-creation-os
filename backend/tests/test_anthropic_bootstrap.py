@@ -47,7 +47,7 @@ def test_config_reads_overrides(anthropic_env) -> None:
         ("ANTHROPIC_API_KEY", "", "ANTHROPIC_API_KEY is required when LLM_PROVIDER=anthropic"),
         ("ANTHROPIC_MODEL", "", "ANTHROPIC_MODEL is required when LLM_PROVIDER=anthropic"),
         ("ANTHROPIC_BASE_URL", "file:///tmp/model", "ANTHROPIC_BASE_URL must use http or https"),
-        ("ANTHROPIC_BASE_URL", "http://proxy.invalid/v1", "ANTHROPIC_BASE_URL must use https outside loopback"),
+        ("ANTHROPIC_BASE_URL", "http://proxy.invalid/v1", "ANTHROPIC_BASE_URL must use https outside this machine and the private network"),
         ("ANTHROPIC_TIMEOUT_SECONDS", "0", "ANTHROPIC_TIMEOUT_SECONDS must be greater than zero"),
         ("ANTHROPIC_TIMEOUT_SECONDS", "fast", "ANTHROPIC_TIMEOUT_SECONDS must be numeric"),
         ("ANTHROPIC_MAX_OUTPUT_TOKENS", "0", "ANTHROPIC_MAX_OUTPUT_TOKENS must be greater than zero"),

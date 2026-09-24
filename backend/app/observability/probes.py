@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 from typing import Any
 
@@ -8,6 +9,8 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 PROBE_TIMEOUT_SECONDS = 2
 
@@ -18,7 +21,8 @@ async def database_probe(session: AsyncSession) -> dict[str, Any]:
         await session.execute(text("SELECT 1"))
         revision = await session.scalar(text("SELECT version_num FROM alembic_version"))
     except Exception as exc:
-        return {"available": False, "error": str(exc)}
+        logger.warning("database probe failed", exc_info=exc)
+        return {"available": False, "error": exc.__class__.__name__}
     return {"available": True, "latency_ms": round((time.perf_counter() - started) * 1000, 2), "migration": revision}
 
 
@@ -33,7 +37,8 @@ async def redis_probes() -> tuple[dict[str, Any], dict[str, Any]]:
             name = key.decode("utf-8") if isinstance(key, bytes) else str(key)
             streams[name] = await redis.xlen(name)
     except Exception as exc:
-        return {"available": False, "error": str(exc)}, {"available": False, "streams": {}}
+        logger.warning("redis probe failed", exc_info=exc)
+        return {"available": False, "error": exc.__class__.__name__}, {"available": False, "streams": {}}
     finally:
         await redis.aclose()
     return ({"available": True, "latency_ms": round((time.perf_counter() - started) * 1000, 2)},

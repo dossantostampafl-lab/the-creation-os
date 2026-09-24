@@ -13,14 +13,21 @@ The historical package was documented under `cyber-range-v1/`. Repository reconc
 - OWASP WebGoat on `127.0.0.1:8080`
 - OWASP WebWolf on `127.0.0.1:9090`
 - declared scenario catalog
-- append-style evidence files under `./evidence`
+- append-style evidence files in the `range_evidence` Docker volume, read with
+  `docker compose -f cyber_range/compose.yml cp controller:/evidence ./evidence-export`
 - disposable scenario state
 - SaveRange snapshot/restore lifecycle for controller state
 - start/stop/reset/verify lifecycle scripts
 
 ## Safety boundary
 
-All published ports bind to loopback. Range Docker networks are internal. The controller has no arbitrary shell or external-target execution API. Production networks and real credentials must never be attached to this compose project.
+All published ports bind to loopback. No range network reaches the internet: the controller and
+the targets talk over `range_targets`, which is `internal: true` and has no gateway at all, and the
+published loopback ports are served through `range_loopback`, a bridge with masquerading turned
+off — Docker maps no host port for a container whose networks are all internal, so this is what
+makes the range reachable from the machine running it without giving anything a route out. What it
+does not close is the host itself: a container can still reach a service bound on the host through
+the gateway address, which needs a `DOCKER-USER` firewall rule rather than a Compose setting. The controller has no arbitrary shell or external-target execution API. Production networks and real credentials must never be attached to this compose project.
 
 ## Windows / Docker Desktop
 
@@ -51,7 +58,9 @@ The qualification baseline is stored at `cyber_range/qualification/rubric.json`.
 ./cyber_range/scripts/reset.sh
 ```
 
-Evidence under `cyber_range/evidence/` is intentionally preserved by controller reset; Docker state is disposable.
+Evidence in the `range_evidence` volume is intentionally preserved by controller reset; Docker state
+is disposable. It lives in a volume rather than a bind mount because the controller runs as a
+non-root user, which cannot write into a directory the host owns.
 
 
 ## SaveRange

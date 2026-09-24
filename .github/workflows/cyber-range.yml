@@ -39,8 +39,14 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - name: Start and verify isolated range
-        run: ./cyber_range/scripts/start.sh
+      - name: Start isolated range
+        run: docker compose -f cyber_range/compose.yml --profile cyber-range up -d --build
+      - name: Diagnose controller
+        run: |
+          docker compose -f cyber_range/compose.yml ps
+          docker compose -f cyber_range/compose.yml logs controller || true
+      - name: Verify isolated range
+        run: ./cyber_range/scripts/verify.sh
       - name: Reset range state
         run: |
           curl --fail --silent --show-error -X POST http://127.0.0.1:7070/scenarios/juice-shop-baseline/start >/dev/null

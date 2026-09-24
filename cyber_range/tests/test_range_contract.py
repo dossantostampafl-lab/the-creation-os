@@ -38,11 +38,35 @@ def test_vulnerable_targets_never_bind_to_lan() -> None:
             )
 
 
-def test_range_networks_are_internal() -> None:
+def gives_internet_egress(network: dict) -> bool:
+    """Whether a container on this network could reach the internet.
+
+    Two shapes prevent it. `internal: true` is the strongest: Docker gives the network no
+    gateway at all — but it also stops Docker mapping a published host port, so a range whose
+    every network is internal cannot be reached from the machine running it. A bridge with
+    masquerading turned off keeps the published loopback ports working while leaving the
+    container with no NAT, so nothing it sends can be routed out and answered.
+    """
+    if network.get("internal") is True:
+        return False
+    masquerade = network.get("driver_opts", {}).get("com.docker.network.bridge.enable_ip_masquerade")
+    return str(masquerade).lower() != "false"
+
+
+def test_no_range_network_reaches_the_internet() -> None:
     compose = load_compose()
     networks = compose.get("networks", {})
     assert networks, "Cyber Range must declare isolated Docker networks"
-    assert all(network.get("internal") is True for network in networks.values())
+    reachable = [name for name, network in networks.items() if gives_internet_egress(network or {})]
+    assert not reachable, f"these range networks would let a target reach the internet: {reachable}"
+
+
+def test_the_targets_stay_on_an_internal_network() -> None:
+    """Containment does not rest on the loopback network alone: the targets also talk to the
+    controller over a network with no gateway of any kind."""
+    services = load_compose()["services"]
+    for service_name in ("controller", "juice-shop", "webgoat"):
+        assert "range_targets" in services[service_name]["networks"]
 
 
 def test_controller_is_loopback_only() -> None:

@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from urllib.parse import urlparse
 
 from pydantic.v1 import SecretStr
+
+from app.inference.base_url import checked_base_url
 
 
 @dataclass(frozen=True)
@@ -16,15 +17,12 @@ class OpenAICompatibleConfig:
 
 
 def load_openai_compatible_config() -> OpenAICompatibleConfig:
-    base_url = os.getenv("OPENAI_COMPATIBLE_BASE_URL", "").strip()
-    if not base_url:
+    raw_base_url = os.getenv("OPENAI_COMPATIBLE_BASE_URL", "").strip()
+    if not raw_base_url:
         raise RuntimeError(
             "OPENAI_COMPATIBLE_BASE_URL is required when LLM_PROVIDER=openai_compatible"
         )
-
-    parsed = urlparse(base_url)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise RuntimeError("OPENAI_COMPATIBLE_BASE_URL must use http or https")
+    base_url = checked_base_url("OPENAI_COMPATIBLE_BASE_URL", raw_base_url)
 
     model = os.getenv("OPENAI_COMPATIBLE_MODEL", "").strip()
     if not model:

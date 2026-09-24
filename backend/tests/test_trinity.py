@@ -171,7 +171,8 @@ async def test_viable_request_becomes_a_validated_mission_awaiting_only_authoriz
 
     [inception] = repo.inceptions
     [mission] = repo.missions
-    assert inception.status == "approved" and inception.decided_by == actor.id
+    # ROCKMAM decided viability; the Creator's decision is still the authorization to come.
+    assert inception.status == "approved" and inception.decided_by == "rockmam"
     assert mission.status == "validated"
     assert mission.inception_id == inception.id and mission.creator_id == actor.id
     assert mission.objective == "Publish a landing page for the product."

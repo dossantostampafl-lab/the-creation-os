@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from urllib.parse import urlparse
 
 from pydantic.v1 import SecretStr
 
+from app.inference.base_url import checked_base_url
+
 DEFAULT_BASE_URL = "https://api.anthropic.com/v1"
 DEFAULT_MAX_OUTPUT_TOKENS = 4096
-LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
 
 @dataclass(frozen=True)
@@ -29,12 +29,10 @@ def load_anthropic_config() -> AnthropicConfig:
     if not model:
         raise RuntimeError("ANTHROPIC_MODEL is required when LLM_PROVIDER=anthropic")
 
-    base_url = os.getenv("ANTHROPIC_BASE_URL", DEFAULT_BASE_URL).strip() or DEFAULT_BASE_URL
-    parsed = urlparse(base_url)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise RuntimeError("ANTHROPIC_BASE_URL must use http or https")
-    if parsed.scheme == "http" and parsed.hostname not in LOOPBACK_HOSTS:
-        raise RuntimeError("ANTHROPIC_BASE_URL must use https outside loopback")
+    base_url = checked_base_url(
+        "ANTHROPIC_BASE_URL",
+        os.getenv("ANTHROPIC_BASE_URL", DEFAULT_BASE_URL).strip() or DEFAULT_BASE_URL,
+    )
 
     raw_timeout = os.getenv("ANTHROPIC_TIMEOUT_SECONDS", "60").strip()
     try:
