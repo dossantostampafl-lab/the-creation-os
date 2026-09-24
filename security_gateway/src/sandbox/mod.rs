@@ -1,3 +1,5 @@
+pub mod firecracker;
+pub mod kata;
 pub mod probe;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
