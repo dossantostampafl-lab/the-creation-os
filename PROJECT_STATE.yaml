@@ -1,0 +1,146 @@
+schema_version: 1
+project: THE CREATION OS
+canonical_state_date: 2026-09-23
+canonical_branch: feat/canonical-project-state
+repository:
+  full_name: dossantostampafl-lab/the-creation-os
+  default_branch: main
+  baseline_sha: dafc1edebf01b0ff583175fe91087ad2272fc0f2
+  evidence_rule: "Never claim a capability is implemented unless repository/runtime evidence confirms it."
+
+context_policy:
+  source_of_truth_order:
+    - repository_evidence
+    - PROJECT_STATE.yaml
+    - FROZEN_DECISIONS.md
+    - ARCHITECTURE_GRAPH.yaml
+    - CHANGELOG_DECISIONS.md
+    - conversation_memory
+  rules:
+    - "Do not redesign a frozen decision unless the Creator explicitly reopens it."
+    - "Separate DESIGN_APPROVED from IMPLEMENTED and VERIFIED_OPERATIONAL."
+    - "When repository evidence conflicts with remembered conversation state, flag the conflict instead of guessing."
+    - "Before substantial work, read CONTEXT_BOOTSTRAP.md and this file."
+
+program:
+  current_track: security_task_force_and_cyber_range
+  objective: "Finish the complete design through Phase 9, then hand the reviewed implementation package to Codex."
+
+phases:
+  phase_1:
+    name: concept
+    status: CLOSED
+    result: "Security Task Force defined as a mission-oriented cyber capability under Creator authority."
+  phase_2:
+    name: architecture_and_stress_test
+    status: CLOSED
+    result: "Architecture stress-tested; separation of command, authorization, execution and evidence accepted."
+  phase_3:
+    name: mission_protocol
+    status: DESIGN_APPROVED
+    result: "Creator gives intent in natural language; system compiles a mission contract and escalates only beyond delegated authority."
+  phase_4:
+    name: contracts_and_components
+    status: DESIGN_CONSOLIDATED
+  phase_5:
+    name: security_and_governance
+    status: DESIGN_CONSOLIDATED
+  phase_6:
+    name: runtime_and_creation_integration
+    status: DESIGN_CONSOLIDATED
+  phase_7:
+    name: testing_and_validation
+    status: DESIGN_CONSOLIDATED
+  phase_8:
+    name: deployment_and_operations
+    status: DESIGN_CONSOLIDATED
+  phase_9:
+    name: codex_handoff
+    status: SPEC_REVIEW_GATE
+    note: "Detailed implementation plan is generated only after Creator review of the written spec."
+
+mission_protocol:
+  human_interface: natural_language_intent
+  flow:
+    - CREATOR
+    - DEUS
+    - MISSION_COMPILER
+    - SOPHIA
+    - AUTHORIZATION_PLANE
+    - MISSION_COMMANDER
+    - TASK_FORCE
+    - VERIFICATION
+    - CHRONICLE
+    - CREATOR
+  execution_stack_design:
+    cognition: Python
+    workflow_orchestration: Temporal
+    event_bus: NATS_JetStream
+    policy_engine: OPA
+    privileged_boundary: Rust_gateway
+    isolated_execution: Kata_or_Firecracker
+    knowledge_model: ATTACK_plus_graph
+  risk_classes:
+    R0: "read-only / informational; automatic"
+    R1: "safe reversible low-impact; automatic within mission scope"
+    R2: "delegated controlled action; requires explicit mission delegation"
+    R3: "material state change or elevated impact; Creator approval"
+    R4: "high-impact/sensitive action; explicit Creator approval with stronger evidence and rollback"
+    R5: "scope-expanding or fundamentally new objective; compile as a new mission"
+
+security_task_force:
+  permanent_core:
+    - Mission_Commander
+    - Intel_Recon
+    - Evidence_Verification
+  summonable_cells:
+    - Red
+    - Blue
+    - Purple
+    - AppSec
+    - Cloud
+    - Identity
+    - Container
+    - Network
+    - Forensics
+  authority_model: "ephemeral capability tokens bound to mission, task, target, duration and action class"
+  scope_rule: "Discovered assets may enter Target Graph but never become executable targets without authorization."
+
+cyber_range:
+  role: "isolated training, experimentation, replay and verification environment"
+  relationship: "Task Force uses the Range; Range is not the Task Force."
+  prior_context_state: "Cyber Range v1 was previously reported as a completed isolated foundation."
+  repository_verification_on_main: PENDING
+  verification_note: "Current canonicalization has not yet located direct main-branch evidence for the previously reported v1 completion; do not downgrade or re-create it blindly. Verify before implementation work."
+  previously_reported_v1_components:
+    - Juice_Shop
+    - WebGoat_WebWolf_localhost_only
+    - Range_Controller_API
+    - mission_catalog
+    - evidence_journal
+    - qualification_rubric
+    - start_stop_reset_verify_scripts
+  deferred_from_previous_design:
+    - Security_Onion_external
+    - CALDERA_v1_1
+
+certification:
+  internal_ladder:
+    - SH_1_Qualified
+    - SH_2_Advanced
+    - SH_3_Elite
+    - SH_X_Super_Hacker_Certified
+  rule: "SH-X is an internal project certification target, not an external professional credential; it requires implemented Range evidence and reproducible validation."
+
+known_repository_divergence:
+  legacy_branch: fix/creator-interface-living-functional-scene
+  compared_to_main_on: 2026-09-23
+  ahead_by: 55
+  behind_by: 463
+  status: diverged
+  handling: "Preserve legacy branch; do not treat it as canonical code baseline."
+
+next_gate:
+  action: CREATOR_SPEC_REVIEW
+  document: docs/superpowers/specs/2026-09-23-security-task-force-cyber-range-design.md
+  after_approval: "Use Superpowers writing-plans in Codex to produce the executable implementation plan."
