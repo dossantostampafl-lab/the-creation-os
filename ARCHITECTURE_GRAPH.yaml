@@ -1,0 +1,177 @@
+schema_version: 1
+graph: THE_CREATION_OS_SECURITY_TASK_FORCE
+updated: 2026-09-23
+
+nodes:
+  - id: CREATOR
+    type: authority
+    responsibility: ultimate_intent_and_escalation_authority
+  - id: DEUS
+    type: council_and_interface
+    responsibility: preserve_creator_intent_and_chair_decision_flow
+  - id: MISSION_COMPILER
+    type: compiler
+    responsibility: transform_natural_language_intent_into_mission_contract
+  - id: SOPHIA
+    type: chief_architect
+    responsibility: architectural_synthesis_and_team_design
+  - id: AUTHORIZATION_PLANE
+    type: policy_boundary
+    responsibility: classify_risk_and_grant_or_deny_capabilities
+  - id: OPA
+    type: policy_engine
+    responsibility: machine_evaluable_policy_decisions
+  - id: TEMPORAL
+    type: workflow_orchestrator
+    responsibility: durable_mission_state_and_recovery
+  - id: NATS_JETSTREAM
+    type: event_bus
+    responsibility: durable_event_transport_and_decoupling
+  - id: MISSION_COMMANDER
+    type: command
+    responsibility: decompose_approved_mission_and_coordinate_cells
+  - id: INTEL_RECON
+    type: permanent_cell
+    responsibility: discover_and_model_authorized_target_context
+  - id: RED
+    type: summonable_cell
+    responsibility: validate_offensive_hypotheses_inside_authorized_scope
+  - id: BLUE
+    type: summonable_cell
+    responsibility: detect_and_measure_defensive_response
+  - id: PURPLE
+    type: summonable_cell
+    responsibility: correlate_attack_and_defense_evidence
+  - id: SPECIALISTS
+    type: summonable_cells
+    responsibility: appsec_cloud_identity_container_network_forensics_and_other_domains
+  - id: RUST_GATEWAY
+    type: privileged_boundary
+    responsibility: enforce_execution_contract_at_privileged_edge
+  - id: EXECUTION_SANDBOX
+    type: isolation
+    responsibility: execute_authorized_actions_in_kata_or_firecracker_boundary
+  - id: CYBER_RANGE
+    type: isolated_validation_environment
+    responsibility: train_test_replay_and_verify_without_production_authority
+  - id: TARGET_GRAPH
+    type: knowledge_graph
+    responsibility: represent_assets_relations_scope_and_discoveries
+  - id: ATTACK_KNOWLEDGE
+    type: knowledge_model
+    responsibility: map_tactics_techniques_controls_and_scenarios
+  - id: VERIFICATION
+    type: assurance
+    responsibility: require_reproducible_evidence_before_promotion
+  - id: CHRONICLE
+    type: append_only_evidence
+    responsibility: preserve_actions_decisions_evidence_and_outcomes
+  - id: THE_CREATION_MEMORY
+    type: memory
+    responsibility: retain_validated_knowledge_without_persisting_expired_operational_authority
+  - id: MALKUTH
+    type: manifestation_boundary
+    responsibility: manifest_effects_only_when_the_creation_policy_allows
+
+edges:
+  - from: CREATOR
+    to: DEUS
+    relation: declares_intent
+  - from: DEUS
+    to: MISSION_COMPILER
+    relation: submits_interpreted_intent
+  - from: MISSION_COMPILER
+    to: SOPHIA
+    relation: provides_mission_contract_candidate
+  - from: SOPHIA
+    to: AUTHORIZATION_PLANE
+    relation: requests_risk_and_authority_evaluation
+  - from: AUTHORIZATION_PLANE
+    to: OPA
+    relation: evaluates_policy
+  - from: AUTHORIZATION_PLANE
+    to: CREATOR
+    relation: escalates_R3_R4_or_uncertain_authority
+  - from: AUTHORIZATION_PLANE
+    to: MISSION_COMMANDER
+    relation: grants_scoped_mission_authority
+  - from: MISSION_COMMANDER
+    to: TEMPORAL
+    relation: starts_durable_workflow
+  - from: TEMPORAL
+    to: NATS_JETSTREAM
+    relation: emits_and_consumes_mission_events
+  - from: MISSION_COMMANDER
+    to: INTEL_RECON
+    relation: assigns_authorized_tasks
+  - from: MISSION_COMMANDER
+    to: RED
+    relation: summons_when_required
+  - from: MISSION_COMMANDER
+    to: BLUE
+    relation: summons_when_required
+  - from: MISSION_COMMANDER
+    to: PURPLE
+    relation: summons_when_required
+  - from: MISSION_COMMANDER
+    to: SPECIALISTS
+    relation: summons_by_domain_need
+  - from: INTEL_RECON
+    to: TARGET_GRAPH
+    relation: records_discoveries
+  - from: TARGET_GRAPH
+    to: AUTHORIZATION_PLANE
+    relation: requests_scope_decision_for_new_targets
+  - from: ATTACK_KNOWLEDGE
+    to: SOPHIA
+    relation: informs_architecture_and_scenarios
+  - from: RED
+    to: RUST_GATEWAY
+    relation: submits_authorized_execution_request
+  - from: SPECIALISTS
+    to: RUST_GATEWAY
+    relation: submits_authorized_execution_request
+  - from: RUST_GATEWAY
+    to: EXECUTION_SANDBOX
+    relation: enforces_and_dispatches
+  - from: EXECUTION_SANDBOX
+    to: CYBER_RANGE
+    relation: may_execute_in_range_context
+  - from: CYBER_RANGE
+    to: VERIFICATION
+    relation: submits_reproducible_experiment_evidence
+  - from: RED
+    to: PURPLE
+    relation: provides_attack_evidence
+  - from: BLUE
+    to: PURPLE
+    relation: provides_defense_evidence
+  - from: PURPLE
+    to: VERIFICATION
+    relation: submits_correlated_evidence
+  - from: VERIFICATION
+    to: CHRONICLE
+    relation: records_verified_or_rejected_findings
+  - from: CHRONICLE
+    to: THE_CREATION_MEMORY
+    relation: promotes_validated_knowledge
+  - from: THE_CREATION_MEMORY
+    to: SOPHIA
+    relation: supplies_prior_validated_context
+  - from: VERIFICATION
+    to: MISSION_COMMANDER
+    relation: returns_validation_result
+  - from: MISSION_COMMANDER
+    to: CREATOR
+    relation: reports_mission_outcome
+  - from: AUTHORIZATION_PLANE
+    to: MALKUTH
+    relation: gates_real_world_manifestation
+
+invariants:
+  - "No edge grants authority merely because information exists in memory."
+  - "Cyber Range cannot authorize production execution."
+  - "Target Graph discovery does not equal executable scope."
+  - "Verification cannot approve a finding without evidence linkage."
+  - "Expired capability tokens are never restored from memory."
+  - "R5 is compiled as a new mission rather than silently extending the current mission."

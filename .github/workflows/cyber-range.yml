@@ -1,0 +1,56 @@
+name: Cyber Range Contract
+
+on:
+  push:
+    branches:
+      - feat/cyber-range-v1-recovery
+    paths:
+      - "cyber_range/**"
+      - ".github/workflows/cyber-range.yml"
+  pull_request:
+    paths:
+      - "cyber_range/**"
+      - ".github/workflows/cyber-range.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - run: pip install --quiet pytest pyyaml fastapi httpx
+      - run: python -m pytest cyber_range/tests -q
+      - run: docker compose -f cyber_range/compose.yml config --quiet
+      - run: bash -n cyber_range/scripts/*.sh
+
+  runtime-smoke:
+    needs: contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Start isolated range
+        run: docker compose -f cyber_range/compose.yml --profile cyber-range up -d --build
+      - name: Diagnose controller
+        run: |
+          docker compose -f cyber_range/compose.yml ps
+          docker compose -f cyber_range/compose.yml logs controller || true
+      - name: Verify isolated range
+        run: ./cyber_range/scripts/verify.sh
+      - name: Reset range state
+        run: |
+          curl --fail --silent --show-error -X POST http://127.0.0.1:7070/scenarios/juice-shop-baseline/start >/dev/null
+          curl --fail --silent --show-error -X POST http://127.0.0.1:7070/reset >/dev/null
+      - name: Stop range
+        if: always()
+        run: ./cyber_range/scripts/stop.sh

@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "environment": "CYBER_RANGE",
+  "scenarios": [
+    {
+      "id": "juice-shop-baseline",
+      "target": "juice-shop",
+      "description": "Authorized local OWASP Juice Shop training target",
+      "service_url": "http://juice-shop:3000"
+    },
+    {
+      "id": "webgoat-baseline",
+      "target": "webgoat",
+      "description": "Authorized local OWASP WebGoat/WebWolf training target",
+      "service_url": "http://webgoat:8080/WebGoat",
+      "companion_url": "http://webgoat:9090/WebWolf"
+    }
+  ]
+}
