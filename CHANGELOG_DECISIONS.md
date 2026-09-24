@@ -54,12 +54,22 @@ The Creator explicitly froze the current project checkpoint at **Phase 9 — Cre
 
 Affected canonical file: `PROJECT_STATE.yaml`.
 
-### DEC-2026-09-23-11 — Phase 9 review completed and Codex implementation plan created
+### DEC-2026-09-23-11 — Phase 9 review completed and implementation plan created
 **Status:** accepted
 
-The Phase 9 review gate is complete. The approved design is supplemented by `docs/superpowers/specs/2026-09-23-security-task-force-review-amendment.md`, which makes environment binding mandatory, defines Mission Compiler output as reproducibly verifiable rather than intrinsically deterministic, and preserves SOPHIA's delegated Kata/Firecracker choice behind a strong-isolation host-capability gate. The executable Superpowers plan is `docs/superpowers/plans/2026-09-23-security-task-force-codex-implementation.md` and contains 14 TDD implementation tasks. The next work starts at Task 1 — repository/runtime reconciliation audit — on a dedicated implementation worktree/feature branch. This decision completes the design/handoff phase only and does not claim that the planned runtime components are implemented or operational.
+The Phase 9 review gate produced the approved normative amendment and the executable Superpowers implementation plan with 14 TDD tasks. This decision records completion of the review/planning work only; it does not establish that Phase 9 itself is complete or that runtime components are implemented.
 
-Affected canonical files: `PROJECT_STATE.yaml`, the Phase 9 normative amendment, and the Codex implementation plan.
+Affected canonical files: `PROJECT_STATE.yaml`, the Phase 9 normative amendment, and the implementation plan.
+
+### DEC-2026-09-23-12 — Phase 9 is execution, not a handoff endpoint
+**Status:** accepted
+**Supersedes:** the handoff-complete interpretation of DEC-2026-09-23-10 and DEC-2026-09-23-11.
+
+The Creator clarified that a separate handoff is not required. The implementation plan is an execution artifact, not the terminal deliverable. Phase 9 remains active while the implementation plan is executed and only closes after the required implementation and verification gates are evidenced in the repository/runtime. The canonical resume point is the first incomplete implementation task, currently Task 1 — reconciliation audit and implementation baseline.
+
+This change affects continuity/status semantics only; it does not reopen the frozen architecture, authority model, risk model, environment binding, isolation requirements or prior phase designs.
+
+Affected canonical file: `PROJECT_STATE.yaml`.
 
 ## Change procedure
 
