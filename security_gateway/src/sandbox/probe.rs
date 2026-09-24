@@ -1,6 +1,10 @@
 use super::SandboxBackend;
 
-pub fn select(configured: &str, kata_supported: bool, firecracker_supported: bool) -> Result<SandboxBackend, String> {
+pub fn select(
+    configured: &str,
+    kata_supported: bool,
+    firecracker_supported: bool,
+) -> Result<SandboxBackend, String> {
     match configured {
         "kata" if kata_supported => Ok(SandboxBackend::Kata),
         "firecracker" if firecracker_supported => Ok(SandboxBackend::Firecracker),
