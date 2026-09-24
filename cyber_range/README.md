@@ -22,6 +22,17 @@ The historical package was documented under `cyber-range-v1/`. Repository reconc
 
 All published ports bind to loopback. Range Docker networks are internal. The controller has no arbitrary shell or external-target execution API. Production networks and real credentials must never be attached to this compose project.
 
+## Windows / Docker Desktop
+
+```powershell
+.\\cyber_range\\scripts\\start.ps1
+.\\cyber_range\\scripts\\verify.ps1
+.\\cyber_range\\scripts\\reset.ps1
+.\\cyber_range\\scripts\\stop.ps1
+```
+
+The qualification baseline is stored at `cyber_range/qualification/rubric.json`. SH levels are evidence-based; the presence of the rubric does not itself grant certification.
+
 ## Start
 
 ```bash
