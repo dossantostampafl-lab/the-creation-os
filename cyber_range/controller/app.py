@@ -67,7 +67,7 @@ def _write_audit_record(kind: str, payload: dict[str, Any]) -> str:
         "payload": payload,
         "recorded_at": datetime.now(timezone.utc).isoformat(),
     }
-    _safe_child(EVIDENCE_DIR, f"{evidence_id}.json").write_text(
+    EVIDENCE_DIR / f"{evidence_id}.json".write_text(
         json.dumps(record, sort_keys=True), encoding="utf-8"
     )
     return evidence_id
@@ -108,7 +108,7 @@ def start_scenario(scenario_id: str) -> dict[str, Any]:
         "status": "active",
         "started_at": datetime.now(timezone.utc).isoformat(),
     }
-    _safe_child(STATE_DIR, f"{scenario_id}.json").write_text(
+    STATE_DIR / f"{_validated_name(scenario_id, SCENARIO_ID)}.json".write_text(
         json.dumps(record, sort_keys=True), encoding="utf-8"
     )
     return record
@@ -134,7 +134,7 @@ def save_range() -> dict[str, Any]:
         "created_at": datetime.now(timezone.utc).isoformat(),
         "state": _state_records(),
     }
-    destination = _safe_child(SNAPSHOT_DIR, f"{snapshot_id}.json")
+    destination = SNAPSHOT_DIR / f"{_validated_name(snapshot_id, SNAPSHOT_ID)}.json"
     destination.write_text(json.dumps(record, sort_keys=True), encoding="utf-8")
     evidence_id = _write_audit_record(
         "range_snapshot_saved",
@@ -166,7 +166,7 @@ def list_range_snapshots() -> dict[str, Any]:
 def restore_range(snapshot_id: str) -> dict[str, Any]:
     if not SNAPSHOT_ID.fullmatch(snapshot_id):
         raise HTTPException(status_code=404, detail="snapshot not found")
-    source = _safe_child(SNAPSHOT_DIR, f"{snapshot_id}.json")
+    source = SNAPSHOT_DIR / f"{_validated_name(snapshot_id, SNAPSHOT_ID)}.json"
     if not source.is_file():
         raise HTTPException(status_code=404, detail="snapshot not found")
     record = json.loads(source.read_text(encoding="utf-8"))
@@ -208,7 +208,7 @@ def write_evidence(request: EvidenceRequest) -> dict[str, Any]:
         "payload": request.payload,
         "recorded_at": datetime.now(timezone.utc).isoformat(),
     }
-    destination = _safe_child(EVIDENCE_DIR, f"{evidence_id}.json")
+    destination = EVIDENCE_DIR / f"{evidence_id}.json"
     destination.write_text(json.dumps(record, sort_keys=True), encoding="utf-8")
     return {
         "evidence_id": evidence_id,
