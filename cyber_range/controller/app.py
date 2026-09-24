@@ -67,10 +67,18 @@ def _write_audit_record(kind: str, payload: dict[str, Any]) -> str:
         "payload": payload,
         "recorded_at": datetime.now(timezone.utc).isoformat(),
     }
-    (EVIDENCE_DIR / f"{evidence_id}.json").write_text(
+    _safe_child(EVIDENCE_DIR, f"{evidence_id}.json").write_text(
         json.dumps(record, sort_keys=True), encoding="utf-8"
     )
     return evidence_id
+
+
+def _safe_child(base: Path, filename: str) -> Path:
+    candidate = (base / filename).resolve()
+    root = base.resolve()
+    if candidate.parent != root:
+        raise RuntimeError("path escapes cyber range storage root")
+    return candidate
 
 
 app = FastAPI(title="Creation Cyber Range Controller", version="1.1")
@@ -100,7 +108,7 @@ def start_scenario(scenario_id: str) -> dict[str, Any]:
         "status": "active",
         "started_at": datetime.now(timezone.utc).isoformat(),
     }
-    (STATE_DIR / f"{scenario_id}.json").write_text(
+    _safe_child(STATE_DIR, f"{scenario_id}.json").write_text(
         json.dumps(record, sort_keys=True), encoding="utf-8"
     )
     return record
@@ -126,7 +134,7 @@ def save_range() -> dict[str, Any]:
         "created_at": datetime.now(timezone.utc).isoformat(),
         "state": _state_records(),
     }
-    destination = SNAPSHOT_DIR / f"{snapshot_id}.json"
+    destination = _safe_child(SNAPSHOT_DIR, f"{snapshot_id}.json")
     destination.write_text(json.dumps(record, sort_keys=True), encoding="utf-8")
     evidence_id = _write_audit_record(
         "range_snapshot_saved",
@@ -158,7 +166,7 @@ def list_range_snapshots() -> dict[str, Any]:
 def restore_range(snapshot_id: str) -> dict[str, Any]:
     if not SNAPSHOT_ID.fullmatch(snapshot_id):
         raise HTTPException(status_code=404, detail="snapshot not found")
-    source = SNAPSHOT_DIR / f"{snapshot_id}.json"
+    source = _safe_child(SNAPSHOT_DIR, f"{snapshot_id}.json")
     if not source.is_file():
         raise HTTPException(status_code=404, detail="snapshot not found")
     record = json.loads(source.read_text(encoding="utf-8"))
@@ -200,7 +208,7 @@ def write_evidence(request: EvidenceRequest) -> dict[str, Any]:
         "payload": request.payload,
         "recorded_at": datetime.now(timezone.utc).isoformat(),
     }
-    destination = EVIDENCE_DIR / f"{evidence_id}.json"
+    destination = _safe_child(EVIDENCE_DIR, f"{evidence_id}.json")
     destination.write_text(json.dumps(record, sort_keys=True), encoding="utf-8")
     return {
         "evidence_id": evidence_id,
