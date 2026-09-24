@@ -1,6 +1,6 @@
 schema_version: 1
 project: THE CREATION OS
-canonical_state_date: 2026-09-23
+canonical_state_date: 2026-09-24
 canonical_branch: feat/canonical-project-state
 repository:
   full_name: dossantostampafl-lab/the-creation-os
@@ -43,6 +43,35 @@ program:
   current_track: security_task_force_and_cyber_range
   objective: "Execute the reviewed implementation plan from the reconciled repository baseline and promote statuses only with test/runtime evidence."
 
+implementation_baseline:
+  reconciled_on: 2026-09-24
+  implementation_branch: feat/phase9-task1-reconciliation
+  code_baseline_sha: dafc1edebf01b0ff583175fe91087ad2272fc0f2
+  canonical_docs_head_at_reconciliation: d40b773979906c15fcbba3d004716b6d29e7b0f3
+  reconciliation_audit: docs/superpowers/audits/2026-09-23-security-task-force-reconciliation.md
+  baseline_ci:
+    workflow_run_id: 35927895879
+    backend_job_id: 107407256908
+    pytest: "327 passed, 1 skipped in 14.66s"
+    ruff: "All checks passed"
+    mypy: "Success: no issues found in 108 source files"
+    stack_job: success
+    runtime_build_job: success
+  reuse_map:
+    mission_authorization: EXTEND
+    mission_schemas: EXTEND
+    capability_gateway_runtime: EXTEND
+    chronicle_evidence_storage: EXTEND
+    capability_invocation_evidence: REUSE
+    worker_orchestrator: EXTEND
+    docker_topology: EXTEND
+    cyber_range_v1: VERIFY_HISTORY
+    temporal: CREATE
+    nats_jetstream: CREATE
+    opa: CREATE
+    rust_gateway: CREATE
+    sandbox_controller: CREATE
+
 phases:
   phase_1:
     name: concept
@@ -74,7 +103,9 @@ phases:
     specification: docs/superpowers/specs/2026-09-23-security-task-force-cyber-range-design.md
     normative_amendment: docs/superpowers/specs/2026-09-23-security-task-force-review-amendment.md
     implementation_plan: docs/superpowers/plans/2026-09-23-security-task-force-codex-implementation.md
-    current_task: reconciliation_audit
+    completed_tasks:
+      - reconciliation_audit
+    current_task: mission_contract_environment_binding
     completion_rule: "Phase 9 closes only after implementation tasks and required verification gates are completed with repository/runtime evidence."
 
 mission_protocol:
@@ -132,8 +163,14 @@ cyber_range:
   role: "isolated training, experimentation, replay and verification environment"
   relationship: "Task Force uses the Range; Range is not the Task Force."
   prior_context_state: "Cyber Range v1 was previously reported as a completed isolated foundation."
-  repository_verification_on_main: PENDING
-  verification_note: "Task 1 of the implementation plan must verify the historical Range before any recreation or migration."
+  historical_reconciliation: VERIFY_HISTORY
+  repository_evidence_found_on_scanned_heads: false
+  scanned_heads:
+    main: dafc1edebf01b0ff583175fe91087ad2272fc0f2
+    canonical_project_state: d40b773979906c15fcbba3d004716b6d29e7b0f3
+    legacy_creator_interface: 523f34d34fdcbe21ccdb0350c63358a46ae496b9
+    cyber_range_v1_codespaces: dafc1edebf01b0ff583175fe91087ad2272fc0f2
+  verification_note: "Task 1 found no current implementation paths for the previously reported Range components on the scanned branch heads; preserve the evidence gap and do not recreate blindly."
   previously_reported_v1_components:
     - Juice_Shop
     - WebGoat_WebWolf_localhost_only
@@ -153,14 +190,14 @@ certification:
 
 known_repository_divergence:
   legacy_branch: fix/creator-interface-living-functional-scene
-  compared_to_main_on: 2026-09-23
+  compared_to_main_on: 2026-09-24
   ahead_by: 55
   behind_by: 463
   status: diverged
-  handling: "Preserve legacy branch; reconcile evidence during implementation Task 1; do not treat it as canonical baseline."
+  handling: "Preserve legacy branch; Task 1 found no Cyber Range implementation paths on its scanned head; do not treat it as canonical baseline."
 
 next_gate:
   action: PHASE_9_IMPLEMENTATION
   plan: docs/superpowers/plans/2026-09-23-security-task-force-codex-implementation.md
-  current_task: "Task 1 — Reconciliation audit and implementation baseline"
+  current_task: "Task 2 — MissionContract, environment binding, and risk contracts"
   rule: "Execute task-by-task with TDD where behavior changes; no direct implementation push to main; promote status only with evidence."
