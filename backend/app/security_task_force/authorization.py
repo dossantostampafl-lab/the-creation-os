@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .contracts import ActionRequest, AuthorizationDecision, MissionContract, RiskClass
+from .contracts import (\n    ActionRequest,\n    AuthorizationDecision,\n    MissionContract,\n    RiskClass,\n)
 
 
 _RISK = {RiskClass.R0: 0, RiskClass.R1: 1, RiskClass.R2: 2, RiskClass.R3: 3, RiskClass.R4: 4, RiskClass.R5: 5}
