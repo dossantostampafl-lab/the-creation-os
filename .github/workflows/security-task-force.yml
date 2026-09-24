@@ -47,4 +47,4 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with: {persist-credentials: false}
-      - run: docker compose --profile security-task-force config --quiet
+      - run: cp .env.example .env\n      - run: docker compose --profile security-task-force config --quiet
