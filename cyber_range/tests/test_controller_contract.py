@@ -30,7 +30,9 @@ def load_controller(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     )
     monkeypatch.setenv("RANGE_SCENARIO_CATALOG", str(scenarios))
     monkeypatch.setenv("RANGE_EVIDENCE_DIR", str(evidence))
+    snapshots = tmp_path / "snapshots"
     monkeypatch.setenv("RANGE_STATE_DIR", str(state))
+    monkeypatch.setenv("RANGE_SNAPSHOT_DIR", str(snapshots))
 
     assert CONTROLLER_APP.exists(), "Range Controller app.py must exist"
     spec = importlib.util.spec_from_file_location("range_controller_under_test", CONTROLLER_APP)
@@ -86,3 +88,54 @@ def test_evidence_is_written_only_to_configured_directory(tmp_path, monkeypatch)
     assert saved.parent.resolve() == evidence.resolve()
     assert saved.is_file()
     assert os.path.commonpath([saved.resolve(), evidence.resolve()]) == str(evidence.resolve())
+
+
+def test_save_range_snapshot_and_restore_round_trip(tmp_path, monkeypatch) -> None:
+    module, evidence, state = load_controller(tmp_path, monkeypatch)
+    client = TestClient(module.app)
+
+    started = client.post("/scenarios/juice-shop-baseline/start")
+    assert started.status_code == 200
+
+    saved = client.post("/snapshots")
+    assert saved.status_code == 201
+    snapshot_id = saved.json()["snapshot_id"]
+    assert saved.json()["state_records"] == 1
+    assert any(evidence.iterdir()), "snapshot creation must append audit evidence"
+
+    reset = client.post("/reset")
+    assert reset.status_code == 200
+    assert list(state.iterdir()) == []
+
+    restored = client.post(f"/snapshots/{snapshot_id}/restore")
+    assert restored.status_code == 200
+    assert restored.json()["restored_scenarios"] == ["juice-shop-baseline"]
+
+    current = client.get("/state")
+    assert current.status_code == 200
+    assert [item["scenario_id"] for item in current.json()["scenarios"]] == [
+        "juice-shop-baseline"
+    ]
+
+
+def test_snapshot_restore_rejects_unknown_snapshot(tmp_path, monkeypatch) -> None:
+    module, _, _ = load_controller(tmp_path, monkeypatch)
+    client = TestClient(module.app)
+    response = client.post("/snapshots/not-present/restore")
+    assert response.status_code == 404
+
+
+def test_reset_preserves_snapshots(tmp_path, monkeypatch) -> None:
+    module, _, state = load_controller(tmp_path, monkeypatch)
+    client = TestClient(module.app)
+    assert client.post("/scenarios/webgoat-baseline/start").status_code == 200
+    saved = client.post("/snapshots")
+    assert saved.status_code == 201
+    snapshot_id = saved.json()["snapshot_id"]
+
+    assert client.post("/reset").status_code == 200
+    assert list(state.iterdir()) == []
+
+    snapshots = client.get("/snapshots")
+    assert snapshots.status_code == 200
+    assert snapshot_id in {item["snapshot_id"] for item in snapshots.json()["snapshots"]}
