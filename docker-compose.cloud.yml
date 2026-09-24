@@ -43,14 +43,23 @@ services:
   postgres:
     security_opt:
       - no-new-privileges:true
-    networks: !reset
+    # Keep the base tco_net attachment as well as the isolated data network.
+    # The API starts Alembic before Uvicorn and must be able to resolve the
+    # Compose service name "postgres" immediately during startup. Removing the
+    # base network here made cloud startup depend on cross-network DNS state and
+    # produced asyncpg/socket.gaierror restart loops on Oracle deployments.
+    networks:
+      - tco_net
       - tco_internal
 
   redis:
     <<: *hardening
     tmpfs:
       - /tmp
-    networks: !reset
+    # Same topology as API/worker so both service names remain resolvable while
+    # the data services are still unpublished to the host/internet.
+    networks:
+      - tco_net
       - tco_internal
 
   caddy:
