@@ -9,12 +9,14 @@ services:
       RANGE_SCENARIO_CATALOG: /app/scenarios/catalog.json
       RANGE_EVIDENCE_DIR: /evidence
       RANGE_STATE_DIR: /state
+      RANGE_SNAPSHOT_DIR: /snapshots
     ports:
       - "127.0.0.1:7070:7070"
     volumes:
       - ./scenarios:/app/scenarios:ro
       - ./evidence:/evidence
       - range_state:/state
+      - range_snapshots:/snapshots
     networks:
       - range_control
       - range_targets
@@ -53,3 +55,4 @@ networks:
 
 volumes:
   range_state:
+  range_snapshots:
