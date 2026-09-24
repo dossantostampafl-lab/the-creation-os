@@ -54,10 +54,32 @@ def test_controller_is_loopback_only() -> None:
 
 
 def test_required_lifecycle_scripts_exist() -> None:
-    for name in ("start.sh", "stop.sh", "reset.sh", "verify.sh"):
+    for name in ("start.sh", "stop.sh", "reset.sh", "verify.sh", "start.ps1", "stop.ps1", "reset.ps1", "verify.ps1"):
         assert (ROOT / "scripts" / name).is_file(), f"missing cyber_range/scripts/{name}"
 
 
 def test_controller_and_scenarios_exist() -> None:
     assert (ROOT / "controller").is_dir(), "Range Controller source directory is required"
     assert (ROOT / "scenarios").is_dir(), "Range scenarios directory is required"
+
+
+def test_qualification_rubric_is_present_and_fail_closed() -> None:
+    rubric = ROOT / "qualification" / "rubric.json"
+    assert rubric.is_file(), "qualification rubric is required"
+    import json
+    data = json.loads(rubric.read_text(encoding="utf-8"))
+    assert [level["id"] for level in data["levels"]] == ["SH-1", "SH-2", "SH-3", "SH-X"]
+    assert "containment_failure" in data["disqualifiers"]
+    assert "unauthorized_target" in data["disqualifiers"]
+
+
+def test_controller_has_no_docker_socket_mount() -> None:
+    compose = load_compose()
+    volumes = compose["services"]["controller"].get("volumes", [])
+    assert all("/var/run/docker.sock" not in str(volume) for volume in volumes)
+
+
+def test_targets_have_no_privileged_mode() -> None:
+    compose = load_compose()
+    for service_name in ("controller", "juice-shop", "webgoat"):
+        assert compose["services"][service_name].get("privileged") is not True
