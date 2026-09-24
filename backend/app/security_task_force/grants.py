@@ -18,7 +18,18 @@ class CapabilityGrant:
     max_invocations: int
     revoked: bool = False
 
-    def permits(self, *, mission_id: str, mission_version: int, actor: str, capability: str, target_id: str, environment: str, action_class: str, invocations: int) -> bool:
+    def permits(
+        self,
+        *,
+        mission_id: str,
+        mission_version: int,
+        actor: str,
+        capability: str,
+        target_id: str,
+        environment: str,
+        action_class: str,
+        invocations: int,
+    ) -> bool:
         now = datetime.now(timezone.utc)
         return (
             not self.revoked
