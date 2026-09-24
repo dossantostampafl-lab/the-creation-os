@@ -1,6 +1,4 @@
-#[path = "../src/sandbox/mod.rs"]
-mod sandbox;
-use sandbox::SandboxBackend;
+use creation_security_gateway::sandbox::{self, SandboxBackend};
 
 #[test]
 fn unavailable_fails_closed() {

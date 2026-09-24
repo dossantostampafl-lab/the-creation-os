@@ -1,11 +1,4 @@
-#[path = "../src/auth.rs"]
-mod auth;
-#[path = "../src/contracts.rs"]
-mod contracts;
-#[path = "../src/replay.rs"]
-mod replay;
-#[path = "../src/signature.rs"]
-mod signature;
+use creation_security_gateway::{auth, contracts, replay, signature};
 
 use contracts::ExecutionEnvelope;
 
