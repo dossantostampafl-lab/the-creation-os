@@ -22,6 +22,23 @@ context_policy:
     - "When repository evidence conflicts with remembered conversation state, flag the conflict instead of guessing."
     - "Before substantial work, read CONTEXT_BOOTSTRAP.md and this file."
 
+canonical_checkpoint:
+  id: PHASE_9_CREATOR_SPEC_REVIEW
+  status: FROZEN_ACTIVE
+  frozen_on: 2026-09-23
+  resume_rule: "Resume at Phase 9 Creator spec review. Do not reopen Phases 1-8 or frozen decisions unless the Creator explicitly supersedes them."
+  completed_design_scope:
+    - phase_1
+    - phase_2
+    - phase_3
+    - phase_4
+    - phase_5
+    - phase_6
+    - phase_7
+    - phase_8
+  active_scope:
+    - phase_9
+
 program:
   current_track: security_task_force_and_cyber_range
   objective: "Finish the complete design through Phase 9, then hand the reviewed implementation package to Codex."
