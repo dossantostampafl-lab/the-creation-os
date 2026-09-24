@@ -1,10 +1,17 @@
-mod auth;
-mod contracts;
-mod replay;
-mod sandbox;
+use creation_security_gateway::sandbox::probe;
 
 fn main() {
-    // Gateway starts without an execution listener until live grant validation
-    // and an isolated sandbox backend are healthy. Fail closed by design.
-    println!("creation-security-gateway: execution disabled until validated runtime is configured");
+    let configured = std::env::var("STF_SANDBOX_BACKEND").unwrap_or_else(|_| "auto".into());
+    let kata = std::env::var("STF_KATA_AVAILABLE").as_deref() == Ok("1");
+    let firecracker = std::env::var("STF_FIRECRACKER_AVAILABLE").as_deref() == Ok("1");
+    match probe::select(&configured, kata, firecracker) {
+        Ok(creation_security_gateway::sandbox::SandboxBackend::Unavailable) => {
+            eprintln!("no isolated sandbox backend available; privileged execution disabled");
+        }
+        Ok(backend) => println!("isolated sandbox selected: {backend:?}"),
+        Err(error) => {
+            eprintln!("sandbox configuration rejected: {error}");
+            std::process::exit(2);
+        }
+    }
 }
