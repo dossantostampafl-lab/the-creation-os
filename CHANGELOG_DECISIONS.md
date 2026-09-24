@@ -42,6 +42,11 @@ The Creator decided that the Security Task Force is not permanently restricted t
 
 The Creator delegated the final selection between Kata Containers and Firecracker to SOPHIA. SOPHIA must choose using isolation strength, host/local compatibility, performance, operational complexity, auditability, recovery behavior and least-privilege as criteria. The delegation does not reopen the Rust Gateway or Authorization Plane boundaries and does not authorize weaker isolation.
 
+### DEC-2026-09-23-09 — Phase 3 Mission Protocol review approved
+**Status:** accepted
+
+The Creator approved Phase 3 after review. Two technical clarifications are mandatory in the next consolidated spec revision: (1) `MissionContract` must explicitly bind authorized execution environments in addition to authorized targets, preventing reuse of Range authorization in a real environment; and (2) the Mission Compiler may use AI/reasoning internally, but its output must be schema-valid, policy-valid, versioned and reproducibly verifiable rather than being described as intrinsically deterministic. These clarifications do not change the approved R0–R5 model, mission states, dynamic team assembly, escalation rules, kill-switch semantics or scope-expansion rules.
+
 ## Change procedure
 
 A new decision entry must include:
