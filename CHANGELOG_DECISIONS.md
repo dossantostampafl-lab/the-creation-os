@@ -32,6 +32,11 @@ The Creator supplies natural-language intent. The design flow is Creator → DEU
 
 The phases 3–8 may be consolidated into a written design specification. The detailed executable Codex implementation plan is created only after the Creator reviews and approves that written specification. This prevents implementing against an unreviewed interpretation of the design.
 
+### DEC-2026-09-23-07 — Security Task Force may operate in real explicitly authorized environments
+**Status:** accepted
+
+The Creator decided that the Security Task Force is not permanently restricted to the Cyber Range. After validation gates are satisfied, it may execute missions in real environments when the Creator explicitly authorizes the environment, target scope, mission objective and applicable risk ceiling. Authority is always mission-scoped and enforced through the Mission Contract, R0–R5 model, Authorization Plane, ephemeral capability grants, Rust Gateway, time window, target selector, rollback requirements and kill switches. R3/R4 retain Creator approval requirements; R5 remains a new mission. This is a design-only decision now and becomes an implementation requirement for the execution and authorization layers.
+
 ## Change procedure
 
 A new decision entry must include:
