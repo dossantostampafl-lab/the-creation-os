@@ -92,10 +92,75 @@ services:
     networks:
       - tco_net
 
+  stf-nats:
+    image: nats:2.10-alpine
+    profiles: ["security-task-force"]
+    command: ["-js", "-sd", "/data"]
+    volumes:
+      - stf_nats_data:/data
+    networks: [stf-control]
+    restart: unless-stopped
+
+  stf-opa:
+    image: openpolicyagent/opa:0.70.0-static
+    profiles: ["security-task-force"]
+    command: ["run", "--server", "--addr=0.0.0.0:8181", "/policy/stf.rego"]
+    volumes:
+      - ./deploy/stf/opa:/policy:ro
+    networks: [stf-control]
+    restart: unless-stopped
+
+  stf-temporal:
+    image: temporalio/auto-setup:1.25.2
+    profiles: ["security-task-force"]
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: postgres
+      POSTGRES_PWD: postgres
+      POSTGRES_SEEDS: postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [tco_net, stf-control]
+    restart: unless-stopped
+
+  stf-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    profiles: ["security-task-force"]
+    env_file: [.env]
+    environment:
+      TEMPORAL_ADDRESS: stf-temporal:7233
+      NATS_URL: nats://stf-nats:4222
+      OPA_URL: http://stf-opa:8181
+    command: ["python", "-m", "app.security_task_force.temporal_worker"]
+    depends_on: [stf-temporal, stf-nats, stf-opa]
+    networks: [stf-control]
+    restart: unless-stopped
+
+  stf-gateway:
+    build:
+      context: ./security_gateway
+    profiles: ["security-task-force"]
+    networks: [stf-control, stf-execution]
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: ["no-new-privileges:true"]
+    restart: "no"
+
 volumes:
   postgres_data:
   redis_data:
+  stf_nats_data:
 
 networks:
   tco_net:
     driver: bridge
+  stf-control:
+    driver: bridge
+    internal: true
+  stf-execution:
+    driver: bridge
+    internal: true
