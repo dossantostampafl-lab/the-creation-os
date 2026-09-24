@@ -29,3 +29,22 @@ jobs:
       - run: pip install --quiet pytest pyyaml fastapi httpx
       - run: python -m pytest cyber_range/tests -q
       - run: docker compose -f cyber_range/compose.yml config --quiet
+      - run: bash -n cyber_range/scripts/*.sh
+
+  runtime-smoke:
+    needs: contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Start and verify isolated range
+        run: ./cyber_range/scripts/start.sh
+      - name: Reset range state
+        run: |
+          curl --fail --silent --show-error -X POST http://127.0.0.1:7070/scenarios/juice-shop-baseline/start >/dev/null
+          curl --fail --silent --show-error -X POST http://127.0.0.1:7070/reset >/dev/null
+      - name: Stop range
+        if: always()
+        run: ./cyber_range/scripts/stop.sh
