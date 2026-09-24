@@ -15,6 +15,7 @@ The historical package was documented under `cyber-range-v1/`. Repository reconc
 - declared scenario catalog
 - append-style evidence files under `./evidence`
 - disposable scenario state
+- SaveRange snapshot/restore lifecycle for controller state
 - start/stop/reset/verify lifecycle scripts
 
 ## Safety boundary
@@ -40,3 +41,15 @@ All published ports bind to loopback. Range Docker networks are internal. The co
 ```
 
 Evidence under `cyber_range/evidence/` is intentionally preserved by controller reset; Docker state is disposable.
+
+
+## SaveRange
+
+The controller can preserve and restore the declared Cyber Range controller state without exporting targets, credentials, or host data.
+
+- `POST /snapshots` creates an immutable JSON snapshot of declared scenario state and appends an audit-evidence record.
+- `GET /snapshots` lists saved snapshots.
+- `POST /snapshots/{snapshot_id}/restore` restores only catalog-declared scenario state and appends an audit-evidence record.
+- `GET /state` returns the current controller state.
+
+Snapshots live in the dedicated `range_snapshots` Docker volume. `POST /reset` clears disposable state but intentionally preserves both evidence and snapshots.
