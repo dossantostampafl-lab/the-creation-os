@@ -3,7 +3,11 @@ pub mod kata;
 pub mod probe;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SandboxBackend { Kata, Firecracker, Unavailable }
+pub enum SandboxBackend {
+    Kata,
+    Firecracker,
+    Unavailable,
+}
 
 pub trait Sandbox {
     fn backend(&self) -> SandboxBackend;
