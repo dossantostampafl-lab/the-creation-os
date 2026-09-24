@@ -61,9 +61,69 @@ class FreeLLMAPIProvider:
         }
         if request.requirements.max_output_tokens is not None:
             payload["max_tokens"] = request.requirements.max_output_tokens
+        if request.metadata.get("enable_capability_intents"):
+            payload["tools"] = [self._capability_tool()]
         if stream:
             payload["stream"] = True
         return payload
+
+    @staticmethod
+    def _capability_tool() -> dict[str, Any]:
+        """The one tool an Agent may reach for: asking that a capability be run.
+
+        Asking is not doing. The gateway's policy decides whether the Mission's authorization
+        allows it, and the payload is validated against CapabilityIntent before anything runs.
+        """
+        return {
+            "type": "function",
+            "function": {
+                "name": "capability_intent",
+                "description": (
+                    "Request an authorized capability. This only requests execution; "
+                    "policy decides whether it may run."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "capability": {"type": "string"},
+                        "action": {"type": "string"},
+                        "resource": {"type": ["string", "null"]},
+                        "arguments": {"type": "object", "additionalProperties": True},
+                        "external_effect": {"type": "boolean"},
+                        "idempotency_class": {
+                            "type": "string",
+                            "enum": ["SAFE", "IDEMPOTENT", "AT_MOST_ONCE"],
+                        },
+                        "idempotency_key": {"type": ["string", "null"]},
+                    },
+                    "required": [
+                        "capability", "action", "arguments", "external_effect", "idempotency_class",
+                    ],
+                },
+            },
+        }
+
+    @staticmethod
+    def _capability_intent(message: dict[str, Any]) -> dict[str, Any] | None:
+        """The capability the gateway is being asked for, if the model asked for one."""
+        calls = message.get("tool_calls")
+        if not isinstance(calls, list):
+            return None
+        for call in calls:
+            if not isinstance(call, dict):
+                continue
+            function = call.get("function")
+            if not isinstance(function, dict) or function.get("name") != "capability_intent":
+                continue
+            arguments = function.get("arguments")
+            if isinstance(arguments, str):
+                try:
+                    arguments = json.loads(arguments)
+                except json.JSONDecodeError:
+                    continue
+            if isinstance(arguments, dict):
+                return arguments
+        return None
 
     @staticmethod
     def _raise_for_status(status_code: int) -> None:
@@ -96,10 +156,22 @@ class FreeLLMAPIProvider:
                 "freellmapi", "FreeLLMAPI returned an invalid response"
             )
         message = choices[0].get("message")
-        if not isinstance(message, dict) or not isinstance(message.get("content"), str):
+        if not isinstance(message, dict):
             raise InferenceUpstreamResponseError(
                 "freellmapi", "FreeLLMAPI returned an invalid response"
             )
+        metadata: dict[str, Any] = {}
+        intent = FreeLLMAPIProvider._capability_intent(message)
+        if intent is not None:
+            metadata["capability_intent"] = intent
+        content = message.get("content")
+        if not isinstance(content, str):
+            # A turn that only asks for a capability carries no content, and that is complete.
+            if intent is None:
+                raise InferenceUpstreamResponseError(
+                    "freellmapi", "FreeLLMAPI returned an invalid response"
+                )
+            message = {**message, "content": ""}
 
         upstream_model = payload.get("model")
         model = upstream_model if isinstance(upstream_model, str) and upstream_model else fallback_model
@@ -121,6 +193,7 @@ class FreeLLMAPIProvider:
             content=message["content"],
             finish_reason=finish_reason,
             usage=usage,
+            metadata=metadata,
         )
 
     async def generate(self, request: InferenceRequest) -> InferenceResponse:

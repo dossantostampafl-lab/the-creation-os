@@ -90,9 +90,39 @@ class AnthropicProvider:
         }
         if system_parts:
             payload["system"] = "\n\n".join(system_parts)
+        if request.metadata.get("enable_capability_intents"):
+            payload["tools"] = [self._capability_tool()]
         if stream:
             payload["stream"] = True
         return payload
+
+    @staticmethod
+    def _capability_tool() -> dict[str, Any]:
+        """The one tool an Agent may reach for: asking that a capability be run.
+
+        Asking is not doing. The gateway's policy decides whether the Mission's authorization
+        allows it, and the payload is validated against CapabilityIntent before anything runs.
+        """
+        return {
+            "name": "capability_intent",
+            "description": (
+                "Request an authorized capability. This only requests execution; "
+                "policy decides whether it may run."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "capability": {"type": "string"},
+                    "action": {"type": "string"},
+                    "resource": {"type": ["string", "null"]},
+                    "arguments": {"type": "object", "additionalProperties": True},
+                    "external_effect": {"type": "boolean"},
+                    "idempotency_class": {"type": "string", "enum": ["SAFE", "IDEMPOTENT", "AT_MOST_ONCE"]},
+                    "idempotency_key": {"type": ["string", "null"]},
+                },
+                "required": ["capability", "action", "arguments", "external_effect", "idempotency_class"],
+            },
+        }
 
     def _raise_for_status(self, status_code: int) -> None:
         if status_code in {401, 403}:
@@ -114,12 +144,19 @@ class AnthropicProvider:
         if not isinstance(blocks, list):
             raise InferenceUpstreamResponseError(self.name, "Anthropic returned an invalid response")
 
-        text_parts = [
-            block["text"]
-            for block in blocks
-            if isinstance(block, dict) and block.get("type") == "text" and isinstance(block.get("text"), str)
-        ]
-        if not text_parts:
+        text_parts: list[str] = []
+        metadata: dict[str, Any] = {}
+        for block in blocks:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") == "text" and isinstance(block.get("text"), str):
+                text_parts.append(block["text"])
+            elif block.get("type") == "tool_use" and block.get("name") == "capability_intent":
+                arguments = block.get("input")
+                if isinstance(arguments, dict):
+                    metadata["capability_intent"] = arguments
+        # A turn that only asks for a capability carries no text, and that is a complete answer.
+        if not text_parts and "capability_intent" not in metadata:
             raise InferenceUpstreamResponseError(self.name, "Anthropic returned no text content")
 
         model = data.get("model")
@@ -140,6 +177,7 @@ class AnthropicProvider:
             content="".join(text_parts),
             finish_reason=stop_reason,
             usage=usage,
+            metadata=metadata,
         )
 
     async def generate(self, request: InferenceRequest) -> InferenceResponse:
