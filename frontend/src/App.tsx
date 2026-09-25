@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
-import { fetchChronicleHistory, fetchInferenceStatus, fetchProjectionStatus, fetchSystemState, loginCreator, streamChronicle } from "./api";
+import { clearSession, fetchChronicleHistory, fetchInferenceStatus, fetchProjectionStatus, fetchSystemState, loginCreator, streamChronicle } from "./api";
 import { Cosmos } from "./Cosmos";
 import type { CosmosMood } from "./Cosmos";
 import { CreatorConsole } from "./CreatorConsole";
+import { DecisionsPanel } from "./DecisionsPanel";
 import type { ChronicleEvent, ChronicleRecord, InferenceStatusSnapshot, ProjectionStatus, SystemState } from "./types";
 
 function statusTone(status: string): string {
@@ -105,6 +106,18 @@ function App() {
     };
   }, [authVersion, retryVersion]);
 
+  function handleLogout() {
+    clearSession();
+    window.localStorage.removeItem("creation_conversation_id");
+    setState(null);
+    setProjections(null);
+    setInference(null);
+    setChronicle([]);
+    setEvents([]);
+    setVitalsOpen(false);
+    setAuthVersion((version) => version + 1);
+  }
+
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setLoginPending(true);
@@ -144,6 +157,7 @@ function App() {
               {vitalsOpen ? "Close vitals" : "System vitals"}
             </button>
           )}
+          {connection !== "AUTH_REQUIRED" && <button type="button" className="logout-button" onClick={handleLogout}>Sign out</button>}
         </div>
       </header>
 
@@ -178,7 +192,12 @@ function App() {
       {connection === "CONNECTING" && !state && <section className="loading-shell" role="status" aria-live="polite"><span className="loading-orb" />Loading live system state…</section>}
       {error && connection === "ERROR" && <section className="error-banner" role="alert">Live state unavailable: {error} <button type="button" className="retry-button" onClick={() => setRetryVersion((version) => version + 1)}>Retry</button></section>}
 
-      {connection !== "AUTH_REQUIRED" && <CreatorConsole enabled={deusReady} onMoodChange={setMood} />}
+      {connection !== "AUTH_REQUIRED" && (
+        <section className="creator-workspace">
+          <DecisionsPanel missions={state?.missions ?? []} onChanged={() => setRetryVersion((version) => version + 1)} />
+          <CreatorConsole enabled={deusReady} onMoodChange={setMood} />
+        </section>
+      )}
 
       {vitalsOpen && state && (
         <aside className="vitals" id="system-vitals" aria-label="System vitals">

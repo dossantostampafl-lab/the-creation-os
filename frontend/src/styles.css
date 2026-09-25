@@ -293,3 +293,81 @@ html, body { margin: 0; min-width: 320px; height: 100%; background: var(--space)
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+
+/* Creator authority stays visible beside the conversation; telemetry remains in System vitals. */
+.creator-workspace { display: contents; }
+.logout-button {
+  border: 1px solid #ffffff24;
+  border-radius: 999px;
+  background: #ffffff0a;
+  color: var(--muted);
+  padding: 7px 12px;
+  font: 11px var(--mono);
+  cursor: pointer;
+}
+.logout-button:hover,
+.logout-button:focus-visible { color: var(--text); border-color: #a78bfa88; outline: none; }
+
+.decisions-panel {
+  position: absolute;
+  left: 22px;
+  bottom: 22px;
+  z-index: 9;
+  width: min(360px, calc(50% - 390px));
+  min-width: 280px;
+  max-height: 48vh;
+  overflow: auto;
+  border: 1px solid #a78bfa44;
+  border-radius: 20px;
+  background: #090722d9;
+  box-shadow: 0 0 42px #6d5bff26, inset 0 1px #ffffff0d;
+  backdrop-filter: blur(18px);
+}
+.decisions-panel .panel-title {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 13px 16px;
+  border-bottom: 1px solid #ffffff12;
+  background: #0b0926ee;
+}
+.decision {
+  display: grid;
+  gap: 10px;
+  padding: 13px 16px;
+  border-bottom: 1px solid #ffffff0d;
+}
+.decision:last-child { border-bottom: 0; }
+.decision strong,
+.decision small { display: block; }
+.decision strong { color: var(--text); font-size: 13px; }
+.decision small { margin-top: 4px; color: var(--muted); font-size: 11px; line-height: 1.4; }
+.decision-actions,
+.decision-confirm { display: flex; gap: 8px; flex-wrap: wrap; }
+.decision button {
+  border: 1px solid #a78bfa55;
+  border-radius: 999px;
+  background: transparent;
+  color: #d9d3ff;
+  padding: 7px 12px;
+  font: 600 11px var(--mono);
+  cursor: pointer;
+}
+.decision button:hover:not(:disabled),
+.decision button:focus-visible { border-color: #b8a6ff; color: #fff; outline: none; }
+.decision button:disabled { opacity: .5; cursor: wait; }
+.decision .decision-go {
+  border-color: #3fdcff77;
+  background: linear-gradient(135deg, #1fbf8f, #3fdcff);
+  color: #04121c;
+}
+
+@media (max-width: 1180px) {
+  .decisions-panel { width: 300px; min-width: 0; }
+  .creator-console { width: min(620px, calc(100% - 340px)); left: auto; right: 18px; transform: none; }
+}
+@media (max-width: 760px) {
+  .decisions-panel { left: 12px; bottom: 92px; width: calc(100% - 24px); max-height: 24vh; }
+  .creator-console { right: auto; left: 50%; width: calc(100% - 24px); transform: translateX(-50%); }
+}
