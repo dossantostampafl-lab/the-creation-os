@@ -1,5 +1,16 @@
 # Decision Changelog
 
+## 2026-09-26 — Dashboard mobile PWA release candidate
+
+### DEC-2026-09-26-01 — The Creation dashboard becomes an installable responsive PWA
+**Status:** accepted
+
+The existing living-DEUS dashboard remains the canonical product surface and architecture. Its delivery contract now includes an installable manifest and branded icons, an explicit service-worker update flow, network-only API/auth traffic, offline shell/status behavior, safe-area and dynamic-viewport handling, 44×44 primary touch targets, and verified layouts for desktop, tablet, phone portrait, compact phone, and phone landscape. Creator Decisions remains the left contextual drawer; System Vitals remains the right contextual drawer; neither is duplicated in the central presence.
+
+The static/product audit is recorded in `docs/superpowers/audits/2026-09-26-mobile-pwa-final.md`. Full browser, PostgreSQL, Nginx, and Compose runtime verification remains a required GitHub Actions merge gate and must not be inferred from local static evidence.
+
+Affected canonical files: `DESIGN.md`, `UX-CONTRACT.md`, `PROJECT_STATE.yaml`, frontend PWA/responsive sources, Nginx delivery configuration, and CI-owned regression suites. This decision requires the code migration delivered on `feat/dashboard-living-presence`.
+
 ## 2026-09-23 — Canonicalization initiated
 
 ### DEC-2026-09-23-01 — Repository becomes canonical project memory

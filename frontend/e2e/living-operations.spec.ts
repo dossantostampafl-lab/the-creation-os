@@ -177,6 +177,21 @@ test("presents a Creator login instead of requiring manual localStorage setup", 
   await expect(page.getByLabel("Username")).toBeFocused();
 });
 
+test("keeps mobile Creator authentication controls touch-safe", async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 800 });
+  await page.goto("/");
+
+  for (const control of [
+    page.getByRole("button", { name: "Show password" }),
+    page.getByRole("button", { name: "Enter The Creation" }),
+  ]) {
+    const box = await control.boundingBox();
+    expect(box?.width).toBeGreaterThanOrEqual(44);
+    expect(box?.height).toBeGreaterThanOrEqual(44);
+  }
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBeTruthy();
+});
+
 test("authenticates the Creator and hydrates the live dashboard", async ({ page }) => {
   await page.route("**/api/v1/auth/login", (route) => route.fulfill({
     status: 200,
@@ -243,6 +258,85 @@ test("does not introduce horizontal overflow on a mobile viewport", async ({ pag
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Living Cognitive Operating System" })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBeTruthy();
+});
+
+for (const viewport of [
+  { label: "tablet landscape", width: 1024, height: 768 },
+  { label: "tablet portrait", width: 768, height: 1024 },
+  { label: "phone portrait", width: 390, height: 844 },
+  { label: "compact phone", width: 360, height: 800 },
+  { label: "phone landscape", width: 844, height: 390 },
+]) {
+  test(`keeps primary controls touch-safe at ${viewport.label}`, async ({ page }) => {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await page.addInitScript(() => localStorage.setItem("creation_access_token", "e2e-token"));
+    await mockOperationalApi(page);
+    await page.goto("/");
+
+    const message = page.getByRole("textbox", { name: "Message DEUS" });
+    await expect(message).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBeTruthy();
+
+    for (const trigger of [
+      page.getByRole("button", { name: "Creator decisions" }),
+      page.getByRole("button", { name: "System vitals" }),
+      page.getByRole("button", { name: "Send to DEUS" }),
+    ]) {
+      const box = await trigger.boundingBox();
+      expect(box?.width).toBeGreaterThanOrEqual(44);
+      expect(box?.height).toBeGreaterThanOrEqual(44);
+    }
+
+    const vitalsTrigger = page.getByRole("button", { name: "System vitals" });
+    await vitalsTrigger.click();
+    const vitals = page.getByRole("complementary", { name: "System vitals" });
+    const drawerBox = await vitals.boundingBox();
+    expect(drawerBox?.x).toBeGreaterThanOrEqual(0);
+    expect(drawerBox?.y).toBeGreaterThanOrEqual(0);
+    expect((drawerBox?.x ?? 0) + (drawerBox?.width ?? 0)).toBeLessThanOrEqual(viewport.width);
+    expect((drawerBox?.y ?? 0) + (drawerBox?.height ?? 0)).toBeLessThanOrEqual(viewport.height);
+    const close = page.getByRole("button", { name: "Close system vitals" });
+    const closeBox = await close.boundingBox();
+    expect(closeBox?.width).toBeGreaterThanOrEqual(44);
+    expect(closeBox?.height).toBeGreaterThanOrEqual(44);
+    await page.keyboard.press("Escape");
+    await expect(vitalsTrigger).toBeFocused();
+
+    await page.setViewportSize({ width: viewport.width, height: Math.max(320, viewport.height - 280) });
+    const messageBox = await message.boundingBox();
+    expect(messageBox?.y).toBeGreaterThanOrEqual(0);
+    expect((messageBox?.y ?? 0) + (messageBox?.height ?? 0)).toBeLessThanOrEqual(Math.max(320, viewport.height - 280));
+  });
+}
+
+test("keeps long operational content inside drawer-owned scrolling", async ({ page }) => {
+  const longState = {
+    ...state,
+    missions: [{ ...state.missions[0], title: "Manifest a deliberately long mission title that must remain readable without moving the page sideways" }],
+    universes: Array.from({ length: 18 }, (_, index) => ({ id: `universe-${index}`, code: `universe-${index}`, name: `Universe ${index} with extended operational context`, active: true })),
+  };
+  await page.setViewportSize({ width: 360, height: 800 });
+  await page.addInitScript(() => localStorage.setItem("creation_access_token", "e2e-token"));
+  await page.route("**/api/v1/system/state", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(longState) }));
+  await page.route("**/api/v1/system/projections", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(projections) }));
+  await page.route("**/api/v1/chronicles?limit=40&offset=0", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(chronicle) }));
+  await page.route("**/api/v1/system/inference", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(inference) }));
+  await page.route("**/api/v1/system/events?after=41", (route) => route.fulfill({ status: 200, contentType: "text/event-stream", body: "" }));
+  await page.goto("/");
+  await page.getByRole("button", { name: "System vitals" }).click();
+  const vitals = page.getByRole("complementary", { name: "System vitals" });
+  await expect(vitals).toBeVisible();
+  expect(await vitals.evaluate((element) => element.scrollHeight > element.clientHeight)).toBeTruthy();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBeTruthy();
+});
+
+test("preserves operational text with reduced motion", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.addInitScript(() => localStorage.setItem("creation_access_token", "e2e-token"));
+  await mockOperationalApi(page);
+  await page.goto("/");
+  await expect(page.getByText("DEUS · IDLE", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Manifest Gate D" })).toBeVisible();
 });
 
 

@@ -293,6 +293,44 @@ html, body { margin: 0; min-width: 320px; height: 100%; background: var(--space)
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
 
+.pwa-banner {
+  position: fixed;
+  top: max(76px, calc(env(safe-area-inset-top) + 68px));
+  left: 50%;
+  z-index: 30;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: calc(100% - 32px);
+  padding: 9px 14px;
+  border: 1px solid rgba(255, 192, 120, .42);
+  border-radius: 999px;
+  background: rgba(8, 18, 23, .94);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, .42);
+  color: var(--text);
+  font: 11px/1.35 var(--mono);
+  text-align: center;
+}
+.pwa-offline { color: var(--warn); }
+.pwa-update { border-color: rgba(67, 223, 247, .42); }
+.pwa-update button {
+  min-height: 36px;
+  padding: 7px 12px;
+  border: 1px solid rgba(67, 223, 247, .5);
+  border-radius: 999px;
+  background: rgba(67, 223, 247, .12);
+  color: var(--text);
+  font: 600 11px var(--mono);
+  cursor: pointer;
+}
+.pwa-update button:focus-visible { outline: 2px solid var(--nebula); outline-offset: 2px; }
+.pwa-update button:disabled { opacity: .65; cursor: wait; }
+
+@media (max-width: 760px) {
+  .pwa-banner { top: max(108px, calc(env(safe-area-inset-top) + 100px)); width: max-content; }
+}
+
 
 /* Creator authority stays visible beside the conversation; telemetry remains in System vitals. */
 .creator-workspace { display: contents; }
@@ -381,6 +419,8 @@ html, body { margin: 0; min-width: 320px; height: 100%; background: var(--space)
 *::-webkit-scrollbar { width: 8px; height: 8px; }
 *::-webkit-scrollbar-track { background: rgba(2, 8, 12, .35); }
 *::-webkit-scrollbar-thumb { background: rgba(91, 218, 239, .36); border-radius: 99px; }
+*::-webkit-scrollbar-thumb:hover { background: rgba(91, 218, 239, .58); }
+*::-webkit-scrollbar-thumb:active { background: rgba(91, 218, 239, .76); }
 button, input, textarea { font: inherit; }
 button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid #74eaff; outline-offset: 3px; }
 
@@ -426,8 +466,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .decision-actions button, .decision-confirm button { min-height: 36px; }
 
 .password-field { position: relative; display: block; }
-.password-field input { width: 100%; padding-right: 64px !important; }
-.password-field button { position: absolute; top: 50%; right: 10px; width: auto; min-height: 30px; margin: 0; padding: 4px 6px; transform: translateY(-50%); border: 0; border-radius: 4px; color: #79cddb; background: transparent; box-shadow: none; font: 600 9px/1 var(--mono); letter-spacing: .12em; cursor: pointer; }
+.password-field input { width: 100%; min-height: 48px; padding-right: 68px !important; }
+.password-field button { position: absolute; top: 50%; right: 6px; width: auto; min-width: 44px; min-height: 44px; margin: 0; padding: 4px 6px; transform: translateY(-50%); border: 0; border-radius: 4px; color: #79cddb; background: transparent; box-shadow: none; font: 600 9px/1 var(--mono); letter-spacing: .12em; cursor: pointer; }
 .login-panel { border-color: rgba(92, 224, 246, .25); background: rgba(4, 14, 20, .92); box-shadow: 0 28px 90px rgba(0, 0, 0, .6); }
 .login-panel input { border-color: rgba(91, 205, 225, .25); background: rgba(0, 5, 8, .72); }
 .login-panel > button { background: linear-gradient(135deg, #20a9bd, #0b6677); }
@@ -450,4 +490,93 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
+
+/* ---------- Installed/mobile viewport contract ---------- */
+html, body, #root {
+  width: 100%;
+  height: 100vh;
+  height: 100dvh;
+  overscroll-behavior: none;
+}
+.universe {
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+.cosmic-header {
+  top: env(safe-area-inset-top);
+  left: env(safe-area-inset-left);
+  right: env(safe-area-inset-right);
+}
+.login-shell {
+  padding: calc(16px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right)) calc(16px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));
+}
+.edge-trigger { min-width: 44px; min-height: 44px; }
+.edge-trigger-left { left: env(safe-area-inset-left); }
+.edge-trigger-right { right: env(safe-area-inset-right); }
+.drawer-close,
+.logout-button,
+.retry-button,
+.decision-actions button,
+.decision-confirm button { min-width: 44px; min-height: 44px; }
+.decisions-panel,
+.vitals {
+  top: calc(78px + env(safe-area-inset-top));
+  bottom: calc(12px + env(safe-area-inset-bottom));
+  max-width: calc(100vw - env(safe-area-inset-left) - env(safe-area-inset-right) - 32px);
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.decisions-panel { left: calc(18px + env(safe-area-inset-left)); }
+.vitals { right: calc(18px + env(safe-area-inset-right)); }
+.vitals .row span,
+.decisions-panel .decision strong,
+.decisions-panel .decision small,
+.mission-whisper h2 { min-width: 0; overflow-wrap: anywhere; }
+.vitals .row span { white-space: normal; }
+.event { grid-template-columns: minmax(56px, 68px) minmax(0, 1fr) minmax(54px, 70px); }
+
+@media (max-width: 760px) {
+  .cosmic-header {
+    padding: 14px max(14px, env(safe-area-inset-right)) 14px max(14px, env(safe-area-inset-left));
+  }
+  .presence-state { top: calc(62px + env(safe-area-inset-top)); }
+  .mission-whisper { top: calc(91px + env(safe-area-inset-top)); }
+  .decisions-panel,
+  .vitals {
+    top: calc(68px + env(safe-area-inset-top));
+    right: calc(8px + env(safe-area-inset-right));
+    bottom: calc(8px + env(safe-area-inset-bottom));
+    left: calc(8px + env(safe-area-inset-left));
+    max-width: none;
+  }
+  .top-status .status,
+  .logout-button { min-height: 44px; }
+}
+
+@media (max-height: 500px) and (orientation: landscape) {
+  .cosmic-header { display: flex; align-items: center; padding-top: 8px; padding-bottom: 8px; }
+  .cosmic-header h1 { display: none; }
+  .presence-state { top: calc(15px + env(safe-area-inset-top)); }
+  .mission-whisper { top: calc(54px + env(safe-area-inset-top)); }
+  .mission-whisper .eyebrow,
+  .mission-whisper p { display: none; }
+  .mission-whisper h2 { max-width: 46vw; font-size: 12px; }
+  .decisions-panel,
+  .vitals {
+    top: calc(8px + env(safe-area-inset-top));
+    bottom: calc(8px + env(safe-area-inset-bottom));
+  }
+  .edge-trigger { top: 48%; }
+  .pwa-banner { top: calc(8px + env(safe-area-inset-top)); }
+}
+
+@media (forced-colors: active) {
+  * { scrollbar-color: auto; }
+  .edge-trigger,
+  .drawer-close,
+  .console-form,
+  .pwa-banner { border: 1px solid CanvasText; }
 }

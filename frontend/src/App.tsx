@@ -5,6 +5,7 @@ import { Cosmos } from "./Cosmos";
 import type { CosmosMood } from "./Cosmos";
 import { CreatorConsole } from "./CreatorConsole";
 import { DecisionsPanel } from "./DecisionsPanel";
+import { PwaStatus } from "./PwaStatus";
 import type { ChronicleEvent, ChronicleRecord, InferenceStatusSnapshot, ProjectionStatus, SystemState } from "./types";
 
 function statusTone(status: string): string {
@@ -197,6 +198,8 @@ function App() {
           {connection !== "AUTH_REQUIRED" && <button type="button" className="logout-button" onClick={handleLogout}>Sign out</button>}
         </div>
       </header>
+
+      <PwaStatus />
 
       {connection !== "AUTH_REQUIRED" && (
         <div className="presence-state" aria-live="polite">DEUS · {mood.toUpperCase()}</div>
