@@ -2,6 +2,16 @@
 
 O plano **Always Free** da Oracle dá uma máquina virtual permanente, sem custo, que roda o projeto inteiro (site, API, worker, Postgres e Redis) com HTTPS automático. O cartão de crédito é pedido só para verificar identidade. As regras do plano gratuito mudam de tempos em tempos, então confira as atuais no site da Oracle.
 
+## Instalação em um comando
+
+Depois de criar uma VM Ubuntu e liberar as portas 80 e 443 na Oracle, entre por SSH e cole **somente este comando**:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/dossantostampafl-lab/the-creation-os/main/deploy/oracle/bootstrap-oracle.sh | sudo bash
+```
+
+O bootstrap instala os pré-requisitos mínimos, clona o repositório oficial em `/opt/the-creation-os` (ou atualiza uma instalação existente para a `main`) e chama o instalador Oracle auditado. Segredos não são embutidos no comando nem no GitHub: o instalador cria as credenciais locais e mantém o `.env` somente no servidor.
+
 ## 1. Criar a conta
 1. Acesse **cloud.oracle.com** e crie uma conta Free Tier.
 2. Escolha a **região principal** com cuidado, porque ela não muda depois. Pegue a mais próxima de você (por exemplo, *Brazil East (São Paulo)*).
@@ -31,12 +41,11 @@ ssh -i C:\caminho\da\chave.key ubuntu@SEU_IP
 ```
 
 ## 5. Instalar
+Use o mesmo comando único:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/dossantostampafl-lab/the-creation-os/main/deploy/oracle/bootstrap-oracle.sh | sudo bash
 ```
-git clone https://github.com/dossantostampafl-lab/the-creation-os.git
-cd the-creation-os
-sudo ./deploy/oracle/install.sh
-```
-Se o repositório for privado, o `git clone` pede usuário e senha. Use seu usuário do GitHub e, como senha, um **token de acesso** somente leitura (GitHub → Settings → Developer settings → Personal access tokens).
 
 O primeiro build leva alguns minutos. No fim, o script mostra:
 - o endereço, algo como `https://129-146-10-20.sslip.io`;
@@ -45,9 +54,12 @@ O primeiro build leva alguns minutos. No fim, o script mostra:
 O endereço `sslip.io` é gratuito e não precisa de cadastro: ele só aponta para o IP da sua máquina, e o Caddy tira o certificado HTTPS sozinho.
 
 ## 6. Ligar a IA do DEUS
+A instalação fica em `/opt/the-creation-os`. Edite:
+
 ```
-nano .env
+sudo nano /opt/the-creation-os/.env
 ```
+
 Escolha um jeito:
 
 - **Só Claude:** `LLM_PROVIDER=anthropic`, `ANTHROPIC_API_KEY=...` e `ANTHROPIC_MODEL=...`.
@@ -56,7 +68,7 @@ Escolha um jeito:
   2. Configure:
      ```
      LLM_PROVIDER=freellmapi
-     LLM_FALLBACK_PROVIDER=anthropic
+     LLM_FALLBACK_PROVIDERS=anthropic
      FREELLMAPI_BASE_URL=http://host.docker.internal:3001/v1
      ```
   3. Preencha também as chaves `FREELLMAPI_*` e `ANTHROPIC_*`.
@@ -68,26 +80,29 @@ Escolha um jeito:
 
 Até a IA estar configurada, o site abre normalmente, mas o DEUS fica desativado e o worker reinicia em ciclo. Isso é esperado.
 
-Salve (Ctrl+O, Enter, Ctrl+X) e rode de novo:
-```
-sudo ./deploy/oracle/install.sh
+Salve (Ctrl+O, Enter, Ctrl+X) e rode o mesmo bootstrap novamente:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/dossantostampafl-lab/the-creation-os/main/deploy/oracle/bootstrap-oracle.sh | sudo bash
 ```
 
 ## Dia a dia
-| Para | Comando (dentro de `the-creation-os`) |
+| Para | Comando |
 | --- | --- |
-| Atualizar para a versão nova | `git pull && sudo ./deploy/oracle/install.sh` |
-| Ver os logs | `sudo docker compose -f docker-compose.yml -f docker-compose.cloud.yml logs -f --tail 100` |
-| Parar | `sudo docker compose -f docker-compose.yml -f docker-compose.cloud.yml down` |
-| Backup do banco | `sudo docker compose exec -T postgres pg_dump -U postgres the_creation_os > backup.sql` |
+| Atualizar para a versão nova | `curl -fsSL https://raw.githubusercontent.com/dossantostampafl-lab/the-creation-os/main/deploy/oracle/bootstrap-oracle.sh \| sudo bash` |
+| Ver os logs | `cd /opt/the-creation-os && sudo docker compose -f docker-compose.yml -f docker-compose.cloud.yml logs -f --tail 100` |
+| Parar | `cd /opt/the-creation-os && sudo docker compose -f docker-compose.yml -f docker-compose.cloud.yml down` |
+| Backup do banco | `cd /opt/the-creation-os && sudo docker compose exec -T postgres pg_dump -U postgres the_creation_os > backup.sql` |
 
 ## Domínio próprio (opcional, grátis)
 Crie um nome em **duckdns.org** apontando para o IP da máquina e rode:
-```
-CREATION_DOMAIN=seunome.duckdns.org sudo -E ./deploy/oracle/install.sh
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/dossantostampafl-lab/the-creation-os/main/deploy/oracle/bootstrap-oracle.sh | sudo CREATION_DOMAIN=seunome.duckdns.org bash
 ```
 
 ## Segurança
+- O bootstrap aceita por padrão somente Ubuntu e usa o repositório oficial e a branch `main`.
 - O site roda em modo produção. Só o usuário e a senha que o script gerou podem criar o Creator, e depois disso a conta fica fixada (`SOVEREIGN_CREATOR_ID`).
 - O `.env` guarda todas as chaves e fica legível só pelo administrador. Não o envie para o GitHub.
 - Na internet, só as portas 80 e 443 ficam abertas. API, Postgres, Redis e FreeLLMAPI ficam fechados dentro da máquina.
