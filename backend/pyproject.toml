@@ -35,6 +35,7 @@ dev = [
 [project.scripts]
 create-db = "app.db.initial:create_database"
 restore-creator = "app.admin.creator:main"
+rotate-creator-password = "app.admin.creator:rotate"
 seed-universes = "app.admin.seed:main"
 
 [tool.setuptools.packages.find]
