@@ -19,12 +19,18 @@ log() { printf '\n==> %s\n' "$*"; }
 
 env_get() { grep -E "^$1=" .env | tail -1 | cut -d= -f2- || true; }
 
+# The value is written literally, never through a sed expression: a value containing the
+# expression delimiter (an API key with a '|' in it) makes sed fail with "unknown option to `s'"
+# and the .env is then left unchanged, which looks like a successful run. Rewriting the file
+# also collapses any duplicate line for the key, and env_get reads the last one.
 env_set() {
-  if grep -qE "^$1=" .env; then
-    sed -i "s|^$1=.*|$1=$2|" .env
-  else
-    printf '%s=%s\n' "$1" "$2" >> .env
-  fi
+  local tmp
+  tmp="$(mktemp)"
+  chmod 600 "$tmp"
+  grep -vE "^$1=" .env > "$tmp" || true
+  printf '%s=%s\n' "$1" "$2" >> "$tmp"
+  cat "$tmp" > .env
+  rm -f "$tmp"
 }
 
 log "Docker"

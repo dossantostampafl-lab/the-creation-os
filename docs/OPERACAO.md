@@ -70,10 +70,21 @@ A segunda linha imprime `1` ou `0` sem revelar a chave.
 Para trocar um valor sem abrir editor, e sem deixar o segredo no histórico do shell:
 
 ```
-read -rsp "Cole o valor e Enter: " K; echo
-sudo sed -i "s|^ANTHROPIC_API_KEY=.*|ANTHROPIC_API_KEY=$K|" ~/the-creation-os/.env; unset K
+D=~/the-creation-os; V=ANTHROPIC_API_KEY
+read -rsp "Cole o valor e Enter: " K; echo "  (${#K} caracteres)"
+sudo cp "$D/.env" "$D/.env.bak"
+sudo grep -vE "^$V=" "$D/.env" | sudo tee "$D/.env.novo" >/dev/null
+printf '%s=%s\n' "$V" "$K" | sudo tee -a "$D/.env.novo" >/dev/null
+sudo mv "$D/.env.novo" "$D/.env"; sudo chown root:root "$D/.env"; sudo chmod 600 "$D/.env"; unset K
 dc up -d --force-recreate api worker
 ```
+
+Não use `sed` para isto. O valor entraria dentro da expressão `s|...|...|`, e uma chave que
+contenha o delimitador `|` faz o `sed` parar com ``unknown option to `s'`` sem escrever nada —
+o `.env` fica intacto e parece que deu certo. O `printf '%s'` acima grava o valor como texto
+puro, e o `grep -v` seguido do append funciona tanto se a linha já existir quanto se faltar
+(o `sed` só substituía linhas existentes; se a variável não estivesse no arquivo, não fazia nada).
+O `${#K}` imprime só o tamanho, para você conferir que o paste não veio cortado.
 
 A API só lê o `.env` quando o contêiner nasce, então a recriação é parte da troca, não um extra.
 
