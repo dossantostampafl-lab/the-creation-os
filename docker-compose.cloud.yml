@@ -23,10 +23,11 @@ services:
     <<: *hardening
     tmpfs:
       - /tmp
-    # The API no longer needs a route to the host: on a server there is no FreeLLMAPI on
-    # host.docker.internal, and nothing else should be reachable that way.
-    extra_hosts: !reset []
-    ports: !reset []
+    # The API keeps its loopback port and its route to the host. Both are load-bearing: the
+    # installer waits on 127.0.0.1:8000 and creates the Creator through it, and a FreeLLMAPI
+    # running on this server is reached at host.docker.internal, which install.sh opens the
+    # firewall for. The port is published on loopback only, so it is not exposed to the
+    # internet — Caddy stays the only way in from outside.
     networks:
       - tco_net
       - tco_internal
@@ -35,7 +36,6 @@ services:
     <<: *hardening
     tmpfs:
       - /tmp
-    extra_hosts: !reset []
     networks:
       - tco_net
       - tco_internal

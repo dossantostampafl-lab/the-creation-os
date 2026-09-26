@@ -163,5 +163,18 @@ jobs:
           python .github/scripts/validate_render_blueprint.py
       - name: Build canonical local runtime
         run: docker compose build
+      - name: Console scripts are usable in the API image
+        # The image installs the package before the source is copied, so it is easy for the
+        # console scripts to end up with dependencies but no app package. uvicorn hides it by
+        # putting the working directory on the path; a console script does not.
+        run: |
+          for script in seed-universes create-db restore-creator; do
+            output="$(docker compose run --rm --no-deps api "$script" 2>&1 || true)"
+            if printf '%s' "$output" | grep -q "No module named 'app'"; then
+              echo "::error::$script cannot import the app package in the built image"
+              printf '%s\n' "$output"
+              exit 1
+            fi
+          done
       - name: Build Render frontend image
         run: docker build -f frontend/Dockerfile.render --build-arg VITE_API_BASE_URL=https://example.invalid/api/v1 frontend

@@ -92,6 +92,10 @@ Nada entra em execução sem a sua autorização. Tudo fica no Chronicle: `sophi
   soberana de uma instalação de desenvolvimento exposta na rede.
 - **Chave de assinatura**: em produção `APP_SECRET_KEY` precisa ter 32 caracteres ou mais e não
   pode ser o valor publicado no `.env.example`; o mesmo vale para `CREATOR_BOOTSTRAP_PASSWORD`.
+- **Trocar a senha do Criador**: edite `CREATOR_BOOTSTRAP_PASSWORD` no `.env`, recrie a API
+  (`up -d --force-recreate api worker`) e rode `rotate-creator-password` dentro do contêiner da
+  API. Ele recusa se o `.env` não mudou, encerra todas as sessões abertas sob a senha antiga e
+  registra `creator_password_rotated` no Chronicle.
 - **Sessão**: um Creator desativado não passa mais em `/auth/me`, `/auth/refresh` nem
   `/auth/logout` — o refresh token deixa de girar no momento da desativação.
 - **Efeito externo é declarado pelo adapter**, não pelo pedido do modelo: `external_effect` e a
