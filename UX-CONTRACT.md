@@ -27,7 +27,7 @@ Buttons preserve geometry through disabled/busy states and expose visible focus.
 
 ## Navigation and overlays
 
-The document title is `The Creation OS · Living Presence`. Decisions opens from the left and System Vitals from the right. Each drawer has a labeled close action and Escape closes either drawer. Mobile drawers inset 8px from the viewport and never introduce horizontal scrolling.
+The document title is `The Creation OS · Living Presence`. Decisions opens from the left and System Vitals from the right. Each drawer has a labeled close action and Escape closes either drawer. Mobile drawers respect device safe areas, inset 8px from the usable viewport, own their scrolling, and never introduce horizontal scrolling. Authentication, edge tabs, drawer close actions, and conversation actions retain 44×44 CSS-pixel touch targets.
 
 ## Async and resilience
 
@@ -41,5 +41,5 @@ Forms declare app-owned validation with `noValidate`; required values and server
 
 - Static: `git diff --check`, strict premium UI audit, TypeScript/Vite production build.
 - Automated: Vitest and all Playwright suites.
-- Browser matrix: Chromium desktop, 390×844 mobile, reduced-motion preference.
+- Browser matrix: Chromium desktop; 1024×768 and 768×1024 tablets; 390×844 and 360×800 phones; 844×390 phone landscape; reduced-motion preference.
 - Failure paths: invalid login, unavailable API with Retry, inference unconfigured, rejected/failed decisions.

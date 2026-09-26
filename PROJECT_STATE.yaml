@@ -1,6 +1,6 @@
 schema_version: 1
 project: THE CREATION OS
-canonical_state_date: 2026-09-24
+canonical_state_date: 2026-09-26
 canonical_branch: feat/canonical-project-state
 repository:
   full_name: dossantostampafl-lab/the-creation-os
@@ -21,6 +21,40 @@ context_policy:
     - "Separate DESIGN_APPROVED from IMPLEMENTED and VERIFIED_OPERATIONAL."
     - "When repository evidence conflicts with remembered conversation state, flag the conflict instead of guessing."
     - "Before substantial work, read CONTEXT_BOOTSTRAP.md and this file."
+
+dashboard_mobile_pwa:
+  branch: feat/dashboard-living-presence
+  status: TESTED
+  audit: docs/superpowers/audits/2026-09-26-mobile-pwa-final.md
+  supported_viewports:
+    - desktop_1440x900
+    - tablet_landscape_1024x768
+    - tablet_portrait_768x1024
+    - phone_portrait_390x844
+    - compact_phone_360x800
+    - phone_landscape_844x390
+  implemented:
+    - install_manifest_and_branded_icons
+    - explicit_service_worker_update
+    - network_only_api_and_authenticated_requests
+    - offline_shell_and_status
+    - dynamic_viewport_and_safe_areas
+    - touch_target_contract
+    - nginx_pwa_cache_policy
+  local_evidence:
+    strict_ui_audit: zero_findings
+    frontend_unit_tests: 16_passed
+    browser_independent_pwa_contracts: 7_passed
+    backend_targeted_tests: 22_passed
+    ruff: passed
+    mypy: 124_files_passed
+  runtime_verification:
+    status: PENDING_PR_CI
+    required:
+      - full_playwright_chromium
+      - full_pytest_postgresql
+      - nginx_and_compose_stack
+      - canonical_and_render_image_builds
 
 canonical_checkpoint:
   id: PHASE_9_EXECUTION_ACTIVE

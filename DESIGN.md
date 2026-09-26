@@ -43,7 +43,7 @@ A restrained observatory surrounding a living humanoid intelligence: DEUS is for
 
 - **Audience and primary job:** the sovereign Creator monitors the system, speaks with DEUS, and authorizes consequential work.
 - **Target market and language:** private global operator surface; current product copy is English.
-- **Usage scene:** desktop and tablet, continuous operation, high urgency, moderate density.
+- **Usage scene:** desktop, tablet, and phone, including installed standalone use, continuous operation, high urgency, and moderate density.
 - **Register:** cinematic presence at the center; familiar operational controls at the edges.
 - **Memorable signature:** the animated humanoid DEUS constellation.
 - **Restraint:** forms, actions, status, and diagnostics remain compact and conventional.
@@ -60,7 +60,7 @@ The system sans stack carries readable UI copy. The mono stack is reserved for s
 
 ## Layout
 
-The canvas owns the viewport. The header provides identity and session state, the conversation floats at the lower center, and Creator Decisions/System Vitals open from opposing edge tabs. At 760px and below, drawers occupy the safe viewport inset without horizontal overflow.
+The canvas owns the dynamic viewport. The header provides identity and session state, the conversation floats at the lower center, and Creator Decisions/System Vitals open from opposing edge tabs. At 760px and below, drawers occupy the safe viewport inset without horizontal overflow; short landscape screens compact ambient copy while preserving the conversation and primary actions.
 
 ## Elevation & Depth
 

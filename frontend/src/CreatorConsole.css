@@ -202,8 +202,30 @@
 .wake-hint { color: #789ba1; }
 
 @media (max-width: 760px) {
-  .creator-console { bottom: max(10px, env(safe-area-inset-bottom)); width: calc(100% - 70px); }
+  .creator-console {
+    right: max(12px, env(safe-area-inset-right));
+    bottom: max(10px, env(safe-area-inset-bottom));
+    left: max(12px, env(safe-area-inset-left));
+    width: auto;
+    max-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 76px);
+    transform: none;
+  }
   .console-form { padding-left: 14px; gap: 4px; }
-  .console-form button { width: 40px; height: 40px; }
-  .console-form .icon-button { width: 34px; height: 34px; }
+  .console-form button,
+  .console-form .icon-button { width: 44px; height: 44px; }
+  .console-messages { min-height: 0; max-height: min(32vh, calc(100dvh - 160px)); overscroll-behavior: contain; }
+  .console-message,
+  .trinity-proposal { max-width: 100%; overflow-wrap: anywhere; }
+}
+
+@media (max-height: 500px) and (orientation: landscape) {
+  .creator-console {
+    right: max(60px, calc(env(safe-area-inset-right) + 52px));
+    bottom: max(6px, env(safe-area-inset-bottom));
+    left: max(60px, calc(env(safe-area-inset-left) + 52px));
+    max-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 16px);
+  }
+  .console-messages { max-height: 21vh; padding-top: 8px; }
+  .wake-hint { display: none; }
+  .console-form textarea { max-height: 72px; padding-block: 9px; }
 }

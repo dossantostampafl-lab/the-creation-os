@@ -1,0 +1,37 @@
+/* Release-gate fixes validated by Playwright mobile contracts. */
+.login-panel > button {
+  min-height: 44px;
+}
+
+/* Keep drawers and their 44px touch targets inside the viewport for the full entrance animation. */
+@keyframes drawerIn {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Never allow a frontend runtime failure to degrade into an unexplained black screen. */
+.boot-fallback {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  min-height: 100dvh;
+  padding: calc(24px + env(safe-area-inset-top)) calc(24px + env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) calc(24px + env(safe-area-inset-left));
+  background: radial-gradient(circle at 50% 35%, #17113d 0, #05030f 48%, #02010a 100%);
+  color: var(--text);
+}
+.boot-fallback section {
+  width: min(560px, 100%);
+  padding: 28px;
+  border: 1px solid var(--edge);
+  border-radius: 20px;
+  background: var(--glass-strong);
+  box-shadow: 0 0 80px #6d5bff33;
+}
+.boot-fallback span { font: 600 10px var(--mono); letter-spacing: .28em; color: var(--star); }
+.boot-fallback h1 { margin: 12px 0; font-size: clamp(22px, 5vw, 38px); font-weight: 300; }
+.boot-fallback p { color: var(--muted); line-height: 1.6; }
+.boot-fallback code { display: block; margin: 16px 0; padding: 12px; overflow-wrap: anywhere; border-radius: 10px; background: #0008; color: var(--warn); }
+.boot-fallback button { min-width: 44px; min-height: 44px; padding: 11px 18px; border: 1px solid #a78bfa66; border-radius: 999px; background: #211854; color: #fff; cursor: pointer; }
