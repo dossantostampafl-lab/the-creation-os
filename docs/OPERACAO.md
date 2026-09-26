@@ -67,6 +67,30 @@ echo "chave: $(sudo grep -c '^ANTHROPIC_API_KEY=.\+' ~/the-creation-os/.env)"
 
 A segunda linha imprime `1` ou `0` sem revelar a chave.
 
+### Ligar a inferência
+
+Uma instalação nova sobe com `LLM_PROVIDER=fake`, que não atende missão nenhuma. Para apontá-la
+a um provedor de verdade, um comando:
+
+```
+sudo ~/the-creation-os/deploy/oracle/set-inference.sh
+```
+
+Ele pede a chave com o eco do terminal desligado — a chave não aparece na tela nem entra no
+histórico do shell — grava as três variáveis no `.env`, recria `api` e `worker`, e no fim imprime
+o que a própria API responde. É o que vale: `configured: true` com o provedor e `available: true`.
+
+O padrão é `anthropic` com `claude-sonnet-5`. Para outro provedor ou modelo:
+
+```
+sudo ~/the-creation-os/deploy/oracle/set-inference.sh anthropic claude-sonnet-5
+sudo ~/the-creation-os/deploy/oracle/set-inference.sh openai gpt-4o-mini
+```
+
+O `.env` anterior fica guardado como `.env.bak` ao lado dele.
+
+### Trocar qualquer outro valor
+
 Para trocar um valor sem abrir editor, e sem deixar o segredo no histórico do shell:
 
 ```

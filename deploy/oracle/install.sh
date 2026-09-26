@@ -17,21 +17,8 @@ COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.cloud.yml)
 
 log() { printf '\n==> %s\n' "$*"; }
 
-env_get() { grep -E "^$1=" .env | tail -1 | cut -d= -f2- || true; }
-
-# The value is written literally, never through a sed expression: a value containing the
-# expression delimiter (an API key with a '|' in it) makes sed fail with "unknown option to `s'"
-# and the .env is then left unchanged, which looks like a successful run. Rewriting the file
-# also collapses any duplicate line for the key, and env_get reads the last one.
-env_set() {
-  local tmp
-  tmp="$(mktemp)"
-  chmod 600 "$tmp"
-  grep -vE "^$1=" .env > "$tmp" || true
-  printf '%s=%s\n' "$1" "$2" >> "$tmp"
-  cat "$tmp" > .env
-  rm -f "$tmp"
-}
+# shellcheck source=deploy/oracle/env-file.sh
+source "$REPO_DIR/deploy/oracle/env-file.sh"
 
 log "Docker"
 if ! command -v docker >/dev/null 2>&1; then
@@ -173,9 +160,8 @@ EOF
 if [ "$first_install" = true ] || [ "$provider" = "fake" ] || [ -z "$provider" ]; then
   cat <<EOF
 
- DEUS still needs a model. Edit the keys and run this script again:
-   nano $REPO_DIR/.env        (LLM_PROVIDER, ANTHROPIC_*, FREELLMAPI_*, ELEVENLABS_*)
-   sudo ./deploy/oracle/install.sh
+ DEUS still needs a model. One command asks for the key and configures it:
+   sudo $REPO_DIR/deploy/oracle/set-inference.sh
 EOF
 fi
 echo "========================================================================"

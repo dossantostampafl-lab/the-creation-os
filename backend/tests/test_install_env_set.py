@@ -8,12 +8,13 @@ lifted out of install.sh, against values that would break a substitution.
 
 from __future__ import annotations
 
-import re
 import subprocess
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 INSTALL_SH = REPO_ROOT / "deploy" / "oracle" / "install.sh"
+ENV_FILE_SH = REPO_ROOT / "deploy" / "oracle" / "env-file.sh"
+SET_INFERENCE_SH = REPO_ROOT / "deploy" / "oracle" / "set-inference.sh"
 
 HOSTILE_VALUES = [
     "sk-ant-api03-" + "a" * 70 + "|" + "b" * 20,  # the delimiter itself
@@ -25,15 +26,35 @@ HOSTILE_VALUES = [
 
 
 def _helpers() -> str:
-    """The env_get/env_set definitions as install.sh actually defines them."""
-    content = INSTALL_SH.read_text(encoding="utf-8")
-    match = re.search(r"^env_get\(\).*?^\}$", content, re.MULTILINE | re.DOTALL)
-    assert match is not None, "env_get/env_set helpers not found in install.sh"
-    return match.group(0)
+    """The env_get/env_set definitions, as the deploy scripts actually source them."""
+    return ENV_FILE_SH.read_text(encoding="utf-8")
 
 
-def test_install_sh_does_not_substitute_values_through_sed() -> None:
-    assert "sed -i" not in INSTALL_SH.read_text(encoding="utf-8")
+def test_no_deploy_script_substitutes_values_through_sed() -> None:
+    for script in (INSTALL_SH, ENV_FILE_SH, SET_INFERENCE_SH):
+        assert "sed -i" not in script.read_text(encoding="utf-8"), script.name
+
+
+def test_both_scripts_share_one_env_helper() -> None:
+    for script in (INSTALL_SH, SET_INFERENCE_SH):
+        content = script.read_text(encoding="utf-8")
+        assert "deploy/oracle/env-file.sh" in content, script.name
+        assert "env_set()" not in content, f"{script.name} redefines env_set"
+
+
+def test_set_inference_never_echoes_the_key() -> None:
+    content = SET_INFERENCE_SH.read_text(encoding="utf-8")
+    # -s turns the terminal echo off; -r keeps a backslash in the key intact.
+    assert "read -rsp" in content
+    assert "unset api_key" in content
+    # The key is only ever reported as a length or as "<set>", never printed back.
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped.startswith(("echo", "printf")):
+            assert "$api_key" not in stripped or "${#api_key}" in stripped, stripped
+    # Nothing reads the variable again once it has been cleared.
+    after_unset = content.split("unset api_key", 1)[1]
+    assert "api_key" not in after_unset
 
 
 def _run_env_set(tmp_path: Path, initial: str, key: str, value: str) -> str:
