@@ -18,7 +18,7 @@
   padding: 24px 4px 4px;
   -webkit-mask: linear-gradient(180deg, transparent, #000 36px);
   mask: linear-gradient(180deg, transparent, #000 36px);
-  scrollbar-width: none;
+  scrollbar-width: thin;
 }
 .console-message { max-width: 86%; animation: messageIn .5s ease-out; }
 .console-message span { display: block; margin-bottom: 4px; font: 600 9px var(--mono); letter-spacing: .3em; color: var(--muted); }
@@ -122,11 +122,11 @@
   font-size: 15px;
   line-height: 1.4;
   resize: none;
-  outline: none;
+  outline: 2px solid transparent;
   field-sizing: content;
 }
 .console-form textarea::placeholder { color: #8d90c0; }
-.console-form textarea:focus-visible { outline: none; }
+.console-form textarea:focus-visible { outline: 2px solid #74eaff; outline-offset: 3px; }
 .console-form button {
   flex: none;
   display: grid;
@@ -183,4 +183,27 @@
   .proposal-body { grid-template-columns: 1fr; }
   .console-messages { max-height: 32vh; }
   .console-message p { font-size: 14px; }
+}
+
+/* Living Presence: conversation is a quiet instrument, not a fixed dashboard panel. */
+.creator-console { z-index: 10; bottom: 20px; width: min(680px, calc(100% - 96px)); }
+.console-messages { max-height: 29vh; padding-right: 10px; scrollbar-width: thin; }
+.deus-message span { color: #76e7f8; }
+.deus-message p { border-color: rgba(94, 226, 248, .25); background: linear-gradient(135deg, rgba(7, 35, 44, .88), rgba(3, 14, 20, .8)); color: #edfcff; box-shadow: 0 12px 38px rgba(0, 0, 0, .28); }
+.creator-message p { border-color: rgba(255, 255, 255, .1); background: rgba(11, 22, 27, .72); color: #d8e8ea; }
+.trinity-proposal { border-color: rgba(76, 225, 249, .3); background: linear-gradient(145deg, rgba(6, 29, 38, .94), rgba(4, 15, 21, .92)); box-shadow: 0 18px 54px rgba(0, 0, 0, .38); }
+.console-thinking i { background: #67e9fb; box-shadow: 0 0 10px #44dff6; }
+.console-form { border-color: rgba(93, 222, 243, .28); background: rgba(4, 14, 20, .78); box-shadow: 0 18px 60px rgba(0, 0, 0, .42), inset 0 1px rgba(255, 255, 255, .06); backdrop-filter: blur(22px); }
+.console-form:focus-within { border-color: rgba(111, 235, 255, .72); box-shadow: 0 18px 70px rgba(0, 0, 0, .5), 0 0 32px rgba(45, 205, 232, .14); }
+.console-form textarea::placeholder { color: #779095; }
+.console-form > button[type="submit"] { background: linear-gradient(135deg, #27c2d8, #0c788d); color: #efffff; box-shadow: 0 0 24px rgba(52, 220, 244, .32); }
+.console-form .icon-button { border-color: rgba(108, 211, 229, .22); color: #85a9ae; }
+.console-form .icon-button.active { color: #c9f7fc; border-color: rgba(111, 229, 249, .5); }
+.wake-hint { color: #789ba1; }
+
+@media (max-width: 760px) {
+  .creator-console { bottom: max(10px, env(safe-area-inset-bottom)); width: calc(100% - 70px); }
+  .console-form { padding-left: 14px; gap: 4px; }
+  .console-form button { width: 40px; height: 40px; }
+  .console-form .icon-button { width: 34px; height: 34px; }
 }

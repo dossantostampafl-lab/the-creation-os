@@ -212,7 +212,7 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key === "Enter" && !event.shiftKey) {
+    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault();
       void send();
     }
@@ -237,8 +237,9 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
         ))}
         {pending && <div className="console-thinking" aria-label="DEUS is thinking"><i /><i /><i /></div>}
       </div>
-      <form className="console-form" onSubmit={(event: FormEvent<HTMLFormElement>) => { event.preventDefault(); void send(); }}>
+      <form className="console-form" noValidate onSubmit={(event: FormEvent<HTMLFormElement>) => { event.preventDefault(); void send(); }}>
         <textarea
+          className="resize-none"
           aria-label="Message DEUS"
           value={input}
           onChange={(event) => {

@@ -115,7 +115,20 @@ test("renders the Living Operations Terminal from projection-backed state", asyn
   await expect(page.locator(".top-status .status")).toHaveText("LIVE");
   await expect(page.getByRole("textbox", { name: "Message DEUS" })).toBeVisible();
 
-  await page.getByRole("button", { name: "System vitals" }).click();
+  await expect(page.locator(".deus-presence")).toHaveAttribute("data-presence", "humanoid");
+  await expect(page.getByText("DEUS · IDLE", { exact: true })).toBeVisible();
+  await expect(page.getByRole("complementary", { name: "Creator decisions" })).toBeHidden();
+  const decisionsTrigger = page.getByRole("button", { name: "Creator decisions" });
+  await expect(decisionsTrigger).toHaveAttribute("aria-expanded", "false");
+  await decisionsTrigger.click();
+  await expect(decisionsTrigger).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByRole("complementary", { name: "Creator decisions" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Close decisions" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(decisionsTrigger).toBeFocused();
+
+  const vitalsTrigger = page.getByRole("button", { name: "System vitals" });
+  await vitalsTrigger.click();
   const vitals = page.getByRole("complementary", { name: "System vitals" });
   await expect(vitals.getByText("Engineering", { exact: true })).toBeVisible();
   await expect(vitals.getByText("Builder", { exact: true })).toBeVisible();
@@ -127,6 +140,9 @@ test("renders the Living Operations Terminal from projection-backed state", asyn
   await expect(vitals.getByText("auto:default", { exact: true })).toBeVisible();
   await expect(vitals.getByText("streaming · text", { exact: true })).toBeVisible();
   await expect(vitals.getByText("UNKNOWN", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Close system vitals" }).click();
+  await expect(vitals).toBeHidden();
+  await expect(vitalsTrigger).toBeFocused();
 });
 
 test("renders an explicit unconfigured inference state without fabricated providers", async ({ page }) => {
@@ -150,8 +166,15 @@ test("presents a Creator login instead of requiring manual localStorage setup", 
 
   await expect(page.getByRole("heading", { name: "Creator Access" })).toBeVisible();
   await expect(page.getByLabel("Username")).toBeVisible();
-  await expect(page.getByLabel("Password")).toBeVisible();
+  await expect(page.getByLabel("Password", { exact: true })).toBeVisible();
+  const reveal = page.getByRole("button", { name: "Show password" });
+  await reveal.click();
+  await expect(page.getByLabel("Password", { exact: true })).toHaveAttribute("type", "text");
+  await expect(page.getByRole("button", { name: "Hide password" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Enter The Creation" })).toBeVisible();
+  await page.getByRole("button", { name: "Enter The Creation" }).click();
+  await expect(page.getByText("Enter your username and password.")).toBeVisible();
+  await expect(page.getByLabel("Username")).toBeFocused();
 });
 
 test("authenticates the Creator and hydrates the live dashboard", async ({ page }) => {
@@ -164,7 +187,7 @@ test("authenticates the Creator and hydrates the live dashboard", async ({ page 
 
   await page.goto("/");
   await page.getByLabel("Username").fill("creator");
-  await page.getByLabel("Password").fill("correct-horse-battery-staple");
+  await page.getByLabel("Password", { exact: true }).fill("correct-horse-battery-staple");
   await page.getByRole("button", { name: "Enter The Creation" }).click();
 
   await expect(page.locator(".top-status .status")).toHaveText("LIVE");
@@ -245,7 +268,7 @@ test("keeps a failed Creator login actionable and does not enter the dashboard",
   await page.route("**/api/v1/auth/login", (route) => route.fulfill({ status: 401, body: "unauthorized" }));
   await page.goto("/");
   await page.getByLabel("Username").fill("creator");
-  await page.getByLabel("Password").fill("wrong-password");
+  await page.getByLabel("Password", { exact: true }).fill("wrong-password");
   await page.getByRole("button", { name: "Enter The Creation" }).click();
   await expect(page.getByText("Invalid username or password.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Enter The Creation" })).toBeEnabled();

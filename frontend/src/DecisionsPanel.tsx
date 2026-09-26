@@ -4,7 +4,10 @@ import type { Inception } from "./api";
 import type { MissionView } from "./types";
 
 type Props = {
+  id?: string;
+  hidden?: boolean;
   missions: MissionView[];
+  onClose?: () => void;
   onChanged: () => void;
 };
 
@@ -20,7 +23,7 @@ function errorText(failure: unknown): string {
   return "Action failed. Nothing was changed.";
 }
 
-export function DecisionsPanel({ missions, onChanged }: Props) {
+export function DecisionsPanel({ id, hidden, missions, onClose, onChanged }: Props) {
   const [inceptions, setInceptions] = useState<Inception[] | null>(null);
   const [confirming, setConfirming] = useState<Pending>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -58,8 +61,8 @@ export function DecisionsPanel({ missions, onChanged }: Props) {
   }
 
   return (
-    <aside className="decisions-panel" aria-label="Creator decisions">
-      <div className="panel-title">DECISIONS</div>
+    <aside className="decisions-panel" id={id} aria-label="Creator decisions" hidden={hidden}>
+      <header className="drawer-header"><div><span className="eyebrow">SOVEREIGN CONTROL</span><h2>Creator decisions</h2></div>{onClose && <button type="button" className="drawer-close" aria-label="Close decisions" onClick={onClose}>×</button>}</header>
       {inceptions === null && <div className="empty">Inception list unavailable.</div>}
       <div className="stack" aria-live="polite">
         {waiting.map((inception) => (

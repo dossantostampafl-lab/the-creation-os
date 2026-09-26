@@ -25,13 +25,49 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loginPending, setLoginPending] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [authVersion, setAuthVersion] = useState(0);
   const [retryVersion, setRetryVersion] = useState(0);
   const [mood, setMood] = useState<CosmosMood>("idle");
   const [vitalsOpen, setVitalsOpen] = useState(false);
+  const [decisionsOpen, setDecisionsOpen] = useState(false);
   const cursor = useRef(0);
+  const usernameRef = useRef<HTMLInputElement>(null);
+  const passwordRef = useRef<HTMLInputElement>(null);
+  const decisionsTriggerRef = useRef<HTMLButtonElement>(null);
+  const vitalsTriggerRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    document.title = "The Creation OS · Living Presence";
+    const closeDrawers = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        if (vitalsOpen) closeVitals();
+        else if (decisionsOpen) closeDecisions();
+      }
+    };
+    window.addEventListener("keydown", closeDrawers);
+    return () => window.removeEventListener("keydown", closeDrawers);
+  }, [decisionsOpen, vitalsOpen]);
+
+  useEffect(() => {
+    if (decisionsOpen) document.querySelector<HTMLButtonElement>("#creator-decisions .drawer-close")?.focus();
+  }, [decisionsOpen]);
+
+  useEffect(() => {
+    if (vitalsOpen) document.querySelector<HTMLButtonElement>("#system-vitals .drawer-close")?.focus();
+  }, [vitalsOpen]);
+
+  function closeDecisions() {
+    setDecisionsOpen(false);
+    requestAnimationFrame(() => decisionsTriggerRef.current?.focus());
+  }
+
+  function closeVitals() {
+    setVitalsOpen(false);
+    requestAnimationFrame(() => vitalsTriggerRef.current?.focus());
+  }
 
   useEffect(() => {
     let active = true;
@@ -115,11 +151,17 @@ function App() {
     setChronicle([]);
     setEvents([]);
     setVitalsOpen(false);
+    setDecisionsOpen(false);
     setAuthVersion((version) => version + 1);
   }
 
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!username.trim() || !password) {
+      setLoginError("Enter your username and password.");
+      (username.trim() ? passwordRef : usernameRef).current?.focus();
+      return;
+    }
     setLoginPending(true);
     setLoginError(null);
     try {
@@ -152,14 +194,13 @@ function App() {
         <div className="top-status">
           <span className={`status ${connection.toLowerCase()}`}>{connection}</span>
           <span className="chronicle-position">Chronicle #{state?.position ?? "—"}</span>
-          {state && (
-            <button type="button" className="vitals-toggle" aria-expanded={vitalsOpen} aria-controls="system-vitals" onClick={() => setVitalsOpen((open) => !open)}>
-              {vitalsOpen ? "Close vitals" : "System vitals"}
-            </button>
-          )}
           {connection !== "AUTH_REQUIRED" && <button type="button" className="logout-button" onClick={handleLogout}>Sign out</button>}
         </div>
       </header>
+
+      {connection !== "AUTH_REQUIRED" && (
+        <div className="presence-state" aria-live="polite">DEUS · {mood.toUpperCase()}</div>
+      )}
 
       {selectedMission && (
         <div className="mission-whisper">
@@ -172,17 +213,20 @@ function App() {
 
       {connection === "AUTH_REQUIRED" && (
         <section className="login-shell" aria-live="polite">
-          <form className="login-panel" onSubmit={handleLogin}>
+          <form className="login-panel" onSubmit={handleLogin} noValidate>
             <span className="eyebrow">SOVEREIGN CREATOR</span>
             <h2>Creator Access</h2>
             <p>Authenticate to enter the living universe.</p>
             <label>
               <span>Username</span>
-              <input aria-label="Username" autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} required />
+              <input ref={usernameRef} aria-label="Username" autoComplete="username" value={username} onChange={(event) => { setUsername(event.target.value); setLoginError(null); }} required />
             </label>
             <label>
               <span>Password</span>
-              <input aria-label="Password" autoComplete="current-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} required />
+              <span className="password-field">
+                <input ref={passwordRef} aria-label="Password" autoComplete="current-password" type={showPassword ? "text" : "password"} value={password} onChange={(event) => { setPassword(event.target.value); setLoginError(null); }} required />
+                <button type="button" aria-label={showPassword ? "Hide password" : "Show password"} aria-pressed={showPassword} onClick={() => setShowPassword((visible) => !visible)}>{showPassword ? "HIDE" : "SHOW"}</button>
+              </span>
             </label>
             {loginError && <div className="login-error">{loginError}</div>}
             <button type="submit" disabled={loginPending}>{loginPending ? "Authenticating…" : "Enter The Creation"}</button>
@@ -194,13 +238,20 @@ function App() {
 
       {connection !== "AUTH_REQUIRED" && (
         <section className="creator-workspace">
-          <DecisionsPanel missions={state?.missions ?? []} onChanged={() => setRetryVersion((version) => version + 1)} />
+          <button ref={decisionsTriggerRef} type="button" className="edge-trigger edge-trigger-left" aria-expanded={decisionsOpen} aria-controls="creator-decisions" onClick={() => { setDecisionsOpen((open) => !open); setVitalsOpen(false); }}>
+            <span>Decisions</span><small>Creator decisions</small>
+          </button>
+          {state && <button ref={vitalsTriggerRef} type="button" className="edge-trigger edge-trigger-right vitals-toggle" aria-expanded={vitalsOpen} aria-controls="system-vitals" onClick={() => { setVitalsOpen((open) => !open); setDecisionsOpen(false); }}>
+            <span>Vitals</span><small>System vitals</small>
+          </button>}
+          <DecisionsPanel id="creator-decisions" hidden={!decisionsOpen} missions={state?.missions ?? []} onClose={closeDecisions} onChanged={() => setRetryVersion((version) => version + 1)} />
           <CreatorConsole enabled={deusReady} onMoodChange={setMood} />
         </section>
       )}
 
-      {vitalsOpen && state && (
-        <aside className="vitals" id="system-vitals" aria-label="System vitals">
+      {state && (
+        <aside className="vitals" id="system-vitals" aria-label="System vitals" hidden={!vitalsOpen}>
+          <header className="drawer-header"><div><span className="eyebrow">OBSERVABILITY</span><h2>System vitals</h2></div><button type="button" className="drawer-close" aria-label="Close system vitals" onClick={closeVitals}>×</button></header>
           <section className="metrics">
             {[
               ["MISSIONS", state.counts.missions], ["RUNNING", state.counts.running_missions], ["TASKS", state.counts.tasks],
