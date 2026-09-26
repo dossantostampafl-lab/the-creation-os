@@ -15,7 +15,7 @@ type Vec = [number, number, number];
 type Pulse = { edge: number; t: number; speed: number; forward: boolean; warm: boolean };
 type Comet = { x: number; y: number; vx: number; vy: number; life: number };
 
-const NEURON_COUNT = 1400;
+const PRESENCE_POINT_COUNT = 1700;
 const CAMERA = 3.4;
 
 function mulberry32(seed: number) {
@@ -35,35 +35,32 @@ function randomDirection(rng: () => number): Vec {
   return [s * Math.cos(theta), u, s * Math.sin(theta)];
 }
 
-/** Samples a point on a stylised brain: two folded hemispheres, cerebellum and brainstem. */
-function brainPoint(rng: () => number): Vec {
+/** Samples the shell of DEUS as a head, neck and shoulder-length humanoid presence. */
+function presencePoint(rng: () => number): Vec {
   const region = rng();
-  if (region < 0.84) {
-    const side = rng() < 0.5 ? -1 : 1;
+  if (region < 0.52) {
     const [dx, dy, dz] = randomDirection(rng);
-    const shell = 1 - rng() ** 3 * 0.4;
-    const gyri = 1 + 0.075 * Math.sin(dz * 13 + dy * 8) * Math.sin(dy * 11 - dx * 6);
-    let x = side * 0.47 + dx * 0.55 * shell * gyri;
-    let y = dy * 0.72 * shell * gyri + 0.12;
-    const z = dz * 1.12 * shell * gyri;
-    if (Math.abs(x) < 0.05) x = side * (0.05 + rng() * 0.03);
-    if (y < -0.3) y = -0.3 + (y + 0.3) * 0.4;
-    return [x, y, z];
+    const shell = 0.82 + rng() * 0.18;
+    const contour = 1 + 0.035 * Math.sin(dy * 16 + dx * 9);
+    return [dx * 0.52 * shell * contour, 0.44 + dy * 0.68 * shell, dz * 0.48 * shell];
   }
-  if (region < 0.95) {
-    const [dx, dy, dz] = randomDirection(rng);
-    const shell = 1 - rng() ** 3 * 0.4;
-    const folds = 1 + 0.06 * Math.sin(dy * 30);
-    return [dx * 0.6 * shell, -0.5 + dy * 0.24 * shell * folds, -0.78 + dz * 0.34 * shell];
+  if (region < 0.66) {
+    const angle = rng() * Math.PI * 2;
+    const y = -0.2 - rng() * 0.62;
+    const width = 0.18 + (0.04 * ((-y - 0.2) / 0.62));
+    return [Math.cos(angle) * width, y, Math.sin(angle) * width * 0.78];
   }
+  const y = -0.72 - rng() * 0.92;
+  const level = Math.min(1, Math.max(0, (-y - 0.72) / 0.92));
+  const shoulder = 1.2 - level * 0.48;
   const angle = rng() * Math.PI * 2;
-  const depth = rng();
-  return [Math.cos(angle) * 0.11, -0.42 - depth * 0.7, -0.38 - depth * 0.12 + Math.sin(angle) * 0.11];
+  const shell = 0.72 + rng() * 0.28;
+  return [Math.cos(angle) * shoulder * shell, y, Math.sin(angle) * (0.34 + level * 0.08) * shell];
 }
 
-function buildBrain() {
+function buildPresence() {
   const rng = mulberry32(20260922);
-  const points: Vec[] = Array.from({ length: NEURON_COUNT }, () => brainPoint(rng));
+  const points: Vec[] = Array.from({ length: PRESENCE_POINT_COUNT }, () => presencePoint(rng));
   const edges: Array<[number, number]> = [];
   const seen = new Set<string>();
   for (let i = 0; i < points.length; i += 1) {
@@ -129,7 +126,7 @@ function nebulaLayer(width: number, height: number) {
   canvas.height = height;
   const ctx = canvas.getContext("2d")!;
   const rng = mulberry32(7);
-  const clouds = ["#4b1f7a", "#132f7a", "#0c5566", "#6a1d5c", "#1c1a5e"];
+  const clouds = ["#071426", "#0a2331", "#111b2b", "#1b2431", "#12202b"];
   for (let i = 0; i < 16; i += 1) {
     const x = rng() * width;
     const y = rng() * height;
@@ -168,11 +165,13 @@ export function Cosmos({ universes, signal, mood }: Props) {
     const ctx = context;
 
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const { points, edges } = buildBrain();
+    const { points, edges } = buildPresence();
     const projected = points.map(() => [0, 0, 0, 0] as [number, number, number, number]);
-    const neuron = glowSprite("#8fdcff", 32);
-    const pulseCool = glowSprite("#d98bff", 40);
+    const neuron = glowSprite("#5de8ff", 32);
+    const pulseCool = glowSprite("#6eeaff", 40);
     const pulseWarm = glowSprite("#ffd48a", 40);
+    const faceCore = glowSprite("#ff9d45", 120);
+    const heartCore = glowSprite("#43e7ff", 96);
     const moonSprite = glowSprite("#b9f3ff", 64);
     const galaxies = [galaxySprite(190, 11), galaxySprite(280, 23), galaxySprite(330, 37), galaxySprite(45, 51)];
     const starRng = mulberry32(99);
@@ -239,7 +238,7 @@ export function Cosmos({ universes, signal, mood }: Props) {
         spawnComet();
         for (let i = 0; i < 45; i += 1) spawnPulse(true);
       }
-      // The brain pulses with the loudness of DEUS's voice.
+      // The presence pulses with the loudness of DEUS's voice.
       vocal += (voiceActivity.level - vocal) * 0.35;
       if (vocal > 0.05) {
         flash = Math.max(flash, vocal * 0.45);
@@ -254,8 +253,8 @@ export function Cosmos({ universes, signal, mood }: Props) {
       }
 
       const cx = width / 2;
-      const cy = height * (width < 700 ? 0.4 : 0.42);
-      const scale = Math.min(width * (width < 700 ? 0.34 : 0.26), height * 0.22);
+      const cy = height * (width < 700 ? 0.39 : 0.42);
+      const scale = Math.min(width * (width < 700 ? 0.32 : 0.24), height * 0.25);
       const detail = Math.min(1, scale / 190);
       // Orbits are squeezed horizontally so moons and galaxies stay on narrow screens.
       const orbitSpread = Math.min(1, (width / 2 - 50) / (2.9 * scale));
@@ -264,7 +263,7 @@ export function Cosmos({ universes, signal, mood }: Props) {
 
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.globalCompositeOperation = "source-over";
-      ctx.fillStyle = "#02010a";
+      ctx.fillStyle = "#020508";
       ctx.fillRect(0, 0, width, height);
       const drift = Math.sin(t * 0.00003) * 30;
       ctx.globalAlpha = 0.9;
@@ -279,20 +278,20 @@ export function Cosmos({ universes, signal, mood }: Props) {
         ctx.fillRect(sx, star.y * height, star.size, star.size);
       }
 
-      // Aura around the brain — breathes faster while DEUS is thinking.
+      // Aura around DEUS — restrained at rest, brighter while reasoning.
       const breath = 0.5 + 0.5 * Math.sin(t * (0.0012 + energy * 0.003));
       const auraRadius = scale * (1.9 + breath * 0.15 + flash * 0.4 + vocal * 0.35);
       const aura = ctx.createRadialGradient(cx, cy, 0, cx, cy, auraRadius);
       aura.addColorStop(0, currentMood === "listening"
         ? `rgba(60, 200, 255, ${0.2 + energy * 0.14 + flash * 0.2})`
-        : `rgba(120, 90, 255, ${0.16 + energy * 0.14 + flash * 0.2})`);
+        : `rgba(20, 180, 235, ${0.14 + energy * 0.14 + flash * 0.2})`);
       aura.addColorStop(0.45, `rgba(40, 120, 255, ${0.06 + energy * 0.06})`);
       aura.addColorStop(1, "transparent");
       ctx.fillStyle = aura;
       ctx.fillRect(cx - auraRadius, cy - auraRadius, auraRadius * 2, auraRadius * 2);
 
-      // Mostly a side profile (the classic brain silhouette), slowly turning to reveal depth.
-      const yaw = Math.PI / 2 + Math.sin(t * 0.00009) * 0.85 + drag.yaw;
+      // A frontal living presence, with enough rotation to reveal spatial depth.
+      const yaw = Math.sin(t * 0.00009) * 0.32 + drag.yaw;
       const pitch = -0.14 + Math.sin(t * 0.00017) * 0.05 + drag.pitch;
       const cosY = Math.cos(yaw);
       const sinY = Math.sin(yaw);
@@ -333,13 +332,13 @@ export function Cosmos({ universes, signal, mood }: Props) {
 
       const drawBody = (body: (typeof bodies)[number]) => {
         if (body.kind === "moon") {
-          // While DEUS thinks, SOPHIA and ROCKMAM reason with it: they swell and link to the brain.
+          // While DEUS thinks, SOPHIA and ROCKMAM reason with it: they swell and link to the presence.
           const reasoning = currentMood === "thinking";
           const swell = reasoning ? 1.45 + Math.sin(t * 0.008 + body.index * Math.PI) * 0.2 : 1;
           if (reasoning) {
             const link = ctx.createLinearGradient(body.x, body.y, cx, cy);
             link.addColorStop(0, "rgba(185, 243, 255, 0.55)");
-            link.addColorStop(1, "rgba(217, 139, 255, 0)");
+            link.addColorStop(1, "rgba(67, 231, 255, 0)");
             ctx.strokeStyle = link;
             ctx.lineWidth = 1.4 * body.f;
             ctx.beginPath();
@@ -387,6 +386,14 @@ export function Cosmos({ universes, signal, mood }: Props) {
       }
       ctx.globalAlpha = 1;
 
+      const corePulse = 0.86 + Math.sin(t * 0.0035) * 0.12 + vocal * 0.22;
+      const faceSize = scale * 0.46 * corePulse;
+      const heartSize = scale * 0.28 * corePulse;
+      ctx.globalAlpha = 0.84 + flash * 0.12;
+      ctx.drawImage(faceCore, cx - faceSize, cy - scale * 0.48 - faceSize, faceSize * 2, faceSize * 2);
+      ctx.drawImage(heartCore, cx - heartSize, cy + scale * 0.9 - heartSize, heartSize * 2, heartSize * 2);
+      ctx.globalAlpha = 1;
+
       const spawnRate = reducedMotion ? 0.05 : 0.5 + energy * 3;
       for (let i = 0; i < Math.floor(spawnRate + Math.random()); i += 1) spawnPulse(currentMood === "speaking");
       for (let i = pulses.length - 1; i >= 0; i -= 1) {
@@ -431,11 +438,11 @@ export function Cosmos({ universes, signal, mood }: Props) {
         ctx.drawImage(pulseWarm, comet.x - 10, comet.y - 10, 20, 20);
       }
 
-      placeLabel("deus", cx, cy + scale * 1.05, -1);
+      placeLabel("deus", cx, cy + scale * 1.82, -1);
       frame = requestAnimationFrame(draw);
     }
 
-    // Drag anywhere on the universe to turn the brain; it keeps spinning with inertia.
+    // Drag anywhere on the universe to turn the presence; it keeps spinning with inertia.
     const onDown = (event: PointerEvent) => {
       dragRef.current = { ...dragRef.current, active: true, x: event.clientX, y: event.clientY, spin: 0 };
       wrap.setPointerCapture(event.pointerId);
@@ -474,7 +481,7 @@ export function Cosmos({ universes, signal, mood }: Props) {
   };
 
   return (
-    <div className={`cosmos cosmos-${mood}`} ref={wrapRef}>
+    <div className={`cosmos deus-presence cosmos-${mood}`} data-presence="humanoid" ref={wrapRef}>
       <canvas ref={canvasRef} aria-hidden="true" />
       <div className="cosmos-labels">
         <div className="cosmic-label deus-label" ref={bindLabel("deus")}><span className="deus">DEUS</span></div>

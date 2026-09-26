@@ -173,7 +173,6 @@ html, body { margin: 0; min-width: 320px; height: 100%; background: var(--space)
   background: #05041299;
   color: var(--text);
   font: 14px var(--mono);
-  outline: none;
 }
 .login-panel input:focus { border-color: #a78bfa; box-shadow: 0 0 16px #a78bfa44; }
 .login-panel button {
@@ -307,7 +306,7 @@ html, body { margin: 0; min-width: 320px; height: 100%; background: var(--space)
   cursor: pointer;
 }
 .logout-button:hover,
-.logout-button:focus-visible { color: var(--text); border-color: #a78bfa88; outline: none; }
+.logout-button:focus-visible { color: var(--text); border-color: #74eaff; }
 
 .decisions-panel {
   position: absolute;
@@ -355,7 +354,7 @@ html, body { margin: 0; min-width: 320px; height: 100%; background: var(--space)
   cursor: pointer;
 }
 .decision button:hover:not(:disabled),
-.decision button:focus-visible { border-color: #b8a6ff; color: #fff; outline: none; }
+.decision button:focus-visible { border-color: #74eaff; color: #fff; }
 .decision button:disabled { opacity: .5; cursor: wait; }
 .decision .decision-go {
   border-color: #3fdcff77;
@@ -370,4 +369,83 @@ html, body { margin: 0; min-width: 320px; height: 100%; background: var(--space)
 @media (max-width: 760px) {
   .decisions-panel { left: 12px; bottom: 92px; width: calc(100% - 24px); max-height: 24vh; }
   .creator-console { right: auto; left: 50%; width: calc(100% - 24px); transform: translateX(-50%); }
+}
+
+/* ---------- Living Presence redesign ---------- */
+:root {
+  --space: #020508; --glass: rgba(5, 14, 21, .64); --glass-strong: rgba(5, 13, 19, .94);
+  --edge: rgba(111, 225, 244, .18); --text: #e8f7f9; --muted: #8ea9ad; --faint: #637c81;
+  --nebula: #43dff7; --star: #6eeaff; --ember: #ffad62; --good: #65e6bd; --bad: #ff7f8b; --warn: #ffc078;
+}
+* { scrollbar-width: thin; scrollbar-color: rgba(91, 218, 239, .36) rgba(2, 8, 12, .35); }
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background: rgba(2, 8, 12, .35); }
+*::-webkit-scrollbar-thumb { background: rgba(91, 218, 239, .36); border-radius: 99px; }
+button, input, textarea { font: inherit; }
+button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid #74eaff; outline-offset: 3px; }
+
+.universe::after { content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none; background: radial-gradient(circle at 50% 44%, transparent 0 30%, rgba(0, 4, 7, .18) 70%, rgba(0, 3, 5, .78) 100%); }
+.cosmos { z-index: 1; }
+.cosmos-labels { z-index: 2; }
+.cosmic-label span { color: #c7f7ff; text-shadow: 0 0 12px rgba(48, 222, 255, .55), 0 1px 2px #000; }
+.universe-label span { background: rgba(2, 10, 15, .76); border-color: rgba(89, 227, 250, .2); }
+.deus-label span.deus { font-size: 18px; letter-spacing: .72em; color: #eafcff; text-shadow: 0 0 18px rgba(73, 229, 255, .75), 0 0 42px rgba(19, 143, 180, .55); }
+.cosmos-thinking .deus-label span.deus { text-shadow: 0 0 22px #65edff, 0 0 58px rgba(40, 197, 232, .66); }
+
+.cosmic-header { z-index: 12; padding: 20px 24px; background: linear-gradient(180deg, rgba(2, 5, 8, .9), rgba(2, 5, 8, 0)); }
+.cosmic-header h1 { margin-top: 5px; color: #bcd0d4; font-size: 12px; letter-spacing: .24em; }
+.cosmic-header .eyebrow { color: #e9fbfd; }
+.top-status { max-width: 55%; }
+.status, .pill { background: rgba(4, 16, 22, .68); border-color: rgba(97, 222, 244, .22); }
+.logout-button, .retry-button { min-height: 34px; padding: 7px 12px; border: 1px solid rgba(121, 180, 190, .2); border-radius: 8px; color: var(--muted); background: rgba(3, 12, 17, .58); cursor: pointer; }
+.logout-button:hover, .retry-button:hover { color: var(--text); border-color: rgba(101, 229, 251, .45); }
+.presence-state { position: absolute; top: 24px; left: 50%; z-index: 12; transform: translateX(-50%); color: rgba(188, 239, 247, .72); font: 600 9px/1 var(--mono); letter-spacing: .3em; text-transform: uppercase; pointer-events: none; }
+.mission-whisper { top: 82px; z-index: 6; }
+.mission-whisper h2 { color: #e8fafc; text-shadow: 0 0 18px rgba(40, 204, 231, .35); }
+.mission-whisper p { color: #91aaae; }
+
+.edge-trigger { position: absolute; top: 50%; z-index: 14; display: grid; gap: 5px; min-width: 42px; padding: 16px 9px; border: 1px solid rgba(100, 224, 245, .2); color: #c7eef3; background: rgba(4, 14, 20, .66); backdrop-filter: blur(14px); cursor: pointer; transform: translateY(-50%); transition: color .2s, border-color .2s, background .2s; }
+.edge-trigger:hover, .edge-trigger[aria-expanded="true"] { color: #fff; border-color: rgba(105, 232, 253, .52); background: rgba(7, 27, 36, .88); }
+.edge-trigger span { font: 600 9px/1 var(--mono); letter-spacing: .25em; text-transform: uppercase; writing-mode: vertical-rl; }
+.edge-trigger small { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.edge-trigger-left { left: 0; border-left: 0; border-radius: 0 10px 10px 0; }
+.edge-trigger-right { right: 0; border-right: 0; border-radius: 10px 0 0 10px; }
+
+.decisions-panel, .vitals { top: 78px; bottom: 20px; z-index: 20; width: min(400px, calc(100vw - 32px)); max-height: none; padding: 18px; overflow-y: auto; border: 1px solid rgba(99, 223, 244, .2); background: linear-gradient(145deg, rgba(6, 19, 26, .96), rgba(3, 10, 15, .92)); box-shadow: 0 22px 60px rgba(0, 0, 0, .48), inset 0 1px rgba(255, 255, 255, .035); backdrop-filter: blur(24px); }
+.decisions-panel { position: absolute; left: 18px; right: auto; border-radius: 16px; }
+.vitals { position: absolute; left: auto; right: 18px; border-radius: 16px; }
+.drawer-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+.drawer-header h2 { margin: 5px 0 0; font-size: 18px; font-weight: 350; letter-spacing: .04em; }
+.drawer-close { display: grid; place-items: center; width: 36px; height: 36px; flex: 0 0 auto; border: 1px solid rgba(113, 218, 235, .18); border-radius: 50%; color: #a8c7cb; background: rgba(0, 0, 0, .2); font-size: 22px; line-height: 1; cursor: pointer; }
+.drawer-close:hover { color: #fff; border-color: rgba(102, 232, 252, .48); }
+.decisions-panel[hidden], .vitals[hidden] { display: none; }
+.decisions-panel .drawer-header { position: sticky; top: -18px; z-index: 2; margin: -18px -18px 14px; padding: 18px; background: rgba(5, 14, 20, .96); border-bottom: 1px solid rgba(102, 223, 243, .12); }
+.panel { background: rgba(6, 18, 24, .54); border-color: rgba(105, 219, 237, .13); box-shadow: none; }
+.metric { background: rgba(4, 16, 22, .7); border-color: rgba(90, 220, 241, .14); }
+.decision { border-color: rgba(101, 222, 241, .14); background: rgba(4, 15, 20, .7); }
+.decision-actions button, .decision-confirm button { min-height: 36px; }
+
+.password-field { position: relative; display: block; }
+.password-field input { width: 100%; padding-right: 64px !important; }
+.password-field button { position: absolute; top: 50%; right: 10px; width: auto; min-height: 30px; margin: 0; padding: 4px 6px; transform: translateY(-50%); border: 0; border-radius: 4px; color: #79cddb; background: transparent; box-shadow: none; font: 600 9px/1 var(--mono); letter-spacing: .12em; cursor: pointer; }
+.login-panel { border-color: rgba(92, 224, 246, .25); background: rgba(4, 14, 20, .92); box-shadow: 0 28px 90px rgba(0, 0, 0, .6); }
+.login-panel input { border-color: rgba(91, 205, 225, .25); background: rgba(0, 5, 8, .72); }
+.login-panel > button { background: linear-gradient(135deg, #20a9bd, #0b6677); }
+
+@media (max-width: 760px) {
+  .cosmic-header { padding: 14px; }
+  .cosmic-header h1, .chronicle-position { display: none; }
+  .top-status { max-width: 62%; gap: 7px; }
+  .presence-state { top: 62px; }
+  .mission-whisper { top: 91px; }
+  .mission-whisper p { display: none; }
+  .mission-whisper h2 { max-width: 250px; font-size: 14px; }
+  .decisions-panel, .vitals { top: 68px; right: 8px; bottom: 8px; left: 8px; width: auto; border-radius: 14px; }
+  .edge-trigger { top: 45%; padding: 13px 7px; }
+  .edge-trigger span { font-size: 8px; }
+  .deus-label span.deus { font-size: 14px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
