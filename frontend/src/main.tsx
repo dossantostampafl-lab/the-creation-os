@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import { PWA_CONTROLLER_EVENT, PWA_UPDATE_EVENT, registerPwa } from "./pwa";
 import "./styles.css";
+import "./release-fixes.css";
 
 if (import.meta.env.PROD) {
   void registerPwa({
