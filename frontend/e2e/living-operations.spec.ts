@@ -166,10 +166,10 @@ test("presents a Creator login instead of requiring manual localStorage setup", 
 
   await expect(page.getByRole("heading", { name: "Creator Access" })).toBeVisible();
   await expect(page.getByLabel("Username")).toBeVisible();
-  await expect(page.getByLabel("Password")).toBeVisible();
+  await expect(page.getByLabel("Password", { exact: true })).toBeVisible();
   const reveal = page.getByRole("button", { name: "Show password" });
   await reveal.click();
-  await expect(page.getByLabel("Password")).toHaveAttribute("type", "text");
+  await expect(page.getByLabel("Password", { exact: true })).toHaveAttribute("type", "text");
   await expect(page.getByRole("button", { name: "Hide password" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Enter The Creation" })).toBeVisible();
   await page.getByRole("button", { name: "Enter The Creation" }).click();
@@ -187,7 +187,7 @@ test("authenticates the Creator and hydrates the live dashboard", async ({ page 
 
   await page.goto("/");
   await page.getByLabel("Username").fill("creator");
-  await page.getByLabel("Password").fill("correct-horse-battery-staple");
+  await page.getByLabel("Password", { exact: true }).fill("correct-horse-battery-staple");
   await page.getByRole("button", { name: "Enter The Creation" }).click();
 
   await expect(page.locator(".top-status .status")).toHaveText("LIVE");
@@ -268,7 +268,7 @@ test("keeps a failed Creator login actionable and does not enter the dashboard",
   await page.route("**/api/v1/auth/login", (route) => route.fulfill({ status: 401, body: "unauthorized" }));
   await page.goto("/");
   await page.getByLabel("Username").fill("creator");
-  await page.getByLabel("Password").fill("wrong-password");
+  await page.getByLabel("Password", { exact: true }).fill("wrong-password");
   await page.getByRole("button", { name: "Enter The Creation" }).click();
   await expect(page.getByText("Invalid username or password.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Enter The Creation" })).toBeEnabled();

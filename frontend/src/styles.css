@@ -433,9 +433,11 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .login-panel > button { background: linear-gradient(135deg, #20a9bd, #0b6677); }
 
 @media (max-width: 760px) {
-  .cosmic-header { padding: 14px; }
-  .cosmic-header h1, .chronicle-position { display: none; }
-  .top-status { max-width: 62%; gap: 7px; }
+  .cosmic-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 8px; padding: 14px; }
+  .cosmic-header .title { min-width: 0; }
+  .cosmic-header h1 { display: block; max-width: 190px; font-size: 9px; line-height: 1.35; letter-spacing: .12em; }
+  .chronicle-position { display: none; }
+  .top-status { max-width: none; gap: 7px; }
   .presence-state { top: 62px; }
   .mission-whisper { top: 91px; }
   .mission-whisper p { display: none; }
