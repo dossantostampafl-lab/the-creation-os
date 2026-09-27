@@ -141,18 +141,25 @@ Para trocar um valor sem abrir editor, e sem deixar o segredo no histórico do s
 ```
 D=/opt/the-creation-os; V=ANTHROPIC_API_KEY
 read -rsp "Cole o valor e Enter: " K; echo "  (${#K} caracteres)"
-sudo cp "$D/.env" "$D/.env.bak"
-sudo grep -vE "^$V=" "$D/.env" | sudo tee "$D/.env.novo" >/dev/null
-printf '%s=%s\n' "$V" "$K" | sudo tee -a "$D/.env.novo" >/dev/null
-sudo mv "$D/.env.novo" "$D/.env"; sudo chown root:root "$D/.env"; sudo chmod 600 "$D/.env"; unset K
-dc up -d --force-recreate api worker
+if [[ "$V" =~ ^[A-Z_][A-Z0-9_]*$ ]]; then
+  sudo cp "$D/.env" "$D/.env.bak"
+  printf '%s' "$K" | sudo bash -c '
+    set -euo pipefail
+    cd "$1"
+    source deploy/oracle/env-file.sh
+    value="$(cat)"
+    env_set "$2" "$value"
+  ' _ "$D" "$V" && dc up -d --force-recreate api worker
+else
+  echo "Nome de variável inválido" >&2
+fi
+unset K
 ```
 
-Não use `sed` para isto. O valor entraria dentro da expressão `s|...|...|`, e uma chave que
-contenha o delimitador `|` faz o `sed` parar com ``unknown option to `s'`` sem escrever nada —
-o `.env` fica intacto e parece que deu certo. O `printf '%s'` acima grava o valor como texto
-puro, e o `grep -v` seguido do append funciona tanto se a linha já existir quanto se faltar
-(o `sed` só substituía linhas existentes; se a variável não estivesse no arquivo, não fazia nada).
+Não use `sed`, regex ou append manual para isto. O comando acima entrega o valor pela entrada
+padrão, portanto o segredo não aparece nos argumentos do processo, e chama o único gravador
+permitido, `env_set`. Ele escreve o valor literalmente, cria a variável se faltar, elimina linhas
+duplicadas e recusa quebras de linha antes que elas possam injetar outra variável no `.env`.
 O `${#K}` imprime só o tamanho, para você conferir que o paste não veio cortado.
 
 A API só lê o `.env` quando o contêiner nasce, então a recriação é parte da troca, não um extra.
@@ -229,7 +236,7 @@ Em **Settings → Secrets and variables → Actions → New repository secret**:
 | `DEPLOY_SSH_KEY` | sim | O conteúdo do arquivo `.key` do Oracle, inteiro, incluindo as linhas `-----BEGIN` e `-----END`. |
 | `DEPLOY_HOST` | sim | O IP público do servidor. |
 | `DEPLOY_USER` | não | O usuário do SSH. Sem ele, `ubuntu`. |
-| `DEPLOY_REPO_DIR` | não | O caminho do projeto no servidor. O bootstrap canônico usa `/opt/the-creation-os`. |
+| `DEPLOY_REPO_DIR` | recomendado | Defina como `/opt/the-creation-os`. Sem ele, uma recuperação com o contêiner `api` parado não consegue descobrir com segurança o diretório canônico. |
 | `DEPLOY_SSH_HOST_KEY` | não | Só para um servidor cujas chaves não estejam em `deploy/oracle/known_hosts`. |
 | `ANTHROPIC_API_KEY` | só para `set-inference` | A chave da Anthropic. |
 | `ANTHROPIC_MODEL` | não | Sem ele, `claude-sonnet-5`. |

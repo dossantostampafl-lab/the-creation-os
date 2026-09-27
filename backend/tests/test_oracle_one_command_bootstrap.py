@@ -40,3 +40,21 @@ def test_root_readme_lists_oracle_as_a_supported_deployment() -> None:
     content = ROOT_README.read_text(encoding="utf-8")
 
     assert "### (b) Oracle Cloud" in content
+
+
+def test_operations_runbook_uses_env_set_for_manual_secret_changes() -> None:
+    content = OPERATIONS.read_text(encoding="utf-8")
+    section = content.split("### Trocar qualquer outro valor", 1)[1].split("## Comandos administrativos", 1)[0]
+
+    assert "source deploy/oracle/env-file.sh" in section
+    assert "env_set" in section
+    assert "grep -vE" not in section
+    assert "tee -a" not in section
+
+
+def test_operations_runbook_requires_the_canonical_deploy_path_secret() -> None:
+    content = OPERATIONS.read_text(encoding="utf-8")
+    deploy_repo_row = next(line for line in content.splitlines() if "`DEPLOY_REPO_DIR`" in line)
+
+    assert "recomendado" in deploy_repo_row
+    assert "`/opt/the-creation-os`" in deploy_repo_row
