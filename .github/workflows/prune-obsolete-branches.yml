@@ -1,0 +1,100 @@
+name: Prune audited obsolete branches
+
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/prune-obsolete-branches.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Delete only audited branch tips
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Every audited ref is pinned to the exact tip reviewed before this workflow was created.
+          # A moved branch aborts the run instead of deleting newly-added work.
+          declare -A audited_tips=(
+            [codex/final-master-quality-gate]=fb0a6235902fc798c0fb37c54c377c1048d42e6f
+            [devin/1790528061-anthropic-workspace]=7b2086c9a42bfc8fbf39e97fd849961e5e296a35
+            [feat/dashboard-living-presence]=a4022672bffa42fef55f485e6d4db5f162d8cb64
+            [feat/gate-e-completion]=f4cf7e29b6206c2d553b370339aedc61ef00c173
+            [feat/gate-e-forward-port]=826483c8a0d7fe9ea016a885bfb0d16ef55e87f1
+            [feat/render-deployment]=448396f512a83faec6feed05635e86b1838a66d1
+            [local-ready]=0c3bbd4e0f0192db48b4d8579c702c81efa0e005
+            [merge/cosmic-brain-decisions-20260925]=0803dfe617ee74fcc438f344018285ba8c2a5b3d
+            [codex/living-ui-gate-d]=145981abb13e0c7ca8d82446ac1dde349d870eda
+            [codex/master-final-audit-seo-ux]=e9a5073a40085af356a32215d48375953037513b
+            [codex/system-gauntlet-gate-e]=22442621f9ffdf48e6bc3e33afab7c2dc4bec699
+            [fix/canonical-living-dashboard]=b3f0a1c00e9c7f73f9088763dfb0154e3b3226f1
+            [fix/reproducible-dependency-locks]=4eb8ebe409a457979b1401417a32aa457fe22089
+            [verify/ui-demo]=37b6f3ab1221186003c091a933306aa8a3c5f309
+          )
+
+          merged_branches=(
+            codex/final-master-quality-gate
+            devin/1790528061-anthropic-workspace
+            feat/dashboard-living-presence
+            feat/gate-e-completion
+            feat/gate-e-forward-port
+            feat/render-deployment
+            local-ready
+            merge/cosmic-brain-decisions-20260925
+          )
+          obsolete_branches=(
+            codex/living-ui-gate-d
+            codex/master-final-audit-seo-ux
+            codex/system-gauntlet-gate-e
+            fix/canonical-living-dashboard
+            fix/reproducible-dependency-locks
+            verify/ui-demo
+          )
+
+          delete_exact_tip() {
+            local branch="$1" expected="$2" actual
+            actual="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$branch" --jq .object.sha)"
+            if [[ "$actual" != "$expected" ]]; then
+              echo "Refusing moved branch $branch: expected $expected, found $actual" >&2
+              exit 1
+            fi
+            gh api --method DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$branch"
+            echo "Deleted audited branch: $branch"
+          }
+
+          git fetch origin '+refs/heads/*:refs/remotes/origin/*'
+          for branch in "${merged_branches[@]}"; do
+            merged="$(gh api --paginate \
+              "repos/$GITHUB_REPOSITORY/pulls?state=closed&head=$GITHUB_REPOSITORY_OWNER:$branch&per_page=100" \
+              --jq 'any(.[]; .merged_at != null)')"
+            if [[ "$merged" != true ]]; then
+              echo "Refusing branch without a merged PR: $branch" >&2
+              exit 1
+            fi
+            delete_exact_tip "$branch" "${audited_tips[$branch]}"
+          done
+
+          for branch in "${obsolete_branches[@]}"; do
+            delete_exact_tip "$branch" "${audited_tips[$branch]}"
+          done
+
+          # This branch is safe only after GitHub reports this PR as merged.
+          self=ops/prune-obsolete-branches
+          self_merged="$(gh api --paginate \
+            "repos/$GITHUB_REPOSITORY/pulls?state=closed&head=$GITHUB_REPOSITORY_OWNER:$self&per_page=100" \
+            --jq 'any(.[]; .merged_at != null)')"
+          if [[ "$self_merged" != true ]]; then
+            echo "Refusing cleanup branch before its PR is merged" >&2
+            exit 1
+          fi
+          gh api --method DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$self"
