@@ -1,0 +1,12 @@
+# The Oracle server's public host keys, so a deploy talks to that machine and no other.
+# A host key is public by design -- it is what the server shows every client that connects --
+# so this belongs in the repository rather than in a secret nobody can read back.
+# The host name is stored hashed, the way OpenSSH's HashKnownHosts writes it, so the address
+# is not readable here. ssh still matches it.
+#
+# Recorded 2026-09-27 from the first deploy run. If the server is ever rebuilt its keys
+# change and every deploy will refuse to connect, which is the point: replace this file
+# from the new server's ssh-keyscan output, deliberately.
+|1|tJL2UIjKemuDy7ppRZDfgklDXnw=|DDkfSX8Bdl+10M7rHaqPWtuGgQw= ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC2lIPe7548Ff9my5relbekBPhsDNW91DZzkgLZkeffNhpQntYTKxUk8ra1YAkY9Zkpc7FmbbA3i5RuBXJma7Ai5CMN8lt4pdgmNhdqOLFGznwHYWQgTpLpc0Uj/iCxh0sLegzsu3XfcRzVBi2OKJa64ACd8XhcvClKUI6vqaCeLngiOx0aHb4LhbexrVNvISKNb7nJY/vMuxGXnxHY2SoC+q/T30r7ctTCQN4Jpc1Ptt7sx1gCsEfSDhDBgLnYq4Nw7UvBLesPSxWp5fJGDg7MoKa3aBnbXcvQ2Y+L3AP+0XadWJTD6hvdjpMIVXOqIc885dQSwdr098JKHv4kZza9umGEW7ZyFeILVAKbDmqoEctKxpPOeLDXN2L5ms/g6DFZW5zC360h10GRRToXFupDM7rxhFuijt0SYU+ZtesZezQ+X+qgJkoxP5PESUCfD7Z9RFXKUf0ioz96YLfUGCo0AkizOigcJqo9QxQEaP9uQIFzwpmESC6founmsdGEhQ0=
+|1|fSzyaA2GA8SCpakVIpDPW9pM+aA=|yeaSIjL7B9jglDlmBTox57CN+7Y= ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEAuNAbP3CPMYgKLWeKfwRy0ls3i+W17bZjJIU8XgI4rAv+mQjMOl9f5oqPhNfjhVcRlfIOagtFKFZeLGe1xCoI=
+|1|LlwcDFFuT/xpQzmHhNF0PknO2AM=|5ftC9ySQLDUoMXiEpBNK6tTni4w= ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILCl9oo0dnnTZGLGYjzPX6AVAcj3GS9FS4XXFV/83QTE

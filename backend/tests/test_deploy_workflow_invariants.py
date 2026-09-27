@@ -54,6 +54,13 @@ def _steps() -> list[dict]:
     return _workflow()["jobs"]["deploy"]["steps"]
 
 
+def _step(fragment: str) -> dict:
+    """A step by what it is called, not where it sits: inserting one must not move the others."""
+    matches = [s for s in _steps() if fragment.lower() in s.get("name", "").lower()]
+    assert len(matches) == 1, f"expected one step matching {fragment!r}, found {len(matches)}"
+    return matches[0]
+
+
 def test_only_a_person_can_start_it() -> None:
     # yaml reads a bare `on:` key as the boolean True.
     triggers = _workflow()[True]
@@ -101,7 +108,7 @@ def test_the_key_is_masked_before_anything_can_print_it() -> None:
 
 def _run_validation(ref: str) -> int:
     """The real validation step, run as the workflow runs it."""
-    script = _steps()[0]["run"]
+    script = _step("Check the inputs")["run"]
     completed = subprocess.run(
         ["bash", "-e", "-c", script],
         env={"PATH": os.environ["PATH"], "SSH_KEY": "k", "HOST": "h", "REF": ref},
@@ -140,7 +147,7 @@ def test_an_injection_through_the_ref_is_refused(ref: str) -> None:
 
 
 def test_the_private_key_is_removed_from_the_runner() -> None:
-    cleanup = _steps()[-1]
+    cleanup = _step("Remove the key")
     assert cleanup.get("if") == "always()"
     assert "rm -f ~/.ssh/id_deploy" in cleanup["run"]
 
@@ -153,7 +160,7 @@ def test_the_host_key_can_be_pinned() -> None:
 
 def _remote_script() -> str:
     """The script the server runs, as the heredoc in the task step carries it."""
-    run = _steps()[2]["run"]
+    run = _step("Run the task")["run"]
     body = run.split("cat <<'REMOTE'\n", 1)[1]
     return body.split("\nREMOTE\n", 1)[0]
 
@@ -225,3 +232,28 @@ def test_the_password_script_restarts_before_it_rotates() -> None:
     restarted = line_of("up -d --force-recreate")
     rotated = line_of("rotate-creator-password")
     assert wrote < restarted < rotated, (wrote, restarted, rotated)
+
+
+def test_the_host_key_is_pinned_from_the_repository() -> None:
+    """A host key is public, so it lives where it can be read back and reviewed. A secret
+    cannot be, which is why the repository file is the normal case and the secret the override."""
+    known_hosts = REPO_ROOT / "deploy" / "oracle" / "known_hosts"
+    assert known_hosts.is_file(), "the server's host keys are not recorded"
+
+    entries = [line for line in known_hosts.read_text(encoding="utf-8").splitlines()
+               if line and not line.startswith("#")]
+    assert entries, "known_hosts holds no keys"
+    for entry in entries:
+        # HashKnownHosts format, so the address is not readable in the repository.
+        assert entry.startswith("|1|"), entry
+        assert len(entry.split()) == 3, entry
+
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+    assert "cp deploy/oracle/known_hosts" in workflow
+    assert "actions/checkout" in workflow, "the file has to be on the runner to be used"
+
+
+def test_the_recorded_host_keys_do_not_expose_the_address() -> None:
+    text = (REPO_ROOT / "deploy" / "oracle" / "known_hosts").read_text(encoding="utf-8")
+    # An unhashed entry would put the server's address in the repository.
+    assert not re.search(r"^\s*[0-9]{1,3}(\.[0-9]{1,3}){3}\s", text, re.MULTILINE)
