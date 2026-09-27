@@ -1,0 +1,163 @@
+# Operating the Oracle server from a browser, so that keeping it running does not require a
+# terminal. It only ever runs when a person presses Run workflow: a push must not be able to
+# reach the server, and nothing here is triggered by one.
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: "What to do on the server"
+        type: choice
+        required: true
+        default: check
+        options:
+          - check
+          - restart
+          - update
+          - set-inference
+      ref:
+        description: "Branch or tag to take the code from. Empty means the default branch."
+        type: string
+        required: false
+        default: ""
+
+# Reading the repository is all this needs; it must not be able to write to it.
+permissions:
+  contents: read
+
+# Two runs at once would fight over the same .env and the same containers.
+concurrency:
+  group: deploy-oracle
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check the inputs and the configured secrets
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          REF: ${{ inputs.ref }}
+        run: |
+          set -euo pipefail
+          missing=""
+          [ -n "${SSH_KEY:-}" ] || missing="$missing DEPLOY_SSH_KEY"
+          [ -n "${HOST:-}" ] || missing="$missing DEPLOY_HOST"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secret(s):$missing. Add them under" \
+                 "Settings -> Secrets and variables -> Actions -> New repository secret."
+            exit 1
+          fi
+          # The ref is typed by whoever runs this and ends up inside a command the server runs,
+          # so it is held to the characters a git ref may contain and nothing else.
+          if ! printf '%s' "${REF:-}" | grep -qE '^[A-Za-z0-9._/-]*$'; then
+            echo "::error::The ref may only contain letters, digits, dot, underscore, slash and dash."
+            exit 1
+          fi
+
+      - name: Open an SSH session to the server
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          HOST_KEY: ${{ secrets.DEPLOY_SSH_HOST_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -m 700 -p ~/.ssh
+          # printf, not echo: the key is written verbatim or not at all.
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          if [ -n "${HOST_KEY:-}" ]; then
+            # Pinned: the runner will only talk to the server whose host key this is.
+            printf '%s\n' "$HOST_KEY" > ~/.ssh/known_hosts
+            echo "The host key is pinned."
+          else
+            # First use. The key is recorded and printed so it can be pinned as
+            # DEPLOY_SSH_HOST_KEY, after which a substituted host stops the run.
+            ssh-keyscan -T 10 "$HOST" > ~/.ssh/known_hosts 2>/dev/null
+            echo "::warning::DEPLOY_SSH_HOST_KEY is not set, so this run trusted whatever answered."
+            echo "Add the line below as the DEPLOY_SSH_HOST_KEY secret to pin it:"
+            cat ~/.ssh/known_hosts
+          fi
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Run the task on the server
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          USERNAME: ${{ secrets.DEPLOY_USER }}
+          REPO_DIR: ${{ secrets.DEPLOY_REPO_DIR }}
+          TASK: ${{ inputs.task }}
+          REF: ${{ inputs.ref }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_MODEL: ${{ secrets.ANTHROPIC_MODEL }}
+          ANTHROPIC_WORKSPACE_ID: ${{ secrets.ANTHROPIC_WORKSPACE_ID }}
+        run: |
+          set -euo pipefail
+
+          if [ "$TASK" = "set-inference" ] && [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+            echo "::error::set-inference needs the ANTHROPIC_API_KEY secret. Add it under" \
+                 "Settings -> Secrets and variables -> Actions, or use the restart task if" \
+                 "the key is already in the server's .env."
+            exit 1
+          fi
+
+          # The key goes down the pipe as the first line, never as an argument: an argument is
+          # visible in the server's process list to anyone who can run ps while this runs.
+          # It is never put through a sed or a regex either -- a key holding the expression's
+          # delimiter would break that silently.
+          {
+            printf '%s\n' "${ANTHROPIC_API_KEY:-}"
+            cat <<'REMOTE'
+          set -euo pipefail
+          cd "${REPO_DIR:-$HOME/the-creation-os}"
+          echo "== Server: $(hostname), repository: $(pwd) =="
+
+          # The deploy scripts are taken from the repository on every run, so a fix to them
+          # takes effect without anyone opening a terminal.
+          target="${REF:-}"
+          if [ -z "$target" ]; then
+            target="$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')"
+          fi
+          target="${target:-main}"
+          sudo git fetch --prune origin
+          sudo git checkout "origin/$target" -- deploy/oracle
+          sudo chmod +x deploy/oracle/*.sh
+          echo "== Deploy scripts taken from origin/$target =="
+
+          COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.cloud.yml)
+          case "$TASK" in
+            check)
+              sudo ./deploy/oracle/check-inference.sh
+              ;;
+            restart)
+              sudo "${COMPOSE[@]}" up -d --force-recreate api worker
+              sleep 20
+              sudo ./deploy/oracle/check-inference.sh
+              ;;
+            update)
+              sudo git merge --ff-only "origin/$target"
+              sudo "${COMPOSE[@]}" up -d --build --remove-orphans
+              sleep 30
+              sudo ./deploy/oracle/check-inference.sh
+              ;;
+            set-inference)
+              sudo -E ./deploy/oracle/set-inference.sh anthropic "${ANTHROPIC_MODEL:-claude-sonnet-5}"
+              ;;
+            *)
+              echo "Unknown task: $TASK" >&2
+              exit 1
+              ;;
+          esac
+          REMOTE
+          } | ssh -i ~/.ssh/id_deploy -o BatchMode=yes -o ConnectTimeout=20 \
+                "${USERNAME:-ubuntu}@$HOST" \
+                "export REPO_DIR='${REPO_DIR:-}' TASK='$TASK' REF='$REF' \
+                        ANTHROPIC_MODEL='${ANTHROPIC_MODEL:-}' \
+                        ANTHROPIC_WORKSPACE_ID='${ANTHROPIC_WORKSPACE_ID:-}'; \
+                 IFS= read -r ANTHROPIC_API_KEY; export ANTHROPIC_API_KEY; exec bash -s"
+
+      - name: Remove the key from the runner
+        if: always()
+        run: rm -f ~/.ssh/id_deploy

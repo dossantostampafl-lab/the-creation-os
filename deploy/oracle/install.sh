@@ -17,15 +17,8 @@ COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.cloud.yml)
 
 log() { printf '\n==> %s\n' "$*"; }
 
-env_get() { grep -E "^$1=" .env | tail -1 | cut -d= -f2- || true; }
-
-env_set() {
-  if grep -qE "^$1=" .env; then
-    sed -i "s|^$1=.*|$1=$2|" .env
-  else
-    printf '%s=%s\n' "$1" "$2" >> .env
-  fi
-}
+# shellcheck source=deploy/oracle/env-file.sh
+source "$REPO_DIR/deploy/oracle/env-file.sh"
 
 log "Docker"
 if ! command -v docker >/dev/null 2>&1; then
@@ -167,9 +160,8 @@ EOF
 if [ "$first_install" = true ] || [ "$provider" = "fake" ] || [ -z "$provider" ]; then
   cat <<EOF
 
- DEUS still needs a model. Edit the keys and run this script again:
-   nano $REPO_DIR/.env        (LLM_PROVIDER, ANTHROPIC_*, FREELLMAPI_*, ELEVENLABS_*)
-   sudo ./deploy/oracle/install.sh
+ DEUS still needs a model. One command asks for the key and configures it:
+   sudo $REPO_DIR/deploy/oracle/set-inference.sh
 EOF
 fi
 echo "========================================================================"
