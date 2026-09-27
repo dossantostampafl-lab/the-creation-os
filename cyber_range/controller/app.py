@@ -9,7 +9,6 @@ from uuid import uuid4
 from fastapi import FastAPI, HTTPException, status
 from pydantic import BaseModel, Field
 
-
 SCENARIO_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 SNAPSHOT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 CATALOG_PATH = Path(os.environ.get("RANGE_SCENARIO_CATALOG", "/app/scenarios/catalog.json"))

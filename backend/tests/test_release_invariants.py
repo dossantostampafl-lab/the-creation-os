@@ -5,6 +5,7 @@ LOCAL_COMPOSE = REPO_ROOT / "docker-compose.yml"
 NGINX_CONFIG = REPO_ROOT / "frontend" / "nginx.conf"
 CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 KERNEL_API = REPO_ROOT / "backend" / "app" / "api" / "kernel.py"
+FRONTEND_PACKAGE = REPO_ROOT / "frontend" / "package.json"
 
 
 def test_local_compose_runs_complete_product_stack() -> None:
@@ -29,6 +30,20 @@ def test_ci_uses_read_only_repository_token() -> None:
     content = CI_WORKFLOW.read_text(encoding="utf-8")
 
     assert "permissions:\n  contents: read\n" in content
+
+
+def test_ci_lints_all_versioned_python_sources() -> None:
+    content = CI_WORKFLOW.read_text(encoding="utf-8")
+
+    assert "../.github/scripts" in content
+    assert "../cyber_range/controller" in content
+    assert "../cyber_range/tests" in content
+
+
+def test_frontend_tests_must_not_pass_when_no_tests_are_collected() -> None:
+    content = FRONTEND_PACKAGE.read_text(encoding="utf-8")
+
+    assert "--passWithNoTests" not in content
 
 
 def test_frontend_nginx_configs_apply_browser_security_headers() -> None:
