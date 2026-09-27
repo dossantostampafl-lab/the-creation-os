@@ -224,13 +224,11 @@
 - [ ] **Step 5: Run** targeted tests.
 - [ ] **Step 6: Commit** `feat: seed autonomous universe perception profiles`.
 
-### Task 9: Expand the existing Web capability into safe provider-backed perception
+### Task 9: Make the existing Web capability safely multi-action and provider-ready
 
 **Files:**
 - Modify: `backend/app/capabilities/web.py`
 - Create: `backend/app/capabilities/web_providers.py`
-- Modify: `backend/app/worker.py`
-- Modify: `backend/app/config.py`
 - Modify: `backend/tests/test_capability_web.py`
 - Create: `backend/tests/test_web_provider_selection.py`
 
@@ -241,20 +239,60 @@
 - `select_web_provider(action: str, providers: Sequence[WebProvider], *, preferred: list[str] | None = None) -> WebProvider`.
 
 - [ ] **Step 1: Extend existing web tests** so all current SSRF, redirect, host-scope and size-limit cases still pass for `fetch`.
-- [ ] **Step 2: Write provider-selection tests** with fake providers covering action support, configured preference, fallback on provider-unavailable errors, and no provider case.
-- [ ] **Step 3: Write tests** proving `search/crawl/extract` remain read-only and cannot bypass Mission host/domain restrictions where a URL/host is involved.
-- [ ] **Step 4: Run** `cd backend && pytest tests/test_capability_web.py tests/test_web_provider_selection.py -v`.
-- [ ] **Step 5: Implement** the provider protocol and routing inside the existing Web adapter. Keep provider configuration optional so a missing vendor credential never breaks direct `fetch`.
-- [ ] **Step 6: Add config-gated HTTP/MCP provider clients only after their contract tests exist. Prioritize the approved candidates: Crawlee/Crawl4AI for local crawl/extract, Playwright MCP for dynamic observation, Firecrawl/Exa/Tavily/Brave for discovery, and Apify for specialized sources. Each client must map back to the stable logical actions; vendor names must not leak into Universe policy contracts.
-- [ ] **Step 7: Run** targeted tests plus `test_capability_gateway.py` and runtime integration tests.
-- [ ] **Step 8: Commit** `feat: add replaceable web perception providers`.
+- [ ] **Step 2: Write provider-selection tests** with fake providers covering action support, configured preference, fallback on provider-unavailable errors, and no-provider behavior.
+- [ ] **Step 3: Write tests** proving `search/crawl/extract` are read-only and cannot bypass Mission host/domain restrictions where a URL/host is involved.
+- [ ] **Step 4: Run** `cd backend && pytest tests/test_capability_web.py tests/test_web_provider_selection.py -v` and confirm failure for the new actions only.
+- [ ] **Step 5: Implement** provider routing inside the existing Web adapter using fake/injected providers only; do not add vendor dependencies in this task.
+- [ ] **Step 6: Run** targeted tests plus `test_capability_gateway.py`.
+- [ ] **Step 7: Commit** `feat: make web capability provider ready`.
 
-### Task 10: Add provider adoption/shadow evidence and learning without authority expansion
+### Task 10: Integrate local crawl and extraction providers behind Web capability
+
+**Files:**
+- Modify: `backend/app/capabilities/web_providers.py`
+- Modify: `backend/app/config.py`
+- Modify: `backend/app/worker.py`
+- Modify: `backend/pyproject.toml` only when a library is actually embedded rather than called as an external service.
+- Create: `backend/tests/test_web_local_providers.py`
+
+**Interfaces:**
+- Providers expose only logical `crawl`/`extract` actions to `WebCapabilityAdapter`.
+- Candidate implementations: Crawlee for robust local crawl; Crawl4AI for LLM-oriented extraction.
+
+- [ ] **Step 1: Write provider contract tests** using deterministic fixtures; verify timeout, byte/page budgets, cancellation, normalization and failure classification.
+- [ ] **Step 2: Decide embedding vs local-service invocation per provider** based on dependency footprint and repository runtime constraints; record the decision in comments/config, not a new service layer.
+- [ ] **Step 3: Implement Crawlee/Crawl4AI adapters** only in the mode supported by those tests; all configuration is optional and fail-closed for missing credentials/endpoints.
+- [ ] **Step 4: Run** `cd backend && pytest tests/test_web_local_providers.py tests/test_capability_web.py -v`.
+- [ ] **Step 5: Commit** `feat: add local web crawl and extraction providers`.
+
+### Task 11: Integrate remote discovery, browser and specialized MCP providers
+
+**Files:**
+- Modify: `backend/app/capabilities/web_providers.py`
+- Modify: `backend/app/config.py`
+- Modify: `backend/app/worker.py`
+- Create: `backend/tests/test_web_remote_providers.py`
+- Create: `backend/tests/test_mcp_provider_contracts.py`
+
+**Interfaces:**
+- Discovery candidates: Firecrawl, Exa, Tavily, Brave.
+- Browser candidate: Playwright MCP; Browser Use remains fallback only if its contract materially adds capability.
+- Specialized candidate: Apify MCP.
+- All vendor clients map into stable logical actions and are configuration-gated; vendor names never appear in Universe authority rules.
+
+- [ ] **Step 1: Write contract tests** for remote search/crawl/extract/browser/specialized providers using mocked HTTP/MCP transports; include rate-limit, timeout, malformed response and unavailable-provider cases.
+- [ ] **Step 2: Add certification metadata tests** requiring provider origin, license/security review status, supported actions and shadow-enabled/production-enabled flags before selection.
+- [ ] **Step 3: Implement the approved provider clients** behind the existing Web adapter. Do not install an MCP-discovery platform; MCP Registry integration, if used, only supplies candidates/metadata.
+- [ ] **Step 4: Add fallback-order tests** proving provider failure does not widen scope and that no external provider is called when the Mission lacks the logical capability.
+- [ ] **Step 5: Run** targeted provider tests plus capability runtime integration tests.
+- [ ] **Step 6: Commit** `feat: add certified remote perception providers`.
+
+### Task 12: Add provider/outcome learning without authority expansion
 
 **Files:**
 - Modify: `backend/app/services/opportunity.py`
 - Modify: `backend/app/services/domain.py`
-- Modify: `backend/app/models/entities.py` only if an existing memory metadata field cannot hold the data; prefer existing `UniverseMemory`.
+- Prefer existing `backend/app/models/entities.py::UniverseMemory`; add no new learning table unless the existing JSON value cannot represent required metadata.
 - Create: `backend/tests/test_universe_learning.py`
 
 **Interfaces:**
@@ -262,13 +300,13 @@
 - Learning may update provider/sensor/detector weights only; it must not modify Mission authorization, Creator constraints, capability declarations or economic ceilings.
 
 - [ ] **Step 1: Write failing tests** showing successful/failed outcomes adjust stored preferences but not authorization fields.
-- [ ] **Step 2: Write a test** proving an experimental provider remains non-selected for material use until a shadow/certification flag is present.
+- [ ] **Step 2: Write a test** proving an experimental provider remains non-selected for material use until certification/shadow criteria are satisfied.
 - [ ] **Step 3: Run** `cd backend && pytest tests/test_universe_learning.py -v`.
-- [ ] **Step 4: Implement** learning persistence through `UniverseMemory` plus Chronicle events; no new learning service runtime.
+- [ ] **Step 4: Implement** learning persistence through `UniverseMemory` plus Chronicle events; no new learning runtime.
 - [ ] **Step 5: Run** targeted tests.
 - [ ] **Step 6: Commit** `feat: learn perception preferences from outcomes`.
 
-### Task 11: End-to-end autonomous opportunity flow and final regression gate
+### Task 13: End-to-end autonomous opportunity flow and final regression gate
 
 **Files:**
 - Create: `backend/tests/test_autonomous_opportunity_e2e.py`
@@ -308,4 +346,4 @@ Before opening the PR, verify:
 
 ## Recommended execution method
 
-Use **subagent-driven development** for implementation: Tasks 2, 4, 7, 9 and 11 contain schema/concurrency/external-effect failure modes where an independent reviewer after each task materially reduces integration risk. Keep all work on the single implementation branch and open only one consolidated PR after the whole-branch verification gate.
+Use **subagent-driven development** for implementation: schema/concurrency/economic reconciliation/provider integration/E2E tasks have failure modes where an independent reviewer after each task materially reduces integration risk. Keep all work on the single implementation branch and open only one consolidated PR after the whole-branch verification gate.
