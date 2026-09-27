@@ -58,17 +58,41 @@ fi
 # The length is the one safe thing to show: it catches a paste that arrived truncated.
 printf 'Key received: %s characters.\n' "${#api_key}"
 
+# A key created for one Workspace already carries it, so this stays empty for almost everyone.
+# It is only needed for a credential that can act on more than one Workspace, and the API
+# rejects it when it does not match the key's Workspace. It is an identifier, not a secret,
+# so it is read and shown normally.
+workspace_id=""
+if [ "$provider" = "anthropic" ]; then
+  workspace_id="${ANTHROPIC_WORKSPACE_ID:-}"
+  if [ -z "$workspace_id" ]; then
+    read -rp "Workspace ID (press Enter to skip; only for a multi-Workspace key): " workspace_id
+  fi
+  workspace_id="$(printf '%s' "$workspace_id" | tr -d '[:space:]')"
+  if [ -n "$workspace_id" ] && ! printf '%s' "$workspace_id" | grep -qE '^wrkspc_[A-Za-z0-9]+$'; then
+    echo "That is not a Workspace ID. It looks like wrkspc_011CZkZaBF1tNoB5wlCeusgy." >&2
+    echo "Nothing was changed." >&2
+    exit 1
+  fi
+fi
+
 cp .env .env.bak
 chmod 600 .env.bak
 env_set LLM_PROVIDER "$provider"
 env_set "$model_var" "$model"
 env_set "$key_var" "$api_key"
 unset api_key
+if [ "$provider" = "anthropic" ]; then
+  env_set ANTHROPIC_WORKSPACE_ID "$workspace_id"
+fi
 chmod 600 .env
 
 echo "Written to .env (the previous file is kept as .env.bak):"
 printf '  LLM_PROVIDER=%s\n' "$(env_get LLM_PROVIDER)"
 printf '  %s=%s\n' "$model_var" "$(env_get "$model_var")"
+if [ "$provider" = "anthropic" ] && [ -n "$(env_get ANTHROPIC_WORKSPACE_ID)" ]; then
+  printf '  ANTHROPIC_WORKSPACE_ID=%s\n' "$(env_get ANTHROPIC_WORKSPACE_ID)"
+fi
 if [ -n "$(env_get "$key_var")" ]; then
   printf '  %s=<set>\n' "$key_var"
 else

@@ -89,6 +89,12 @@ sudo ~/the-creation-os/deploy/oracle/set-inference.sh openai gpt-4o-mini
 
 O `.env` anterior fica guardado como `.env.bak` ao lado dele.
 
+Para `anthropic` ele também pergunta um **Workspace ID**. Quase sempre a resposta é só apertar
+Enter: uma chave criada dentro de um Workspace já o carrega consigo. Ele só é necessário para uma
+credencial que pode agir em mais de um Workspace, e a API recusa a chamada se o ID enviado não for
+o da chave. Quando precisar, ele tem a forma `wrkspc_011CZkZaBF1tNoB5wlCeusgy`, e sai em
+`console.anthropic.com` → Settings → Workspaces, na barra de endereço ao abrir o Workspace.
+
 ### Trocar qualquer outro valor
 
 Para trocar um valor sem abrir editor, e sem deixar o segredo no histórico do shell:
