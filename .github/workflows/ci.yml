@@ -55,9 +55,9 @@ jobs:
       - name: Ruff
         shell: bash
         run: |
-          if ! ruff check .; then
+          if ! ruff check . ../.github/scripts ../cyber_range/controller ../cyber_range/tests; then
             echo "::group::Ruff suggested fixes"
-            ruff check --diff . || true
+            ruff check --diff . ../.github/scripts ../cyber_range/controller ../cyber_range/tests || true
             echo "::endgroup::"
             exit 1
           fi
