@@ -16,6 +16,7 @@ on:
           - restart
           - update
           - set-inference
+          - set-creator-password
       ref:
         description: "Branch or tag to take the code from. Empty means the default branch."
         type: string
@@ -98,18 +99,25 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ANTHROPIC_MODEL: ${{ secrets.ANTHROPIC_MODEL }}
           ANTHROPIC_WORKSPACE_ID: ${{ secrets.ANTHROPIC_WORKSPACE_ID }}
+          CREATOR_PASSWORD: ${{ secrets.CREATOR_PASSWORD }}
         run: |
           set -euo pipefail
 
           # set-inference without the ANTHROPIC_API_KEY secret keeps the key the server's .env
           # already holds, so changing only the model or the Workspace ID does not require
           # pasting the key again. The script on the server refuses when there is none.
+          if [ "$TASK" = "set-creator-password" ] && [ -z "${CREATOR_PASSWORD:-}" ]; then
+            echo "::error::set-creator-password needs the CREATOR_PASSWORD secret. Add it under" \
+                 "Settings -> Secrets and variables -> Actions, then run this task again."
+            exit 1
+          fi
           # The key goes down the pipe as the first line, never as an argument: an argument is
           # visible in the server's process list to anyone who can run ps while this runs.
           # It is never put through a sed or a regex either -- a key holding the expression's
           # delimiter would break that silently.
           {
             printf '%s\n' "${ANTHROPIC_API_KEY:-}"
+            printf '%s\n' "${CREATOR_PASSWORD:-}"
             cat <<'REMOTE'
           set -euo pipefail
           # A server can carry more than one checkout: install.sh works where it is, and
@@ -166,6 +174,9 @@ jobs:
             set-inference)
               sudo -E ./deploy/oracle/set-inference.sh anthropic "${ANTHROPIC_MODEL:-claude-sonnet-5}"
               ;;
+            set-creator-password)
+              sudo -E ./deploy/oracle/set-creator-password.sh
+              ;;
             *)
               echo "Unknown task: $TASK" >&2
               exit 1
@@ -177,7 +188,8 @@ jobs:
                 "export REPO_DIR='${REPO_DIR:-}' TASK='$TASK' REF='$REF' \
                         ANTHROPIC_MODEL='${ANTHROPIC_MODEL:-}' \
                         ANTHROPIC_WORKSPACE_ID='${ANTHROPIC_WORKSPACE_ID:-}'; \
-                 IFS= read -r ANTHROPIC_API_KEY; export ANTHROPIC_API_KEY; exec bash -s"
+                 IFS= read -r ANTHROPIC_API_KEY; IFS= read -r CREATOR_PASSWORD; \
+                 export ANTHROPIC_API_KEY CREATOR_PASSWORD; exec bash -s"
 
       - name: Remove the key from the runner
         if: always()

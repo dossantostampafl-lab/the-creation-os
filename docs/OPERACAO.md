@@ -104,6 +104,23 @@ Nesse caso o `check-inference.sh` mostra `configured: true` com `available: fals
 for o da chave, a API também recusa. Quando precisar, ele tem a forma `wrkspc_011CZkZaBF1tNoB5wlCeusgy`, e sai em
 `console.anthropic.com` → Settings → Workspaces, na barra de endereço ao abrir o Workspace.
 
+### Trocar a senha do Criador
+
+```
+sudo ~/the-creation-os/deploy/oracle/set-creator-password.sh
+```
+
+Pede a senha duas vezes, sem mostrar na tela, grava no `.env`, recria `api` e `worker` — a API só
+lê o `.env` quando o contêiner nasce, então a rotação sem a recriação trocaria para o valor
+antigo — roda o `rotate-creator-password`, e no fim confirma entrando com a senha nova. Toda
+sessão aberta com a senha anterior é encerrada; isso faz parte da troca, não é um extra.
+
+Mínimo de 12 caracteres, máximo de 72 **bytes** (um acento custa dois: o bcrypt lê só os
+primeiros 72 e ignora o resto em silêncio), e sem quebra de linha.
+
+Pelo navegador: guarde a senha escolhida como o segredo `CREATOR_PASSWORD` e rode a tarefa
+`set-creator-password` no workflow Deploy.
+
 ### Conferir como está
 
 Um comando de leitura, que não altera nada:
@@ -200,6 +217,7 @@ não pode alcançar o servidor.
 | `restart` | Recria `api` e `worker`, que é como eles releem o `.env`, e depois informa. |
 | `update` | Traz o código novo, reconstrói tudo e informa. |
 | `set-inference` | Grava a chave que está nos segredos do repositório e recria `api` e `worker`. |
+| `set-creator-password` | Dá ao Criador a senha guardada no segredo `CREATOR_PASSWORD` e encerra as sessões abertas. |
 
 ### Os segredos, configurados uma vez
 
@@ -214,7 +232,8 @@ Em **Settings → Secrets and variables → Actions → New repository secret**:
 | `DEPLOY_SSH_HOST_KEY` | não | Fixa a identidade do servidor. A primeira execução imprime a linha a colar aqui. |
 | `ANTHROPIC_API_KEY` | só para `set-inference` | A chave da Anthropic. |
 | `ANTHROPIC_MODEL` | não | Sem ele, `claude-sonnet-5`. |
-| `ANTHROPIC_WORKSPACE_ID` | não | Só para uma chave que age em mais de um Workspace. |
+| `ANTHROPIC_WORKSPACE_ID` | depende | Obrigatório se a chave for da organização, não presa a um Workspace. |
+| `CREATOR_PASSWORD` | só para `set-creator-password` | A senha que você quer para entrar na interface. |
 
 ### O que isso significa em segurança
 

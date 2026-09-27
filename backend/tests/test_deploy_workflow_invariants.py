@@ -186,3 +186,42 @@ def test_the_git_check_catches_a_call_that_lost_its_sudo() -> None:
     assert not _runs_git_unprivileged('echo "$(pwd) is not a git repository" >&2')
     assert not _runs_git_unprivileged("sudo git fetch --prune origin")
     assert not _runs_git_unprivileged("""target="$(sudo git symbolic-ref --short HEAD)\"""")
+
+
+def test_the_creator_password_is_never_an_argument_to_ssh() -> None:
+    """Same reason as the API key: an argument shows in the server's process list."""
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "IFS= read -r CREATOR_PASSWORD" in text
+    ssh_line_start = text.index("| ssh -i")
+    ssh_invocation = text[ssh_line_start : text.index("\n\n", ssh_line_start)]
+    assert "CREATOR_PASSWORD='" not in ssh_invocation
+
+
+def test_the_password_script_never_echoes_the_password() -> None:
+    script = (REPO_ROOT / "deploy" / "oracle" / "set-creator-password.sh").read_text(encoding="utf-8")
+    assert "read -rsp" in script
+    assert "unset password" in script
+    for line in script.splitlines():
+        stripped = line.strip()
+        if stripped.startswith(("echo", "printf")):
+            assert "$password" not in stripped or "${#password}" in stripped, stripped
+
+
+def test_the_password_script_restarts_before_it_rotates() -> None:
+    """rotate-creator-password takes the password the running process holds, so writing .env
+    without recreating the container rotates to the old value."""
+    script = (REPO_ROOT / "deploy" / "oracle" / "set-creator-password.sh").read_text(encoding="utf-8")
+
+    def line_of(fragment: str) -> int:
+        # Comments explain the order as well as the code does, so only code lines count.
+        for number, line in enumerate(script.splitlines(), start=1):
+            if line.strip().startswith("#"):
+                continue
+            if fragment in line:
+                return number
+        raise AssertionError(f"not found in any code line: {fragment}")
+
+    wrote = line_of("env_set CREATOR_BOOTSTRAP_PASSWORD")
+    restarted = line_of("up -d --force-recreate")
+    rotated = line_of("rotate-creator-password")
+    assert wrote < restarted < rotated, (wrote, restarted, rotated)

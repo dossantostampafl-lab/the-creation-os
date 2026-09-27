@@ -11,6 +11,13 @@ env_get() { grep -E "^$1=" .env | tail -1 | cut -d= -f2- || true; }
 
 env_set() {
   local tmp
+  # .env is one variable per line, so a value carrying a newline does not merely truncate: the
+  # text after it becomes another line, which Compose reads as another variable. Refusing here
+  # covers every caller rather than trusting each one to check.
+  if [[ "$2" == *$'\n'* || "$2" == *$'\r'* ]]; then
+    echo "env_set: the value for $1 contains a line break, which would add a line to .env." >&2
+    return 1
+  fi
   tmp="$(mktemp)"
   chmod 600 "$tmp"
   grep -vE "^$1=" .env > "$tmp" || true

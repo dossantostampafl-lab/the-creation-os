@@ -11,6 +11,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 INSTALL_SH = REPO_ROOT / "deploy" / "oracle" / "install.sh"
 ENV_FILE_SH = REPO_ROOT / "deploy" / "oracle" / "env-file.sh"
@@ -101,3 +103,31 @@ def test_env_set_leaves_other_keys_with_the_same_prefix_alone(tmp_path: Path) ->
     result = _run_env_set(tmp_path, "LLM_PROVIDER=fake\nLLM_PROVIDER_EXTRA=keep\n", "LLM_PROVIDER", "anthropic")
     assert "LLM_PROVIDER=anthropic\n" in result
     assert "LLM_PROVIDER_EXTRA=keep\n" in result
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "abc\nANTHROPIC_API_KEY=injected",
+        "abc\rANTHROPIC_API_KEY=injected",
+        "trailing\n",
+    ],
+)
+def test_env_set_refuses_a_value_carrying_a_line_break(tmp_path: Path, value: str) -> None:
+    """.env is one variable per line, so the text after a newline becomes another variable."""
+    env_file = tmp_path / ".env"
+    env_file.write_text("APP_ENV=development\n", encoding="utf-8")
+    script = f"""
+set -uo pipefail
+cd {tmp_path}
+{_helpers()}
+env_set "$1" "$2"
+"""
+    completed = subprocess.run(
+        ["bash", "-c", script, "bash", "SOME_KEY", value],
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode != 0, completed.stdout
+    assert "line break" in completed.stderr
+    assert env_file.read_text(encoding="utf-8") == "APP_ENV=development\n"
