@@ -131,11 +131,19 @@ jobs:
             echo "== Note: the running api container was started from $live_dir =="
           fi
 
+          # Every git call runs as root, because an installation cloned by bootstrap-oracle.sh
+          # belongs to root: git run as anyone else refuses it as dubious ownership and exits
+          # 128, which under pipefail takes the whole run down with no explanation.
+          if ! sudo git rev-parse --git-dir >/dev/null 2>&1; then
+            echo "$(pwd) is not a git repository, so the deploy scripts cannot be updated." >&2
+            exit 1
+          fi
+
           # The deploy scripts are taken from the repository on every run, so a fix to them
           # takes effect without anyone opening a terminal.
           target="${REF:-}"
           if [ -z "$target" ]; then
-            target="$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')"
+            target="$(sudo git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||' || true)"
           fi
           target="${target:-main}"
           sudo git fetch --prune origin
