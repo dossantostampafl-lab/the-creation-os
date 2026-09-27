@@ -40,7 +40,7 @@ case "$provider" in
 esac
 
 model="${2:-$default_model}"
-if [ -z "$model" ]; then
+if [ -z "$model" ] && [ -t 0 ]; then
   read -rp "Model for $provider: " model
 fi
 if [ -z "$model" ]; then
@@ -48,11 +48,20 @@ if [ -z "$model" ]; then
   exit 1
 fi
 
+# The key may arrive in the environment, which is how CI passes it; otherwise it is asked for.
 # -s keeps the key off the screen; -r stops a backslash in it from being eaten.
-read -rsp "Paste the $provider API key and press Enter: " api_key
-echo
+api_key="${!key_var:-}"
+if [ -n "$api_key" ]; then
+  echo "Using the $key_var already in the environment."
+elif [ -t 0 ]; then
+  read -rsp "Paste the $provider API key and press Enter: " api_key
+  echo
+else
+  echo "No $key_var in the environment and no terminal to ask at; nothing changed." >&2
+  exit 1
+fi
 if [ -z "$api_key" ]; then
-  echo "No key was pasted; nothing changed." >&2
+  echo "No key was given; nothing changed." >&2
   exit 1
 fi
 # The length is the one safe thing to show: it catches a paste that arrived truncated.
@@ -65,7 +74,7 @@ printf 'Key received: %s characters.\n' "${#api_key}"
 workspace_id=""
 if [ "$provider" = "anthropic" ]; then
   workspace_id="${ANTHROPIC_WORKSPACE_ID:-}"
-  if [ -z "$workspace_id" ]; then
+  if [ -z "$workspace_id" ] && [ -t 0 ]; then
     read -rp "Workspace ID (press Enter to skip; only for a multi-Workspace key): " workspace_id
   fi
   workspace_id="$(printf '%s' "$workspace_id" | tr -d '[:space:]')"

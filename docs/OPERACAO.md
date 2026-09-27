@@ -174,3 +174,46 @@ ele vale mais que um simples "o site abriu".
 chave de assinatura e senha de Criador geradas do zero. Numa VM que já tem instalação, isso produz
 um segundo checkout e credenciais que não conferem com o banco existente. Esse script é para
 servidor novo.
+
+## Operar pelo navegador, sem terminal
+
+Há um workflow `Deploy` na aba **Actions** do repositório. Ele existe para que manter o servidor
+não dependa de abrir um terminal: você escolhe a tarefa e aperta um botão.
+
+**Ele só roda quando alguém aperta o botão.** Nenhum `push` o dispara, de propósito — um commit
+não pode alcançar o servidor.
+
+### As quatro tarefas
+
+| Tarefa | O que faz |
+|---|---|
+| `check` | Só lê e informa: o que o `.env` guarda, o que o contêiner recebeu, o que a API responde. Não altera nada. |
+| `restart` | Recria `api` e `worker`, que é como eles releem o `.env`, e depois informa. |
+| `update` | Traz o código novo, reconstrói tudo e informa. |
+| `set-inference` | Grava a chave que está nos segredos do repositório e recria `api` e `worker`. |
+
+### Os segredos, configurados uma vez
+
+Em **Settings → Secrets and variables → Actions → New repository secret**:
+
+| Segredo | Obrigatório | O que é |
+|---|---|---|
+| `DEPLOY_SSH_KEY` | sim | O conteúdo do arquivo `.key` do Oracle, inteiro, incluindo as linhas `-----BEGIN` e `-----END`. |
+| `DEPLOY_HOST` | sim | O IP público do servidor. |
+| `DEPLOY_USER` | não | O usuário do SSH. Sem ele, `ubuntu`. |
+| `DEPLOY_REPO_DIR` | não | O caminho do projeto no servidor. Sem ele, `~/the-creation-os`. |
+| `DEPLOY_SSH_HOST_KEY` | não | Fixa a identidade do servidor. A primeira execução imprime a linha a colar aqui. |
+| `ANTHROPIC_API_KEY` | só para `set-inference` | A chave da Anthropic. |
+| `ANTHROPIC_MODEL` | não | Sem ele, `claude-sonnet-5`. |
+| `ANTHROPIC_WORKSPACE_ID` | não | Só para uma chave que age em mais de um Workspace. |
+
+### O que isso significa em segurança
+
+A partir do momento em que `DEPLOY_SSH_KEY` está ali, **quem puder disparar workflows neste
+repositório alcança o servidor**. Com o repositório privado e um único dono, o risco é pequeno.
+Se houver mais gente com acesso de escrita, vale mover os segredos para um *Environment* com
+revisor obrigatório, em Settings → Environments.
+
+Na primeira execução, o log imprime a chave de host do servidor e avisa que não estava fixada.
+Colar aquela linha em `DEPLOY_SSH_HOST_KEY` fecha a última ponta: depois disso, se algum outro
+computador responder no lugar do seu servidor, o deploy para em vez de entregar a chave a ele.
