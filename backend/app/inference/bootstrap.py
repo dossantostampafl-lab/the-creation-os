@@ -51,6 +51,7 @@ def _register_provider(registry: ProviderRegistry, provider: str) -> None:
             AnthropicProvider(
                 api_key=anthropic_config.api_key.get_secret_value(),
                 default_model=anthropic_config.model,
+                workspace_id=anthropic_config.workspace_id,
                 base_url=anthropic_config.base_url,
                 timeout_seconds=anthropic_config.timeout_seconds,
                 max_output_tokens=anthropic_config.max_output_tokens,

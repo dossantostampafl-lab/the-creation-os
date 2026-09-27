@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 
 from pydantic.v1 import SecretStr
@@ -16,6 +17,7 @@ class AnthropicConfig:
     base_url: str
     model: str
     api_key: SecretStr
+    workspace_id: str | None
     timeout_seconds: float
     max_output_tokens: int
 
@@ -28,6 +30,10 @@ def load_anthropic_config() -> AnthropicConfig:
     model = os.getenv("ANTHROPIC_MODEL", "").strip()
     if not model:
         raise RuntimeError("ANTHROPIC_MODEL is required when LLM_PROVIDER=anthropic")
+
+    workspace_id = os.getenv("ANTHROPIC_WORKSPACE_ID", "").strip() or None
+    if workspace_id is not None and re.fullmatch(r"wrkspc_[A-Za-z0-9]+", workspace_id) is None:
+        raise RuntimeError("ANTHROPIC_WORKSPACE_ID must be a workspace ID")
 
     base_url = checked_base_url(
         "ANTHROPIC_BASE_URL",
@@ -54,6 +60,7 @@ def load_anthropic_config() -> AnthropicConfig:
         base_url=base_url,
         model=model,
         api_key=SecretStr(raw_api_key),
+        workspace_id=workspace_id,
         timeout_seconds=timeout_seconds,
         max_output_tokens=max_output_tokens,
     )

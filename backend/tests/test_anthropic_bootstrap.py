@@ -13,6 +13,7 @@ from app.inference.contracts import CostTier
 def anthropic_env(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-secret")
     monkeypatch.setenv("ANTHROPIC_MODEL", "claude-model")
+    monkeypatch.delenv("ANTHROPIC_WORKSPACE_ID", raising=False)
     monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
     monkeypatch.delenv("ANTHROPIC_TIMEOUT_SECONDS", raising=False)
     monkeypatch.delenv("ANTHROPIC_MAX_OUTPUT_TOKENS", raising=False)
@@ -25,18 +26,21 @@ def test_config_defaults_to_the_public_claude_endpoint() -> None:
     assert config.base_url == "https://api.anthropic.com/v1"
     assert config.model == "claude-model"
     assert config.api_key.get_secret_value() == "anthropic-secret"
+    assert config.workspace_id is None
     assert config.timeout_seconds == 60.0
     assert config.max_output_tokens == 4096
 
 
 def test_config_reads_overrides(anthropic_env) -> None:
     anthropic_env.setenv("ANTHROPIC_BASE_URL", "https://gateway.invalid/v1")
+    anthropic_env.setenv("ANTHROPIC_WORKSPACE_ID", "wrkspc_12345")
     anthropic_env.setenv("ANTHROPIC_TIMEOUT_SECONDS", "12.5")
     anthropic_env.setenv("ANTHROPIC_MAX_OUTPUT_TOKENS", "1024")
 
     config = load_anthropic_config()
 
     assert config.base_url == "https://gateway.invalid/v1"
+    assert config.workspace_id == "wrkspc_12345"
     assert config.timeout_seconds == 12.5
     assert config.max_output_tokens == 1024
 
@@ -46,6 +50,7 @@ def test_config_reads_overrides(anthropic_env) -> None:
     [
         ("ANTHROPIC_API_KEY", "", "ANTHROPIC_API_KEY is required when LLM_PROVIDER=anthropic"),
         ("ANTHROPIC_MODEL", "", "ANTHROPIC_MODEL is required when LLM_PROVIDER=anthropic"),
+        ("ANTHROPIC_WORKSPACE_ID", "invalid\r\nheader: value", "ANTHROPIC_WORKSPACE_ID must be a workspace ID"),
         ("ANTHROPIC_BASE_URL", "file:///tmp/model", "ANTHROPIC_BASE_URL must use http or https"),
         ("ANTHROPIC_BASE_URL", "http://proxy.invalid/v1", "ANTHROPIC_BASE_URL must use https outside this machine and the private network"),
         ("ANTHROPIC_TIMEOUT_SECONDS", "0", "ANTHROPIC_TIMEOUT_SECONDS must be greater than zero"),
@@ -76,6 +81,7 @@ def test_deus_uses_the_provider_model_instead_of_llm_model(anthropic_env) -> Non
 
 def test_build_model_router_registers_anthropic_provider(anthropic_env) -> None:
     anthropic_env.setattr(settings, "llm_provider", "anthropic")
+    anthropic_env.setenv("ANTHROPIC_WORKSPACE_ID", "wrkspc_12345")
 
     router = build_model_router()
     provider = router.registry.get("anthropic")
@@ -83,6 +89,7 @@ def test_build_model_router_registers_anthropic_provider(anthropic_env) -> None:
 
     assert isinstance(provider, AnthropicProvider)
     assert provider.name == "anthropic"
+    assert provider._workspace_id == "wrkspc_12345"
     assert profile is not None
     assert profile.model == "claude-model"
     assert profile.capabilities == frozenset({"text", "streaming"})

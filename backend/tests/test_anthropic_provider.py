@@ -104,6 +104,25 @@ async def test_generate_honours_request_model_and_token_budget() -> None:
 
 
 @pytest.mark.asyncio
+async def test_workspace_header_is_sent_for_messages_streams_and_health() -> None:
+    seen: list[str] = []
+
+    async def handler(req: httpx.Request) -> httpx.Response:
+        seen.append(req.headers["anthropic-workspace-id"])
+        if req.method == "GET":
+            return httpx.Response(200, json={"id": "claude-model"})
+        if json.loads(req.content).get("stream"):
+            return httpx.Response(200, text='data: {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "ok"}}\n\n')
+        return httpx.Response(200, json={"content": [{"type": "text", "text": "ok"}]})
+
+    anthropic = provider(handler, workspace_id="wrkspc_12345")
+    await anthropic.generate(request())
+    assert [chunk async for chunk in anthropic.stream(request())] == ["ok"]
+    assert (await anthropic.health()).available is True
+    assert seen == ["wrkspc_12345"] * 3
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("status", "expected"),
     [
