@@ -40,6 +40,12 @@ const state = {
     active_universes: 1,
     active_agents: 1,
   },
+  pagination: {
+    page: 1,
+    page_size: 25,
+    has_next: false,
+    totals: { missions: 1, tasks: 1, universes: 1, agents: 1 },
+  },
 };
 
 const projections = {
@@ -89,7 +95,7 @@ const inference = {
 };
 
 async function mockOperationalApi(page: import("@playwright/test").Page) {
-  await page.route("**/api/v1/system/state", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(state) }));
+  await page.route(/\/api\/v1\/system\/state(?:\?.*)?$/, (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(state) }));
   await page.route("**/api/v1/system/projections", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(projections) }));
   await page.route("**/api/v1/chronicles?limit=40&offset=0", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(chronicle) }));
   await page.route("**/api/v1/system/inference", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(inference) }));
@@ -147,7 +153,7 @@ test("renders the Living Operations Terminal from projection-backed state", asyn
 
 test("renders an explicit unconfigured inference state without fabricated providers", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("creation_access_token", "e2e-token"));
-  await page.route("**/api/v1/system/state", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(state) }));
+  await page.route(/\/api\/v1\/system\/state(?:\?.*)?$/, (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(state) }));
   await page.route("**/api/v1/system/projections", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(projections) }));
   await page.route("**/api/v1/chronicles?limit=40&offset=0", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(chronicle) }));
   await page.route("**/api/v1/system/inference", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ configured: false, configured_provider: "fake", providers: [] }) }));
@@ -236,7 +242,7 @@ test("shows a skeleton while real API state is delayed", async ({ page }) => {
 test("recovers from an offline API with the explicit Retry action", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("creation_access_token", "e2e-token"));
   let offline = true;
-  await page.route("**/api/v1/system/state", (route) => {
+  await page.route(/\/api\/v1\/system\/state(?:\?.*)?$/, (route) => {
     if (offline) return route.fulfill({ status: 503, body: "offline" });
     return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(state) });
   });
@@ -317,7 +323,7 @@ test("keeps long operational content inside drawer-owned scrolling", async ({ pa
   };
   await page.setViewportSize({ width: 360, height: 800 });
   await page.addInitScript(() => localStorage.setItem("creation_access_token", "e2e-token"));
-  await page.route("**/api/v1/system/state", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(longState) }));
+  await page.route(/\/api\/v1\/system\/state(?:\?.*)?$/, (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(longState) }));
   await page.route("**/api/v1/system/projections", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(projections) }));
   await page.route("**/api/v1/chronicles?limit=40&offset=0", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(chronicle) }));
   await page.route("**/api/v1/system/inference", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(inference) }));
