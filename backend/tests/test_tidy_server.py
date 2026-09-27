@@ -51,7 +51,11 @@ def _server(tmp_path: Path, *, live: str = "live", dormant: str = "dormant") -> 
     (binaries / "find").write_text(
         f'#!/bin/sh\necho "{live_dir}/docker-compose.cloud.yml"\necho "{dormant_dir}/docker-compose.cloud.yml"\n'
     )
-    for name in ("docker", "find"):
+    # The script re-execs itself under sudo when it is not root, and sudo drops PATH -- so on a
+    # machine where the tests do not already run as root, the doubles below would be replaced by
+    # the real docker and find. Reporting root keeps the script in this process, where they hold.
+    (binaries / "id").write_text('#!/bin/sh\n[ "$1" = "-u" ] && echo 0 || exec /usr/bin/id "$@"\n')
+    for name in ("docker", "find", "id"):
         (binaries / name).chmod(0o755)
     return {"live": live_dir, "dormant": dormant_dir, "bin": binaries, "ref": references}
 
@@ -72,6 +76,9 @@ def _run(server: dict[str, Path], *args: str) -> subprocess.CompletedProcess[str
 def test_the_report_moves_nothing(tmp_path: Path) -> None:
     server = _server(tmp_path)
     result = _run(server)
+    # Naming the live directory proves the doubles were reached. Without this, a run that never
+    # got past "no container is running" would satisfy "nothing moved" while testing nothing.
+    assert str(server["live"]) in result.stdout, result.stdout
     assert "Report only" in result.stdout
     assert server["dormant"].is_dir()
 
