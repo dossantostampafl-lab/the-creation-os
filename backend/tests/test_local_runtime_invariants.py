@@ -1,3 +1,4 @@
+import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -52,3 +53,17 @@ def test_windows_local_ops_scripts_exist() -> None:
     assert (scripts / "local-start.ps1").is_file()
     assert (scripts / "local-status.ps1").is_file()
     assert (scripts / "local-stop.ps1").is_file()
+
+
+def test_rust_build_outputs_are_ignored_and_untracked() -> None:
+    gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
+    assert "**/target/" in gitignore
+
+    tracked = subprocess.run(
+        ["git", "ls-files", "security_gateway/target"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    assert tracked == ""
