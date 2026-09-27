@@ -95,6 +95,19 @@ credencial que pode agir em mais de um Workspace, e a API recusa a chamada se o 
 o da chave. Quando precisar, ele tem a forma `wrkspc_011CZkZaBF1tNoB5wlCeusgy`, e sai em
 `console.anthropic.com` → Settings → Workspaces, na barra de endereço ao abrir o Workspace.
 
+### Conferir como está
+
+Um comando de leitura, que não altera nada:
+
+```
+sudo ~/the-creation-os/deploy/oracle/check-inference.sh
+```
+
+Ele responde três perguntas em ordem, porque a resposta errada em uma explica a seguinte: o que o
+`.env` guarda, o que o contêiner em execução recebeu dele, e o que a API responde. A chave só
+aparece como contagem de caracteres. Um `.env` certo com um contêiner vendo outra coisa significa
+que `api` e `worker` não foram recriados depois da troca.
+
 ### Trocar qualquer outro valor
 
 Para trocar um valor sem abrir editor, e sem deixar o segredo no histórico do shell:
