@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Check render.yaml beyond YAML syntax: a misspelled key must not reach a deploy.
 
 Render only reports a bad blueprint when someone tries to deploy it, so the settings the
