@@ -57,6 +57,18 @@ export type PulseValue = {
   observed_at: string;
 };
 
+export type SystemPagination = {
+  limit: number;
+  offset: number;
+  has_next: boolean;
+  totals: {
+    missions: number;
+    tasks: number;
+    universes: number;
+    agents: number;
+  };
+};
+
 export type SystemState = {
   projection: string;
   position: number;
@@ -68,6 +80,7 @@ export type SystemState = {
   memory: MemoryView;
   pulse: Record<string, PulseValue>;
   counts: SystemCounts;
+  pagination: SystemPagination;
 };
 
 export type ChronicleEvent = {
