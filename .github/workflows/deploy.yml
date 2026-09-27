@@ -17,6 +17,7 @@ on:
           - update
           - set-inference
           - set-creator-password
+          - tidy
       ref:
         description: "Branch or tag to take the code from. Empty means the default branch."
         type: string
@@ -37,6 +38,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      - name: Get the repository
+        uses: actions/checkout@v5
+
       - name: Check the inputs and the configured secrets
         shell: bash
         env:
@@ -76,15 +80,19 @@ jobs:
           printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy
           chmod 600 ~/.ssh/id_deploy
           if [ -n "${HOST_KEY:-}" ]; then
-            # Pinned: the runner will only talk to the server whose host key this is.
+            # A secret overrides, for a server whose keys the repository does not carry.
             printf '%s\n' "$HOST_KEY" > ~/.ssh/known_hosts
-            echo "The host key is pinned."
+            echo "The host key is pinned by the DEPLOY_SSH_HOST_KEY secret."
+          elif [ -s deploy/oracle/known_hosts ]; then
+            # The normal case. A host key is public, so it lives in the repository, where it
+            # can be read back and reviewed -- unlike a secret, which nobody can check again.
+            cp deploy/oracle/known_hosts ~/.ssh/known_hosts
+            echo "The host key is pinned by deploy/oracle/known_hosts."
           else
-            # First use. The key is recorded and printed so it can be pinned as
-            # DEPLOY_SSH_HOST_KEY, after which a substituted host stops the run.
+            # Nothing to pin against. Trust on first use, and say so.
             ssh-keyscan -T 10 "$HOST" > ~/.ssh/known_hosts 2>/dev/null
-            echo "::warning::DEPLOY_SSH_HOST_KEY is not set, so this run trusted whatever answered."
-            echo "Add the line below as the DEPLOY_SSH_HOST_KEY secret to pin it:"
+            echo "::warning::No pinned host key, so this run trusted whatever answered."
+            echo "Record the lines below in deploy/oracle/known_hosts:"
             cat ~/.ssh/known_hosts
           fi
           chmod 600 ~/.ssh/known_hosts
@@ -176,6 +184,9 @@ jobs:
               ;;
             set-creator-password)
               sudo -E ./deploy/oracle/set-creator-password.sh
+              ;;
+            tidy)
+              sudo ./deploy/oracle/tidy-server.sh
               ;;
             *)
               echo "Unknown task: $TASK" >&2

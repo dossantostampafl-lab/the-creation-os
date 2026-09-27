@@ -218,6 +218,7 @@ não pode alcançar o servidor.
 | `update` | Traz o código novo, reconstrói tudo e informa. |
 | `set-inference` | Grava a chave que está nos segredos do repositório e recria `api` e `worker`. |
 | `set-creator-password` | Dá ao Criador a senha guardada no segredo `CREATOR_PASSWORD` e encerra as sessões abertas. |
+| `tidy` | Relata todas as cópias do projeto no servidor. Não move nada; só informa. |
 
 ### Os segredos, configurados uma vez
 
@@ -229,7 +230,7 @@ Em **Settings → Secrets and variables → Actions → New repository secret**:
 | `DEPLOY_HOST` | sim | O IP público do servidor. |
 | `DEPLOY_USER` | não | O usuário do SSH. Sem ele, `ubuntu`. |
 | `DEPLOY_REPO_DIR` | não | O caminho do projeto no servidor. Sem ele, `~/the-creation-os`. |
-| `DEPLOY_SSH_HOST_KEY` | não | Fixa a identidade do servidor. A primeira execução imprime a linha a colar aqui. |
+| `DEPLOY_SSH_HOST_KEY` | não | Só para um servidor cujas chaves não estejam em `deploy/oracle/known_hosts`. |
 | `ANTHROPIC_API_KEY` | só para `set-inference` | A chave da Anthropic. |
 | `ANTHROPIC_MODEL` | não | Sem ele, `claude-sonnet-5`. |
 | `ANTHROPIC_WORKSPACE_ID` | depende | Obrigatório se a chave for da organização, não presa a um Workspace. |
@@ -242,6 +243,28 @@ repositório alcança o servidor**. Com o repositório privado e um único dono,
 Se houver mais gente com acesso de escrita, vale mover os segredos para um *Environment* com
 revisor obrigatório, em Settings → Environments.
 
-Na primeira execução, o log imprime a chave de host do servidor e avisa que não estava fixada.
-Colar aquela linha em `DEPLOY_SSH_HOST_KEY` fecha a última ponta: depois disso, se algum outro
-computador responder no lugar do seu servidor, o deploy para em vez de entregar a chave a ele.
+### A identidade do servidor
+
+As chaves públicas de host do servidor estão em `deploy/oracle/known_hosts`, e o workflow as usa
+em toda execução. Se outro computador responder no lugar do seu servidor, o deploy **para** em vez
+de entregar a chave SSH a ele. Não há segredo a criar: chave de host é pública por definição — é o
+que o servidor mostra a todo cliente que conecta — então ela fica no repositório, onde pode ser
+lida e conferida, ao contrário de um segredo que ninguém consegue reler.
+
+O endereço fica guardado em forma de hash, do mesmo jeito que o `HashKnownHosts` do OpenSSH grava,
+então ele não é legível ali.
+
+Se um dia você recriar a instância do Oracle, as chaves mudam e todo deploy passa a recusar a
+conexão. Isso é o comportamento certo: substitua o arquivo pela saída do `ssh-keyscan` do servidor
+novo, deliberadamente.
+
+### As cópias do projeto no servidor
+
+O Compose tira o nome do projeto do nome da pasta, e toda cópia deste projeto se chama
+`the-creation-os`. Duas cópias, portanto, apontam para os **mesmos** contêineres e os **mesmos**
+volumes: um `docker compose down -v` digitado na pasta errada levaria o banco junto.
+
+A tarefa `tidy` relata todas as cópias e qual delas está servindo. Ela não apaga nada; com
+`--park`, o script move as paradas para `<pasta>.parked-<data>`, o que dá a elas um nome de
+projeto próprio e desfaz a armadilha. Um `mv` reverte. Uma pasta iniciada por um serviço do
+systemd ou por um cron não é movida.
