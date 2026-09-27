@@ -88,22 +88,24 @@ A Mission remains the execution vehicle. Opportunity is an alternate valid sourc
 
 ## 5. Canonical 12 Universes
 
-The canonical identities are:
+The canonical identities and preserved historical UUIDs are:
 
-1. `knowledge` — Conhecimento
-2. `engineering` — Engenharia
-3. `security` — Segurança
-4. `vision` — Visão
-5. `design` — Design
-6. `business` — Negócios
-7. `marketing` — Marketing
-8. `legal` — Jurídico
-9. `finance` — Finanças
-10. `automation` — Automação
-11. `communication` — Comunicação
-12. `evolution` — Evolução
+1. `knowledge` — Conhecimento — `10000000-0000-0000-0000-000000000001`
+2. `engineering` — Engenharia — `10000000-0000-0000-0000-000000000002`
+3. `security` — Segurança — `10000000-0000-0000-0000-000000000003`
+4. `vision` — Visão — `10000000-0000-0000-0000-000000000004`
+5. `design` — Design — `10000000-0000-0000-0000-000000000005`
+6. `business` — Negócios — `10000000-0000-0000-0000-000000000006`
+7. `marketing` — Marketing — `10000000-0000-0000-0000-000000000007`
+8. `legal` — Jurídico — `10000000-0000-0000-0000-000000000008`
+9. `finance` — Finanças — `10000000-0000-0000-0000-000000000009`
+10. `automation` — Automação — `10000000-0000-0000-0000-000000000010`
+11. `communication` — Comunicação — `10000000-0000-0000-0000-000000000011`
+12. `evolution` — Evolução — `10000000-0000-0000-0000-000000000012`
 
-Historical static UUIDs should be preserved if reconciliation with the current schema proves safe and deterministic. Restoration must be idempotent.
+Restoration must be idempotent. Where current rows conflict with a canonical code or UUID, implementation must reconcile deliberately rather than create duplicates or silently rewrite unrelated identities.
+
+All 12 canonical Universes must be present, active and have at least one active minimal Agent so ROCKMAM can assign work to any of them. Additional specialist Agents may be created later without changing Universe identity.
 
 A Universe is **not a department**. It is an autonomous field of perception, creation, strategy and learning with an initial cognitive bias. Sector/domain is an attribute of an opportunity, not a boundary of a Universe.
 
@@ -594,7 +596,7 @@ Internally, it is executed as sequential TDD gates with independent verification
 Recommended order:
 
 1. Freeze and verify baseline.
-2. Restore/reconcile the canonical 12 Universes idempotently.
+2. Restore/reconcile the canonical 12 Universes idempotently, activating and minimally staffing all 12.
 3. Generalize Mission origin with a database-enforced exclusive origin invariant.
 4. Add `Opportunity`, `OpportunityThesis`, `OpportunityLease` and `EconomicLedgerEntry`.
 5. Implement opportunity discovery/qualification and thesis competition using the existing runtime patterns.
@@ -612,7 +614,9 @@ This prevents a large sensor ecosystem from being built before the system can sa
 
 ## 21. Migration strategy
 
-The current main-line migration sequence must be treated as canonical. New migration work should continue from the current head rather than reusing historical migration numbering that no longer belongs to the active chain.
+The current active main-line Alembic head is `0009`. New schema work for this design must begin with a new `0010_*` migration on the active chain.
+
+Historical migrations such as the old `0029_ff_seed.py` are evidence for canonical identity only; they must not be reintroduced into the active chain by filename/sequence.
 
 The migration must support:
 
@@ -629,9 +633,9 @@ The migration must support:
 Minimum mandatory verification:
 
 ### Universe restoration
-- all 12 canonical codes exist exactly once;
+- all 12 canonical codes and UUIDs exist exactly once;
+- all 12 are active and have at least one active minimal Agent;
 - repeated seed/reconciliation is idempotent;
-- active Agent availability is deterministic;
 - existing Creator isolation remains intact.
 
 ### Mission origin
