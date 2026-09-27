@@ -9,6 +9,7 @@ remote shell unchecked.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -17,6 +18,32 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "deploy.yml"
+
+
+
+_SINGLE_QUOTED = re.compile(r"'[^']*'")
+_DOUBLE_QUOTED = re.compile(r'"((?:[^"\\]|\\.)*)"')
+_SUBSTITUTION = re.compile(r"\$\((.*?)\)")
+_GIT_INVOCATION = re.compile(r"(?:^|[;&|]|\$\(|\bthen\b|\bdo\b|!)\s*git\s")
+
+
+def _command_positions(line: str) -> list[str]:
+    """Every part of a line a shell would run as a command, as its own string.
+
+    A message may mention git without running it, and a command substitution runs inside double
+    quotes -- `target="$(git ...)"` is a git call, so each substitution is pulled out whole
+    rather than folded back into the line, where the leading `target=` would hide it.
+    """
+    without_literals = _SINGLE_QUOTED.sub("", line)
+    commands = _SUBSTITUTION.findall(without_literals)
+    commands.append(_DOUBLE_QUOTED.sub("", without_literals))
+    return commands
+
+
+def _runs_git_unprivileged(line: str) -> bool:
+    if "sudo git " in line:
+        return False
+    return any(_GIT_INVOCATION.search(command) for command in _command_positions(line))
 
 
 def _workflow() -> dict:
@@ -122,3 +149,40 @@ def test_the_host_key_can_be_pinned() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "DEPLOY_SSH_HOST_KEY" in text
     assert "StrictHostKeyChecking=no" not in text, "never accept any host key"
+
+
+def _remote_script() -> str:
+    """The script the server runs, as the heredoc in the task step carries it."""
+    run = _steps()[2]["run"]
+    body = run.split("cat <<'REMOTE'\n", 1)[1]
+    return body.split("\nREMOTE\n", 1)[0]
+
+
+def test_every_git_call_on_the_server_runs_as_root() -> None:
+    """An installation cloned by bootstrap-oracle.sh belongs to root. git run as anyone else
+    refuses it as dubious ownership and exits 128, which under pipefail ends the run with
+    nothing said."""
+    offenders = []
+    for number, line in enumerate(_remote_script().splitlines(), start=1):
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        if _runs_git_unprivileged(stripped):
+            offenders.append(f"{number}: {stripped}")
+    assert not offenders, "git without sudo on the server:\n" + "\n".join(offenders)
+
+
+def test_the_server_script_says_why_it_stops() -> None:
+    """A bare exit 128 from git is unreadable on a phone; the run must name the cause."""
+    assert "is not a git repository" in _remote_script()
+
+
+def test_the_git_check_catches_a_call_that_lost_its_sudo() -> None:
+    """The check is only worth having if it fails on the line that took a real run down."""
+    assert _runs_git_unprivileged('target="$(git symbolic-ref --short refs/remotes/origin/HEAD)"')
+    assert _runs_git_unprivileged("git fetch --prune origin")
+    assert _runs_git_unprivileged("if ! git rev-parse --git-dir; then")
+    # And quiet on the shapes that are not a git call.
+    assert not _runs_git_unprivileged('echo "$(pwd) is not a git repository" >&2')
+    assert not _runs_git_unprivileged("sudo git fetch --prune origin")
+    assert not _runs_git_unprivileged("""target="$(sudo git symbolic-ref --short HEAD)\"""")
