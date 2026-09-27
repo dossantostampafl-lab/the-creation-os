@@ -6,6 +6,7 @@ import type { CosmosMood } from "./Cosmos";
 import { CreatorConsole } from "./CreatorConsole";
 import { DecisionsPanel } from "./DecisionsPanel";
 import { PwaStatus } from "./PwaStatus";
+import { systemPageCount } from "./systemPagination";
 import type { ChronicleEvent, ChronicleRecord, InferenceStatusSnapshot, ProjectionStatus, SystemState } from "./types";
 
 function statusTone(status: string): string {
@@ -34,6 +35,8 @@ function App() {
   const [mood, setMood] = useState<CosmosMood>("idle");
   const [vitalsOpen, setVitalsOpen] = useState(false);
   const [decisionsOpen, setDecisionsOpen] = useState(false);
+  const [systemPage, setSystemPage] = useState(1);
+  const [systemPageSize, setSystemPageSize] = useState(25);
   const cursor = useRef(0);
   const usernameRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
@@ -79,7 +82,7 @@ function App() {
         setConnection("CONNECTING");
         setError(null);
         const [snapshot, projectionStatus, inferenceStatus, history] = await Promise.all([
-          fetchSystemState(),
+          fetchSystemState(systemPage, systemPageSize),
           fetchProjectionStatus(),
           fetchInferenceStatus(),
           fetchChronicleHistory(),
@@ -112,7 +115,11 @@ function App() {
               previous_hash: null,
               created_at: event.created_at,
             }, ...current].slice(0, 40));
-            void Promise.all([fetchSystemState(), fetchProjectionStatus(), fetchInferenceStatus()]).then(([next, nextProjections, nextInference]) => {
+            void Promise.all([
+              fetchSystemState(systemPage, systemPageSize),
+              fetchProjectionStatus(),
+              fetchInferenceStatus(),
+            ]).then(([next, nextProjections, nextInference]) => {
               if (!active) return;
               setState(next);
               setProjections(nextProjections);
@@ -141,7 +148,7 @@ function App() {
       active = false;
       controller.abort();
     };
-  }, [authVersion, retryVersion]);
+  }, [authVersion, retryVersion, systemPage, systemPageSize]);
 
   function handleLogout() {
     clearSession();
@@ -153,6 +160,7 @@ function App() {
     setEvents([]);
     setVitalsOpen(false);
     setDecisionsOpen(false);
+    setSystemPage(1);
     setAuthVersion((version) => version + 1);
   }
 
@@ -182,6 +190,7 @@ function App() {
   const pulseEntries = useMemo(() => Object.entries(state?.pulse ?? {}).slice(0, 8), [state]);
   const deusReady = Boolean(inference?.configured && inference.providers.some((provider) => provider.available));
   const universes = useMemo(() => state?.universes.slice(0, 12) ?? [], [state]);
+  const systemPages = state ? systemPageCount(state.pagination.totals, systemPageSize) : 1;
 
   return (
     <main className="universe">
@@ -262,6 +271,29 @@ function App() {
               ["MEMORY", state.memory.total], ["FAILED/BLOCKED", state.counts.failed_tasks],
             ].map(([label, value]) => <article className="metric" key={String(label)}><span>{label}</span><strong>{value}</strong></article>)}
           </section>
+
+          <nav className="system-pagination" aria-label="Mission and task pages">
+            <label htmlFor="system-page-size">Rows</label>
+            <select
+              id="system-page-size"
+              value={systemPageSize}
+              onChange={(event) => {
+                setSystemPageSize(Number(event.target.value));
+                setSystemPage(1);
+              }}
+            >
+              <option value="25">25</option>
+              <option value="50">50</option>
+              <option value="100">100</option>
+            </select>
+            <button type="button" disabled={systemPage <= 1} onClick={() => setSystemPage((page) => page - 1)}>Previous</button>
+            <span>Page {systemPage} of {systemPages}</span>
+            <button
+              type="button"
+              disabled={!state.pagination.has_next}
+              onClick={() => setSystemPage((page) => Math.min(page + 1, systemPages))}
+            >Next</button>
+          </nav>
 
           <article className="panel"><div className="panel-title">SYSTEM HIERARCHY</div>
             <ol className="tree">{["CREATOR", "DEUS", "SOPHIA", "ROCKMAM", "INCEPTION", "CENTRAL CORE", "TREE CORE"].map((name) => <li key={name}>{name}</li>)}</ol>

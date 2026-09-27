@@ -245,6 +245,9 @@ html, body { margin: 0; min-width: 320px; height: 100%; background: var(--space)
 .metric { padding: 9px 8px; border-radius: 12px; background: #ffffff08; border: 1px solid #ffffff0d; }
 .metric span { display: block; min-height: 2.4em; font-size: 8px; letter-spacing: .1em; }
 .metric strong { display: block; margin-top: 6px; font: 500 18px/1 var(--mono); color: #f1efff; }
+.system-pagination { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); color: var(--muted); font: 11px var(--mono); }
+.system-pagination select, .system-pagination button { border: 1px solid var(--line-strong); border-radius: 7px; background: rgba(3, 12, 17, .7); color: var(--text); padding: 6px 9px; font: inherit; }
+.system-pagination button:disabled { opacity: .45; cursor: not-allowed; }
 .panel { border-radius: 14px; background: #ffffff06; border: 1px solid #ffffff0d; overflow: hidden; }
 .panel-title { padding: 10px 12px; border-bottom: 1px solid #ffffff0d; color: #c7bdff; }
 .tree { list-style: none; margin: 0; padding: 6px 12px; display: flex; flex-wrap: wrap; gap: 6px; }
