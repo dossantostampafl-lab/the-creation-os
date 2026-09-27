@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from app.admin import seed
 
-
 EXPECTED = (
     ("knowledge", "Conhecimento", "10000000-0000-0000-0000-000000000001"),
     ("engineering", "Engenharia", "10000000-0000-0000-0000-000000000002"),
