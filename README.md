@@ -305,7 +305,7 @@ O repositório também possui CI de build do runtime local, CodeQL/auditoria de 
 
 ## Modelo de implantação
 
-O THE CREATION OS suporta dois modos de execução, ambos mantidos e validados no CI:
+O THE CREATION OS mantém três topologias explícitas. A instalação Oracle é a produção ativa; Local/LAN e Render permanecem validados no CI.
 
 ### (a) Local / LAN via Docker Compose
 
@@ -325,8 +325,12 @@ Para um perfil endurecido (containers read-only, rede interna para dados, segred
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-### (b) Cloud via Render
+### (b) Oracle Cloud
+
+A produção ativa roda em `/opt/the-creation-os` e combina `docker-compose.yml` com `docker-compose.cloud.yml`. O workflow manual `Deploy` executa `check`, `restart`, `update`, `set-inference`, `set-creator-password` e `tidy` na VM sem definir um nome de projeto Compose. A instalação e a operação estão documentadas em [`deploy/oracle/README.md`](deploy/oracle/README.md) e [`docs/OPERACAO.md`](docs/OPERACAO.md).
+
+### (c) Cloud via Render
 
 `render.yaml` é um blueprint Render que descreve `creation-api` (web), `creation-worker` (worker), `creation-frontend` (web, build por `frontend/Dockerfile.render` e servido por `frontend/nginx.render.conf` na porta `10000`), `creation-redis` (keyvalue) e o banco gerenciado `creation-postgres`. Migrações rodam no `preDeployCommand`; `DATABASE_URL` e `REDIS_URL` vêm de referências gerenciadas, e segredos/providers são `sync: false` (informados no painel). Não há defaults `fake` de provider nesse modo.
 
-Nenhum dos modos é publicado automaticamente em merge para `main`: o GitHub continua sendo usado apenas para versionamento, Pull Requests, CI, CodeQL e auditoria de dependências.
+Nenhuma topologia é publicada automaticamente por merge em `main`. O deploy Oracle ocorre somente por acionamento manual do workflow `Deploy`; o GitHub também é usado para versionamento, Pull Requests, CI, CodeQL e auditoria de dependências.

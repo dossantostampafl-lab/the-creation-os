@@ -25,7 +25,7 @@ O comando do Compose é longo e precisa dos dois arquivos, o base e o da nuvem. 
 os dois e funciona de qualquer pasta, porque diz ao Docker onde o projeto mora:
 
 ```
-alias dc='sudo docker compose -f ~/the-creation-os/docker-compose.yml -f ~/the-creation-os/docker-compose.cloud.yml --project-directory ~/the-creation-os'
+alias dc='sudo docker compose -f /opt/the-creation-os/docker-compose.yml -f /opt/the-creation-os/docker-compose.cloud.yml --project-directory /opt/the-creation-os'
 ```
 
 Ele vale só na sessão atual; quando a conexão cair, crie de novo. Sem o `--project-directory`, o
@@ -61,8 +61,8 @@ permissão 600, então precisa de `sudo` para ler. O `.env.example` é só o mod
 em execução o lê, e ele permanece com valores `fake` de propósito.
 
 ```
-sudo grep -E '^(APP_ENV|LLM_PROVIDER|ANTHROPIC_MODEL|CREATION_DOMAIN)=' ~/the-creation-os/.env
-echo "chave: $(sudo grep -c '^ANTHROPIC_API_KEY=.\+' ~/the-creation-os/.env)"
+sudo grep -E '^(APP_ENV|LLM_PROVIDER|ANTHROPIC_MODEL|CREATION_DOMAIN)=' /opt/the-creation-os/.env
+echo "chave: $(sudo grep -c '^ANTHROPIC_API_KEY=.\+' /opt/the-creation-os/.env)"
 ```
 
 A segunda linha imprime `1` ou `0` sem revelar a chave.
@@ -73,7 +73,7 @@ Uma instalação nova sobe com `LLM_PROVIDER=fake`, que não atende missão nenh
 a um provedor de verdade, um comando:
 
 ```
-sudo ~/the-creation-os/deploy/oracle/set-inference.sh
+sudo /opt/the-creation-os/deploy/oracle/set-inference.sh
 ```
 
 Ele pede a chave com o eco do terminal desligado — a chave não aparece na tela nem entra no
@@ -83,8 +83,8 @@ o que a própria API responde. É o que vale: `configured: true` com o provedor 
 O padrão é `anthropic` com `claude-sonnet-5`. Para outro provedor ou modelo:
 
 ```
-sudo ~/the-creation-os/deploy/oracle/set-inference.sh anthropic claude-sonnet-5
-sudo ~/the-creation-os/deploy/oracle/set-inference.sh openai gpt-4o-mini
+sudo /opt/the-creation-os/deploy/oracle/set-inference.sh anthropic claude-sonnet-5
+sudo /opt/the-creation-os/deploy/oracle/set-inference.sh openai gpt-4o-mini
 ```
 
 O `.env` anterior fica guardado como `.env.bak` ao lado dele.
@@ -107,7 +107,7 @@ for o da chave, a API também recusa. Quando precisar, ele tem a forma `wrkspc_0
 ### Trocar a senha do Criador
 
 ```
-sudo ~/the-creation-os/deploy/oracle/set-creator-password.sh
+sudo /opt/the-creation-os/deploy/oracle/set-creator-password.sh
 ```
 
 Pede a senha duas vezes, sem mostrar na tela, grava no `.env`, recria `api` e `worker` — a API só
@@ -126,7 +126,7 @@ Pelo navegador: guarde a senha escolhida como o segredo `CREATOR_PASSWORD` e rod
 Um comando de leitura, que não altera nada:
 
 ```
-sudo ~/the-creation-os/deploy/oracle/check-inference.sh
+sudo /opt/the-creation-os/deploy/oracle/check-inference.sh
 ```
 
 Ele responde três perguntas em ordem, porque a resposta errada em uma explica a seguinte: o que o
@@ -139,7 +139,7 @@ que `api` e `worker` não foram recriados depois da troca.
 Para trocar um valor sem abrir editor, e sem deixar o segredo no histórico do shell:
 
 ```
-D=~/the-creation-os; V=ANTHROPIC_API_KEY
+D=/opt/the-creation-os; V=ANTHROPIC_API_KEY
 read -rsp "Cole o valor e Enter: " K; echo "  (${#K} caracteres)"
 sudo cp "$D/.env" "$D/.env.bak"
 sudo grep -vE "^$V=" "$D/.env" | sudo tee "$D/.env.novo" >/dev/null
@@ -176,8 +176,8 @@ dc exec api restore-creator
 ## Atualizar o código
 
 ```
-sudo git -C ~/the-creation-os fetch origin main
-sudo git -C ~/the-creation-os reset --hard origin/main
+sudo git -C /opt/the-creation-os fetch origin main
+sudo git -C /opt/the-creation-os reset --hard origin/main
 dc up -d --build
 ```
 
@@ -229,7 +229,7 @@ Em **Settings → Secrets and variables → Actions → New repository secret**:
 | `DEPLOY_SSH_KEY` | sim | O conteúdo do arquivo `.key` do Oracle, inteiro, incluindo as linhas `-----BEGIN` e `-----END`. |
 | `DEPLOY_HOST` | sim | O IP público do servidor. |
 | `DEPLOY_USER` | não | O usuário do SSH. Sem ele, `ubuntu`. |
-| `DEPLOY_REPO_DIR` | não | O caminho do projeto no servidor. Sem ele, `~/the-creation-os`. |
+| `DEPLOY_REPO_DIR` | não | O caminho do projeto no servidor. O bootstrap canônico usa `/opt/the-creation-os`. |
 | `DEPLOY_SSH_HOST_KEY` | não | Só para um servidor cujas chaves não estejam em `deploy/oracle/known_hosts`. |
 | `ANTHROPIC_API_KEY` | só para `set-inference` | A chave da Anthropic. |
 | `ANTHROPIC_MODEL` | não | Sem ele, `claude-sonnet-5`. |

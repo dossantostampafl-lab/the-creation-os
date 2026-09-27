@@ -3,6 +3,8 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BOOTSTRAP = REPO_ROOT / "deploy" / "oracle" / "bootstrap-oracle.sh"
 ORACLE_README = REPO_ROOT / "deploy" / "oracle" / "README.md"
+OPERATIONS = REPO_ROOT / "docs" / "OPERACAO.md"
+ROOT_README = REPO_ROOT / "README.md"
 
 
 def test_oracle_one_command_bootstrap_contract() -> None:
@@ -25,3 +27,16 @@ def test_oracle_readme_exposes_single_copy_paste_command() -> None:
     content = ORACLE_README.read_text(encoding="utf-8")
 
     assert "bootstrap-oracle.sh | sudo bash" in content
+
+
+def test_oracle_operations_use_the_canonical_install_directory() -> None:
+    content = OPERATIONS.read_text(encoding="utf-8")
+
+    assert "/opt/the-creation-os" in content
+    assert "~/the-creation-os" not in content
+
+
+def test_root_readme_lists_oracle_as_a_supported_deployment() -> None:
+    content = ROOT_README.read_text(encoding="utf-8")
+
+    assert "### (b) Oracle Cloud" in content
