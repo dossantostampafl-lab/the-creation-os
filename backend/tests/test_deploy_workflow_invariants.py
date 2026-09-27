@@ -8,8 +8,11 @@ remote shell unchecked.
 
 from __future__ import annotations
 
+import os
+import subprocess
 from pathlib import Path
 
+import pytest
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -69,9 +72,44 @@ def test_the_key_is_masked_before_anything_can_print_it() -> None:
     assert "::add-mask::" in text or "IFS= read -r ANTHROPIC_API_KEY" in text
 
 
-def test_the_ref_input_is_validated_before_it_reaches_a_shell() -> None:
-    validation = _steps()[0]["run"]
-    assert "^[A-Za-z0-9._/-]*$" in validation, "the ref must be held to git ref characters"
+def _run_validation(ref: str) -> int:
+    """The real validation step, run as the workflow runs it."""
+    script = _steps()[0]["run"]
+    completed = subprocess.run(
+        ["bash", "-e", "-c", script],
+        env={"PATH": os.environ["PATH"], "SSH_KEY": "k", "HOST": "h", "REF": ref},
+        capture_output=True,
+        text=True,
+    )
+    return completed.returncode
+
+
+def test_the_default_empty_ref_is_accepted() -> None:
+    """An earlier version piped the ref to grep, which emits no line for an empty string and
+    so rejected the workflow's own default."""
+    assert _run_validation("") == 0
+
+
+@pytest.mark.parametrize("ref", ["main", "claude/quefo-riar-dashboard-1tkypb", "v1.2.3", "a_b-c.d/e"])
+def test_a_real_ref_is_accepted(ref: str) -> None:
+    assert _run_validation(ref) == 0
+
+
+@pytest.mark.parametrize(
+    "ref",
+    [
+        "main'; rm -rf /; echo '",
+        "main$(id)",
+        "main`whoami`",
+        "main; cat /etc/shadow",
+        "main && curl evil.invalid",
+        "main\nsecond-line",
+        "main $(echo hi)",
+    ],
+)
+def test_an_injection_through_the_ref_is_refused(ref: str) -> None:
+    """The ref ends up inside a command string the server's shell runs."""
+    assert _run_validation(ref) == 1
 
 
 def test_the_private_key_is_removed_from_the_runner() -> None:
