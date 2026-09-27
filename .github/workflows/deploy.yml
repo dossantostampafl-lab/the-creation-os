@@ -116,8 +116,20 @@ jobs:
             printf '%s\n' "${ANTHROPIC_API_KEY:-}"
             cat <<'REMOTE'
           set -euo pipefail
-          cd "${REPO_DIR:-$HOME/the-creation-os}"
-          echo "== Server: $(hostname), repository: $(pwd) =="
+          # A server can carry more than one checkout: install.sh works where it is, and
+          # bootstrap-oracle.sh installs into /opt. The running api container names the
+          # directory its Compose project was started from, and that is the only one whose
+          # .env the API is reading. DEPLOY_REPO_DIR overrides it when it is set.
+          live_dir=""
+          api_container="$(sudo docker ps --filter 'label=com.docker.compose.service=api' --format '{{.ID}}' | head -1)"
+          if [ -n "$api_container" ]; then
+            live_dir="$(sudo docker inspect -f '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$api_container" 2>/dev/null || true)"
+          fi
+          cd "${REPO_DIR:-${live_dir:-$HOME/the-creation-os}}"
+          echo "== Server: $(hostname), acting on: $(pwd) =="
+          if [ -n "$live_dir" ] && [ "$live_dir" != "$(pwd)" ]; then
+            echo "== Note: the running api container was started from $live_dir =="
+          fi
 
           # The deploy scripts are taken from the repository on every run, so a fix to them
           # takes effect without anyone opening a terminal.
