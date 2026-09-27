@@ -37,6 +37,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Check the inputs and the configured secrets
+        shell: bash
         env:
           SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           HOST: ${{ secrets.DEPLOY_HOST }}
@@ -53,7 +54,11 @@ jobs:
           fi
           # The ref is typed by whoever runs this and ends up inside a command the server runs,
           # so it is held to the characters a git ref may contain and nothing else.
-          if ! printf '%s' "${REF:-}" | grep -qE '^[A-Za-z0-9._/-]*$'; then
+          # A bash match, not a grep. grep would get this wrong twice: an empty ref emits no
+          # line at all, so nothing matches and the workflow's own default is rejected; and
+          # grep matches line by line, so a ref carrying a newline passes on its first line
+          # while the rest travels on to the server's shell.
+          if ! [[ "${REF:-}" =~ ^[A-Za-z0-9._/-]*$ ]]; then
             echo "::error::The ref may only contain letters, digits, dot, underscore, slash and dash."
             exit 1
           fi
