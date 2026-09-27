@@ -30,6 +30,7 @@ class AnthropicProvider:
         *,
         api_key: str,
         default_model: str,
+        workspace_id: str | None = None,
         base_url: str = "https://api.anthropic.com/v1",
         timeout_seconds: float = 60.0,
         max_output_tokens: int = 4096,
@@ -52,20 +53,24 @@ class AnthropicProvider:
 
         self._api_key = normalized_key
         self._default_model = normalized_model
+        self._workspace_id = workspace_id
         self._base_url = base_url.rstrip("/")
         self._timeout_seconds = timeout_seconds
         self._max_output_tokens = max_output_tokens
         self._transport = transport
 
     def _client(self) -> httpx.AsyncClient:
+        headers = {
+            "x-api-key": self._api_key,
+            "anthropic-version": ANTHROPIC_VERSION,
+            "content-type": "application/json",
+        }
+        if self._workspace_id is not None:
+            headers["anthropic-workspace-id"] = self._workspace_id
         return httpx.AsyncClient(
             timeout=self._timeout_seconds,
             transport=self._transport,
-            headers={
-                "x-api-key": self._api_key,
-                "anthropic-version": ANTHROPIC_VERSION,
-                "content-type": "application/json",
-            },
+            headers=headers,
         )
 
     def _request_payload(self, request: InferenceRequest, *, stream: bool = False) -> dict[str, Any]:
