@@ -57,11 +57,15 @@ elif [ -t 0 ]; then
   read -rsp "Paste the $provider API key and press Enter: " api_key
   echo
 else
-  echo "No $key_var in the environment and no terminal to ask at; nothing changed." >&2
-  exit 1
+  # Without a terminal and without the variable, the key already in .env is the one meant:
+  # changing only the model or the Workspace must not demand that the key be pasted again.
+  api_key="$(env_get "$key_var")"
+  if [ -n "$api_key" ]; then
+    echo "Keeping the $key_var already in .env."
+  fi
 fi
 if [ -z "$api_key" ]; then
-  echo "No key was given; nothing changed." >&2
+  echo "No $key_var was given, and .env holds none; nothing changed." >&2
   exit 1
 fi
 # The length is the one safe thing to show: it catches a paste that arrived truncated.

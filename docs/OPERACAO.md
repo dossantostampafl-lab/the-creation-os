@@ -89,10 +89,19 @@ sudo ~/the-creation-os/deploy/oracle/set-inference.sh openai gpt-4o-mini
 
 O `.env` anterior fica guardado como `.env.bak` ao lado dele.
 
-Para `anthropic` ele também pergunta um **Workspace ID**. Quase sempre a resposta é só apertar
-Enter: uma chave criada dentro de um Workspace já o carrega consigo. Ele só é necessário para uma
-credencial que pode agir em mais de um Workspace, e a API recusa a chamada se o ID enviado não for
-o da chave. Quando precisar, ele tem a forma `wrkspc_011CZkZaBF1tNoB5wlCeusgy`, e sai em
+Para `anthropic` ele também pergunta um **Workspace ID**. Se a sua chave foi criada dentro de um
+Workspace, ela já o carrega consigo e basta apertar Enter. Se ela é da organização — não presa a
+um Workspace — a Anthropic **exige** o header, e sem ele toda chamada volta assim:
+
+```
+HTTP 400  invalid_request_error
+This API key is not scoped to a workspace, so this request must include the
+anthropic-workspace-id header with the ID of the workspace to use.
+```
+
+Nesse caso o `check-inference.sh` mostra `configured: true` com `available: false` e
+`upstream_status_400`, e a seção 4 dele imprime a mensagem acima na íntegra. Se o ID enviado não
+for o da chave, a API também recusa. Quando precisar, ele tem a forma `wrkspc_011CZkZaBF1tNoB5wlCeusgy`, e sai em
 `console.anthropic.com` → Settings → Workspaces, na barra de endereço ao abrir o Workspace.
 
 ### Conferir como está

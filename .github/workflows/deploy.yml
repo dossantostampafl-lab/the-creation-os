@@ -101,13 +101,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [ "$TASK" = "set-inference" ] && [ -z "${ANTHROPIC_API_KEY:-}" ]; then
-            echo "::error::set-inference needs the ANTHROPIC_API_KEY secret. Add it under" \
-                 "Settings -> Secrets and variables -> Actions, or use the restart task if" \
-                 "the key is already in the server's .env."
-            exit 1
-          fi
-
+          # set-inference without the ANTHROPIC_API_KEY secret keeps the key the server's .env
+          # already holds, so changing only the model or the Workspace ID does not require
+          # pasting the key again. The script on the server refuses when there is none.
           # The key goes down the pipe as the first line, never as an argument: an argument is
           # visible in the server's process list to anyone who can run ps while this runs.
           # It is never put through a sed or a regex either -- a key holding the expression's
