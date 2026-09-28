@@ -229,6 +229,29 @@ async def seed_universes() -> int:
                 )
                 await repository.commit()
 
+        # Reconciling means the canon is the whole operating set, not merely a subset of it.
+        # A Universe from an older catalogue stays active otherwise, competing for Missions it
+        # was never designed to carry. It is retired, never deleted: the Chronicle references it,
+        # and reactivating a row is one column where restoring a deleted one is an excavation.
+        canonical_codes = {spec.code for spec in CANONICAL_UNIVERSES}
+        retired: list[str] = []
+        for universe in await session.scalars(select(Universe).where(Universe.active.is_(True))):
+            if universe.code in canonical_codes:
+                continue
+            universe.active = False
+            retired.append(universe.code)
+            await repository.add_event(
+                "universe_retired",
+                "universe",
+                universe.id,
+                actor.id,
+                actor.role,
+                str(uuid.uuid4()),
+                {"code": universe.code, "reason": "outside_the_canonical_catalog"},
+            )
+        if retired:
+            await repository.commit()
+
         print(
             json.dumps(
                 {
@@ -236,6 +259,7 @@ async def seed_universes() -> int:
                     "universes_created": created,
                     "universes_activated": activated,
                     "agents_ready": staffed,
+                    "universes_retired": retired,
                 }
             )
         )

@@ -123,3 +123,28 @@ async def test_seed_reactivates_a_universe_or_agent_that_was_turned_off(database
         universe = await session.scalar(select(Universe).where(Universe.code == code))
         agent = await session.scalar(select(Agent).where(Agent.code == f"{code}-agent"))
         assert universe.active and agent.active
+
+
+@pytest.mark.asyncio
+async def test_seeding_retires_a_universe_outside_the_canon(database) -> None:
+    """A Universe from an older catalogue stays active and competes for Missions it was never
+    designed to carry. The live server carried three of them after the canonical seed ran."""
+    await add_creator(database)
+    async with database() as session:
+        session.add(Universe(id=str(uuid.uuid4()), code="research", name="Research", active=True))
+        await session.commit()
+
+    assert await seed_universes() == 0
+
+    async with database() as session:
+        stranger = await session.scalar(select(Universe).where(Universe.code == "research"))
+        assert stranger is not None, "retiring must not delete: the Chronicle references it"
+        assert stranger.active is False
+
+        active = (await session.scalars(select(Universe).where(Universe.active.is_(True)))).all()
+        assert {universe.code for universe in active} == {spec.code for spec in CANONICAL_UNIVERSES}
+
+        retirements = (await session.scalars(
+            select(Chronicle).where(Chronicle.event_type == "universe_retired")
+        )).all()
+        assert [event.payload_json["code"] for event in retirements] == ["research"]
