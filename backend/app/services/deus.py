@@ -41,17 +41,19 @@ SYSTEM_PROMPT = (
 # Obvious dialogue and read-only questions do not need an extra SOPHIA model call before DEUS answers.
 # Requests that contain an execution verb still go through the Trinity, even when phrased as a question.
 _ACTION_REQUEST = re.compile(
-    r"\\b(cri(?:e|ar)|fa(?:ça|ca|zer)|implement(?:e|ar)|corrij(?:a|ir)|execut(?:e|ar)|"
+    r"\b(cri(?:e|ar)|fa(?:ça|ca|zer)|implement(?:e|ar)|corrij(?:a|ir)|execut(?:e|ar)|"
     r"inici(?:e|ar)|constru(?:a|ir)|public(?:e|ar)|deploy|instal(?:e|ar)|remov(?:a|er)|"
     r"alter(?:e|ar)|atualiz(?:e|ar)|configur(?:e|ar)|integr(?:e|ar)|automatiz(?:e|ar)|"
-    r"prossig(?:a|uir)|continu(?:e|ar)|cancel(?:e|ar)|autoriz(?:e|ar)|aprov(?:e|ar))\\b",
+    r"melhor(?:e|ar)|otimiz(?:e|ar)|adicion(?:e|ar)|modific(?:e|ar)|repar(?:e|ar)|"
+    r"reescrev(?:a|er)|prossig(?:a|uir)|continu(?:e|ar)|cancel(?:e|ar)|"
+    r"autoriz(?:e|ar)|aprov(?:e|ar))\b",
     re.IGNORECASE,
 )
 _DIALOGUE_OPENING = re.compile(
-    r"^\\s*(oi|olá|ola|bom dia|boa tarde|boa noite|deus\\b|status\\b|"
-    r"o que\\b|qual\\b|quais\\b|como\\b|quando\\b|onde\\b|quem\\b|"
-    r"por que\\b|porque\\b|quanto\\b|quantos\\b|me diga\\b|me explique\\b|"
-    r"explique\\b|entendeu\\b|e (isso|agora|ele|ela|eles|elas)\\b)",
+    r"^\s*(oi|olá|ola|bom dia|boa tarde|boa noite|deus\b|status\b|"
+    r"o que\b|qual\b|quais\b|como\b|quando\b|onde\b|quem\b|"
+    r"por que\b|porque\b|quanto\b|quantos\b|me diga\b|me explique\b|"
+    r"explique\b|entendeu\b|e (isso|agora|ele|ela|eles|elas)\b)",
     re.IGNORECASE,
 )
 
