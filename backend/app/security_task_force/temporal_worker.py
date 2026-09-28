@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from pathlib import Path
 
@@ -38,6 +39,8 @@ def build_dependencies() -> StfDependencies:
 
 
 async def main() -> None:
+    # Telemetry lines are one JSON object each; without a handler the stf logger drops them.
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
     client = await Client.connect(os.getenv("TEMPORAL_ADDRESS", "temporal:7233"))
     activities = StfActivities(build_dependencies())
     worker = Worker(client, task_queue=TASK_QUEUE, workflows=[MissionWorkflow], activities=activities.all())

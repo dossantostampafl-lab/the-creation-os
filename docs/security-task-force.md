@@ -42,6 +42,23 @@ docker compose -f cyber_range/compose.yml --profile cyber-range up -d   # option
 
 The core stack (`docker compose up`) never depends on any Task Force service.
 
+### Telemetry (optional)
+
+```bash
+docker compose --profile security-task-force --profile observability up -d
+```
+
+Task Force workers write one JSON line per transition, decision, grant, dispatch and revocation (secrets redacted).
+Promtail reads Docker's container log files (read-only, no Docker socket), keeps only lines carrying an `event` key,
+and ships them to Loki; Grafana is published on `127.0.0.1:${STF_GRAFANA_PORT:-3001}` only and needs
+`STF_GRAFANA_ADMIN_PASSWORD`. The compose files and invariants are tested; the Loki/Promtail/Grafana containers
+themselves have not been run in the development sandbox.
+
+### Checking a host for privileged execution
+
+`deploy/stf/verify-host.sh` is a read-only check of KVM, Kata and Firecracker (plus jailer). It exits 0 only when a
+strong backend is available; run it on the host before enabling `STF_KATA_AVAILABLE` / `STF_FIRECRACKER_AVAILABLE`.
+
 ## Status (evidence-based)
 
 | Component | Status | Evidence |
@@ -49,7 +66,7 @@ The core stack (`docker compose up`) never depends on any Task Force service.
 | Contracts, compiler, authorization, grants, kill switch, ledger, events, evidence, verification | TESTED | `backend/tests/test_stf_*.py` (local + CI) |
 | Adapter and HTTP routes, Chronicle correlation | TESTED | `test_stf_integration.py` incl. PostgreSQL |
 | Rust gateway (validation, replay, TCP service) | TESTED | `cargo test`, clippy `-D warnings`, cross-language signature vector, `test_stf_e2e.py` against the real binary |
-| Sandbox selection | TESTED (selection only) | `test_stf_modules.py`; no Kata/Firecracker adapter has run on a real host |
+| Sandbox selection | TESTED (selection only) | `test_stf_modules.py`. The gateway's Kata/Firecracker adapters authorize a request for their boundary but execute nothing: running work inside them is an operator-supplied integration that has not been exercised on a real host |
 | Rego policy | TESTED | CI `opa` job (`opa check --strict` and `opa test`, OPA 0.70.0) on PR #80 head `f6ddb1b`; decisions also cross-checked with an independent Rego engine |
 | Temporal workflow | TESTED | `test_stf_workflow.py` on the Temporal time-skipping test server, run in the CI `backend` job on PR #80 head `f6ddb1b` (not skipped there) |
 | Real-environment execution | NOT VERIFIED | no real environment has been exercised, and Range success does not imply it |

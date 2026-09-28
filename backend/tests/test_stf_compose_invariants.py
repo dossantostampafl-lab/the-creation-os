@@ -68,3 +68,28 @@ def test_range_targets_are_loopback_only_and_never_lan_bound():
         for port in service.get("ports", []):
             assert str(port).startswith("127.0.0.1:"), (name, port)
     assert "cyber-range" not in str(compose()["services"].keys())
+
+
+def test_observability_is_optional_read_only_and_loopback_only():
+    services = compose()["services"]
+    names = ("stf-loki", "stf-promtail", "stf-grafana")
+    for name in names:
+        assert services[name]["profiles"] == ["observability"], name
+        assert not any("docker.sock" in str(volume) for volume in services[name].get("volumes", [])), name
+    assert not services["stf-loki"].get("ports") and not services["stf-promtail"].get("ports")
+    assert services["stf-grafana"]["ports"] == ['127.0.0.1:${STF_GRAFANA_PORT:-3001}:3000']
+    logs = [v for v in services["stf-promtail"]["volumes"] if "/var/lib/docker/containers" in str(v)]
+    assert logs and all(str(v).endswith(":ro") for v in logs)
+    assert compose()["networks"]["obs-backend"]["internal"] is True
+    assert services["stf-grafana"]["environment"]["GF_AUTH_ANONYMOUS_ENABLED"] == "false"
+    for name in ("stf-worker", "stf-gateway", "api", "worker"):
+        assert "obs-backend" not in services[name].get("networks", []), name
+
+
+def test_core_stack_does_not_depend_on_observability():
+    services = compose()["services"]
+    for name, service in services.items():
+        depends = service.get("depends_on", {})
+        deps = depends if isinstance(depends, list) else list(depends)
+        if name not in ("stf-promtail", "stf-grafana"):
+            assert not any(dep in ("stf-loki", "stf-promtail", "stf-grafana") for dep in deps), name

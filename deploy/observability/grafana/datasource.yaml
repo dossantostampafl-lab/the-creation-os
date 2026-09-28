@@ -1,0 +1,7 @@
+apiVersion: 1
+datasources:
+  - name: Task Force telemetry
+    type: loki
+    access: proxy
+    url: http://stf-loki:3100
+    isDefault: true
