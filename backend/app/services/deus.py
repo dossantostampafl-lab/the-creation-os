@@ -50,15 +50,19 @@ SYSTEM_PROMPT = (
 
 LIVE_ITEMS = 8
 
-# Obvious dialogue and read-only questions do not need an extra SOPHIA model call before DEUS answers.
-# Requests that contain an execution verb still go through the Trinity, even when phrased as a question.
-_ACTION_REQUEST = re.compile(
-    r"\b(cri(?:e|ar)|fa(?:ça|ca|zer)|implement(?:e|ar)|corrij(?:a|ir)|execut(?:e|ar)|"
+# Conversational and bounded contextual commands should stay single-pass. Governance-sensitive
+# or substantial execution requests still go through SOPHIA/ROCKMAM. Mission precedence wins.
+_MISSION_REQUEST = re.compile(
+    r"\b(cri(?:e|ar)|fa(?:ça|ca|zer)|implement(?:e|ar)|execut(?:e|ar)|"
     r"inici(?:e|ar)|constru(?:a|ir)|public(?:e|ar)|deploy|instal(?:e|ar)|remov(?:a|er)|"
     r"alter(?:e|ar)|atualiz(?:e|ar)|configur(?:e|ar)|integr(?:e|ar)|automatiz(?:e|ar)|"
     r"melhor(?:e|ar)|otimiz(?:e|ar)|adicion(?:e|ar)|modific(?:e|ar)|repar(?:e|ar)|"
-    r"reescrev(?:a|er)|prossig(?:a|uir)|continu(?:e|ar)|cancel(?:e|ar)|"
-    r"autoriz(?:e|ar)|aprov(?:e|ar))\b",
+    r"reescrev(?:a|er)|cancel(?:e|ar)|autoriz(?:e|ar)|aprov(?:e|ar))\b",
+    re.IGNORECASE,
+)
+_SIMPLE_ACTION = re.compile(
+    r"^\s*(?:continue|prossiga|mostre|verifique|repita|abra|feche|"
+    r"corrija\s+(?:isso|isto|esse erro|o erro))\s*[.!?]*\s*$",
     re.IGNORECASE,
 )
 _DIALOGUE_OPENING = re.compile(
@@ -71,15 +75,17 @@ _DIALOGUE_OPENING = re.compile(
 
 
 def needs_trinity(content: str) -> bool:
-    """Keep governance for execution requests while making ordinary dialogue single-pass."""
+    """Route only substantial or governance-sensitive work through the full Trinity."""
     normalized = " ".join(content.split())
     if not normalized:
         return False
-    if _ACTION_REQUEST.search(normalized):
+    if _MISSION_REQUEST.search(normalized):
         return True
+    if _SIMPLE_ACTION.fullmatch(normalized):
+        return False
     if "?" in normalized or _DIALOGUE_OPENING.search(normalized):
         return False
-    # Ambiguous statements still go through SOPHIA rather than being guessed locally.
+    # Ambiguous non-dialogue statements still fail closed into SOPHIA.
     return True
 
 

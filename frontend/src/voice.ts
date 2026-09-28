@@ -382,14 +382,33 @@ export function useDeusVoice() {
 
   const acknowledge = useCallback((text: string, handlers: SpeakHandlers = {}) => {
     const content = speakable(text);
-    stop();
     if (!enabledRef.current || !content) {
       handlers.onEnd?.();
       return;
     }
-    // Wake acknowledgements must be immediate: never wait on a network TTS round trip.
-    speakWithBrowser(content, handlers);
-  }, [speakWithBrowser, stop]);
+    // Wake acknowledgement is deliberately outside the `speaking` state. It keeps DEUS's
+    // configured voice identity while the ears remain armed for the Creator's next words.
+    const cached = phraseCache.get(content);
+    const pending = cached ? Promise.resolve(cached) : synthesizeVoice(content).then((blob) => {
+      if (content.length < 80) phraseCache.set(content, blob);
+      return blob;
+    });
+    void pending.then((blob) => {
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      let finished = false;
+      const finish = () => {
+        if (finished) return;
+        finished = true;
+        URL.revokeObjectURL(url);
+        handlers.onEnd?.();
+      };
+      audio.onended = finish;
+      audio.onerror = finish;
+      handlers.onStart?.();
+      void audio.play().catch(finish);
+    }).catch(() => handlers.onEnd?.());
+  }, []);
 
   return { supported, enabled, speaking, toggle, speak, acknowledge, stop };
 }
@@ -571,15 +590,11 @@ export function useDeusEars({ paused, conversing = false, onWake, onCommand, onI
     });
   }
 
-  async function maybeImproveTranscript(browserText: string, averageConfidence: number | null): Promise<string> {
-    // Confidence 0/undefined is common on Chromium and does not mean "bad". Only pay the
-    // network/STT latency when the recognizer explicitly reports low confidence.
-    if (averageConfidence === null || averageConfidence >= 0.72 || Date.now() < transcriptionRetryAt.current) {
-      void finishCapture();
-      return browserText;
-    }
+  async function maybeImproveTranscript(browserText: string, _averageConfidence: number | null): Promise<string> {
+    // Once DEUS is attentive, captured audio is authoritative. Chromium confidence is too
+    // inconsistent to decide whether the high-quality server STT should run.
     const audio = await finishCapture();
-    if (!audio || audio.size < 400) return browserText;
+    if (!audio || audio.size < 400 || Date.now() < transcriptionRetryAt.current) return browserText;
     try {
       const improved = await transcribeVoice(audio);
       return improved.text.trim() || browserText;
