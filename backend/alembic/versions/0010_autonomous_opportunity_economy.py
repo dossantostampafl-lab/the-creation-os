@@ -1,6 +1,6 @@
 """Add autonomous opportunities, leases, economic ledger, and dual mission origin.
 
-Revision ID: 0010_autonomous_opportunity_economy
+Revision ID: 0010_opportunity_economy
 Revises: 0009_semantic_cache
 """
 from __future__ import annotations
@@ -9,7 +9,7 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision = "0010_autonomous_opportunity_economy"
+revision = "0010_opportunity_economy"
 down_revision = "0009_semantic_cache"
 branch_labels = None
 depends_on = None
