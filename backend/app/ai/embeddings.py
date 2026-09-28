@@ -40,14 +40,12 @@ class FreeLLMAPIEmbeddingModel:
     def __init__(
         self,
         *,
-        api_key: str,
+        api_key: str | None = None,
         model: str,
         base_url: str,
         timeout_seconds: float = 60.0,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
-        if not api_key.strip():
-            raise ValueError("FreeLLMAPI embedding API key is required")
         if not model.strip():
             raise ValueError("FreeLLMAPI embedding model is required")
         if timeout_seconds <= 0:
@@ -56,7 +54,7 @@ class FreeLLMAPIEmbeddingModel:
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             raise ValueError("FreeLLMAPI embedding base URL must use http or https")
 
-        self._api_key = api_key
+        self._api_key = api_key.strip() if api_key and api_key.strip() else None
         self.model = model
         self.base_url = base_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
@@ -70,7 +68,7 @@ class FreeLLMAPIEmbeddingModel:
             ) as client:
                 response = await client.post(
                     f"{self.base_url}/embeddings",
-                    headers={"Authorization": f"Bearer {self._api_key}"},
+                    headers={"Authorization": f"Bearer {self._api_key}"} if self._api_key else {},
                     json={"model": self.model, "input": text},
                 )
         except httpx.TimeoutException as exc:
@@ -119,7 +117,7 @@ def build_embedding_model() -> EmbeddingModel:
             raise RuntimeError("FreeLLMAPI embedding provider requires EMBEDDING_MODEL")
         gateway_config = load_freellmapi_config()
         return FreeLLMAPIEmbeddingModel(
-            api_key=gateway_config.api_key.get_secret_value(),
+            api_key=gateway_config.api_key.get_secret_value() if gateway_config.api_key else None,
             model=settings.embedding_model,
             base_url=gateway_config.base_url,
             timeout_seconds=gateway_config.timeout_seconds,

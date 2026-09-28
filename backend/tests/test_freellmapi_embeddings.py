@@ -80,7 +80,9 @@ def test_build_embedding_model_requires_freellmapi_configuration(monkeypatch) ->
     monkeypatch.setattr(settings, "embedding_model", "embedding-model")
     monkeypatch.delenv("FREELLMAPI_API_KEY", raising=False)
 
-    with pytest.raises(RuntimeError, match="FREELLMAPI_API_KEY"):
+    monkeypatch.delenv("FREELLMAPI_BASE_URL", raising=False)
+
+    with pytest.raises(RuntimeError, match="FREELLMAPI_BASE_URL"):
         build_embedding_model()
 
 
@@ -97,3 +99,15 @@ def test_build_embedding_model_creates_freellmapi_model_from_environment(monkeyp
     assert model.model == "embedding-model"
     assert model.base_url == "http://freellmapi:3001/v1"
     assert model.timeout_seconds == 17.0
+
+
+async def test_embeddings_without_a_key_send_no_authorization_header() -> None:
+    seen: list[str | None] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.headers.get("authorization"))
+        return httpx.Response(200, json={"data": [{"embedding": [0.1, 0.2]}]})
+
+    model = FreeLLMAPIEmbeddingModel(model="m", base_url="http://freellmapi.local/v1", transport=httpx.MockTransport(handler))
+    assert await model.embed("text") == [0.1, 0.2]
+    assert seen == [None]

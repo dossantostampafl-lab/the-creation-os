@@ -115,3 +115,26 @@ def test_the_key_already_in_env_is_kept_when_none_is_given(server):
     assert run("freellmapi", "auto", FREELLMAPI_API_KEY=KEY, FALLBACK_PROVIDERS="anthropic").returncode == 0
     result = run("freellmapi", "auto", FALLBACK_PROVIDERS="anthropic")
     assert result.returncode == 0 and env()["FREELLMAPI_API_KEY"] == KEY
+
+
+def test_freellmapi_can_be_set_up_without_a_key_but_other_providers_cannot(server):
+    run, env, root = server
+    result = run("freellmapi", "auto", FALLBACK_PROVIDERS="anthropic")
+    assert result.returncode == 0, result.stderr
+    values = env()
+    assert values["LLM_PROVIDER"] == "freellmapi" and values["FREELLMAPI_API_KEY"] == ""
+    assert "no Authorization header" in result.stdout
+    # The reserve is unaffected, and another provider without any key is still refused.
+    assert values["ANTHROPIC_API_KEY"] == "sk-ant-EXISTING"
+    text = (root / ".env").read_text().replace("ANTHROPIC_API_KEY=sk-ant-EXISTING\n", "")
+    (root / ".env").write_text(text)
+    refused = run("anthropic", "claude-sonnet-5")
+    assert refused.returncode != 0 and "nothing changed" in refused.stderr
+
+
+def test_a_freellmapi_reserve_needs_only_its_model(server):
+    run, env, root = server
+    (root / ".env").write_text((root / ".env").read_text() + "FREELLMAPI_MODEL=auto\n")
+    result = run("anthropic", "claude-sonnet-5", ANTHROPIC_API_KEY="sk-ant-NEW", FALLBACK_PROVIDERS="freellmapi")
+    assert result.returncode == 0, result.stderr
+    assert env()["LLM_FALLBACK_PROVIDERS"] == "freellmapi"

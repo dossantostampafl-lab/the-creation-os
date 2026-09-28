@@ -29,19 +29,19 @@ def test_build_model_router_registers_freellmapi_from_dedicated_environment(monk
     assert profile.cost_tier is CostTier.UNKNOWN
 
 
-def test_build_model_router_requires_freellmapi_api_key_even_when_llm_key_exists(monkeypatch) -> None:
+def test_freellmapi_needs_no_key_and_never_borrows_the_openai_one(monkeypatch) -> None:
     monkeypatch.setattr(settings, "llm_provider", "freellmapi")
     monkeypatch.setattr(settings, "llm_api_key", SecretStr("openai-key-must-not-be-used"))
     monkeypatch.delenv("FREELLMAPI_API_KEY", raising=False)
     monkeypatch.setenv("FREELLMAPI_MODEL", "auto:default")
     monkeypatch.setenv("FREELLMAPI_BASE_URL", "http://freellmapi:3001/v1")
 
-    try:
-        build_model_router()
-    except RuntimeError as exc:
-        assert str(exc) == "FREELLMAPI_API_KEY is required when LLM_PROVIDER=freellmapi"
-    else:
-        raise AssertionError("expected missing FreeLLMAPI key to fail closed")
+    router = build_model_router()  # builds: a gateway on this machine may run without a key
+
+    assert router is not None
+    from app.inference.freellmapi_config import load_freellmapi_config
+
+    assert load_freellmapi_config().api_key is None
 
 
 def test_build_model_router_requires_explicit_freellmapi_base_url(monkeypatch) -> None:

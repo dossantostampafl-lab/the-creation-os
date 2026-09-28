@@ -59,7 +59,11 @@ api_key="${!key_var:-}"
 if [ -n "$api_key" ]; then
   echo "Using the $key_var already in the environment."
 elif [ -t 0 ]; then
-  read -rsp "Paste the $provider API key and press Enter: " api_key
+  if [ "$provider" = "freellmapi" ]; then
+    read -rsp "Paste the $provider API key, or just press Enter if it has none: " api_key
+  else
+    read -rsp "Paste the $provider API key and press Enter: " api_key
+  fi
   echo
 else
   # Without a terminal and without the variable, the key already in .env is the one meant:
@@ -69,12 +73,18 @@ else
     echo "Keeping the $key_var already in .env."
   fi
 fi
-if [ -z "$api_key" ]; then
+# FreeLLMAPI runs on this machine and can be set up without a key: then requests go out with no
+# Authorization header. Every other provider needs one.
+if [ -z "$api_key" ] && [ "$provider" != "freellmapi" ]; then
   echo "No $key_var was given, and .env holds none; nothing changed." >&2
   exit 1
 fi
-# The length is the one safe thing to show: it catches a paste that arrived truncated.
-printf 'Key received: %s characters.\n' "${#api_key}"
+if [ -z "$api_key" ]; then
+  echo "No key: FreeLLMAPI will be called without an Authorization header."
+else
+  # The length is the one safe thing to show: it catches a paste that arrived truncated.
+  printf 'Key received: %s characters.\n' "${#api_key}"
+fi
 
 # A key created for one Workspace already carries it, so this stays empty for almost everyone.
 # It is only needed for a credential that can act on more than one Workspace, and the API
@@ -103,7 +113,7 @@ if [ -n "$fallback" ]; then
     case "$reserve" in
       anthropic) reserve_key=ANTHROPIC_API_KEY; reserve_model=ANTHROPIC_MODEL ;;
       openai) reserve_key=LLM_API_KEY; reserve_model=LLM_MODEL ;;
-      freellmapi) reserve_key=FREELLMAPI_API_KEY; reserve_model=FREELLMAPI_MODEL ;;
+      freellmapi) reserve_key=""; reserve_model=FREELLMAPI_MODEL ;;
       openai_compatible) reserve_key=""; reserve_model=OPENAI_COMPATIBLE_MODEL ;;
       *)
         echo "Unknown or unsupported reserve provider: '$reserve' (fake is never allowed)." >&2
@@ -166,6 +176,8 @@ if [ "$provider" = "freellmapi" ]; then
 fi
 if [ -n "$(env_get "$key_var")" ]; then
   printf '  %s=<set>\n' "$key_var"
+elif [ "$provider" = "freellmapi" ]; then
+  printf '  %s=<none: no Authorization header is sent>\n' "$key_var"
 else
   echo "The key was not written. .env.bak still holds the previous file." >&2
   exit 1

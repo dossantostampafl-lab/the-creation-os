@@ -235,9 +235,34 @@ async def test_stream_yields_only_text_deltas() -> None:
 
 
 def test_constructor_rejects_unsafe_or_incomplete_configuration() -> None:
-    with pytest.raises(ValueError, match="API key"):
-        FreeLLMAPIProvider(api_key="", default_model="auto", base_url="https://gateway.example/v1")
     with pytest.raises(ValueError, match="model"):
         FreeLLMAPIProvider(api_key="key", default_model="", base_url="https://gateway.example/v1")
     with pytest.raises(ValueError, match="http"):
         FreeLLMAPIProvider(api_key="key", default_model="auto", base_url="file:///tmp/gateway")
+
+
+async def test_without_a_key_no_authorization_header_is_sent() -> None:
+    seen: list[dict[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(dict(request.headers))
+        return httpx.Response(200, json={"model": "m", "choices": [{"message": {"role": "assistant", "content": "ok"}}]})
+
+    for key in (None, "", "   "):
+        provider = FreeLLMAPIProvider(api_key=key, default_model="auto", base_url="http://freellmapi.local/v1",
+                                      transport=httpx.MockTransport(handler))
+        await provider.generate(InferenceRequest(messages=[{"role": "user", "content": "hi"}]))
+    assert len(seen) == 3 and all("authorization" not in headers for headers in seen)
+
+
+async def test_a_configured_key_is_still_sent_as_a_bearer_token() -> None:
+    seen: list[str | None] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.headers.get("authorization"))
+        return httpx.Response(200, json={"model": "m", "choices": [{"message": {"role": "assistant", "content": "ok"}}]})
+
+    provider = FreeLLMAPIProvider(api_key=" freellmapi-key ", default_model="auto", base_url="http://freellmapi.local/v1",
+                                  transport=httpx.MockTransport(handler))
+    await provider.generate(InferenceRequest(messages=[{"role": "user", "content": "hi"}]))
+    assert seen == ["Bearer freellmapi-key"]

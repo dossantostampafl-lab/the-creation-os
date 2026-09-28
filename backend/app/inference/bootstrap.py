@@ -70,7 +70,7 @@ def _register_provider(registry: ProviderRegistry, provider: str) -> None:
         model = load_freellmapi_model()
         registry.register(
             FreeLLMAPIProvider(
-                api_key=gateway_config.api_key.get_secret_value(),
+                api_key=gateway_config.api_key.get_secret_value() if gateway_config.api_key else None,
                 default_model=model,
                 base_url=gateway_config.base_url,
                 timeout_seconds=gateway_config.timeout_seconds,
