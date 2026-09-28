@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.capabilities.contracts import (
@@ -82,6 +84,15 @@ class CapabilityRuntime:
             raise
 
         async with self.session_factory() as session:
+            if effective_idempotency is IdempotencyClass.AT_MOST_ONCE and intent.idempotency_key:
+                existing = await session.scalar(
+                    select(CapabilityInvocation).where(
+                        CapabilityInvocation.idempotency_key == intent.idempotency_key
+                    )
+                )
+                if existing is not None:
+                    return self._resolve_at_most_once_replay(existing)
+
             authorized_invocation = self._invocation(
                 mission_id=mission_id,
                 task_id=task_id,
@@ -91,7 +102,24 @@ class CapabilityRuntime:
                 status="AUTHORIZED",
             )
             session.add(authorized_invocation)
-            await session.flush()
+            try:
+                await session.flush()
+            except IntegrityError as exc:
+                await session.rollback()
+                if (
+                    effective_idempotency is not IdempotencyClass.AT_MOST_ONCE
+                    or not intent.idempotency_key
+                    or "uq_capability_at_most_once_key" not in str(exc)
+                ):
+                    raise
+                existing = await session.scalar(
+                    select(CapabilityInvocation).where(
+                        CapabilityInvocation.idempotency_key == intent.idempotency_key
+                    )
+                )
+                if existing is None:
+                    raise
+                return self._resolve_at_most_once_replay(existing)
             invocation_id = authorized_invocation.id
             await session.commit()
 
@@ -290,6 +318,20 @@ class CapabilityRuntime:
                 correlation_id=context.correlation_id,
             )
             return context
+
+    @staticmethod
+    def _resolve_at_most_once_replay(existing: CapabilityInvocation) -> CapabilityResult:
+        if existing.status == "UNCERTAIN":
+            raise EconomicPolicyError(
+                "RECONCILIATION_REQUIRED: prior AT_MOST_ONCE effect is uncertain"
+            )
+        if existing.status == "SUCCEEDED" and existing.result_json:
+            return CapabilityResult.model_validate(existing.result_json)
+        if existing.status == "FAILED" and existing.result_json:
+            return CapabilityResult.model_validate(existing.result_json)
+        raise CapabilityDenied(
+            f"AT_MOST_ONCE idempotency key already claimed with status {existing.status}"
+        )
 
     @staticmethod
     def _confirmed_pnl(result: CapabilityResult) -> Decimal:
