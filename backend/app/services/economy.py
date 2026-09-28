@@ -171,6 +171,14 @@ async def append_ledger_entry(
         },
     )
     await repository.commit()
+    if normalized_type == "LOSS":
+        await _ensure_suspension_if_required(
+            repository,
+            creator_id=creator_id,
+            universe_id=universe_id,
+            currency=normalized_currency,
+            correlation_id=correlation_id,
+        )
     return entry
 
 
@@ -204,6 +212,7 @@ async def project_universe_economy(
     settled_pnl = Decimal("0")
     unresolved: set[str] = set()
     today_loss = Decimal("0")
+    sticky_suspended = False
     today = datetime.now(timezone.utc).date()
 
     for row in rows:
@@ -238,6 +247,8 @@ async def project_universe_economy(
                 today_loss += amount
         elif kind == "UNKNOWN":
             unresolved.add(row.external_reference or row.id)
+        elif kind == "SUSPENSION":
+            sticky_suspended = True
         elif kind == "RECONCILED":
             key = str(metadata.get("unknown_reference") or row.external_reference or "")
             if key:
@@ -259,7 +270,7 @@ async def project_universe_economy(
 
     if unresolved:
         economic_status = RECONCILIATION_REQUIRED
-    elif (
+    elif sticky_suspended or (
         nav <= 0 and peak_nav > 0
         or drawdown >= _money(settings.economic_drawdown_stop_ratio)
         or daily_loss_ratio >= _money(settings.economic_daily_stop_ratio)
@@ -282,6 +293,75 @@ async def project_universe_economy(
         economic_status=economic_status,
         reconciliation_backlog=len(unresolved),
     )
+
+
+async def _ensure_suspension_if_required(
+    repository: DomainRepository,
+    *,
+    creator_id: str,
+    universe_id: str,
+    currency: str,
+    correlation_id: str,
+) -> None:
+    projection = await project_universe_economy(
+        repository.session,
+        creator_id=creator_id,
+        universe_id=universe_id,
+        currency=currency,
+    )
+    if projection.economic_status != SUSPENDED_ECONOMIC_STATUS:
+        return
+
+    reference = f"suspension:{creator_id}:{universe_id}:{currency}"
+    existing = await repository.session.scalar(
+        select(EconomicLedgerEntry).where(
+            EconomicLedgerEntry.creator_id == creator_id,
+            EconomicLedgerEntry.universe_id == universe_id,
+            EconomicLedgerEntry.entry_type == "SUSPENSION",
+            EconomicLedgerEntry.external_reference == reference,
+        )
+    )
+    if existing is not None:
+        return
+
+    item = EconomicLedgerEntry(
+        creator_id=creator_id,
+        universe_id=universe_id,
+        mission_id=None,
+        opportunity_id=None,
+        entry_type="SUSPENSION",
+        amount=Decimal("0"),
+        currency=currency,
+        status=SUSPENDED_ECONOMIC_STATUS,
+        external_reference=reference,
+        metadata_json={
+            "mode": "real",
+            "nav": str(projection.nav),
+            "drawdown": str(projection.drawdown),
+            "automatic_recapitalization": False,
+        },
+    )
+    try:
+        item = await repository.add(item)
+    except IntegrityError as exc:
+        await repository.rollback()
+        if "uq_economic_ledger_external_transition" in str(exc):
+            return
+        raise
+    await repository.add_event(
+        "universe_economic_suspended",
+        "economic_ledger",
+        item.id,
+        universe_id,
+        "universe",
+        correlation_id,
+        {
+            "currency": currency,
+            "nav": str(projection.nav),
+            "drawdown": str(projection.drawdown),
+        },
+    )
+    await repository.commit()
 
 
 async def _economic_lock(repository: DomainRepository, *, creator_id: str, universe_id: str) -> None:
