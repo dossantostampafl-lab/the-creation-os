@@ -55,7 +55,7 @@ if ! printf '%s' "$voice_id" | grep -qE '^[A-Za-z0-9]{20}$'; then
 fi
 
 model_id="${ELEVENLABS_MODEL_ID:-$(env_get ELEVENLABS_MODEL_ID)}"
-model_id="${model_id:-eleven_multilingual_v2}"
+model_id="${model_id:-eleven_flash_v2_5}"
 
 cp .env .env.bak
 chmod 600 .env.bak
@@ -63,6 +63,7 @@ env_set ELEVENLABS_ENABLED true
 env_set ELEVENLABS_API_KEY "$api_key"
 env_set ELEVENLABS_VOICE_ID "$voice_id"
 env_set ELEVENLABS_MODEL_ID "$model_id"
+env_set ELEVENLABS_STT_MODEL_ID "${ELEVENLABS_STT_MODEL_ID:-scribe_v2}"
 unset api_key
 chmod 600 .env
 
@@ -70,6 +71,7 @@ echo "Written to .env (the previous file is kept as .env.bak):"
 printf '  ELEVENLABS_ENABLED=%s\n' "$(env_get ELEVENLABS_ENABLED)"
 printf '  ELEVENLABS_VOICE_ID=%s\n' "$(env_get ELEVENLABS_VOICE_ID)"
 printf '  ELEVENLABS_MODEL_ID=%s\n' "$(env_get ELEVENLABS_MODEL_ID)"
+printf '  ELEVENLABS_STT_MODEL_ID=%s\n' "$(env_get ELEVENLABS_STT_MODEL_ID)"
 printf '  ELEVENLABS_API_KEY=%s\n' "$([ -n "$(env_get ELEVENLABS_API_KEY)" ] && echo '<set>' || echo '<empty>')"
 
 echo
@@ -93,7 +95,7 @@ import httpx
 
 key = os.getenv("ELEVENLABS_API_KEY", "")
 voice = os.getenv("ELEVENLABS_VOICE_ID", "")
-model = os.getenv("ELEVENLABS_MODEL_ID", "eleven_multilingual_v2")
+model = os.getenv("ELEVENLABS_MODEL_ID", "eleven_flash_v2_5")
 headers = {"xi-api-key": key}
 
 # The name is nice to have, and needs the voices_read permission a key may not carry. It is
