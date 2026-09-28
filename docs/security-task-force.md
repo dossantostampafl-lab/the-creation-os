@@ -50,9 +50,9 @@ The core stack (`docker compose up`) never depends on any Task Force service.
 | Adapter and HTTP routes, Chronicle correlation | TESTED | `test_stf_integration.py` incl. PostgreSQL |
 | Rust gateway (validation, replay, TCP service) | TESTED | `cargo test`, clippy `-D warnings`, cross-language signature vector, `test_stf_e2e.py` against the real binary |
 | Sandbox selection | TESTED (selection only) | `test_stf_modules.py`; no Kata/Firecracker adapter has run on a real host |
-| Rego policy | IMPLEMENTED | decisions cross-checked with an independent Rego engine (regorus) for scope, approval, R5, unknown risk, stale version, expired/invalid window and empty input; the CI `opa` job (`check --strict` + `test`) is the authority and has not run yet |
-| Temporal workflow | IMPLEMENTED | activities are tested; workflow tests need the Temporal test server and run in CI with `STF_REQUIRE_TEMPORAL=1` |
+| Rego policy | TESTED | CI `opa` job (`opa check --strict` and `opa test`, OPA 0.70.0) on PR #80 head `f6ddb1b`; decisions also cross-checked with an independent Rego engine |
+| Temporal workflow | TESTED | `test_stf_workflow.py` on the Temporal time-skipping test server, run in the CI `backend` job on PR #80 head `f6ddb1b` (not skipped there) |
 | Real-environment execution | NOT VERIFIED | no real environment has been exercised, and Range success does not imply it |
 | SH-X | NOT AWARDED | the evaluator exists; no run has produced evidence for it |
 
-Read the CI results on the exact final commit before promoting a status.
+Statuses above were promoted from the CI results on PR #80 head `f6ddb1b`. Re-read CI on the exact final commit before changing one.
