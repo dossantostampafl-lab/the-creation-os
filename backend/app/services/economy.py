@@ -14,7 +14,6 @@ from app.models.entities import Creator, Mission, Universe
 from app.models.opportunity import Opportunity
 from app.repositories.domain import DomainRepository
 from app.schemas.economy import UniverseEconomicProjection
-from app.services.domain import NotFoundError
 
 
 SIMULATED_MODES = frozenset({"simulation", "simulated", "paper", "shadow"})
@@ -55,6 +54,10 @@ async def _validate_scope(
     mission_id: str | None,
     opportunity_id: str | None,
 ) -> None:
+    # Lazy import avoids services.domain -> kernel -> capabilities.runtime -> services.economy
+    # initialization cycle while preserving the domain-level not-found contract.
+    from app.services.domain import NotFoundError
+
     creator = await repository.get(Creator, creator_id)
     if creator is None:
         raise NotFoundError("Creator not found")
