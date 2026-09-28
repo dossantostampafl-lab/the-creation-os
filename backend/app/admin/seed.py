@@ -1,15 +1,12 @@
-"""Give an empty system the Universes and Agents a Mission needs to be viable.
-
-ROCKMAM assigns every Mission step to a Universe, and a plan is only viable when that
-Universe is active and has an active Agent. On a fresh database there are none, so every
-request comes back "not viable". This creates a working set, once.
-"""
+"""Seed the canonical Universes and minimal Agents required by the runtime."""
 
 from __future__ import annotations
 
 import asyncio
 import json
 import uuid
+from dataclasses import dataclass
+from typing import Any
 
 from sqlalchemy import select
 
@@ -20,18 +17,109 @@ from app.models.entities import Agent, Creator, Universe
 from app.repositories.domain import DomainRepository
 from app.services.domain import LivingCoreService
 
-# Broad enough that ROCKMAM can place any first request, narrow enough to stay meaningful.
-# Rename or add your own through /api/v1/universes once you know what you actually run.
-UNIVERSES: tuple[tuple[str, str, str], ...] = (
-    ("engineering", "Engineering", "Build, change and deploy software."),
-    ("content", "Content", "Write, edit and publish text."),
-    ("research", "Research", "Gather, read and summarize information."),
-    ("operations", "Operations", "Run, watch and maintain what already exists."),
+
+@dataclass(frozen=True)
+class CanonicalUniverse:
+    id: str
+    code: str
+    name: str
+    description: str
+    active: bool = True
+
+    @property
+    def agent_code(self) -> str:
+        return f"{self.code}-agent"
+
+    @property
+    def agent_name(self) -> str:
+        return f"{self.name} Agent"
+
+    @property
+    def capabilities(self) -> dict[str, Any]:
+        return {
+            "inference_provider": settings.llm_provider,
+            "description": self.description,
+        }
+
+
+CANONICAL_UNIVERSES: tuple[CanonicalUniverse, ...] = (
+    CanonicalUniverse(
+        "10000000-0000-0000-0000-000000000001",
+        "knowledge",
+        "Conhecimento",
+        "Investiga, conecta e aplica conhecimento verificável.",
+    ),
+    CanonicalUniverse(
+        "10000000-0000-0000-0000-000000000002",
+        "engineering",
+        "Engenharia",
+        "Projeta, constrói, testa e melhora sistemas e produtos.",
+    ),
+    CanonicalUniverse(
+        "10000000-0000-0000-0000-000000000003",
+        "security",
+        "Segurança",
+        "Percebe riscos, fragilidades e oportunidades de proteção.",
+    ),
+    CanonicalUniverse(
+        "10000000-0000-0000-0000-000000000004",
+        "vision",
+        "Visão",
+        "Detecta sinais fracos, tendências e mudanças emergentes.",
+    ),
+    CanonicalUniverse(
+        "10000000-0000-0000-0000-000000000005",
+        "design",
+        "Design",
+        "Transforma necessidades em experiências e produtos úteis.",
+    ),
+    CanonicalUniverse(
+        "10000000-0000-0000-0000-000000000006",
+        "business",
+        "Negócios",
+        "Explora demanda, oferta, distribuição e modelos de receita.",
+    ),
+    CanonicalUniverse(
+        "10000000-0000-0000-0000-000000000007",
+        "marketing",
+        "Marketing",
+        "Percebe atenção, aquisição, posicionamento e conversão.",
+    ),
+    CanonicalUniverse(
+        "10000000-0000-0000-0000-000000000008",
+        "legal",
+        "Jurídico",
+        "Interpreta direitos, obrigações, restrições e mudanças normativas.",
+    ),
+    CanonicalUniverse(
+        "10000000-0000-0000-0000-000000000009",
+        "finance",
+        "Finanças",
+        "Analisa capital, liquidez, risco, preço e retorno.",
+    ),
+    CanonicalUniverse(
+        "10000000-0000-0000-0000-000000000010",
+        "automation",
+        "Automação",
+        "Descobre trabalho repetitivo e oportunidades de automação.",
+    ),
+    CanonicalUniverse(
+        "10000000-0000-0000-0000-000000000011",
+        "communication",
+        "Comunicação",
+        "Otimiza linguagem, relacionamento e distribuição de informação.",
+    ),
+    CanonicalUniverse(
+        "10000000-0000-0000-0000-000000000012",
+        "evolution",
+        "Evolução",
+        "Aprende com resultados e propõe melhorias ao próprio Creation.",
+    ),
 )
 
 
 async def seed_universes() -> int:
-    """Create each missing Universe, activate it, and staff it with one Agent."""
+    """Reconcile the canonical Universes idempotently and ensure minimal staffing."""
     async with AsyncSessionLocal() as session:
         creator = await session.scalar(select(Creator).limit(1))
         if creator is None:
@@ -42,44 +130,68 @@ async def seed_universes() -> int:
             return 1
 
         actor = Actor(creator.id, "creator")
-        service = LivingCoreService(DomainRepository(session))
+        repository = DomainRepository(session)
+        service = LivingCoreService(repository)
         created: list[str] = []
         activated: list[str] = []
         staffed: list[str] = []
 
-        for code, name, description in UNIVERSES:
-            universe = await session.scalar(select(Universe).where(Universe.code == code))
+        for spec in CANONICAL_UNIVERSES:
+            universe = await session.scalar(select(Universe).where(Universe.code == spec.code))
             if universe is None:
-                universe = await service.create_universe(actor, code, name, str(uuid.uuid4()))
-                created.append(code)
-            if not universe.active:
+                universe = await repository.add(
+                    Universe(id=spec.id, code=spec.code, name=spec.name, active=spec.active)
+                )
+                correlation_id = str(uuid.uuid4())
+                await repository.add_event(
+                    "universe_created",
+                    "universe",
+                    universe.id,
+                    actor.id,
+                    actor.role,
+                    correlation_id,
+                    {"code": spec.code, "canonical": True},
+                )
+                await repository.add_event(
+                    "universe_activated",
+                    "universe",
+                    universe.id,
+                    actor.id,
+                    actor.role,
+                    correlation_id,
+                )
+                await repository.commit()
+                created.append(spec.code)
+                activated.append(spec.code)
+            elif not universe.active:
                 await service.set_universe_active(actor, universe.id, True, str(uuid.uuid4()))
-                activated.append(code)
+                activated.append(spec.code)
 
-            agent_code = f"{code}-agent"
-            agent = await session.scalar(select(Agent).where(Agent.code == agent_code))
+            agent = await session.scalar(select(Agent).where(Agent.code == spec.agent_code))
             if agent is None:
                 await service.create_agent(
                     actor,
-                    agent_code,
-                    f"{name} Agent",
+                    spec.agent_code,
+                    spec.agent_name,
                     universe.id,
-                    # The runtime reads inference_provider to route the Agent's own calls;
-                    # without it every task fails with "Agent has no inference_provider".
-                    {"inference_provider": settings.llm_provider, "description": description},
+                    spec.capabilities,
                     str(uuid.uuid4()),
                 )
-                staffed.append(agent_code)
+                staffed.append(spec.agent_code)
             elif not agent.active:
                 await service.set_agent_active(actor, agent.id, True, str(uuid.uuid4()))
-                staffed.append(agent_code)
+                staffed.append(spec.agent_code)
 
-        print(json.dumps({
-            "seeded": True,
-            "universes_created": created,
-            "universes_activated": activated,
-            "agents_ready": staffed,
-        }))
+        print(
+            json.dumps(
+                {
+                    "seeded": True,
+                    "universes_created": created,
+                    "universes_activated": activated,
+                    "agents_ready": staffed,
+                }
+            )
+        )
         return 0
 
 
