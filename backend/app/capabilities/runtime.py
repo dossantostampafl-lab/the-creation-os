@@ -220,6 +220,8 @@ class CapabilityRuntime:
                 raise EconomicPolicyError("Mission not found for economic capability")
 
             task = await session.get(Task, task_id) if task_id is not None else None
+            if task_id is not None and task is None:
+                raise EconomicPolicyError("Task not found for economic capability")
             if task is not None and task.mission_id != mission.id:
                 raise EconomicPolicyError("Task is outside the economic Mission")
 
