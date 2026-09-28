@@ -58,7 +58,7 @@ class FakeInferenceProvider:
                     "resource": "test:external-effect",
                     "arguments": {"value": "confirmed"},
                     "external_effect": True,
-                    "idempotency_class": "at_most_once",
+                    "idempotency_class": "AT_MOST_ONCE",
                     "idempotency_key": "e2e-material-effect",
                     "economic": {
                         "currency": "BRL",
