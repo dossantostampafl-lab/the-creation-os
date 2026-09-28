@@ -228,6 +228,7 @@ não pode alcançar o servidor.
 | `tidy` | Relata todas as cópias do projeto no servidor. Não move nada; só informa. |
 | `logs` | Últimas linhas dos logs do `api` e do `worker`, com segredos mascarados. |
 | `set-voice` | Liga a voz do DEUS no ElevenLabs e confirma com a própria ElevenLabs. |
+| `smoke-test` | Exercita o app inteiro por dentro e diz o que passou e o que falhou. |
 
 ### Os segredos, configurados uma vez
 
@@ -295,3 +296,28 @@ prova que a chave é válida *e* que alcança aquela voz — um `HTTP 200` sozin
 ID é o que você queria.
 
 O ID da voz sai em `elevenlabs.io` → Voices → a voz → o identificador de 20 caracteres.
+
+## Testar o app inteiro
+
+```
+sudo /opt/the-creation-os/deploy/oracle/smoke-test.sh --deus
+```
+
+Ou a tarefa `smoke-test` no workflow Deploy.
+
+Ele entra como Criador e percorre o que cada parte da interface depende: universos, agentes,
+missões, inceptions, conversas, Chronicle e sua integridade, pulse, estado do sistema, projeções,
+cache, a projeção de oportunidades, a inferência, a síntese de voz e uma conversa real com o DEUS.
+No fim, quantos passaram e quantos falharam.
+
+Ele roda **dentro do contêiner da API**, então as credenciais que usa são as que já estão no
+ambiente daquele processo: nada viaja por linha de comando, onde a lista de processos do servidor
+mostraria.
+
+Duas linhas do relatório valem mais que as outras quando algo parece quebrado na tela:
+
+- **`a provider is available`** é exatamente a expressão que a interface usa para habilitar o
+  console do DEUS. Falhando ela, o campo de mensagem fica inerte e o microfone não responde — sem
+  erro nenhum aparecer, porque o envio simplesmente retorna.
+- **`ElevenLabs synthesis`** com 501 significa que a voz do navegador está sendo usada no lugar
+  da sua.

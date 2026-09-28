@@ -20,6 +20,7 @@ on:
           - tidy
           - logs
           - set-voice
+          - smoke-test
       ref:
         description: "Branch or tag to take the code from. Empty means the default branch."
         type: string
@@ -198,6 +199,11 @@ jobs:
               ;;
             set-voice)
               sudo -E ./deploy/oracle/set-voice.sh
+              ;;
+            smoke-test)
+              # --deus sends one short message, so the report covers the path that matters
+              # most and the one nothing else exercises.
+              sudo ./deploy/oracle/smoke-test.sh --deus
               ;;
             *)
               echo "Unknown task: $TASK" >&2
