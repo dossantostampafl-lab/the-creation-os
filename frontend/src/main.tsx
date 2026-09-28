@@ -40,8 +40,16 @@ class RootErrorBoundary extends React.Component<
 
 if (import.meta.env.PROD) {
   void registerPwa({
-    onUpdateAvailable: (registration) => window.dispatchEvent(new CustomEvent(PWA_UPDATE_EVENT, { detail: registration })),
-    onControllerChange: () => window.dispatchEvent(new Event(PWA_CONTROLLER_EVENT)),
+    onUpdateAvailable: (registration) => {
+      window.dispatchEvent(new CustomEvent(PWA_UPDATE_EVENT, { detail: registration }));
+      // A voice/runtime fix must not sit behind a stale installed PWA until the Creator
+      // notices a banner. Activate the new worker immediately and reload on controller change.
+      registration.waiting?.postMessage?.({ type: "SKIP_WAITING" });
+    },
+    onControllerChange: () => {
+      window.dispatchEvent(new Event(PWA_CONTROLLER_EVENT));
+      window.location.reload();
+    },
   });
 }
 
