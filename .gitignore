@@ -4,43 +4,31 @@
 !.env.example
 
 # Python
-**pycache**/
 __pycache__/
 *.pyc
-
-# Testes
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-
-# Build
-backend/the_creation_os.egg-info/
-backend/build/
-**/target/
-frontend/node_modules/
-frontend/dist/
-frontend/test-results/
-frontend/playwright-report/
-
-# Local inventory dumps
-backend/tree.txt
-
-# Backups
-backup_*.sql
-
-# Logs
-*.log
-
-# Coverage
 .coverage
 coverage.xml
+backend/the_creation_os.egg-info/
+backend/build/
 
-# IDEs
-.vscode/
-.idea/
+# Rust
+**/target/
 
-# Frontend build and test artifacts
+# Frontend
 node_modules/
 frontend/dist/
 frontend/test-results/
 frontend/playwright-report/
+
+# Local artifacts
+backend/tree.txt
+backup_*.sql
+dump.rdb
+*.log
+
+# IDEs
+.vscode/
+.idea/

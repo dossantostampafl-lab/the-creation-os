@@ -8,7 +8,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.entities import Mission, MissionStep, Task
 from app.models.execution import AgentExecution
 
-TERMINAL_TASK_STATES = {"SUCCEEDED", "FAILED", "BLOCKED", "CANCELLED"}
 FAILED_DEPENDENCY_STATES = {"FAILED", "BLOCKED", "CANCELLED"}
 
 

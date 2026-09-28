@@ -1,18 +1,17 @@
 /* THE CREATION OS — the living universe: a cosmic brain the Creator talks to */
 :root {
-  --space: #02010a;
-  --glass: #0a0a2466;
-  --glass-strong: #0b0b26d9;
-  --edge: #8d8cff2e;
-  --text: #e7e9ff;
-  --muted: #9296c4;
-  --faint: #6b6f9e;
-  --nebula: #a78bfa;
-  --star: #8fdcff;
-  --ember: #ffd48a;
-  --good: #6ff0c0;
-  --bad: #ff7b8f;
-  --warn: #ffd27a;
+  --space: #020508;
+  --glass: rgba(5, 14, 21, .64);
+  --glass-strong: rgba(5, 13, 19, .94);
+  --edge: rgba(111, 225, 244, .18);
+  --text: #e8f7f9;
+  --muted: #8ea9ad;
+  --faint: #637c81;
+  --nebula: #43dff7;
+  --star: #6eeaff;
+  --good: #65e6bd;
+  --bad: #ff7f8b;
+  --warn: #ffc078;
   --mono: "IBM Plex Mono", "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
   font-family: "Inter", "Segoe UI", ui-sans-serif, system-ui, -apple-system, sans-serif;
   color: var(--text);
@@ -176,6 +175,7 @@ html, body { margin: 0; min-width: 320px; height: 100%; background: var(--space)
 }
 .login-panel input:focus { border-color: #a78bfa; box-shadow: 0 0 16px #a78bfa44; }
 .login-panel button {
+  min-height: 44px;
   margin-top: 4px;
   padding: 12px 16px;
   border-radius: 99px;
@@ -277,7 +277,8 @@ html, body { margin: 0; min-width: 320px; height: 100%; background: var(--space)
 
 /* ---------- Motion ---------- */
 @keyframes breathe { 50% { opacity: .45; } }
-@keyframes drawerIn { from { opacity: 0; transform: translateX(24px); } }
+/* Opacity only: a sliding drawer would push its 44px touch targets outside the viewport mid-entrance. */
+@keyframes drawerIn { from { opacity: 0; } }
 
 @media (max-width: 760px) {
   .cosmic-header { padding: 12px 14px; flex-direction: column; gap: 8px; }
@@ -413,11 +414,6 @@ html, body { margin: 0; min-width: 320px; height: 100%; background: var(--space)
 }
 
 /* ---------- Living Presence redesign ---------- */
-:root {
-  --space: #020508; --glass: rgba(5, 14, 21, .64); --glass-strong: rgba(5, 13, 19, .94);
-  --edge: rgba(111, 225, 244, .18); --text: #e8f7f9; --muted: #8ea9ad; --faint: #637c81;
-  --nebula: #43dff7; --star: #6eeaff; --ember: #ffad62; --good: #65e6bd; --bad: #ff7f8b; --warn: #ffc078;
-}
 * { scrollbar-width: thin; scrollbar-color: rgba(91, 218, 239, .36) rgba(2, 8, 12, .35); }
 *::-webkit-scrollbar { width: 8px; height: 8px; }
 *::-webkit-scrollbar-track { background: rgba(2, 8, 12, .35); }
@@ -583,3 +579,29 @@ html, body, #root {
   .console-form,
   .pwa-banner { border: 1px solid CanvasText; }
 }
+
+/* Never allow a frontend runtime failure to degrade into an unexplained black screen. */
+.boot-fallback {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  min-height: 100dvh;
+  padding: calc(24px + env(safe-area-inset-top)) calc(24px + env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) calc(24px + env(safe-area-inset-left));
+  background: radial-gradient(circle at 50% 35%, #17113d 0, #05030f 48%, #02010a 100%);
+  color: var(--text);
+}
+.boot-fallback section {
+  width: min(560px, 100%);
+  padding: 28px;
+  border: 1px solid var(--edge);
+  border-radius: 20px;
+  background: var(--glass-strong);
+  box-shadow: 0 0 80px #6d5bff33;
+}
+.boot-fallback span { font: 600 10px var(--mono); letter-spacing: .28em; color: var(--star); }
+.boot-fallback h1 { margin: 12px 0; font-size: clamp(22px, 5vw, 38px); font-weight: 300; }
+.boot-fallback p { color: var(--muted); line-height: 1.6; }
+.boot-fallback code { display: block; margin: 16px 0; padding: 12px; overflow-wrap: anywhere; border-radius: 10px; background: #0008; color: var(--warn); }
+.boot-fallback button { min-width: 44px; min-height: 44px; padding: 11px 18px; border: 1px solid #a78bfa66; border-radius: 999px; background: #211854; color: #fff; cursor: pointer; }

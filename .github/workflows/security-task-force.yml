@@ -2,7 +2,7 @@ name: Security Task Force
 
 on:
   push:
-    branches: ["feat/security-task-force-runtime"]
+    branches: [main]
     paths:
       - "backend/app/security_task_force/**"
       - "backend/tests/test_stf_*.py"

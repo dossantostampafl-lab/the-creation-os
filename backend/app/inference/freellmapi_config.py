@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 
 from pydantic.v1 import SecretStr
 
 from app.inference.base_url import checked_base_url
+from app.inference.provider_common import positive_env, required_env
 
 
 @dataclass(frozen=True)
@@ -16,32 +16,14 @@ class FreeLLMAPIConfig:
 
 
 def load_freellmapi_config() -> FreeLLMAPIConfig:
-    raw_api_key = os.getenv("FREELLMAPI_API_KEY", "").strip()
-    if not raw_api_key:
-        raise RuntimeError("FREELLMAPI_API_KEY is required when LLM_PROVIDER=freellmapi")
-
-    raw_base_url = os.getenv("FREELLMAPI_BASE_URL", "").strip()
-    if not raw_base_url:
-        raise RuntimeError("FREELLMAPI_BASE_URL is required when LLM_PROVIDER=freellmapi")
-    base_url = checked_base_url("FREELLMAPI_BASE_URL", raw_base_url)
-
-    raw_timeout = os.getenv("FREELLMAPI_TIMEOUT_SECONDS", "60").strip()
-    try:
-        timeout_seconds = float(raw_timeout)
-    except ValueError as exc:
-        raise RuntimeError("FREELLMAPI_TIMEOUT_SECONDS must be numeric") from exc
-    if timeout_seconds <= 0:
-        raise RuntimeError("FREELLMAPI_TIMEOUT_SECONDS must be greater than zero")
-
+    api_key = required_env("FREELLMAPI_API_KEY", "freellmapi")
+    base_url = checked_base_url("FREELLMAPI_BASE_URL", required_env("FREELLMAPI_BASE_URL", "freellmapi"))
     return FreeLLMAPIConfig(
-        api_key=SecretStr(raw_api_key),
+        api_key=SecretStr(api_key),
         base_url=base_url,
-        timeout_seconds=timeout_seconds,
+        timeout_seconds=positive_env("FREELLMAPI_TIMEOUT_SECONDS", "60", float),
     )
 
 
 def load_freellmapi_model() -> str:
-    model = os.getenv("FREELLMAPI_MODEL", "").strip()
-    if not model:
-        raise RuntimeError("FREELLMAPI_MODEL is required when LLM_PROVIDER=freellmapi")
-    return model
+    return required_env("FREELLMAPI_MODEL", "freellmapi")

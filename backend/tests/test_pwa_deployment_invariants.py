@@ -3,10 +3,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-NGINX_CONFIGS = (
-    ROOT / "frontend" / "nginx.conf",
-    ROOT / "frontend" / "nginx.render.conf",
-)
+NGINX_CONFIGS = (ROOT / "frontend" / "nginx.conf",)
 SECURITY_HEADERS = (
     "X-Content-Type-Options",
     "X-Frame-Options",

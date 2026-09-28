@@ -609,31 +609,3 @@ async def mark_capability_uncertain(
         metadata={"mode": "real", "reconciliation_required": True},
         correlation_id=correlation_id,
     )
-
-
-async def reconcile_capability(
-    repository: DomainRepository,
-    *,
-    creator_id: str,
-    universe_id: str,
-    mission_id: str,
-    opportunity_id: str | None,
-    amount: Decimal,
-    currency: str,
-    external_reference: str,
-    correlation_id: str,
-) -> EconomicLedgerEntry:
-    return await append_ledger_entry(
-        repository,
-        creator_id=creator_id,
-        universe_id=universe_id,
-        mission_id=mission_id,
-        opportunity_id=opportunity_id,
-        entry_type="RECONCILED",
-        amount=amount,
-        currency=currency,
-        status="RECONCILED",
-        external_reference=external_reference,
-        metadata={"mode": "real", "unknown_reference": external_reference, "release_settling": True},
-        correlation_id=correlation_id,
-    )

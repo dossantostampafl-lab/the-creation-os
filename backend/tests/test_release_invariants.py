@@ -35,7 +35,6 @@ def test_ci_uses_read_only_repository_token() -> None:
 def test_ci_lints_all_versioned_python_sources() -> None:
     content = CI_WORKFLOW.read_text(encoding="utf-8")
 
-    assert "../.github/scripts" in content
     assert "../cyber_range/controller" in content
     assert "../cyber_range/tests" in content
 

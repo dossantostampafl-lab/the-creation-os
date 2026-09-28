@@ -7,6 +7,7 @@ from typing import Any
 import httpx
 
 from app.inference.contracts import InferenceRequest, InferenceResponse, ProviderHealth, ProviderUnavailable
+from app.inference.provider_common import CAPABILITY_INTENT_DESCRIPTION, CAPABILITY_INTENT_TOOL, capability_intent_parameters
 
 
 class OpenAIResponsesProvider:
@@ -164,7 +165,7 @@ class OpenAIResponsesProvider:
                 for part in item.get("content", []):
                     if isinstance(part, dict) and part.get("type") == "output_text" and isinstance(part.get("text"), str):
                         text_parts.append(part["text"])
-            elif item_type in {"function_call", "tool_call"} and item.get("name") == "capability_intent":
+            elif item_type in {"function_call", "tool_call"} and item.get("name") == CAPABILITY_INTENT_TOOL:
                 arguments = item.get("arguments")
                 if isinstance(arguments, str):
                     try:
@@ -179,20 +180,7 @@ class OpenAIResponsesProvider:
     def _capability_tool() -> dict[str, Any]:
         return {
             "type": "function",
-            "name": "capability_intent",
-            "description": "Request an authorized capability. This only requests execution; policy decides whether it may run.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "capability": {"type": "string"},
-                    "action": {"type": "string"},
-                    "resource": {"type": ["string", "null"]},
-                    "arguments": {"type": "object", "additionalProperties": True},
-                    "external_effect": {"type": "boolean"},
-                    "idempotency_class": {"type": "string", "enum": ["SAFE", "IDEMPOTENT", "AT_MOST_ONCE"]},
-                    "idempotency_key": {"type": ["string", "null"]},
-                },
-                "required": ["capability", "action", "arguments", "external_effect", "idempotency_class"],
-                "additionalProperties": False,
-            },
+            "name": CAPABILITY_INTENT_TOOL,
+            "description": CAPABILITY_INTENT_DESCRIPTION,
+            "parameters": {**capability_intent_parameters(), "additionalProperties": False},
         }

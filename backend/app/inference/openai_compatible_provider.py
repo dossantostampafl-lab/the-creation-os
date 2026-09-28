@@ -16,6 +16,7 @@ from app.inference.contracts import (
     InferenceUpstreamResponseError,
     ProviderHealth,
 )
+from app.inference.provider_common import chat_delta_content, probe_health
 
 
 class OpenAICompatibleProvider:
@@ -143,19 +144,10 @@ class OpenAICompatibleProvider:
                         if data == "[DONE]":
                             return
                         try:
-                            event = json.loads(data)
+                            content = chat_delta_content(json.loads(data))
                         except json.JSONDecodeError:
                             continue
-                        if not isinstance(event, dict):
-                            continue
-                        choices = event.get("choices")
-                        if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
-                            continue
-                        delta = choices[0].get("delta")
-                        if not isinstance(delta, dict):
-                            continue
-                        content = delta.get("content")
-                        if isinstance(content, str) and content:
+                        if content:
                             yield content
         except httpx.TimeoutException as exc:
             raise InferenceTimeoutError(self.name, "OpenAI-compatible provider stream timed out") from exc
@@ -163,18 +155,4 @@ class OpenAICompatibleProvider:
             raise InferenceUpstreamResponseError(self.name, "OpenAI-compatible provider stream failed") from exc
 
     async def health(self) -> ProviderHealth:
-        try:
-            async with self._client() as client:
-                response = await client.get(f"{self._base_url}/models")
-        except httpx.TimeoutException:
-            return ProviderHealth(provider=self.name, available=False, detail="timeout")
-        except httpx.HTTPError:
-            return ProviderHealth(provider=self.name, available=False, detail="network_error")
-
-        if response.status_code == 200:
-            return ProviderHealth(provider=self.name, available=True)
-        if response.status_code in {401, 403}:
-            return ProviderHealth(provider=self.name, available=False, detail="authentication_failed")
-        if response.status_code == 429:
-            return ProviderHealth(provider=self.name, available=False, detail="rate_limited")
-        return ProviderHealth(provider=self.name, available=False, detail=f"upstream_status_{response.status_code}")
+        return await probe_health(self._client(), self.name, f"{self._base_url}/models")
