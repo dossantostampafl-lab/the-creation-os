@@ -7,7 +7,7 @@ import pytest
 from app.core.domain import Actor
 from app.inference.contracts import InferenceRequest, InferenceResponse
 from app.models.entities import Conversation, Message
-from app.services.deus import DeusConversationService, SYSTEM_PROMPT, needs_trinity
+from app.services.deus import SYSTEM_PROMPT, DeusConversationService, needs_trinity
 
 
 class StubRouter:
