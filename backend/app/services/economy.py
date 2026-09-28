@@ -531,6 +531,22 @@ async def settle_capability_result(
     pnl: Decimal = Decimal("0"),
     correlation_id: str,
 ) -> list[EconomicLedgerEntry]:
+    settled_amount = abs(_money(amount))
+    realized = _money(pnl)
+    if realized < -settled_amount:
+        uncertain = await mark_capability_uncertain(
+            repository,
+            creator_id=creator_id,
+            universe_id=universe_id,
+            mission_id=mission_id,
+            opportunity_id=opportunity_id,
+            amount=settled_amount,
+            currency=currency,
+            external_reference=external_reference,
+            correlation_id=correlation_id,
+        )
+        return [uncertain]
+
     entries = [
         await append_ledger_entry(
             repository,
@@ -539,7 +555,7 @@ async def settle_capability_result(
             mission_id=mission_id,
             opportunity_id=opportunity_id,
             entry_type="SETTLE",
-            amount=amount,
+            amount=settled_amount,
             currency=currency,
             status="SETTLED",
             external_reference=external_reference,
@@ -547,7 +563,6 @@ async def settle_capability_result(
             correlation_id=correlation_id,
         )
     ]
-    realized = _money(pnl)
     if realized != 0:
         entries.append(
             await append_ledger_entry(
