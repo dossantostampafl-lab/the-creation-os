@@ -8,7 +8,7 @@ import { synthesizeVoice, transcribeVoice } from "./api";
  */
 
 const VOICE_KEY = "creation_voice_enabled";
-const WAKE_KEY = "creation_wake_word";
+const WAKE_KEY = "creation_wake_word_v3";
 const QUALITY_HINTS = ["natural", "neural", "online", "google", "premium", "enhanced"];
 const MAX_SPOKEN_CHARS = 1200;
 const ATTENTION_MS = 12000;
@@ -19,13 +19,12 @@ const SETTLE_MS = 700;
 const WAKE_WORD = /(^|[^\p{L}])(deus|zeus|d[eê]\s+us)(?![\p{L}])/iu;
 
 function voiceLanguage(): string {
-  const browser = navigator.language || "pt-BR";
-  // The Creator speaks Brazilian Portuguese. Normalize any Portuguese browser locale so the
-  // recognizer does not silently fall back to a different Portuguese acoustic model.
-  return browser.toLowerCase().startsWith("pt") ? "pt-BR" : browser;
+  // DEUS is a pt-BR interface. Do not let the device/browser locale silently switch the
+  // conversation or the browser TTS to English.
+  return "pt-BR";
 }
 
-const portuguese = () => voiceLanguage().toLowerCase().startsWith("pt");
+const portuguese = () => true;
 
 export const voiceText = {
   greeting: () => (portuguese() ? "Estou aqui." : "I'm here."),
@@ -439,6 +438,7 @@ export function useDeusEars({ paused, onWake, onCommand, onInterim, onLapse, onF
   const recognition = useRef<Recognition | null>(null);
   const mounted = useRef(false);
   const failures = useRef(0);
+  const gestureBlocked = useRef(false);
   const attentive = useRef(false);
   /** Final segments of the sentence in progress, and the timer that ends it. */
   const spoken = useRef<string[]>([]);
@@ -598,11 +598,11 @@ export function useDeusEars({ paused, onWake, onCommand, onInterim, onLapse, onF
     instance.onerror = (event) => {
       const blocked = event.error === "not-allowed" || event.error === "service-not-allowed";
       if (blocked || event.error === "audio-capture") {
-        setError(blocked
-          ? (portuguese() ? "O navegador bloqueou o microfone." : "The browser blocked the microphone.")
-          : (portuguese() ? "Nenhum microfone encontrado." : "No microphone was found."));
-        setWakeEnabled(false);
-        writePreference(WAKE_KEY, false);
+        setError(blocked ? "O navegador bloqueou o microfone." : "Nenhum microfone encontrado.");
+        // A browser may reject automatic SpeechRecognition before the first user gesture even
+        // when microphone permission is otherwise valid. Never persist that transient condition
+        // as "wake word off" — doing so made push-to-talk work while "Deus" stayed dead forever.
+        if (blocked) gestureBlocked.current = true;
         attentive.current = false;
       } else if (event.error !== "no-speech" && event.error !== "aborted") {
         failures.current += 1;
@@ -645,7 +645,7 @@ export function useDeusEars({ paused, onWake, onCommand, onInterim, onLapse, onF
     if (!mounted.current) return;
     const { wakeEnabled: wake, paused: hold } = desired.current;
     const shouldListen = !hold && (wake || attentive.current);
-    if (shouldListen && !recognition.current) start();
+    if (shouldListen && !gestureBlocked.current && !recognition.current) start();
     if (shouldListen && attentive.current) void ensureCapture();
     if (!shouldListen && recognition.current) {
       const instance = recognition.current;
@@ -658,8 +658,32 @@ export function useDeusEars({ paused, onWake, onCommand, onInterim, onLapse, onF
 
   useEffect(() => {
     mounted.current = true;
+    const rearm = () => {
+      if (!mounted.current) return;
+      gestureBlocked.current = false;
+      setError(null);
+      sync();
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") rearm();
+    };
+    // Any normal interaction can satisfy browser gesture requirements. Re-arm automatically so
+    // pressing the mic once does not remain necessary for later "Deus" wake-ups.
+    window.addEventListener("pointerdown", rearm, true);
+    window.addEventListener("keydown", rearm, true);
+    window.addEventListener("focus", rearm);
+    document.addEventListener("visibilitychange", onVisible);
+    const heartbeat = window.setInterval(() => {
+      if (!gestureBlocked.current) sync();
+    }, 1000);
+    sync();
     return () => {
       mounted.current = false;
+      window.clearInterval(heartbeat);
+      window.removeEventListener("pointerdown", rearm, true);
+      window.removeEventListener("keydown", rearm, true);
+      window.removeEventListener("focus", rearm);
+      document.removeEventListener("visibilitychange", onVisible);
       window.clearTimeout(attentionTimer.current);
       const instance = recognition.current;
       recognition.current = null;
@@ -679,14 +703,17 @@ export function useDeusEars({ paused, onWake, onCommand, onInterim, onLapse, onF
   const toggleWake = useCallback(() => {
     setError(null);
     setWakeEnabled((was) => {
-      writePreference(WAKE_KEY, !was);
-      return !was;
+      const next = !was;
+      if (next) gestureBlocked.current = false;
+      writePreference(WAKE_KEY, next);
+      return next;
     });
   }, []);
 
   /** Push-to-talk: DEUS listens for one request right away. */
   const summon = useCallback(() => {
     setError(null);
+    gestureBlocked.current = false;
     setAttentive(true);
   }, [setAttentive]);
 
