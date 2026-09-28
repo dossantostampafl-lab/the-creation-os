@@ -155,6 +155,7 @@ test("wake acknowledgement keeps ears open and immediate speech reaches DEUS onc
   await expect.poll(turn.sttCalls).toBe(1);
   await expect.poll(() => turn.deusBodies.length).toBe(1);
   expect(turn.deusBodies[0].content).toBe("verifique o projeto");
+  await expect.poll(() => page.evaluate(() => (window as Window & { __audioPauses?: number }).__audioPauses ?? 0)).toBeGreaterThan(0);
 });
 
 test("Deus plus a command in the same utterance is submitted exactly once", async ({ page }) => {
