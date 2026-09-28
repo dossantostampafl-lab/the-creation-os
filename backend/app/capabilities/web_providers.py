@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import json
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
@@ -101,6 +103,29 @@ def web_provider_candidates(
 ProviderRunner = Callable[[CapabilityIntent, CapabilityContext], Awaitable[dict[str, Any]]]
 
 
+@dataclass(frozen=True)
+class ProviderLimits:
+    timeout_seconds: float = 15.0
+    max_pages: int = 20
+    max_bytes: int = 500_000
+
+    def __post_init__(self) -> None:
+        if self.timeout_seconds <= 0 or self.max_pages <= 0 or self.max_bytes <= 0:
+            raise ValueError("provider limits must be positive")
+
+
+def _bounded_payload(data: dict[str, Any], limits: ProviderLimits) -> dict[str, Any]:
+    normalized = dict(data)
+    pages = normalized.get("pages")
+    if isinstance(pages, list) and len(pages) > limits.max_pages:
+        normalized["pages"] = pages[: limits.max_pages]
+        normalized["truncated"] = True
+    encoded = json.dumps(normalized, default=str, ensure_ascii=False).encode("utf-8")
+    if len(encoded) > limits.max_bytes:
+        raise ProviderUnavailable("provider response exceeds byte budget")
+    return normalized
+
+
 class CallableWebProvider:
     """Small adapter contract used for local libraries, MCP tools, and deterministic tests."""
 
@@ -111,18 +136,27 @@ class CallableWebProvider:
         actions: Sequence[str],
         runner: ProviderRunner | None,
         metadata: WebProviderMetadata,
+        limits: ProviderLimits | None = None,
     ) -> None:
         self.name = name
         self.actions = frozenset(actions)
         self._runner = runner
         self.metadata = metadata
+        self.limits = limits or ProviderLimits()
 
     async def execute(self, intent: CapabilityIntent, context: CapabilityContext) -> dict[str, Any]:
         if intent.action not in self.actions:
             raise ProviderUnavailable(f"{self.name} does not support {intent.action}")
         if self._runner is None:
             raise ProviderUnavailable(f"{self.name} is not configured")
-        return await self._runner(intent, context)
+        try:
+            async with asyncio.timeout(self.limits.timeout_seconds):
+                data = await self._runner(intent, context)
+        except TimeoutError as exc:
+            raise ProviderUnavailable(f"{self.name} timed out") from exc
+        if not isinstance(data, dict):
+            raise ProviderUnavailable(f"{self.name} returned malformed data")
+        return _bounded_payload(data, self.limits)
 
 
 class CrawleeProvider(CallableWebProvider):
