@@ -3,6 +3,7 @@ import type { ChronicleEvent, ChronicleRecord, InferenceStatusSnapshot, Projecti
 const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ?? "http://localhost:8000/api/v1";
 
 const ACCESS_TOKEN_KEY = "creation_access_token";
+const REFRESH_TOKEN_KEY = "creation_refresh_token";
 
 function token(): string {
   const value = window.localStorage.getItem(ACCESS_TOKEN_KEY);
@@ -10,11 +11,18 @@ function token(): string {
   return value;
 }
 
+function refreshToken(): string {
+  const value = window.sessionStorage.getItem(REFRESH_TOKEN_KEY);
+  if (!value) throw new Error("AUTH_REQUIRED");
+  return value;
+}
+
 /** Forget the session. A token the API no longer accepts is only a liability if it stays here. */
 export function clearSession(): void {
   window.localStorage.removeItem(ACCESS_TOKEN_KEY);
-  // Older versions kept a refresh token here as well; remove it wherever it is still stored.
-  window.localStorage.removeItem("creation_refresh_token");
+  window.sessionStorage.removeItem(REFRESH_TOKEN_KEY);
+  // Older versions kept the refresh token in localStorage. Remove that legacy credential too.
+  window.localStorage.removeItem(REFRESH_TOKEN_KEY);
 }
 
 type TokenResponse = {
@@ -23,6 +31,61 @@ type TokenResponse = {
   token_type: "bearer";
   expires_in: number;
 };
+
+function storeTokens(tokens: TokenResponse): void {
+  window.localStorage.setItem(ACCESS_TOKEN_KEY, tokens.access_token);
+  // The refresh credential only lives for this browser session; it is never persisted in localStorage.
+  window.sessionStorage.setItem(REFRESH_TOKEN_KEY, tokens.refresh_token);
+}
+
+let refreshInFlight: Promise<string> | null = null;
+
+async function refreshAccessToken(): Promise<string> {
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = (async () => {
+    const response = await fetch(`${API_BASE}/auth/refresh`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${refreshToken()}` },
+    });
+    if (!response.ok) {
+      clearSession();
+      throw new Error("AUTH_REQUIRED");
+    }
+    const tokens = await response.json() as TokenResponse;
+    storeTokens(tokens);
+    return tokens.access_token;
+  })().finally(() => {
+    refreshInFlight = null;
+  });
+  return refreshInFlight;
+}
+
+async function authorizedFetch(path: string, init?: RequestInit): Promise<Response> {
+  const request = (accessToken: string) => fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      ...(init?.body ? { "Content-Type": "application/json" } : {}),
+      ...init?.headers,
+    },
+  });
+
+  let response = await request(token());
+  if (response.status !== 401 && response.status !== 403) return response;
+
+  try {
+    const fresh = await refreshAccessToken();
+    response = await request(fresh);
+  } catch {
+    clearSession();
+    throw new Error("AUTH_REQUIRED");
+  }
+  if (response.status === 401 || response.status === 403) {
+    clearSession();
+    throw new Error("AUTH_REQUIRED");
+  }
+  return response;
+}
 
 export type Conversation = {
   id: string;
@@ -53,10 +116,7 @@ export async function loginCreator(username: string, password: string): Promise<
   });
   if (response.status === 401 || response.status === 403) throw new Error("INVALID_CREDENTIALS");
   if (!response.ok) throw new Error(`HTTP_${response.status}`);
-  const tokens = await response.json() as TokenResponse;
-  // Only the access token is kept. The long-lived refresh token was stored and never used, so
-  // it was nothing but a second credential sitting in the browser.
-  window.localStorage.setItem(ACCESS_TOKEN_KEY, tokens.access_token);
+  storeTokens(await response.json() as TokenResponse);
 }
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -65,18 +125,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   let lastError: unknown;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
-      const response = await fetch(`${API_BASE}${path}`, {
-        ...init,
-        headers: {
-          Authorization: `Bearer ${token()}`,
-          ...(init?.body ? { "Content-Type": "application/json" } : {}),
-          ...init?.headers,
-        },
-      });
-      if (response.status === 401 || response.status === 403) {
-        clearSession();
-        throw new Error("AUTH_REQUIRED");
-      }
+      const response = await authorizedFetch(path, init);
       if (!response.ok) {
         if (response.status < 500 || attempt === attempts - 1) throw new Error(`HTTP_${response.status}`);
         throw new Error(`RETRYABLE_HTTP_${response.status}`);
@@ -170,19 +219,17 @@ export const cancelMission = (id: string) => api<Mission>(`/missions/${id}/cance
 
 /** DEUS voice through the backend's ElevenLabs proxy; the provider key never reaches the browser. */
 export async function synthesizeVoice(text: string, signal?: AbortSignal): Promise<Blob> {
-  const response = await fetch(`${API_BASE}/voice/synthesize`, {
+  const response = await authorizedFetch("/voice/synthesize", {
     method: "POST",
-    headers: { Authorization: `Bearer ${token()}`, "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text }),
     signal,
   });
-  if (response.status === 401 || response.status === 403) throw new Error("AUTH_REQUIRED");
   if (!response.ok) throw new Error(`HTTP_${response.status}`);
   const audio = await response.blob();
   if (!audio.size || !audio.type.startsWith("audio/")) throw new Error("VOICE_INVALID_AUDIO");
   return audio;
 }
-
 
 export type VoiceTranscript = {
   text: string;
@@ -192,13 +239,12 @@ export type VoiceTranscript = {
 
 /** High-accuracy STT for attentive turns. Browser recognition remains the instant fail-open path. */
 export async function transcribeVoice(audio: Blob, signal?: AbortSignal): Promise<VoiceTranscript> {
-  const response = await fetch(`${API_BASE}/voice/transcribe`, {
+  const response = await authorizedFetch("/voice/transcribe", {
     method: "POST",
-    headers: { Authorization: `Bearer ${token()}`, "Content-Type": audio.type || "audio/webm" },
+    headers: { "Content-Type": audio.type || "audio/webm" },
     body: audio,
     signal,
   });
-  if (response.status === 401 || response.status === 403) throw new Error("AUTH_REQUIRED");
   if (!response.ok) throw new Error(`HTTP_${response.status}`);
   return response.json() as Promise<VoiceTranscript>;
 }
@@ -211,11 +257,10 @@ export type StreamHandlers = {
 
 export async function streamChronicle(after: number, handlers: StreamHandlers, signal: AbortSignal): Promise<void> {
   try {
-    const response = await fetch(`${API_BASE}/system/events?after=${after}`, {
-      headers: { Authorization: `Bearer ${token()}`, Accept: "text/event-stream" },
+    const response = await authorizedFetch(`/system/events?after=${after}`, {
+      headers: { Accept: "text/event-stream" },
       signal,
     });
-    if (response.status === 401 || response.status === 403) throw new Error("AUTH_REQUIRED");
     if (!response.ok || !response.body) throw new Error(`HTTP_${response.status}`);
 
     const reader = response.body.getReader();
