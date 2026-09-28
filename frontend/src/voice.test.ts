@@ -21,13 +21,13 @@ describe("splitWakePhrase", () => {
   it("wakes on common transcriptions of “Deus”", () => {
     expect(splitWakePhrase("Zeus")).toEqual({ woke: true, request: "" });
     expect(splitWakePhrase("dê us, status")).toEqual({ woke: true, request: "status" });
-    expect(splitWakePhrase("Teus")).toEqual({ woke: true, request: "" });
-    expect(splitWakePhrase("teus, como estão os universos?")).toEqual({ woke: true, request: "como estão os universos?" });
-    expect(splitWakePhrase("Deu!")).toEqual({ woke: true, request: "" });
-    expect(splitWakePhrase("deu, qual é a missão atual")).toEqual({ woke: true, request: "qual é a missão atual" });
   });
 
-  it("does not wake on “teus” or “deu” in ordinary speech", () => {
+  it("does not wake on words that merely resemble “Deus”", () => {
+    expect(splitWakePhrase("Teus")).toEqual({ woke: false, request: "" });
+    expect(splitWakePhrase("teus planos estão prontos")).toEqual({ woke: false, request: "" });
+    expect(splitWakePhrase("Deu!")).toEqual({ woke: false, request: "" });
+    expect(splitWakePhrase("deu certo")).toEqual({ woke: false, request: "" });
     expect(splitWakePhrase("os teus planos estão prontos")).toEqual({ woke: false, request: "" });
     expect(splitWakePhrase("isso deu certo")).toEqual({ woke: false, request: "" });
     expect(splitWakePhrase("deusa da criação")).toEqual({ woke: false, request: "" });

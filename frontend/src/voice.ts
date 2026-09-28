@@ -19,9 +19,7 @@ const CONVERSATION_ATTENTION_MS = 14000;
   * Browsers finalise a result at every pause -- often after a single word -- so acting on
   * the first one sends a fragment and stops listening mid-sentence. */
 const SETTLE_MS = 700;
-// "Deus" is often transcribed as "Zeus", "dê us", "teus" or "deu". The last two are ordinary
-// Portuguese words ("os teus planos", "deu certo"), so they only count at the start of an utterance.
-const WAKE_WORD = /(^|[^\p{L}])(deus|zeus|d[eê]\s+us)(?![\p{L}])|^[\s,.!?;:—-]*(teus|deu)(?![\p{L}])/iu;
+const WAKE_WORD = /(^|[^\p{L}])(deus|zeus|d[eê]\s+us)(?![\p{L}])/iu;
 
 function voiceLanguage(): string {
   // DEUS is a pt-BR interface. Do not let the device/browser locale silently switch the

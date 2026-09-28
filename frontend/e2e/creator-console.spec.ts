@@ -262,19 +262,19 @@ test("common transcriptions of “Deus” wake DEUS, ordinary words do not", asy
   const say = (text: string) => page.evaluate((t) => (window as unknown as { __say: (t: string) => boolean }).__say(t), text);
 
   // Each phrase is its own utterance: segments closer than the settle pause are joined into one.
-  for (const phrase of ["isso deu certo", "os teus planos", "deusa da criação"]) {
+  for (const phrase of ["deu certo", "teus planos", "adeus", "deusa da criação"]) {
     await expect.poll(() => say(phrase)).toBe(true);
     await page.waitForTimeout(900);
   }
   expect(sent).toEqual([]);
-  await expect.poll(() => say("teus, how are the universes?")).toBe(true);
+  await expect.poll(() => say("Zeus, how are the universes?")).toBe(true);
   await expect.poll(() => sent).toEqual(["how are the universes?"]);
   expect(await spokenLines(page)).not.toContain("Estou aqui.");
 
   await expect.poll(() => spokenLines(page)).toEqual(["All universes are breathing."]);
   await expect.poll(() => say("tchau")).toBe(true);
   await expect.poll(() => spokenLines(page)).toContain("Até logo.");
-  await expect.poll(() => say("Deu")).toBe(true);
+  await expect.poll(() => say("dê us")).toBe(true);
   await expect.poll(() => spokenLines(page)).toEqual(["All universes are breathing.", "Até logo.", "Estou aqui."]);
 });
 
