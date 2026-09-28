@@ -17,7 +17,6 @@ from app.models.entities import Agent, Creator, Universe
 from app.repositories.domain import DomainRepository
 from app.services.domain import LivingCoreService
 
-
 PERCEPTION_PROFILES: dict[str, dict[str, Any]] = {
     "knowledge": {"preferred_sensors": ["web.search", "web.fetch", "research.semantic", "workspace.read"], "detectors": ["information_gap", "pain_recurrence", "demand_gap"]},
     "engineering": {"preferred_sensors": ["web.search", "web.fetch", "specialized.web", "workspace.read"], "detectors": ["capability_gap", "efficiency_gap", "technology_shift"]},
