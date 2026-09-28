@@ -55,8 +55,8 @@ async function installFakeSpeech(
 ) {
   await page.addInitScript(({ wakePreference }) => {
     localStorage.setItem("creation_access_token", "e2e-token");
-    if (wakePreference === "unset") localStorage.removeItem("creation_wake_word");
-    else localStorage.setItem("creation_wake_word", wakePreference);
+    if (wakePreference === "unset") localStorage.removeItem("creation_wake_word_v3");
+    else localStorage.setItem("creation_wake_word_v3", wakePreference);
     const scope = window as unknown as Record<string, unknown>;
     const spoken: string[] = [];
     scope.__spoken = spoken;
@@ -74,12 +74,17 @@ async function installFakeSpeech(
     };
     Object.defineProperty(window, "speechSynthesis", { value: synth, configurable: true });
 
-    type Fake = { running: boolean; onresult: ((event: unknown) => void) | null; onend: (() => void) | null };
+    type Fake = {
+      running: boolean;
+      onresult: ((event: unknown) => void) | null;
+      onend: (() => void) | null;
+      onerror: ((event: { error?: string }) => void) | null;
+    };
     class FakeRecognition {
       running = false;
       onresult: ((event: unknown) => void) | null = null;
       onend: (() => void) | null = null;
-      onerror = null;
+      onerror: ((event: { error?: string }) => void) | null = null;
       start() { this.running = true; scope.__recognizer = this; }
       stop() { this.end(); }
       abort() { this.end(); }
@@ -93,6 +98,14 @@ async function installFakeSpeech(
       if (!recognizer?.running) return false;
       const result = Object.assign([{ transcript: text, confidence: 0.95 }], { isFinal: true });
       recognizer.onresult?.({ resultIndex: 0, results: [result] });
+      return true;
+    };
+    scope.__speechError = (error: string) => {
+      const recognizer = scope.__recognizer as Fake | undefined;
+      if (!recognizer?.running) return false;
+      recognizer.onerror?.({ error });
+      recognizer.running = false;
+      recognizer.onend?.();
       return true;
     };
   }, { wakePreference });
@@ -120,10 +133,41 @@ test("wake word is enabled by default for a fresh Creator session", async ({ pag
 
   await page.goto("/");
   await expect(page.getByRole("button", { name: "Turn off “Deus” wake word" })).toBeVisible();
-  await expect(page.getByText(/Say “Deus” to call|Diga “Deus” para chamar/)).toBeVisible();
+  await expect(page.getByText(/Diga “Deus” para chamar|Diga “Deus” para chamar/)).toBeVisible();
   await expect.poll(() => page.evaluate(() => Boolean(
     (window as unknown as { __recognizer?: { running: boolean } }).__recognizer?.running
   ))).toBe(true);
+});
+
+test("legacy wake-off state does not disable the repaired wake listener", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("creation_wake_word", "off"));
+  await installFakeSpeech(page, "unset");
+  await mockDashboard(page);
+  await mockConversation(page, []);
+
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "Turn off “Deus” wake word" })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => Boolean(
+    (window as unknown as { __recognizer?: { running: boolean } }).__recognizer?.running
+  ))).toBe(true);
+});
+
+test("a transient browser gesture rejection rearms wake listening after normal interaction", async ({ page }) => {
+  await installFakeSpeech(page, "unset");
+  await mockDashboard(page);
+  await mockConversation(page, []);
+
+  await page.goto("/");
+  await expect.poll(() => page.evaluate(() => (
+    window as unknown as { __speechError: (e: string) => boolean }
+  ).__speechError("not-allowed"))).toBe(true);
+  await expect(page.getByRole("button", { name: "Turn off “Deus” wake word" })).toBeVisible();
+
+  await page.mouse.click(5, 5);
+  await expect.poll(() => page.evaluate(() => Boolean(
+    (window as unknown as { __recognizer?: { running: boolean } }).__recognizer?.running
+  ))).toBe(true);
+  await expect(page.evaluate(() => localStorage.getItem("creation_wake_word_v3"))).resolves.not.toBe("off");
 });
 
 test("DEUS falls back to the browser voice when ElevenLabs is not configured, and can be muted", async ({ page }) => {
@@ -178,14 +222,14 @@ test("saying “Deus” wakes DEUS, which answers and then hears the request", a
 
   await page.goto("/");
   await page.getByRole("button", { name: "Turn on “Deus” wake word" }).click();
-  await expect(page.getByText("Say “Deus” to call")).toBeVisible();
+  await expect(page.getByText("Diga “Deus” para chamar")).toBeVisible();
 
   await expect.poll(() => page.evaluate(() => (window as unknown as { __say: (t: string) => boolean }).__say("Deus"))).toBe(true);
-  await expect.poll(() => spokenLines(page)).toEqual(["I'm here."]);
+  await expect.poll(() => spokenLines(page)).toEqual(["Estou aqui."]);
 
   await expect.poll(() => page.evaluate(() => (window as unknown as { __say: (t: string) => boolean }).__say("Status report"))).toBe(true);
   await expect.poll(() => sent).toEqual(["Status report"]);
-  await expect.poll(() => spokenLines(page)).toEqual(["I'm here.", "All universes are breathing."]);
+  await expect.poll(() => spokenLines(page)).toEqual(["Estou aqui.", "All universes are breathing."]);
 });
 
 test("“Deus, <request>” in one breath goes straight to DEUS and ignores other speech", async ({ page }) => {
@@ -203,7 +247,7 @@ test("“Deus, <request>” in one breath goes straight to DEUS and ignores othe
   await expect.poll(() => say("Deus, how are the universes today?")).toBe(true);
 
   await expect.poll(() => sent).toEqual(["how are the universes today?"]);
-  expect(await spokenLines(page)).not.toContain("I'm here.");
+  expect(await spokenLines(page)).not.toContain("Estou aqui.");
 });
 
 test("DEUS stops listening when nobody speaks after it is summoned", async ({ page }) => {
@@ -215,14 +259,14 @@ test("DEUS stops listening when nobody speaks after it is summoned", async ({ pa
 
   await page.goto("/");
   await page.getByRole("button", { name: "Turn on “Deus” wake word" }).click();
-  await expect(page.getByText("Say “Deus” to call")).toBeVisible();
+  await expect(page.getByText("Diga “Deus” para chamar")).toBeVisible();
 
   // Push-to-talk while the wake word is already listening must still time out.
   await page.getByRole("button", { name: "Talk to DEUS" }).click();
   await expect(page.getByRole("button", { name: "Stop listening" })).toBeVisible();
   await page.clock.runFor(9000);
   await expect(page.getByRole("button", { name: "Talk to DEUS" })).toBeVisible();
-  await expect(page.getByText("Say “Deus” to call")).toBeVisible();
+  await expect(page.getByText("Diga “Deus” para chamar")).toBeVisible();
 });
 
 test("the microphone stays closed while DEUS has no configured inference", async ({ page }) => {
@@ -234,7 +278,7 @@ test("the microphone stays closed while DEUS has no configured inference", async
   await expect(page.getByRole("button", { name: "Turn off “Deus” wake word" })).toBeDisabled();
   await page.waitForTimeout(500);
   expect(await page.evaluate(() => Boolean((window as unknown as { __recognizer?: { running: boolean } }).__recognizer?.running))).toBe(false);
-  await expect(page.getByText("Say “Deus” to call")).toHaveCount(0);
+  await expect(page.getByText("Diga “Deus” para chamar")).toHaveCount(0);
 });
 
 test("typing while DEUS listens keeps the typed text and ends listening", async ({ page }) => {
@@ -266,10 +310,10 @@ test("after “Deus” the conversation continues without the wake word until go
   await page.getByRole("button", { name: "Turn on “Deus” wake word" }).click();
 
   await expect.poll(() => say("Deus")).toBe(true);
-  await expect.poll(() => spokenLines(page)).toEqual(["I'm here."]);
+  await expect.poll(() => spokenLines(page)).toEqual(["Estou aqui."]);
   await expect.poll(() => say("Status report")).toBe(true);
   await expect.poll(() => sent).toEqual(["Status report"]);
-  await expect(page.getByText("In conversation — say “bye” to end")).toBeVisible();
+  await expect(page.getByText("Em conversa — diga “tchau” para encerrar")).toBeVisible();
 
   // No wake word needed for the follow-up.
   await expect.poll(() => spokenLines(page)).toHaveLength(2);
@@ -278,9 +322,9 @@ test("after “Deus” the conversation continues without the wake word until go
 
   await expect.poll(() => spokenLines(page)).toHaveLength(3);
   await expect.poll(() => say("tchau")).toBe(true);
-  await expect.poll(() => spokenLines(page)).toEqual(["I'm here.", "All universes are breathing.", "All universes are breathing.", "Goodbye."]);
+  await expect.poll(() => spokenLines(page)).toEqual(["Estou aqui.", "All universes are breathing.", "All universes are breathing.", "Até logo."]);
   expect(sent).toEqual(["Status report", "And the missions?"]);
-  await expect(page.getByText("Say “Deus” to call")).toBeVisible();
+  await expect(page.getByText("Diga “Deus” para chamar")).toBeVisible();
 });
 
 const assessment = {
