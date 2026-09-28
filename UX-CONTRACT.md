@@ -39,7 +39,7 @@ Forms declare app-owned validation with `noValidate`; required values and server
 
 ## Verification
 
-- Static: `git diff --check`, strict premium UI audit, TypeScript/Vite production build.
+- Static: `git diff --check`, TypeScript/Vite production build.
 - Automated: Vitest and all Playwright suites.
 - Browser matrix: Chromium desktop; 1024×768 and 768×1024 tablets; 390×844 and 360×800 phones; 844×390 phone landscape; reduced-motion preference.
 - Failure paths: invalid login, unavailable API with Retry, inference unconfigured, rejected/failed decisions.

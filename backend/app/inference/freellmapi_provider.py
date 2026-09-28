@@ -16,6 +16,13 @@ from app.inference.contracts import (
     InferenceUpstreamResponseError,
     ProviderHealth,
 )
+from app.inference.provider_common import (
+    CAPABILITY_INTENT_DESCRIPTION,
+    CAPABILITY_INTENT_TOOL,
+    capability_intent_parameters,
+    chat_delta_content,
+    probe_health,
+)
 
 
 class FreeLLMAPIProvider:
@@ -69,37 +76,12 @@ class FreeLLMAPIProvider:
 
     @staticmethod
     def _capability_tool() -> dict[str, Any]:
-        """The one tool an Agent may reach for: asking that a capability be run.
-
-        Asking is not doing. The gateway's policy decides whether the Mission's authorization
-        allows it, and the payload is validated against CapabilityIntent before anything runs.
-        """
         return {
             "type": "function",
             "function": {
-                "name": "capability_intent",
-                "description": (
-                    "Request an authorized capability. This only requests execution; "
-                    "policy decides whether it may run."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "capability": {"type": "string"},
-                        "action": {"type": "string"},
-                        "resource": {"type": ["string", "null"]},
-                        "arguments": {"type": "object", "additionalProperties": True},
-                        "external_effect": {"type": "boolean"},
-                        "idempotency_class": {
-                            "type": "string",
-                            "enum": ["SAFE", "IDEMPOTENT", "AT_MOST_ONCE"],
-                        },
-                        "idempotency_key": {"type": ["string", "null"]},
-                    },
-                    "required": [
-                        "capability", "action", "arguments", "external_effect", "idempotency_class",
-                    ],
-                },
+                "name": CAPABILITY_INTENT_TOOL,
+                "description": CAPABILITY_INTENT_DESCRIPTION,
+                "parameters": capability_intent_parameters(),
             },
         }
 
@@ -114,7 +96,7 @@ class FreeLLMAPIProvider:
             if not isinstance(call, dict):
                 continue
             function = call.get("function")
-            if not isinstance(function, dict) or function.get("name") != "capability_intent":
+            if not isinstance(function, dict) or function.get("name") != CAPABILITY_INTENT_TOOL:
                 continue
             arguments = function.get("arguments")
             if isinstance(arguments, str):
@@ -242,16 +224,8 @@ class FreeLLMAPIProvider:
                             raise InferenceUpstreamResponseError(
                                 "freellmapi", "FreeLLMAPI returned invalid streaming data"
                             ) from exc
-                        if not isinstance(payload, dict):
-                            continue
-                        choices = payload.get("choices")
-                        if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
-                            continue
-                        delta = choices[0].get("delta")
-                        if not isinstance(delta, dict):
-                            continue
-                        content = delta.get("content")
-                        if isinstance(content, str) and content:
+                        content = chat_delta_content(payload)
+                        if content:
                             yield content
         except InferenceUpstreamResponseError:
             raise
@@ -265,20 +239,4 @@ class FreeLLMAPIProvider:
             ) from exc
 
     async def health(self) -> ProviderHealth:
-        try:
-            async with self._client() as client:
-                response = await client.get(f"{self._base_url}/models")
-        except httpx.TimeoutException:
-            return ProviderHealth(provider="freellmapi", available=False, detail="timeout")
-        except httpx.HTTPError:
-            return ProviderHealth(provider="freellmapi", available=False, detail="network_error")
-
-        if 200 <= response.status_code < 300:
-            return ProviderHealth(provider="freellmapi", available=True)
-        if response.status_code in {401, 403}:
-            detail = "authentication_failed"
-        elif response.status_code == 429:
-            detail = "rate_limited"
-        else:
-            detail = f"upstream_status_{response.status_code}"
-        return ProviderHealth(provider="freellmapi", available=False, detail=detail)
+        return await probe_health(self._client(), self.name, f"{self._base_url}/models")

@@ -2,8 +2,7 @@ name: Cyber Range Contract
 
 on:
   push:
-    branches:
-      - feat/cyber-range-v1-recovery
+    branches: [main]
     paths:
       - "cyber_range/**"
       - ".github/workflows/cyber-range.yml"

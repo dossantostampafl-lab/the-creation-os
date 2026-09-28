@@ -1,80 +1,61 @@
 from datetime import datetime, timedelta, timezone
 
+from app.security_task_force.contracts import ActionRequest, RiskClass
 from app.security_task_force.evidence import EvidenceRecord
-from app.security_task_force.grants import CapabilityGrant
+from app.security_task_force.grants import GrantStore
 from app.security_task_force.verification import verify_finding
 
+RANGE = "cyber_range:lab-a"
 
-def grant(**overrides):
-    data = {
-        "grant_id": "g",
-        "mission_id": "m",
-        "mission_version": 1,
-        "actor": "a",
-        "capability": "c",
-        "target_id": "t",
-        "environment": "CYBER_RANGE",
-        "action_class": "validate",
-        "expires_at": datetime.now(timezone.utc) + timedelta(minutes=5),
-        "max_invocations": 1,
-    }
+
+def action(**overrides) -> ActionRequest:
+    data = dict(action_id="a1", mission_id="m1", mission_version=1, task_id="t1", actor="agent:red",
+                target_id="juice-shop", environment_id=RANGE, capability="range.validate",
+                action_class="validate", risk_class=RiskClass.R2, idempotency_key="k1")
     data.update(overrides)
-    return CapabilityGrant(**data)
+    return ActionRequest(**data)
 
 
-def permitted(grant_value, *, environment="CYBER_RANGE", invocations=0):
-    return grant_value.permits(
-        mission_id="m",
-        mission_version=1,
-        actor="a",
-        capability="c",
-        target_id="t",
-        environment=environment,
-        action_class="validate",
-        invocations=invocations,
-    )
+def test_grant_rejects_cross_environment_replay_and_budget(tmp_path):
+    store = GrantStore(tmp_path / "grants.json")
+    request = action()
+    grant = store.issue(request)
+    assert store.consume(grant.grant_id, request)
+    assert not store.consume(grant.grant_id, request)  # budget of one
+    other = store.issue(request)
+    assert not store.allows(other.grant_id, action(environment_id="real:prod-a"))
 
 
-def test_grant_rejects_cross_environment_replay_and_budget():
-    value = grant()
-    assert permitted(value)
-    assert not permitted(value, environment="REAL_AUTHORIZED")
-    assert not permitted(value, invocations=1)
+def test_revoked_expired_and_stale_version_grants_fail_closed(tmp_path):
+    store = GrantStore(tmp_path / "grants.json")
+    request = action()
+    revoked = store.issue(request)
+    store.revoke(revoked.grant_id)
+    assert not store.allows(revoked.grant_id, request)
+    expired = store.issue(request, now=datetime.now(timezone.utc) - timedelta(hours=1))
+    assert not store.allows(expired.grant_id, request)
+    fresh = store.issue(request)
+    assert GrantStore(tmp_path / "grants.json").allows(fresh.grant_id, request)  # survives restart
+    store.revoke_mission("m1", below_version=1)
+    assert not GrantStore(tmp_path / "grants.json").allows(fresh.grant_id, request)
 
 
-def test_revoked_and_expired_grants_fail_closed():
-    assert not permitted(grant(revoked=True))
-    expired = datetime.now(timezone.utc) - timedelta(seconds=1)
-    assert not permitted(grant(expires_at=expired))
+def _evidence(kind="attack", environment=RANGE):
+    return EvidenceRecord.build(evidence_id="e", mission_id="m1", action_id="a1", environment_id=environment,
+                                source="range", acquired_at="now", payload={"ok": True, "token": "s3cret"}, kind=kind)
 
 
-def test_verification_requires_integrity_purple_and_replay():
-    evidence = EvidenceRecord.build(
-        evidence_id="e",
-        mission_id="m",
-        action_id="a",
-        source="range",
-        acquired_at="now",
-        payload={"ok": True},
-    )
-    result = verify_finding(
-        evidence,
-        None,
-        purple_required=True,
-        reproduced=True,
-    )
-    assert result.status == "probable"
-    result = verify_finding(
-        evidence,
-        evidence,
-        purple_required=True,
-        reproduced=False,
-    )
-    assert result.status == "not_reproduced"
-    result = verify_finding(
-        evidence,
-        evidence,
-        purple_required=True,
-        reproduced=True,
-    )
-    assert result.status == "confirmed"
+def test_evidence_is_redacted_and_tamper_evident():
+    record = _evidence()
+    assert record.payload["token"] == "[redacted]"
+    assert record.integrity_ok()
+    assert not EvidenceRecord(**{**record.__dict__, "environment_id": "real:prod-a"}).integrity_ok()
+
+
+def test_verification_requires_integrity_purple_replay_and_matching_environment():
+    attack = _evidence()
+    assert verify_finding(attack, None, purple_required=True, reproduced=True).status == "probable"
+    assert verify_finding(attack, _evidence("defense"), purple_required=True, reproduced=False).status == "not_reproduced"
+    assert verify_finding(attack, _evidence("defense"), purple_required=True, reproduced=True).status == "confirmed"
+    assert verify_finding(attack, _evidence("defense", "cyber_range:lab-b"), purple_required=True, reproduced=True).status == "rejected"
+    assert verify_finding(None, None, purple_required=False, reproduced=True).status == "hypothesis"

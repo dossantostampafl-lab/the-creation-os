@@ -5,6 +5,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.core.mission_dag import validate_mission_steps
+
 
 class IntentClass(str, Enum):
     CONVERSATION = "conversation"
@@ -62,34 +64,7 @@ class MissionPlanCandidate(BaseModel):
 
     @model_validator(mode="after")
     def validate_dag_references(self) -> "MissionPlanCandidate":
-        keys = [step.step_key for step in self.steps]
-        if len(keys) != len(set(keys)):
-            raise ValueError("mission step keys must be unique")
-        positions = [step.position for step in self.steps]
-        if len(positions) != len(set(positions)):
-            raise ValueError("mission step positions must be unique")
-        known = set(keys)
-        for step in self.steps:
-            missing = set(step.depends_on) - known
-            if missing:
-                raise ValueError(f"unknown mission step dependencies: {sorted(missing)}")
-        visiting: set[str] = set()
-        visited: set[str] = set()
-        dependencies = {step.step_key: set(step.depends_on) for step in self.steps}
-
-        def visit(key: str) -> None:
-            if key in visiting:
-                raise ValueError("mission plan dependency cycle detected")
-            if key in visited:
-                return
-            visiting.add(key)
-            for dependency in dependencies[key]:
-                visit(dependency)
-            visiting.remove(key)
-            visited.add(key)
-
-        for key in keys:
-            visit(key)
+        validate_mission_steps(self.steps)
         return self
 
 

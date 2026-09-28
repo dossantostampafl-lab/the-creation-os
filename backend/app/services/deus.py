@@ -143,12 +143,6 @@ def readiness_of(universes: list[Universe], agents: list[Agent]) -> dict[str, Un
     }
 
 
-async def universe_readiness(repo: DomainRepository) -> dict[str, UniverseReadiness]:
-    """Which Universes could take a Mission step right now."""
-    agents = await repo.list_agents(None)
-    return readiness_of(await repo.list_all(Universe), agents)
-
-
 RUNNING_MISSION = {MissionStatus.AUTHORIZED.value, MissionStatus.DISTRIBUTED.value, MissionStatus.EXECUTING.value}
 READINESS_TEXT = {
     UniverseReadiness.READY: "ready",

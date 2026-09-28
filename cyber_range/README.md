@@ -1,10 +1,6 @@
-# Creation Cyber Range v1 — Canonical Recovery
+# Creation Cyber Range v1
 
-This directory is the canonical reconstruction of the previously delivered local Cyber Range foundation.
-
-## Provenance
-
-The historical package was documented under `cyber-range-v1/`. Repository reconciliation proved that its current historical branch no longer contains a separate implementation. The Phase 9 canonical plan assigns the recovered implementation to `cyber_range/`. Files in this directory are therefore reconstructed from verified package behavior and canonical design constraints unless explicitly marked otherwise.
+Isolated local environment for training, experimentation, replay and verification. The Range never grants production authority.
 
 ## Included baseline
 

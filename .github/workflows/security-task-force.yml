@@ -2,7 +2,7 @@ name: Security Task Force
 
 on:
   push:
-    branches: ["feat/security-task-force-runtime"]
+    branches: [main]
     paths:
       - "backend/app/security_task_force/**"
       - "backend/tests/test_stf_*.py"
@@ -31,8 +31,21 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with: {python-version: "3.12"}
       - run: pip install -e './backend[dev]'
-      - run: pytest backend/tests/test_stf_contracts.py backend/tests/test_stf_kill_switch.py backend/tests/test_stf_compose_invariants.py backend/tests/test_stf_security_invariants.py -q
-      - run: ruff check backend/app/security_task_force backend/tests/test_stf_contracts.py backend/tests/test_stf_kill_switch.py backend/tests/test_stf_compose_invariants.py backend/tests/test_stf_security_invariants.py
+      - name: Task Force tests (Temporal test server is required here, never skipped)
+        env:
+          STF_REQUIRE_TEMPORAL: "1"
+        # Tests marked integration need PostgreSQL; the backend job in ci.yml runs them.
+        run: pytest backend/tests/test_stf_*.py -q -m "not integration"
+      - run: ruff check backend/app/security_task_force backend/tests/test_stf_*.py
+  opa:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {persist-credentials: false}
+      - name: Rego is well formed
+        run: docker run --rm -v "$PWD/deploy/stf/opa:/policy:ro" openpolicyagent/opa:0.70.0-static check --strict /policy
+      - name: Rego policy tests
+        run: docker run --rm -v "$PWD/deploy/stf/opa:/policy:ro" openpolicyagent/opa:0.70.0-static test /policy -v
   rust-gateway:
     runs-on: ubuntu-latest
     defaults: {run: {working-directory: security_gateway}}
@@ -41,7 +54,7 @@ jobs:
         with: {persist-credentials: false}
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --all-features -- -D warnings
-      - run: cargo test
+      - run: cargo test --locked
   compose:
     runs-on: ubuntu-latest
     steps:

@@ -13,6 +13,7 @@ fn envelope() -> ExecutionEnvelope {
         capability: "range.validate".into(),
         action_class: "validate".into(),
         risk_class: "R2".into(),
+        decision: "permit".into(),
         decision_id: "d1".into(),
         grant_id: "g1".into(),
         expires_unix: 200,

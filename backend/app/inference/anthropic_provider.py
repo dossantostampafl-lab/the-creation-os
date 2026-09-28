@@ -16,6 +16,12 @@ from app.inference.contracts import (
     InferenceUpstreamResponseError,
     ProviderHealth,
 )
+from app.inference.provider_common import (
+    CAPABILITY_INTENT_DESCRIPTION,
+    CAPABILITY_INTENT_TOOL,
+    capability_intent_parameters,
+    probe_health,
+)
 
 ANTHROPIC_VERSION = "2023-06-01"
 
@@ -103,30 +109,10 @@ class AnthropicProvider:
 
     @staticmethod
     def _capability_tool() -> dict[str, Any]:
-        """The one tool an Agent may reach for: asking that a capability be run.
-
-        Asking is not doing. The gateway's policy decides whether the Mission's authorization
-        allows it, and the payload is validated against CapabilityIntent before anything runs.
-        """
         return {
-            "name": "capability_intent",
-            "description": (
-                "Request an authorized capability. This only requests execution; "
-                "policy decides whether it may run."
-            ),
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "capability": {"type": "string"},
-                    "action": {"type": "string"},
-                    "resource": {"type": ["string", "null"]},
-                    "arguments": {"type": "object", "additionalProperties": True},
-                    "external_effect": {"type": "boolean"},
-                    "idempotency_class": {"type": "string", "enum": ["SAFE", "IDEMPOTENT", "AT_MOST_ONCE"]},
-                    "idempotency_key": {"type": ["string", "null"]},
-                },
-                "required": ["capability", "action", "arguments", "external_effect", "idempotency_class"],
-            },
+            "name": CAPABILITY_INTENT_TOOL,
+            "description": CAPABILITY_INTENT_DESCRIPTION,
+            "input_schema": capability_intent_parameters(),
         }
 
     def _raise_for_status(self, status_code: int) -> None:
@@ -156,7 +142,7 @@ class AnthropicProvider:
                 continue
             if block.get("type") == "text" and isinstance(block.get("text"), str):
                 text_parts.append(block["text"])
-            elif block.get("type") == "tool_use" and block.get("name") == "capability_intent":
+            elif block.get("type") == "tool_use" and block.get("name") == CAPABILITY_INTENT_TOOL:
                 arguments = block.get("input")
                 if isinstance(arguments, dict):
                     if "capability_intent" in metadata:
@@ -239,18 +225,4 @@ class AnthropicProvider:
             raise InferenceUpstreamResponseError(self.name, "Anthropic stream failed") from exc
 
     async def health(self) -> ProviderHealth:
-        try:
-            async with self._client() as client:
-                response = await client.get(f"{self._base_url}/models/{self._default_model}")
-        except httpx.TimeoutException:
-            return ProviderHealth(provider=self.name, available=False, detail="timeout")
-        except httpx.HTTPError:
-            return ProviderHealth(provider=self.name, available=False, detail="network_error")
-
-        if response.status_code == 200:
-            return ProviderHealth(provider=self.name, available=True)
-        if response.status_code in {401, 403}:
-            return ProviderHealth(provider=self.name, available=False, detail="authentication_failed")
-        if response.status_code == 429:
-            return ProviderHealth(provider=self.name, available=False, detail="rate_limited")
-        return ProviderHealth(provider=self.name, available=False, detail=f"upstream_status_{response.status_code}")
+        return await probe_health(self._client(), self.name, f"{self._base_url}/models/{self._default_model}")

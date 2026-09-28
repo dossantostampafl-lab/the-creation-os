@@ -5,6 +5,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.core.mission_dag import validate_mission_steps
+
 
 class MissionCreateRequest(BaseModel):
     inception_id: str = Field(..., min_length=36, max_length=36)
@@ -29,36 +31,7 @@ class MissionPlanRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_dag(self) -> "MissionPlanRequest":
-        keys = [step.step_key for step in self.steps]
-        if len(keys) != len(set(keys)):
-            raise ValueError("mission step keys must be unique")
-        positions = [step.position for step in self.steps]
-        if len(positions) != len(set(positions)):
-            raise ValueError("mission step positions must be unique")
-        dependencies = {step.step_key: set(step.depends_on) for step in self.steps}
-        known = set(keys)
-        for key, deps in dependencies.items():
-            if key in deps:
-                raise ValueError("mission step cannot depend on itself")
-            missing = deps - known
-            if missing:
-                raise ValueError(f"unknown mission step dependencies: {sorted(missing)}")
-        visiting: set[str] = set()
-        visited: set[str] = set()
-
-        def visit(key: str) -> None:
-            if key in visiting:
-                raise ValueError("mission plan dependency cycle detected")
-            if key in visited:
-                return
-            visiting.add(key)
-            for dependency in dependencies[key]:
-                visit(dependency)
-            visiting.remove(key)
-            visited.add(key)
-
-        for key in keys:
-            visit(key)
+        validate_mission_steps(self.steps)
         return self
 
 

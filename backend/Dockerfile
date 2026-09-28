@@ -14,6 +14,6 @@ RUN pip install --no-cache-dir --no-deps .
 # The workspace capability keeps each Mission's files here. Creating it in the image with the
 # right owner means a fresh named volume inherits that ownership and the non-root user can write.
 RUN useradd --create-home --uid 10001 appuser \
-    && mkdir -p /var/lib/creation/workspaces \
+    && mkdir -p /var/lib/creation/workspaces /var/lib/creation/stf \
     && chown -R appuser:appuser /app /var/lib/creation
 USER appuser

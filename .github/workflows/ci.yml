@@ -55,9 +55,9 @@ jobs:
       - name: Ruff
         shell: bash
         run: |
-          if ! ruff check . ../.github/scripts ../cyber_range/controller ../cyber_range/tests; then
+          if ! ruff check . ../cyber_range/controller ../cyber_range/tests; then
             echo "::group::Ruff suggested fixes"
-            ruff check --diff . ../.github/scripts ../cyber_range/controller ../cyber_range/tests || true
+            ruff check --diff . ../cyber_range/controller ../cyber_range/tests || true
             echo "::endgroup::"
             exit 1
           fi
@@ -149,24 +149,6 @@ jobs:
               exit 1
             }
           }
-      - name: Validate hardened production Compose
-        env:
-          APP_SECRET_KEY: ci-secret-key-at-least-32-characters
-          CREATOR_BOOTSTRAP_USERNAME: creator
-          CREATOR_BOOTSTRAP_PASSWORD: ci-password
-          DATABASE_URL: postgresql+asyncpg://creation:ci-password@postgres:5432/the_creation_os
-          POSTGRES_PASSWORD: ci-password
-          LLM_PROVIDER: openai
-          EMBEDDING_PROVIDER: openai
-          EMBEDDING_MODEL: text-embedding-3-small
-        run: docker compose -f docker-compose.prod.yml config --quiet
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        with:
-          python-version: "3.12"
-      - name: Validate Render blueprint
-        run: |
-          pip install --quiet pyyaml
-          python .github/scripts/validate_render_blueprint.py
       - name: Build canonical local runtime
         run: docker compose build
       - name: Console scripts are usable in the API image
@@ -182,5 +164,3 @@ jobs:
               exit 1
             fi
           done
-      - name: Build Render frontend image
-        run: docker build -f frontend/Dockerfile.render --build-arg VITE_API_BASE_URL=https://example.invalid/api/v1 frontend

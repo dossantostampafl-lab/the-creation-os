@@ -16,6 +16,8 @@ THE CREATION OS é um sistema persistente de execução governada com API FastAP
 - `backend/app/worker.py` — loop operacional de reconciliação, execução, conclusão e atualização de projeções.
 - `frontend` — Living Operations Terminal em React/TypeScript/Vite, alimentado pelos endpoints de estado/projeções/Chronicle/inference e SSE autenticado.
 
+O Security Task Force (Missions vinculadas a alvos e ambientes autorizados, gateway em Rust, OPA e Temporal, opt-in pelo perfil `security-task-force`) está descrito em [`docs/security-task-force.md`](docs/security-task-force.md).
+
 DEUS permanece como interface conceitual do Criador. Trabalho operacional é executado pelo runtime governado de Missions, Tasks, Agents e capabilities; a interface não executa capabilities diretamente.
 
 ## Requisitos
@@ -229,8 +231,6 @@ Em host Windows, crie o `.env` antes de abrir o dev container (`.\scripts\local-
 docker compose exec api alembic upgrade head
 ```
 
-Veja `backend/MIGRATIONS.md` para a nota de compatibilidade histórica relevante ao schema de embeddings.
-
 ## Autenticação inicial
 
 Bootstrap do Criador:
@@ -305,7 +305,7 @@ O repositório também possui CI de build do runtime local, CodeQL/auditoria de 
 
 ## Modelo de implantação
 
-O THE CREATION OS mantém três topologias explícitas. A instalação Oracle é a produção ativa; Local/LAN e Render permanecem validados no CI.
+O THE CREATION OS mantém duas topologias explícitas. A instalação Oracle é a produção ativa; Local/LAN é validada no CI.
 
 ### (a) Local / LAN via Docker Compose
 
@@ -319,18 +319,8 @@ curl --fail http://localhost:8080/healthz
 curl --fail http://localhost:8080/api/v1/health/ready
 ```
 
-Para um perfil endurecido (containers read-only, rede interna para dados, segredos obrigatórios via variáveis de ambiente) use `docker-compose.prod.yml`:
-
-```bash
-docker compose -f docker-compose.prod.yml up -d --build
-```
-
 ### (b) Oracle Cloud
 
 A produção ativa roda em `/opt/the-creation-os` e combina `docker-compose.yml` com `docker-compose.cloud.yml`. O workflow manual `Deploy` executa `check`, `restart`, `update`, `set-inference`, `set-creator-password` e `tidy` na VM sem definir um nome de projeto Compose. A instalação e a operação estão documentadas em [`deploy/oracle/README.md`](deploy/oracle/README.md) e [`docs/OPERACAO.md`](docs/OPERACAO.md).
-
-### (c) Cloud via Render
-
-`render.yaml` é um blueprint Render que descreve `creation-api` (web), `creation-worker` (worker), `creation-frontend` (web, build por `frontend/Dockerfile.render` e servido por `frontend/nginx.render.conf` na porta `10000`), `creation-redis` (keyvalue) e o banco gerenciado `creation-postgres`. Migrações rodam no `preDeployCommand`; `DATABASE_URL` e `REDIS_URL` vêm de referências gerenciadas, e segredos/providers são `sync: false` (informados no painel). Não há defaults `fake` de provider nesse modo.
 
 Nenhuma topologia é publicada automaticamente por merge em `main`. O deploy Oracle ocorre somente por acionamento manual do workflow `Deploy`; o GitHub também é usado para versionamento, Pull Requests, CI, CodeQL e auditoria de dependências.

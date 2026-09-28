@@ -28,7 +28,6 @@ class Settings(BaseSettings):
     login_failure_window_seconds: int = Field(300, env="LOGIN_FAILURE_WINDOW_SECONDS")
     database_url: str = Field(..., env="DATABASE_URL")
     redis_url: str = Field(..., env="REDIS_URL")
-    log_level: str = Field("INFO", env="LOG_LEVEL")
     cors_allow_origins: str = Field("", env="CORS_ALLOW_ORIGINS")
     llm_provider: str = Field("fake", env="LLM_PROVIDER")
     llm_fallback_providers: str = Field("", env="LLM_FALLBACK_PROVIDERS")
@@ -91,7 +90,6 @@ class Settings(BaseSettings):
     elevenlabs_timeout_seconds: float = Field(12.0, env="ELEVENLABS_TIMEOUT_SECONDS")
     voice_synthesis_max_chars: int = Field(1200, env="VOICE_SYNTHESIS_MAX_CHARS")
     voice_transcription_max_bytes: int = Field(5_000_000, ge=1, env="VOICE_TRANSCRIPTION_MAX_BYTES")
-    chronicle_embedding_dim: int = 8
 
     class Config:
         env_file = os.path.join(os.path.dirname(__file__), "..", "..", ".env")

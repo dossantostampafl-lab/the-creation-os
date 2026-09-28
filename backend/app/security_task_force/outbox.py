@@ -12,10 +12,8 @@ class OutboxItem:
     published: bool = False
 
 
-async def publish_pending(
-    items: list[OutboxItem],
-    publish: Callable[[STFEvent], Awaitable[None]],
-) -> None:
+async def publish_pending(items: list[OutboxItem], publish: Callable[[STFEvent], Awaitable[None]]) -> None:
+    """Publish what is still pending, in order. A failure leaves the item pending for the next pass."""
     for item in items:
         if item.published:
             continue

@@ -15,10 +15,7 @@ def _service_block(text: str, service: str, next_service: str | None) -> str:
 
 def test_local_and_cloud_runtimes_are_both_available() -> None:
     assert COMPOSE.is_file()
-    assert (ROOT / "docker-compose.prod.yml").is_file()
-    assert (ROOT / "render.yaml").is_file()
-    assert (ROOT / "frontend" / "Dockerfile.render").is_file()
-    assert (ROOT / "frontend" / "nginx.render.conf").is_file()
+    assert (ROOT / "docker-compose.cloud.yml").is_file()
 
 
 def test_only_frontend_is_exposed_to_the_lan() -> None:
