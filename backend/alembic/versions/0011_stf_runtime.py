@@ -69,6 +69,7 @@ def upgrade() -> None:
         sa.Column("request_key", sa.String(256), nullable=False),
         sa.Column("request_hash", sa.String(64), nullable=False),
         sa.Column("plan_hash", sa.String(64), nullable=False),
+        sa.Column("plan_json", sa.JSON(), server_default=sa.text("'[]'"), nullable=False),
         sa.Column("workflow_id", sa.String(128), nullable=False),
         sa.Column("state", sa.String(32), server_default=sa.text("'QUEUED'"), nullable=False),
         sa.Column("desired_state", sa.String(16), server_default=sa.text("'RUN'"), nullable=False),

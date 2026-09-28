@@ -16,6 +16,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.security_task_force import (
+    StfApproval,
     StfContract,
     StfDispatch,
     StfGrant,
@@ -75,13 +76,13 @@ class StfRepository:
 
     async def create_run(
         self, *, creator_id: str, run_id: str, mission_id: str, mission_version: int,
-        request_key: str, request_hash: str, plan_hash: str,
+        request_key: str, request_hash: str, plan_hash: str, plan: list[dict] | None = None,
     ) -> RunRecord:
         inserted = await self.session.scalar(
             insert(StfRun).values(
                 id=run_id, creator_id=creator_id, mission_id=mission_id, mission_version=mission_version,
                 request_key=request_key, request_hash=request_hash, plan_hash=plan_hash,
-                workflow_id=f"stf-{run_id}",
+                plan_json=plan or [], workflow_id=f"stf:{run_id}",
             ).on_conflict_do_nothing(constraint="uq_stf_run_request").returning(StfRun.id)
         )
         run = await self.session.scalar(
@@ -237,4 +238,32 @@ class StfRepository:
         return DispatchReceipt("denied", None, reasons)
 
     async def _audit(self, event_type: str, run_id: str, payload: dict) -> None:
-        await self._domain.add_event(event_type, "stf_run", run_id, ACTOR, ACTOR_ROLE, run_id, payload)
+        await self.audit(event_type, run_id, payload)
+
+    async def audit(self, event_type: str, run_id: str, payload: dict, actor_id: str = ACTOR,
+                    actor_role: str = ACTOR_ROLE) -> None:
+        await self._domain.add_event(event_type, "stf_run", run_id, actor_id, actor_role, run_id, payload)
+
+    # --- reads -------------------------------------------------------------------------------------
+
+    async def get_contract(self, creator_id: str, mission_id: str, version: int | None = None) -> StfContract | None:
+        stmt = select(StfContract).where(StfContract.creator_id == creator_id, StfContract.mission_id == mission_id)
+        stmt = stmt.where(StfContract.mission_version == version) if version else stmt.order_by(StfContract.mission_version.desc())
+        return await self.session.scalar(stmt.limit(1))
+
+    async def get_run(self, run_id: str, *, lock: bool = False) -> StfRun | None:
+        stmt = select(StfRun).where(StfRun.id == run_id)
+        return await self.session.scalar(stmt.with_for_update() if lock else stmt)
+
+    async def active_run_ids(self, creator_id: str, mission_id: str) -> list[str]:
+        rows = await self.session.scalars(select(StfRun.id).where(
+            StfRun.creator_id == creator_id, StfRun.mission_id == mission_id, StfRun.state.notin_(TERMINAL_RUN_STATES)))
+        return list(rows.all())
+
+    async def add_approval(self, *, creator_id: str, run_id: str, action_id: str, parameters_hash: str,
+                           expires_at: datetime, decision: str) -> StfApproval:
+        approval = StfApproval(creator_id=creator_id, run_id=run_id, action_id=action_id,
+                               parameters_hash=parameters_hash, expires_at=expires_at, decision=decision)
+        self.session.add(approval)
+        await self.session.flush()
+        return approval

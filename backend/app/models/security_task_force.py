@@ -58,6 +58,7 @@ class StfRun(Base):
     request_key: Mapped[str] = mapped_column(String(256), nullable=False)
     request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     plan_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    plan_json: Mapped[list] = mapped_column(JSON, nullable=False, server_default=text("'[]'"))
     workflow_id: Mapped[str] = mapped_column(String(128), nullable=False)
     state: Mapped[str] = mapped_column(String(32), nullable=False, server_default=text("'QUEUED'"))
     desired_state: Mapped[str] = mapped_column(String(16), nullable=False, server_default=text("'RUN'"))

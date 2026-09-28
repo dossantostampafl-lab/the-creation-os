@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,8 +12,11 @@ from app.api.dependencies import actor, correlation_id
 from app.core.domain import Actor
 from app.db.session import get_session
 from app.repositories.domain import DomainRepository
+from app.security_task_force.contracts import ActionRequest
 from app.security_task_force.integration import SecurityTaskForceAdapter, build_adapter
 from app.security_task_force.policy import OpaClient
+from app.security_task_force.repository import ContractConflict, IdempotencyConflict, StfRepository
+from app.security_task_force.service import RunConflict, RunForbidden, StfService
 
 # Mission initiation is an explicit, authenticated path. It never runs inside normal DEUS conversation.
 router = APIRouter(prefix="/deus/security-missions", tags=["security-task-force"])
@@ -41,12 +44,18 @@ class ActionBody(BaseModel):
     creator_approval_reference: str | None = None
 
 
+class StartRunBody(BaseModel):
+    actions: list[ActionRequest]
+
+
 class ApprovalBody(BaseModel):
+    run_id: str | None = None
     action_id: str = Field(min_length=1)
     decision: str = Field(pattern=r"^(approve|deny)$")
 
 
 class CancelBody(BaseModel):
+    run_id: str | None = None
     reason: str = Field(min_length=1, max_length=1000)
 
 
@@ -54,6 +63,22 @@ async def _chronicle(session: AsyncSession, a: Actor, cid: str, event: str, miss
     repo = DomainRepository(session)
     await repo.add_event(event, AGGREGATE, mission_id, a.id, a.role, cid, payload)
     await repo.commit()
+
+
+def _http(error: Exception) -> HTTPException:
+    if isinstance(error, LookupError):
+        return _not_found(error)
+    if isinstance(error, RunForbidden):
+        return HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error))
+    if isinstance(error, (IdempotencyConflict, RunConflict)):
+        return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error))
+    return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error))
+
+
+async def _require_run_id(service: StfService, a: Actor, mission_id: str, run_id: str | None) -> None:
+    """A mission with live runs must name the run: a bare mission-level command could signal the wrong one."""
+    if run_id is None and await service.active_run_ids(a, mission_id):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="run_id is required")
 
 
 def _not_found(error: LookupError) -> HTTPException:
@@ -73,6 +98,11 @@ async def compile_mission(
     if result.status != "COMPILED" or result.contract is None:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                             detail={"status": result.status, "reason_codes": result.reason_codes})
+    try:
+        await StfRepository(session).save_contract(result)
+    except ContractConflict as error:
+        await session.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
     await _chronicle(session, a, cid, "stf_mission_compiled", result.contract.mission_id, {
         "mission_id": result.contract.mission_id, "contract_hash": result.contract_hash,
         "environment_ids": result.contract.authorized_environments, "policy_version": result.policy_version,
@@ -104,6 +134,32 @@ async def authorize_action(
     return decision.model_dump(mode="json")
 
 
+@router.post("/{mission_id}/runs", status_code=status.HTTP_202_ACCEPTED)
+async def start_run(
+    mission_id: str,
+    body: StartRunBody,
+    idempotency_key: str = Header(min_length=1, max_length=256, alias="Idempotency-Key"),
+    a: Actor = Depends(actor),
+    session: AsyncSession = Depends(get_session),
+):
+    service = StfService(session)
+    try:
+        view = await service.start(a, mission_id, body.actions, idempotency_key)
+        await session.commit()  # 202 only after the run, its audit event and its start command are durable
+    except (LookupError, ValueError, PermissionError, IdempotencyConflict, RunConflict) as error:
+        await session.rollback()
+        raise _http(error) from error
+    return view.as_dict()
+
+
+@router.get("/{mission_id}/runs/{run_id}")
+async def get_run(mission_id: str, run_id: str, a: Actor = Depends(actor), session: AsyncSession = Depends(get_session)):
+    try:
+        return (await StfService(session).get(a, mission_id, run_id)).as_dict()
+    except LookupError as error:
+        raise _not_found(error) from error
+
+
 @router.get("/{mission_id}")
 async def mission_status(mission_id: str, a: Actor = Depends(actor), adapter: SecurityTaskForceAdapter = Depends(get_adapter)):
     try:
@@ -122,6 +178,16 @@ async def creator_approval(
     adapter: SecurityTaskForceAdapter = Depends(get_adapter),
     session: AsyncSession = Depends(get_session),
 ):
+    service = StfService(session)
+    if body.run_id is not None:
+        try:
+            approval = await service.approve(a, body.run_id, body.action_id, body.decision)
+            await session.commit()
+        except (LookupError, ValueError, PermissionError, RunConflict) as error:
+            await session.rollback()
+            raise _http(error) from error
+        return {"approval_id": approval.id, "run_id": body.run_id, "decision": approval.decision}
+    await _require_run_id(service, a, mission_id, body.run_id)
     try:
         reference = adapter.submit_creator_approval(a, mission_id, body.action_id, body.decision)
     except LookupError as error:
@@ -140,6 +206,16 @@ async def cancel_mission(
     adapter: SecurityTaskForceAdapter = Depends(get_adapter),
     session: AsyncSession = Depends(get_session),
 ):
+    service = StfService(session)
+    if body.run_id is not None:
+        try:
+            view = await service.cancel(a, body.run_id, body.reason)
+            await session.commit()
+        except (LookupError, ValueError, PermissionError) as error:
+            await session.rollback()
+            raise _http(error) from error
+        return view.as_dict()
+    await _require_run_id(service, a, mission_id, body.run_id)
     try:
         adapter.cancel_mission(a, mission_id, body.reason)
     except LookupError as error:

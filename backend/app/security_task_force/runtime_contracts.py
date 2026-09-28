@@ -31,3 +31,30 @@ class OutboxLease:
     payload: dict[str, Any]
     token: str
     attempts: int
+
+
+@dataclass(frozen=True)
+class RunView:
+    run_id: str
+    mission_id: str
+    mission_version: int
+    state: str
+    desired_state: str
+    plan_hash: str
+    workflow_id: str
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"run_id": self.run_id, "mission_id": self.mission_id, "mission_version": self.mission_version,
+                "state": self.state, "desired_state": self.desired_state, "plan_hash": self.plan_hash,
+                "workflow_id": self.workflow_id}
+
+
+@dataclass(frozen=True)
+class ApprovalRecord:
+    id: str
+    creator_id: str
+    run_id: str
+    action_id: str
+    parameters_hash: str
+    expires_at: Any
+    decision: str
