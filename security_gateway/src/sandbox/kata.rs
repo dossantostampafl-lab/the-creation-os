@@ -16,6 +16,8 @@ impl Sandbox for KataSandbox {
         if tool_id != "range.health.verify" {
             return Err("tool is not allowlisted".into());
         }
-        Ok("dispatch accepted by Kata adapter".into())
+        // Authorization is enforced by the gateway; running work inside Kata is an operator-supplied
+        // integration that has not been exercised on a real host, so no work is executed here.
+        Ok("authorized for the Kata boundary; no work executed by this adapter".into())
     }
 }

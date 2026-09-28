@@ -1,0 +1,30 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+positions:
+  filename: /positions/positions.yaml
+clients:
+  - url: http://stf-loki:3100/loki/api/v1/push
+scrape_configs:
+  # Reads the JSON log files Docker writes for every container (mounted read-only). Only the
+  # Task Force's own structured lines are kept, so nothing else in the stack is shipped.
+  - job_name: stf-telemetry
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: stf
+          __path__: /var/lib/docker/containers/*/*-json.log
+    pipeline_stages:
+      - docker: {}
+      # Keep only lines that carry an "event" key: the Task Force's own structured telemetry.
+      - match:
+          selector: '{job="stf"} !~ ".*\"event\":.*"'
+          action: drop
+      - json:
+          expressions:
+            event: event
+            environment_id: environment_id
+      # Low-cardinality labels only; mission and action ids stay in the log line.
+      - labels:
+          event:
+          environment_id:

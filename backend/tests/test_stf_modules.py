@@ -112,3 +112,17 @@ async def test_range_controller_refuses_real_environments():
     assert calls == []
     assert (await controller.reset("cyber_range:lab-a"))["status"] == "reset"
     assert json.dumps(calls) == '["/reset"]'
+
+
+def test_verify_host_script_agrees_with_the_python_probe():
+    import subprocess
+    from pathlib import Path
+
+    from app.security_task_force.host_capabilities import probe_host
+
+    script = Path(__file__).resolve().parents[2] / "deploy" / "stf" / "verify-host.sh"
+    result = subprocess.run(["bash", str(script)], capture_output=True, text=True, timeout=30)
+    host = probe_host()
+    assert (result.returncode == 0) == (host.kata or host.firecracker)
+    if result.returncode != 0:
+        assert "privileged execution must stay disabled" in result.stdout
