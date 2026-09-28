@@ -49,9 +49,14 @@ test("Creator can start a conversation and receive a DEUS response", async ({ pa
 });
 
 /** Fake speech engines: records what DEUS says and lets the test "say" things to it. */
-async function installFakeSpeech(page: import("@playwright/test").Page) {
-  await page.addInitScript(() => {
+async function installFakeSpeech(
+  page: import("@playwright/test").Page,
+  wakePreference: "on" | "off" | "unset" = "off",
+) {
+  await page.addInitScript(({ wakePreference }) => {
     localStorage.setItem("creation_access_token", "e2e-token");
+    if (wakePreference === "unset") localStorage.removeItem("creation_wake_word");
+    else localStorage.setItem("creation_wake_word", wakePreference);
     const scope = window as unknown as Record<string, unknown>;
     const spoken: string[] = [];
     scope.__spoken = spoken;
@@ -86,11 +91,11 @@ async function installFakeSpeech(page: import("@playwright/test").Page) {
     scope.__say = (text: string) => {
       const recognizer = scope.__recognizer as Fake | undefined;
       if (!recognizer?.running) return false;
-      const result = Object.assign([{ transcript: text }], { isFinal: true });
+      const result = Object.assign([{ transcript: text, confidence: 0.95 }], { isFinal: true });
       recognizer.onresult?.({ resultIndex: 0, results: [result] });
       return true;
     };
-  });
+  }, { wakePreference });
 }
 
 async function mockConversation(page: import("@playwright/test").Page, sent: string[]) {
@@ -106,6 +111,20 @@ async function mockConversation(page: import("@playwright/test").Page, sent: str
 }
 
 const spokenLines = (page: import("@playwright/test").Page) => page.evaluate(() => (window as unknown as { __spoken: string[] }).__spoken);
+
+test("wake word is enabled by default for a fresh Creator session", async ({ page }) => {
+  await installFakeSpeech(page, "unset");
+  await mockDashboard(page);
+  await page.route("**/api/v1/voice/synthesize", (route) => route.fulfill({ status: 501, body: "{}" }));
+  await mockConversation(page, []);
+
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "Turn off “Deus” wake word" })).toBeVisible();
+  await expect(page.getByText(/Say “Deus” to call|Diga “Deus” para chamar/)).toBeVisible();
+  await expect.poll(() => page.evaluate(() => Boolean(
+    (window as unknown as { __recognizer?: { running: boolean } }).__recognizer?.running
+  ))).toBe(true);
+});
 
 test("DEUS falls back to the browser voice when ElevenLabs is not configured, and can be muted", async ({ page }) => {
   await installFakeSpeech(page);
@@ -207,8 +226,7 @@ test("DEUS stops listening when nobody speaks after it is summoned", async ({ pa
 });
 
 test("the microphone stays closed while DEUS has no configured inference", async ({ page }) => {
-  await installFakeSpeech(page);
-  await page.addInitScript(() => localStorage.setItem("creation_wake_word", "on"));
+  await installFakeSpeech(page, "on");
   await mockDashboard(page);
   await page.route("**/api/v1/system/inference", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ configured: false, configured_provider: "fake", providers: [] }) }));
 
