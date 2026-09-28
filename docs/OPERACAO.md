@@ -226,6 +226,8 @@ não pode alcançar o servidor.
 | `set-inference` | Grava a chave que está nos segredos do repositório e recria `api` e `worker`. |
 | `set-creator-password` | Dá ao Criador a senha guardada no segredo `CREATOR_PASSWORD` e encerra as sessões abertas. |
 | `tidy` | Relata todas as cópias do projeto no servidor. Não move nada; só informa. |
+| `logs` | Últimas linhas dos logs do `api` e do `worker`, com segredos mascarados. |
+| `set-voice` | Liga a voz do DEUS no ElevenLabs e confirma com a própria ElevenLabs. |
 
 ### Os segredos, configurados uma vez
 
@@ -242,6 +244,8 @@ Em **Settings → Secrets and variables → Actions → New repository secret**:
 | `ANTHROPIC_MODEL` | não | Sem ele, `claude-sonnet-5`. |
 | `ANTHROPIC_WORKSPACE_ID` | depende | Obrigatório se a chave for da organização, não presa a um Workspace. |
 | `CREATOR_PASSWORD` | só para `set-creator-password` | A senha que você quer para entrar na interface. |
+| `ELEVENLABS_API_KEY` | só para `set-voice` | A chave da ElevenLabs. |
+| `ELEVENLABS_VOICE_ID` | só para `set-voice` | O ID da voz, 20 letras e dígitos. |
 
 ### O que isso significa em segurança
 
@@ -275,3 +279,19 @@ A tarefa `tidy` relata todas as cópias e qual delas está servindo. Ela não ap
 `--park`, o script move as paradas para `<pasta>.parked-<data>`, o que dá a elas um nome de
 projeto próprio e desfaz a armadilha. Um `mv` reverte. Uma pasta iniciada por um serviço do
 systemd ou por um cron não é movida.
+
+## A voz do DEUS
+
+Sem o ElevenLabs configurado, a API responde **501** em `/voice/synthesize` e a interface passa a
+usar a síntese de voz do próprio navegador pelo resto da sessão. Ela funciona, mas soa mal — e é
+esse o sintoma de "a voz está errada", não uma voz trocada.
+
+O `.env.example` vem com `ELEVENLABS_ENABLED=false` e um `ELEVENLABS_VOICE_ID` de exemplo que
+provavelmente não existe na sua conta. Para ligar de verdade, guarde `ELEVENLABS_API_KEY` e
+`ELEVENLABS_VOICE_ID` nos segredos do repositório e rode a tarefa `set-voice`.
+
+Ela termina perguntando à própria ElevenLabs e imprimindo o **nome** da voz. É essa linha que
+prova que a chave é válida *e* que alcança aquela voz — um `HTTP 200` sozinho não provaria que o
+ID é o que você queria.
+
+O ID da voz sai em `elevenlabs.io` → Voices → a voz → o identificador de 20 caracteres.
