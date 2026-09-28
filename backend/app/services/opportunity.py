@@ -8,7 +8,8 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from app.models.entities import Universe
+from app.core.domain import InvalidOrigin, MissionStatus
+from app.models.entities import Mission, Universe
 from app.models.opportunity import Opportunity, OpportunityLease, OpportunityThesis
 from app.repositories.domain import DomainRepository
 from app.schemas.opportunity import OpportunityThesisCreate
@@ -403,3 +404,100 @@ async def select_thesis(
     )
     await repository.commit()
     return thesis
+
+
+async def create_mission_from_opportunity(
+    repository: DomainRepository,
+    *,
+    creator_id: str,
+    opportunity_id: str,
+    thesis_id: str,
+    executive_lease_id: str,
+    title: str,
+    objective: str,
+    authorization: dict,
+    correlation_id: str,
+) -> Mission:
+    """Create the single Mission for a selected, exclusively leased Opportunity.
+
+    Opportunity selection and capital never grant authority by themselves. The caller
+    supplies the pre-existing Mission authorization envelope, while downstream execution
+    remains the normal Mission/AgentRuntime/CapabilityRuntime path.
+    """
+    opportunity = await repository.get_for_update(Opportunity, opportunity_id)
+    if opportunity is None or opportunity.creator_id != creator_id:
+        raise NotFoundError("Opportunity not found")
+
+    existing = await repository.session.scalar(
+        select(Mission).where(Mission.opportunity_id == opportunity.id).with_for_update()
+    )
+    if existing is not None:
+        if existing.creator_id != creator_id:
+            raise NotFoundError("Opportunity not found")
+        return existing
+
+    thesis = await repository.get(OpportunityThesis, thesis_id)
+    if (
+        thesis is None
+        or thesis.opportunity_id != opportunity.id
+        or thesis.status != "SELECTED"
+    ):
+        raise InvalidOrigin("Opportunity Mission requires the selected thesis")
+
+    lease = await repository.get_for_update(OpportunityLease, executive_lease_id)
+    if (
+        lease is None
+        or lease.opportunity_id != opportunity.id
+        or lease.thesis_id != thesis.id
+        or lease.universe_id != thesis.universe_id
+        or lease.lease_type != "EXECUTIVE"
+        or lease.status != "ACTIVE"
+    ):
+        raise InvalidOrigin("Opportunity Mission requires its active executive lease")
+
+    now = _utcnow()
+    if lease.expires_at <= now:
+        lease.status = "EXPIRED"
+        lease.released_at = now
+        await repository.add_event(
+            "opportunity_lease_expired",
+            "opportunity",
+            opportunity.id,
+            lease.universe_id,
+            "universe",
+            correlation_id,
+            {"lease_id": lease.id, "thesis_id": lease.thesis_id},
+        )
+        await repository.commit()
+        raise InvalidOrigin("Opportunity executive lease has expired")
+
+    if not isinstance(authorization, dict):
+        raise ValueError("authorization must be a mapping")
+
+    mission = await repository.add(
+        Mission(
+            inception_id=None,
+            opportunity_id=opportunity.id,
+            creator_id=creator_id,
+            title=title,
+            objective=objective,
+            status=MissionStatus.DRAFTED.value,
+            authorization_json=dict(authorization),
+        )
+    )
+    await repository.add_event(
+        "opportunity_mission_created",
+        "mission",
+        mission.id,
+        creator_id,
+        "creator",
+        correlation_id,
+        {
+            "opportunity_id": opportunity.id,
+            "thesis_id": thesis.id,
+            "executive_lease_id": lease.id,
+            "universe_id": thesis.universe_id,
+        },
+    )
+    await repository.commit()
+    return mission
