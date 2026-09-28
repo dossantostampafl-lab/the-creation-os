@@ -4,6 +4,11 @@
 #
 #   sudo ./deploy/oracle/set-inference.sh              # anthropic, asks for the key
 #   sudo ./deploy/oracle/set-inference.sh anthropic claude-sonnet-5
+#   FALLBACK_PROVIDERS=anthropic sudo -E ./deploy/oracle/set-inference.sh freellmapi auto
+#
+# FALLBACK_PROVIDERS is the reserve order used only when the primary fails outright. Every provider
+# in the chain must already be fully configured in .env, or the API would refuse to start, so the
+# script checks that first and changes nothing when a reserve is missing its key or model.
 #
 # The key is read with the terminal echo off, so it is never shown and never reaches the shell
 # history. It is written to .env as literal text: a key containing a shell or regex metacharacter
@@ -89,6 +94,51 @@ if [ "$provider" = "anthropic" ]; then
   fi
 fi
 
+# The reserve chain. An unset FALLBACK_PROVIDERS clears any earlier chain, so switching back to a single
+# provider does not leave a stale reserve behind.
+fallback="$(printf '%s' "${FALLBACK_PROVIDERS:-}" | tr -d '[:space:]')"
+if [ -n "$fallback" ]; then
+  IFS=',' read -ra reserves <<< "$fallback"
+  for reserve in "${reserves[@]}"; do
+    case "$reserve" in
+      anthropic) reserve_key=ANTHROPIC_API_KEY; reserve_model=ANTHROPIC_MODEL ;;
+      openai) reserve_key=LLM_API_KEY; reserve_model=LLM_MODEL ;;
+      freellmapi) reserve_key=FREELLMAPI_API_KEY; reserve_model=FREELLMAPI_MODEL ;;
+      openai_compatible) reserve_key=""; reserve_model=OPENAI_COMPATIBLE_MODEL ;;
+      *)
+        echo "Unknown or unsupported reserve provider: '$reserve' (fake is never allowed)." >&2
+        echo "Nothing was changed." >&2
+        exit 1
+        ;;
+    esac
+    if [ "$reserve" = "$provider" ]; then
+      echo "The reserve chain must not repeat the primary provider ($provider). Nothing was changed." >&2
+      exit 1
+    fi
+    if [ -n "$reserve_key" ] && [ -z "$(env_get "$reserve_key")" ]; then
+      echo "The reserve provider $reserve has no $reserve_key in .env, so the API could not start with it in the chain." >&2
+      echo "Nothing was changed." >&2
+      exit 1
+    fi
+    if [ -z "$(env_get "$reserve_model")" ]; then
+      echo "The reserve provider $reserve has no $reserve_model in .env, so the API could not start with it in the chain." >&2
+      echo "Nothing was changed." >&2
+      exit 1
+    fi
+  done
+fi
+
+# FreeLLMAPI runs outside this stack, on this server. Its address is an identifier, not a secret.
+freellmapi_url=""
+if [ "$provider" = "freellmapi" ]; then
+  freellmapi_url="${FREELLMAPI_BASE_URL:-$(env_get FREELLMAPI_BASE_URL)}"
+  freellmapi_url="${freellmapi_url:-http://host.docker.internal:3001/v1}"
+  if ! printf '%s' "$freellmapi_url" | grep -qE '^https?://[A-Za-z0-9._:/-]+$'; then
+    echo "FREELLMAPI_BASE_URL must be an http(s) address without spaces or credentials. Nothing was changed." >&2
+    exit 1
+  fi
+fi
+
 cp .env .env.bak
 chmod 600 .env.bak
 env_set LLM_PROVIDER "$provider"
@@ -98,6 +148,10 @@ unset api_key
 if [ "$provider" = "anthropic" ]; then
   env_set ANTHROPIC_WORKSPACE_ID "$workspace_id"
 fi
+if [ "$provider" = "freellmapi" ]; then
+  env_set FREELLMAPI_BASE_URL "$freellmapi_url"
+fi
+env_set LLM_FALLBACK_PROVIDERS "$fallback"
 chmod 600 .env
 
 echo "Written to .env (the previous file is kept as .env.bak):"
@@ -105,6 +159,10 @@ printf '  LLM_PROVIDER=%s\n' "$(env_get LLM_PROVIDER)"
 printf '  %s=%s\n' "$model_var" "$(env_get "$model_var")"
 if [ "$provider" = "anthropic" ] && [ -n "$(env_get ANTHROPIC_WORKSPACE_ID)" ]; then
   printf '  ANTHROPIC_WORKSPACE_ID=%s\n' "$(env_get ANTHROPIC_WORKSPACE_ID)"
+fi
+printf '  LLM_FALLBACK_PROVIDERS=%s\n' "$(env_get LLM_FALLBACK_PROVIDERS)"
+if [ "$provider" = "freellmapi" ]; then
+  printf '  FREELLMAPI_BASE_URL=%s\n' "$(env_get FREELLMAPI_BASE_URL)"
 fi
 if [ -n "$(env_get "$key_var")" ]; then
   printf '  %s=<set>\n' "$key_var"

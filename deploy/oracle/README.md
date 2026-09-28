@@ -72,6 +72,10 @@ Escolha um jeito:
      FREELLMAPI_BASE_URL=http://host.docker.internal:3001/v1
      ```
   3. Preencha também as chaves `FREELLMAPI_*` e `ANTHROPIC_*`.
+
+  **Pelo navegador (sem editar o `.env` à mão):** cadastre em *Settings → Secrets and variables → Actions* o segredo `FREELLMAPI_API_KEY` (a chave `freellmapi-…` gerada pelo próprio FreeLLMAPI) e, se quiser, `FREELLMAPI_MODEL` (padrão `auto`) e `FREELLMAPI_BASE_URL` (padrão `http://host.docker.internal:3001/v1`). Depois rode *Actions → Deploy → Run workflow → task `set-inference-freellmapi`*. A tarefa configura o FreeLLMAPI como primário e a Anthropic como reserva, reinicia `api` e `worker` e mostra o que a API passou a reportar.
+
+  A tarefa **recusa e não muda nada** se a reserva (Anthropic) não tiver `ANTHROPIC_API_KEY` e `ANTHROPIC_MODEL` no `.env` do servidor, porque a API não sobe com um provider da cadeia sem configuração. Se o FreeLLMAPI ainda não estiver instalado ou ouvindo na porta 3001, o sistema continua funcionando pela Anthropic (a reserva assume) e o relatório mostra o FreeLLMAPI como indisponível. Para voltar a só Claude: task `set-inference`, que também limpa a reserva.
   4. **Não abra a porta 3001** na Security List. Para usar o painel do FreeLLMAPI, faça um túnel pelo SSH e abra `http://localhost:3001` no seu PC:
      ```
      ssh -i C:\caminho\da\chave.key -L 3001:localhost:3001 ubuntu@SEU_IP
