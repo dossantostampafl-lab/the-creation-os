@@ -18,7 +18,7 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import socket
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from urllib.parse import urlsplit
 
 import httpx
@@ -29,9 +29,15 @@ from app.capabilities.contracts import (
     CapabilityResult,
     IdempotencyClass,
 )
+from app.capabilities.web_providers import (
+    ProviderUnavailable,
+    WebProvider,
+    web_provider_candidates,
+)
 
 CAPABILITY = "web"
-ACTION = "fetch"
+FETCH_ACTION = "fetch"
+SUPPORTED_ACTIONS = frozenset({"fetch", "search", "crawl", "extract"})
 MAX_REDIRECTS = 3
 
 Resolver = Callable[[str], Awaitable[list[str]]]
@@ -70,6 +76,8 @@ class WebCapabilityAdapter:
         max_bytes: int = 500_000,
         transport: httpx.AsyncBaseTransport | None = None,
         resolve: Resolver | None = None,
+        providers: Sequence[WebProvider] | None = None,
+        preferred_providers: list[str] | None = None,
     ) -> None:
         if timeout_seconds <= 0 or max_bytes <= 0:
             raise ValueError("web timeout and max_bytes must be positive")
@@ -77,15 +85,19 @@ class WebCapabilityAdapter:
         self._max_bytes = max_bytes
         self._transport = transport
         self._resolve = resolve or _resolve
+        self._providers = list(providers or [])
+        self._preferred_providers = list(preferred_providers or [])
 
     async def execute(self, intent: CapabilityIntent, context: CapabilityContext) -> CapabilityResult:
-        if intent.action != ACTION:
-            return self._refused(intent, f"web supports only the '{ACTION}' action")
+        if intent.action not in SUPPORTED_ACTIONS:
+            return self._refused(intent, f"unsupported web action: {intent.action}")
         try:
-            # One budget for the whole fetch, redirects included, so a page that dribbles
-            # bytes out forever cannot hold a worker.
+            # One budget for the whole web action, including redirects/provider fallback.
             async with asyncio.timeout(self._timeout_seconds):
-                data = await self._fetch(intent, context)
+                if intent.action == FETCH_ACTION:
+                    data = await self._fetch(intent, context)
+                else:
+                    data = await self._provider_action(intent, context)
         except WebError as exc:
             return self._refused(intent, str(exc))
         # A malformed URL reaches this as ValueError (urlsplit) or httpx.InvalidURL; both are
@@ -165,6 +177,58 @@ class WebCapabilityAdapter:
         truncated = len(collected) > self._max_bytes
         body = bytes(collected[: self._max_bytes])
         return body.decode(response.encoding or "utf-8", errors="replace"), truncated
+
+    async def _provider_action(self, intent: CapabilityIntent, context: CapabilityContext) -> dict:
+        allowed = self._allowed_hosts(context)
+        provider_intent = intent
+        resource = (intent.resource or "").strip()
+        if resource:
+            parts = urlsplit(resource)
+            if parts.scheme in {"http", "https"}:
+                checked = await self._checked_url(resource, allowed)
+                provider_intent = intent.model_copy(update={"resource": checked})
+
+        candidates = web_provider_candidates(
+            intent.action,
+            self._providers,
+            preferred=self._preferred_providers,
+            material=False,
+        )
+        if not candidates:
+            raise WebError(f"no configured provider supports web.{intent.action}")
+
+        last_unavailable: ProviderUnavailable | None = None
+        for provider in candidates:
+            try:
+                data = await provider.execute(provider_intent, context)
+            except ProviderUnavailable as exc:
+                last_unavailable = exc
+                continue
+            if not isinstance(data, dict):
+                raise WebError(f"web provider {provider.name} returned malformed data")
+            await self._validate_provider_result(data, allowed)
+            return {"provider": provider.name, **data}
+
+        detail = last_unavailable.__class__.__name__ if last_unavailable is not None else "unavailable"
+        raise WebError(f"all web providers unavailable: {detail}")
+
+    async def _validate_provider_result(self, data: dict, allowed_hosts: list[str] | None) -> None:
+        urls: list[str] = []
+        raw_url = data.get("url")
+        if isinstance(raw_url, str):
+            urls.append(raw_url)
+        raw_urls = data.get("urls")
+        if isinstance(raw_urls, list):
+            urls.extend(str(item) for item in raw_urls if isinstance(item, str))
+        items = data.get("items")
+        if isinstance(items, list):
+            for item in items:
+                if isinstance(item, dict) and isinstance(item.get("url"), str):
+                    urls.append(item["url"])
+        for url in urls:
+            parts = urlsplit(url)
+            if parts.scheme in {"http", "https"}:
+                await self._checked_url(url, allowed_hosts)
 
     async def _fetch(self, intent: CapabilityIntent, context: CapabilityContext) -> dict:
         allowed = self._allowed_hosts(context)
