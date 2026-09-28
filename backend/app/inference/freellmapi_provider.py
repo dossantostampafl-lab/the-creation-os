@@ -31,14 +31,12 @@ class FreeLLMAPIProvider:
     def __init__(
         self,
         *,
-        api_key: str,
+        api_key: str | None = None,
         default_model: str,
         base_url: str,
         timeout_seconds: float = 60.0,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
-        if not api_key.strip():
-            raise ValueError("FreeLLMAPI API key is required")
         if not default_model.strip():
             raise ValueError("FreeLLMAPI model is required")
         if timeout_seconds <= 0:
@@ -48,7 +46,8 @@ class FreeLLMAPIProvider:
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             raise ValueError("FreeLLMAPI base URL must use http or https")
 
-        self._api_key = api_key
+        # Without a key no Authorization header is sent at all, rather than an empty bearer token.
+        self._api_key = api_key.strip() if api_key and api_key.strip() else None
         self._default_model = default_model
         self._base_url = base_url.rstrip("/")
         self._timeout_seconds = timeout_seconds
@@ -58,7 +57,7 @@ class FreeLLMAPIProvider:
         return httpx.AsyncClient(
             timeout=self._timeout_seconds,
             transport=self._transport,
-            headers={"Authorization": f"Bearer {self._api_key}"},
+            headers={"Authorization": f"Bearer {self._api_key}"} if self._api_key else {},
         )
 
     def _request_payload(self, request: InferenceRequest, *, stream: bool = False) -> dict[str, Any]:

@@ -16,6 +16,7 @@ on:
           - restart
           - update
           - set-inference
+          - set-inference-freellmapi
           - set-creator-password
           - tidy
           - logs
@@ -52,6 +53,8 @@ jobs:
           SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           HOST: ${{ secrets.DEPLOY_HOST }}
           REF: ${{ inputs.ref }}
+          FREELLMAPI_MODEL: ${{ secrets.FREELLMAPI_MODEL }}
+          FREELLMAPI_BASE_URL: ${{ secrets.FREELLMAPI_BASE_URL }}
         run: |
           set -euo pipefail
           missing=""
@@ -70,6 +73,16 @@ jobs:
           # while the rest travels on to the server's shell.
           if ! [[ "${REF:-}" =~ ^[A-Za-z0-9._/-]*$ ]]; then
             echo "::error::The ref may only contain letters, digits, dot, underscore, slash and dash."
+            exit 1
+          fi
+          # These two reach the server inside a quoted command line, so they are held to the
+          # characters a model name and an address may contain, and nothing else.
+          if ! [[ "${FREELLMAPI_MODEL:-}" =~ ^[A-Za-z0-9._:/-]*$ ]]; then
+            echo "::error::FREELLMAPI_MODEL may only contain letters, digits, dot, underscore, colon, slash and dash."
+            exit 1
+          fi
+          if ! [[ "${FREELLMAPI_BASE_URL:-}" =~ ^(https?://[A-Za-z0-9._:/-]+)?$ ]]; then
+            echo "::error::FREELLMAPI_BASE_URL must be an http(s) address without spaces, quotes or credentials."
             exit 1
           fi
 
@@ -115,6 +128,9 @@ jobs:
           CREATOR_PASSWORD: ${{ secrets.CREATOR_PASSWORD }}
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
           ELEVENLABS_VOICE_ID: ${{ secrets.ELEVENLABS_VOICE_ID }}
+          FREELLMAPI_API_KEY: ${{ secrets.FREELLMAPI_API_KEY }}
+          FREELLMAPI_MODEL: ${{ secrets.FREELLMAPI_MODEL }}
+          FREELLMAPI_BASE_URL: ${{ secrets.FREELLMAPI_BASE_URL }}
         run: |
           set -euo pipefail
 
@@ -134,6 +150,7 @@ jobs:
             printf '%s\n' "${ANTHROPIC_API_KEY:-}"
             printf '%s\n' "${CREATOR_PASSWORD:-}"
             printf '%s\n' "${ELEVENLABS_API_KEY:-}"
+            printf '%s\n' "${FREELLMAPI_API_KEY:-}"
             cat <<'REMOTE'
           set -euo pipefail
           # A server can carry more than one checkout: install.sh works where it is, and
@@ -190,6 +207,11 @@ jobs:
             set-inference)
               sudo -E ./deploy/oracle/set-inference.sh anthropic "${ANTHROPIC_MODEL:-claude-sonnet-5}"
               ;;
+            set-inference-freellmapi)
+              # FreeLLMAPI first, Claude as the reserve. The script refuses, and changes nothing,
+              # unless the reserve is already fully configured in .env.
+              FALLBACK_PROVIDERS=anthropic sudo -E ./deploy/oracle/set-inference.sh freellmapi "${FREELLMAPI_MODEL:-auto}"
+              ;;
             set-creator-password)
               sudo -E ./deploy/oracle/set-creator-password.sh
               ;;
@@ -230,10 +252,12 @@ jobs:
                 "export REPO_DIR='${REPO_DIR:-}' TASK='$TASK' REF='$REF' \
                         ANTHROPIC_MODEL='${ANTHROPIC_MODEL:-}' \
                         ANTHROPIC_WORKSPACE_ID='${ANTHROPIC_WORKSPACE_ID:-}' \
-                        ELEVENLABS_VOICE_ID='${ELEVENLABS_VOICE_ID:-}'; \
+                        ELEVENLABS_VOICE_ID='${ELEVENLABS_VOICE_ID:-}' \
+                        FREELLMAPI_MODEL='${FREELLMAPI_MODEL:-}' \
+                        FREELLMAPI_BASE_URL='${FREELLMAPI_BASE_URL:-}'; \
                  IFS= read -r ANTHROPIC_API_KEY; IFS= read -r CREATOR_PASSWORD; \
-                 IFS= read -r ELEVENLABS_API_KEY; \
-                 export ANTHROPIC_API_KEY CREATOR_PASSWORD ELEVENLABS_API_KEY; exec bash -s"
+                 IFS= read -r ELEVENLABS_API_KEY; IFS= read -r FREELLMAPI_API_KEY; \
+                 export ANTHROPIC_API_KEY CREATOR_PASSWORD ELEVENLABS_API_KEY FREELLMAPI_API_KEY; exec bash -s"
 
       - name: Remove the key from the runner
         if: always()

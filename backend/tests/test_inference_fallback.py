@@ -81,14 +81,41 @@ async def test_the_fallback_answers_only_when_the_primary_is_unavailable(failure
 
 
 @pytest.mark.asyncio
-async def test_a_misconfigured_primary_fails_closed_instead_of_hiding_behind_the_fallback() -> None:
+async def test_a_refused_credential_falls_back_when_a_reserve_exists() -> None:
     failure = InferenceAuthenticationError("freellmapi", "FreeLLMAPI authentication failed")
     primary, fallback = StubProvider("freellmapi", failure=failure), StubProvider("anthropic")
 
-    with pytest.raises(InferenceAuthenticationError):
+    response = await router_with(primary, fallback).generate(request())
+
+    assert response.provider == "anthropic"
+    assert len(primary.requests) == 1  # the primary was tried first, and the answer says who served it
+
+
+@pytest.mark.asyncio
+async def test_a_refused_credential_still_surfaces_when_nothing_else_can_answer() -> None:
+    failure = InferenceAuthenticationError("freellmapi", "FreeLLMAPI authentication failed")
+    fallback_failure = InferenceAuthenticationError("anthropic", "Anthropic authentication failed")
+    primary = StubProvider("freellmapi", failure=failure)
+    fallback = StubProvider("anthropic", failure=fallback_failure)
+
+    with pytest.raises(InferenceAuthenticationError, match="Anthropic"):
         await router_with(primary, fallback).generate(request())
 
-    assert fallback.requests == []
+
+@pytest.mark.asyncio
+async def test_a_refused_credential_is_logged_loudly_without_the_secret(capsys) -> None:
+    from loguru import logger
+
+    messages: list[str] = []
+    handler = logger.add(lambda message: messages.append(str(message)), level="WARNING")
+    try:
+        failure = InferenceAuthenticationError("freellmapi", "bad key freellmapi-SECRET")
+        await router_with(StubProvider("freellmapi", failure=failure), StubProvider("anthropic")).generate(request())
+    finally:
+        logger.remove(handler)
+    joined = "\n".join(messages)
+    assert "refused its credential" in joined and "freellmapi" in joined
+    assert "freellmapi-SECRET" not in joined
 
 
 @pytest.mark.asyncio

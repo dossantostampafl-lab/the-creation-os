@@ -56,7 +56,7 @@ ANTHROPIC_API_KEY=sk-ant-…
 ANTHROPIC_MODEL=claude-sonnet-4-5
 ```
 
-Enquanto o FreeLLMAPI responde, nenhuma chamada vai para a Anthropic — nem do DEUS, nem da Trinity, nem do worker. Depois de 3 falhas seguidas o FreeLLMAPI fica 30 segundos fora da rota (circuit breaker), valendo para todas as requisições, e então volta a ser tentado primeiro. Uma chave recusada (401/403) não aciona a reserva: é erro de configuração e aparece como erro.
+Enquanto o FreeLLMAPI responde, nenhuma chamada vai para a Anthropic — nem do DEUS, nem da Trinity, nem do worker. Depois de 3 falhas seguidas o FreeLLMAPI fica 30 segundos fora da rota (circuit breaker), valendo para todas as requisições, e então volta a ser tentado primeiro. Uma chave recusada (401/403) também aciona a reserva enquanto houver uma, com um aviso `inference provider … refused its credential` no log do `api`/`worker` (e o provider realmente usado fica registrado na mensagem e no Chronicle); se a recusada for a última da cadeia, o erro aparece como antes. Um erro de configuração continua falhando sem reserva.
 
 Todos os providers da cadeia precisam estar completamente configurados: se faltar credencial ou modelo de um deles, o boot da inferência falha explicitamente em vez de silenciar a reserva. O primário responde com o modelo configurado e cada reserva com o seu próprio modelo padrão; o `provider`/`model` efetivamente usados são registrados na mensagem e no Chronicle. `fake` não é aceito como fallback.
 
