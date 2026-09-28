@@ -60,11 +60,24 @@ _MISSION_REQUEST = re.compile(
     r"reescrev(?:a|er)|cancel(?:e|ar)|autoriz(?:e|ar)|aprov(?:e|ar))\b",
     re.IGNORECASE,
 )
-_SIMPLE_ACTION = re.compile(
-    r"^\s*(?:continue|prossiga|mostre|verifique|repita|abra|feche|"
-    r"corrija\s+(?:isso|isto|esse erro|o erro))\s*[.!?]*\s*$",
-    re.IGNORECASE,
-)
+_SIMPLE_ACTIONS = frozenset({
+    "continue",
+    "prossiga",
+    "mostre",
+    "verifique",
+    "repita",
+    "abra",
+    "feche",
+    "corrija isso",
+    "corrija isto",
+    "corrija esse erro",
+    "corrija o erro",
+})
+
+
+def _is_simple_action(content: str) -> bool:
+    # Exact normalized lookup is cheaper and cannot exhibit regex backtracking on user input.
+    return content.casefold().rstrip(".!?").rstrip() in _SIMPLE_ACTIONS
 _DIALOGUE_OPENING = re.compile(
     r"^\s*(oi|olá|ola|bom dia|boa tarde|boa noite|deus\b|status\b|"
     r"o que\b|qual\b|quais\b|como\b|quando\b|onde\b|quem\b|"
@@ -81,7 +94,7 @@ def needs_trinity(content: str) -> bool:
         return False
     if _MISSION_REQUEST.search(normalized):
         return True
-    if _SIMPLE_ACTION.fullmatch(normalized):
+    if _is_simple_action(normalized):
         return False
     if "?" in normalized or _DIALOGUE_OPENING.search(normalized):
         return False
