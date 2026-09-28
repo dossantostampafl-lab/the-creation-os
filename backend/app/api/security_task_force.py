@@ -23,6 +23,9 @@ AGGREGATE = "stf_mission"
 
 def get_adapter() -> SecurityTaskForceAdapter:
     opa_url = os.environ.get("OPA_URL")
+    if os.environ.get("STF_REQUIRE_POLICY") == "1" and not opa_url:
+        # An installation that demands the external policy engine never falls back to local rules alone.
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Policy engine is required but not configured")
     return build_adapter(Path(os.environ.get("STF_STATE_DIR", "/var/lib/creation/stf")), OpaClient(opa_url) if opa_url else None)
 
 

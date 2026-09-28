@@ -67,3 +67,9 @@ def test_r5_never_executes_inside_existing_mission():
 def test_outside_time_window_is_denied():
     later = datetime.now(timezone.utc) + timedelta(hours=2)
     assert authorize(contract(), action(), now=later).reason_codes == ["outside_time_window"]
+
+
+def test_time_window_beyond_the_policy_engine_range_is_rejected():
+    now = datetime.now(timezone.utc)
+    with pytest.raises(ValidationError):
+        contract(time_window={"start": now, "end": now.replace(year=2999)})

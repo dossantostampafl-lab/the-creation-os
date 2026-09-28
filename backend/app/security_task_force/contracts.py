@@ -104,6 +104,9 @@ class MissionContract(BaseModel):
     def _time_window_is_ordered(cls, value: dict[str, datetime]) -> dict[str, datetime]:
         if value and (set(value) != {"start", "end"} or value["start"] >= value["end"]):
             raise ValueError("time_window needs start before end")
+        # The policy engine compares nanoseconds since the epoch, which only reaches the year 2262.
+        if value and not all(2000 <= moment.year <= 2200 for moment in value.values()):
+            raise ValueError("time_window must fall between the years 2000 and 2200")
         return value
 
     @model_validator(mode="after")

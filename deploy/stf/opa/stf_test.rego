@@ -12,7 +12,7 @@ base_mission := {
 	"excluded_targets": [],
 	"allowed_action_classes": ["validate"],
 	"risk_ceiling": "R4",
-	"time_window": {"start": "2000-01-01T00:00:00Z", "end": "2999-01-01T00:00:00Z"},
+	"time_window": {"start": "2000-01-01T00:00:00Z", "end": "2200-01-01T00:00:00Z"},
 }
 
 base_input := {
@@ -88,4 +88,16 @@ test_ceiling_is_enforced if {
 
 test_unknown_risk_class_is_denied if {
 	not stf.allow with input as object.union(base_input, {"risk_class": "R9"})
+}
+
+test_unparseable_window_is_denied_not_ignored if {
+	m := object.union(base_mission, {"time_window": {"start": "yesterday", "end": "2200-01-01T00:00:00Z"}})
+	i := object.union(base_input, {"mission": m})
+	not stf.allow with input as i
+	"time_window_invalid" in stf.deny_reasons with input as i
+}
+
+test_inverted_window_is_denied if {
+	m := object.union(base_mission, {"time_window": {"start": "2100-01-01T00:00:00Z", "end": "2000-01-01T00:00:00Z"}})
+	not stf.allow with input as object.union(base_input, {"mission": m})
 }

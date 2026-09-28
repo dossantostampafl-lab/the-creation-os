@@ -150,3 +150,15 @@ async def test_http_routes_require_the_sovereign_creator_and_write_the_chronicle
         settings.sovereign_creator_id = previous
         app.dependency_overrides.clear()
         await engine.dispose()
+
+
+def test_required_policy_engine_is_never_bypassed(monkeypatch):
+    from fastapi import HTTPException
+
+    monkeypatch.setenv("STF_REQUIRE_POLICY", "1")
+    monkeypatch.delenv("OPA_URL", raising=False)
+    with pytest.raises(HTTPException) as caught:
+        get_adapter()
+    assert caught.value.status_code == 503
+    monkeypatch.setenv("OPA_URL", "http://stf-opa:8181")
+    assert get_adapter() is not None

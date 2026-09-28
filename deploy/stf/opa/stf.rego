@@ -24,6 +24,21 @@ deny_reasons contains "target_not_authorized" if input.target_id in input.missio
 
 deny_reasons contains "action_class_not_authorized" if not input.action_class in input.mission.allowed_action_classes
 
+# A window that is present but cannot be parsed (or is out of the nanosecond range) would make the
+# comparisons below undefined, and an undefined deny rule silently allows. Refuse it explicitly.
+window_present if input.mission.time_window.start
+
+window_valid if {
+	start := time.parse_rfc3339_ns(input.mission.time_window.start)
+	end := time.parse_rfc3339_ns(input.mission.time_window.end)
+	start < end
+}
+
+deny_reasons contains "time_window_invalid" if {
+	window_present
+	not window_valid
+}
+
 deny_reasons contains "outside_time_window" if time.now_ns() < time.parse_rfc3339_ns(input.mission.time_window.start)
 
 deny_reasons contains "outside_time_window" if time.now_ns() >= time.parse_rfc3339_ns(input.mission.time_window.end)
