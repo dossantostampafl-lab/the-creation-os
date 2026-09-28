@@ -90,19 +90,42 @@ async def create_or_get_opportunity(
             await repository.commit()
         return existing
 
-    item = await repository.add(
-        Opportunity(
-            creator_id=creator_id,
-            fingerprint=fingerprint,
-            sector=sector.strip(),
-            problem_or_gap=" ".join(problem_or_gap.split()),
-            capture_mechanism=" ".join(capture_mechanism.split()),
-            evidence_refs_json=list(dict.fromkeys(evidence_refs)),
-            first_discovered_by_universe_id=discovered_by_universe_id,
-            time_window_json=_normalize_json(time_window),
-            status="DETECTED",
-        )
+    candidate = Opportunity(
+        creator_id=creator_id,
+        fingerprint=fingerprint,
+        sector=sector.strip(),
+        problem_or_gap=" ".join(problem_or_gap.split()),
+        capture_mechanism=" ".join(capture_mechanism.split()),
+        evidence_refs_json=list(dict.fromkeys(evidence_refs)),
+        first_discovered_by_universe_id=discovered_by_universe_id,
+        time_window_json=_normalize_json(time_window),
+        status="DETECTED",
     )
+    try:
+        item = await repository.add(candidate)
+    except IntegrityError as exc:
+        await repository.rollback()
+        if _integrity_constraint_name(exc) != "uq_opportunity_creator_fingerprint":
+            raise
+        winner = await repository.opportunity_by_fingerprint(creator_id, fingerprint)
+        if winner is None:
+            raise
+        merged_evidence = list(dict.fromkeys([*winner.evidence_refs_json, *evidence_refs]))
+        if merged_evidence != winner.evidence_refs_json:
+            winner.evidence_refs_json = merged_evidence
+            await repository.session.flush()
+        await repository.add_event(
+            "opportunity_rediscovered",
+            "opportunity",
+            winner.id,
+            discovered_by_universe_id,
+            "universe",
+            correlation_id,
+            {"evidence_refs": evidence_refs, "dedupe_race": True},
+        )
+        await repository.commit()
+        return winner
+
     await repository.add_event(
         "opportunity_detected",
         "opportunity",
@@ -168,9 +191,14 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _integrity_constraint_name(exc: IntegrityError) -> str | None:
+    diagnostic = getattr(getattr(exc, "orig", None), "diag", None)
+    name = getattr(diagnostic, "constraint_name", None)
+    return str(name) if name else None
+
+
 def _is_executive_lease_conflict(exc: IntegrityError) -> bool:
-    constraint_name = getattr(getattr(exc, "orig", None), "diag", None)
-    constraint_name = getattr(constraint_name, "constraint_name", None)
+    constraint_name = _integrity_constraint_name(exc)
     if constraint_name == "uq_opportunity_active_executive_lease":
         return True
     return "uq_opportunity_active_executive_lease" in str(exc)
@@ -474,17 +502,28 @@ async def create_mission_from_opportunity(
     if not isinstance(authorization, dict):
         raise ValueError("authorization must be a mapping")
 
-    mission = await repository.add(
-        Mission(
-            inception_id=None,
-            opportunity_id=opportunity.id,
-            creator_id=creator_id,
-            title=title,
-            objective=objective,
-            status=MissionStatus.DRAFTED.value,
-            authorization_json=dict(authorization),
+    try:
+        mission = await repository.add(
+            Mission(
+                inception_id=None,
+                opportunity_id=opportunity.id,
+                creator_id=creator_id,
+                title=title,
+                objective=objective,
+                status=MissionStatus.DRAFTED.value,
+                authorization_json=dict(authorization),
+            )
         )
-    )
+    except IntegrityError as exc:
+        await repository.rollback()
+        if _integrity_constraint_name(exc) != "ix_missions_opportunity_id":
+            raise
+        winner = await repository.session.scalar(
+            select(Mission).where(Mission.opportunity_id == opportunity.id)
+        )
+        if winner is None or winner.creator_id != creator_id:
+            raise
+        return winner
     await repository.add_event(
         "opportunity_mission_created",
         "mission",
