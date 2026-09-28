@@ -141,6 +141,21 @@ def test_deus_fast_path_keeps_dialogue_single_pass_but_governs_execution() -> No
     assert needs_trinity("você consegue implementar isso?") is True
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("content", ["continue", "verifique", "corrija esse erro"])
+async def test_bounded_contextual_commands_use_only_the_deus_inference(content: str) -> None:
+    actor = Actor(str(uuid.uuid4()), "creator")
+    repo = FakeRepository(actor)
+    router = StubRouter()
+    engine = TrinityEngine(router, provider="stub", model="stub-model", min_confidence=0.7)
+    service = DeusConversationService(repo, router, provider="stub", model="stub-model", trinity=engine)
+
+    result = await service.respond(actor, repo.conversation.id, content, str(uuid.uuid4()))
+
+    assert result.response == "DEUS response"
+    assert [request.metadata["route"] for request in router.requests] == ["deus"]
+
+
 def test_deus_system_prompt_preserves_recent_dialogue_context() -> None:
     lowered = SYSTEM_PROMPT.lower()
     assert "continuous conversation" in lowered
