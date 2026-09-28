@@ -62,7 +62,13 @@ jobs:
             exit 1
           fi
       - run: mypy app
-      - run: python -m alembic upgrade head
+      - name: Verify Alembic fresh upgrade and 0010 roundtrip
+        run: |
+          python -m alembic upgrade head
+          python -m alembic downgrade 0009
+          python -m alembic upgrade 0010
+          python -m alembic downgrade 0009
+          python -m alembic upgrade head
       - run: pytest
 
   frontend:
