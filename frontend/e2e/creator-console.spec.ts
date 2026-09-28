@@ -434,7 +434,7 @@ test("in a voice conversation, “pode iniciar” starts the prepared Mission in
   await expect.poll(() => spokenLines(page)).toHaveLength(1);
   await expect.poll(() => say(page, "pode iniciar")).toBe(true);
   await expect.poll(() => calls).toEqual(["start mission-1"]);
-  await expect.poll(() => spokenLines(page)).toEqual(["ROCKMAM prepared the Mission.", "Mission authorized. Starting."]);
+  await expect.poll(() => spokenLines(page)).toEqual(["ROCKMAM prepared the Mission.", "Missão autorizada. Iniciando."]);
   expect(sent).toEqual(["build a landing page"]);
 });
 
@@ -454,7 +454,7 @@ test("“cancela” drops the prepared Mission", async ({ page }) => {
   await expect.poll(() => say(page, "cancela")).toBe(true);
   await expect.poll(() => calls).toEqual(["cancel"]);
   await expect(card.getByText("Cancelled")).toBeVisible();
-  await expect.poll(() => spokenLines(page)).toEqual(["ROCKMAM prepared the Mission.", "Mission cancelled."]);
+  await expect.poll(() => spokenLines(page)).toEqual(["ROCKMAM prepared the Mission.", "Missão cancelada."]);
 });
 
 test("a spoken go starts the newest Mission, not an older one still waiting", async ({ page }) => {
