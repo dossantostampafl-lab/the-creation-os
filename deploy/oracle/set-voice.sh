@@ -113,8 +113,8 @@ except ValueError:
 
 if response.status_code == 200:
     # The name is the proof: a wrong id that still resolved would show the wrong voice here.
-    print(f"   Voice: {body.get(\"name\", \"<unnamed>\")}")
-    print(f"   Category: {body.get(\"category\", \"<unknown>\")}")
+    print("   Voice:", body.get("name", "<unnamed>"))
+    print("   Category:", body.get("category", "<unknown>"))
 else:
     print("   " + json.dumps(body)[:300])
     raise SystemExit(1)

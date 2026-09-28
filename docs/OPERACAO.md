@@ -300,7 +300,7 @@ O ID da voz sai em `elevenlabs.io` → Voices → a voz → o identificador de 2
 ## Testar o app inteiro
 
 ```
-sudo ~/the-creation-os/deploy/oracle/smoke-test.sh --deus
+sudo /opt/the-creation-os/deploy/oracle/smoke-test.sh --deus
 ```
 
 Ou a tarefa `smoke-test` no workflow Deploy.
