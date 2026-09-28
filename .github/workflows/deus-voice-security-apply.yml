@@ -1,0 +1,54 @@
+name: Apply DEUS simple-action security fix
+
+on:
+  push:
+    branches: [feat/deus-voice-latency]
+    paths:
+      - .github/workflows/deus-voice-security-apply.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: feat/deus-voice-latency
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - name: Replace user-facing simple-action regex with constant-time lookup
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("backend/app/services/deus.py")
+          text = path.read_text()
+          old = '''_SIMPLE_ACTION = re.compile(\n    r"^\\s*(?:continue|prossiga|mostre|verifique|repita|abra|feche|"\n    r"corrija\\s+(?:isso|isto|esse erro|o erro))\\s*[.!?]*\\s*$",\n    re.IGNORECASE,\n)\n'''
+          new = '''_SIMPLE_ACTIONS = frozenset({\n    "continue",\n    "prossiga",\n    "mostre",\n    "verifique",\n    "repita",\n    "abra",\n    "feche",\n    "corrija isso",\n    "corrija isto",\n    "corrija esse erro",\n    "corrija o erro",\n})\n\n\ndef _is_simple_action(content: str) -> bool:\n    # Exact normalized lookup is cheaper and cannot exhibit regex backtracking on user input.\n    return content.casefold().rstrip(".!?").rstrip() in _SIMPLE_ACTIONS\n'''
+          if old not in text:
+              raise SystemExit("simple action regex block not found")
+          text = text.replace(old, new, 1)
+          old_call = '''    if _SIMPLE_ACTION.fullmatch(normalized):\n        return False\n'''
+          new_call = '''    if _is_simple_action(normalized):\n        return False\n'''
+          if old_call not in text:
+              raise SystemExit("simple action call not found")
+          path.write_text(text.replace(old_call, new_call, 1))
+      - name: Verify backend regression and quality gates
+        run: |
+          cd backend
+          pip install -q -e '.[dev]'
+          pytest tests/test_deus_latency_routing.py tests/test_deus_conversation.py -q
+          ruff check app/services/deus.py tests/test_deus_latency_routing.py tests/test_deus_conversation.py
+          mypy app/services/deus.py
+      - name: Commit fix and remove temporary workflow
+        run: |
+          rm .github/workflows/deus-voice-security-apply.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/app/services/deus.py .github/workflows/deus-voice-security-apply.yml
+          git commit -m "fix: avoid regex backtracking in DEUS fast path"
+          git push origin HEAD:feat/deus-voice-latency
