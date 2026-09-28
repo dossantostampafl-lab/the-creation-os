@@ -289,3 +289,23 @@ def test_the_voice_id_is_checked_before_it_reaches_a_url() -> None:
     assert "^[A-Za-z0-9]{20}$" in script
     # The proof of a correct voice is its name coming back, not a 200 alone.
     assert 'body.get(\\"name\\"' in script or 'body.get("name"' in script
+
+
+def test_the_smoke_test_passes_no_credential_on_a_command_line() -> None:
+    """The container already holds the Creator's credentials; passing them again would put
+    them in the server's process list for anyone who can run ps."""
+    script = (REPO_ROOT / "deploy" / "oracle" / "smoke-test.sh").read_text(encoding="utf-8")
+    assert "CREATOR_BOOTSTRAP_PASSWORD" not in script.split("docker exec")[0]
+    assert 'os.getenv("CREATOR_BOOTSTRAP_PASSWORD"' in script
+    # Only the one flag it needs is passed in, and it is not a secret.
+    assert script.count("-e ") == 1
+
+
+def test_the_smoke_test_checks_what_the_interface_depends_on() -> None:
+    """Each check backs a panel or a control; a gap here is a blank screen nobody can explain."""
+    script = (REPO_ROOT / "deploy" / "oracle" / "smoke-test.sh").read_text(encoding="utf-8")
+    for path in ("/universes", "/agents", "/missions", "/system/state", "/system/inference",
+                 "/opportunities/projection", "/voice/synthesize", "/deus"):
+        assert path in script, f"the smoke test never exercises {path}"
+    # The console's own enabling expression, so the report says why it is disabled.
+    assert "the console stays disabled while this is false" in script
