@@ -287,8 +287,10 @@ def test_every_secret_reaches_the_server_on_stdin() -> None:
 def test_the_voice_id_is_checked_before_it_reaches_a_url() -> None:
     script = (REPO_ROOT / "deploy" / "oracle" / "set-voice.sh").read_text(encoding="utf-8")
     assert "^[A-Za-z0-9]{20}$" in script
-    # The proof of a correct voice is its name coming back, not a 200 alone.
-    assert 'body.get(\\"name\\"' in script or 'body.get("name"' in script
+    # The proof is the call the application makes, not a name lookup: a key can be valid for
+    # speaking and still lack the permission to read voice names, which is this account's case.
+    assert "text-to-speech" in script, "the probe does not exercise what the app calls"
+    assert "not needed to speak" in script, "a missing name permission must not read as failure"
 
 
 def test_the_smoke_test_passes_no_credential_on_a_command_line() -> None:

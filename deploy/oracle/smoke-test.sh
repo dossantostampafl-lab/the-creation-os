@@ -125,7 +125,9 @@ with httpx.Client(base_url=BASE, timeout=45) as client:
                 f"/conversations/{conversation_id}/deus",
                 json={"content": "Responda apenas: estou aqui."},
             )
-            if reply.status_code == 200:
+            # The endpoint answers 201: it created a message. Accepting only 200 reported a
+            # working DEUS as broken, which is the one wrong answer a health check must not give.
+            if reply.status_code in (200, 201):
                 text = (reply.json().get("response") or "").strip()
                 report("DEUS replies", bool(text), f"{text[:80]!r}")
             else:

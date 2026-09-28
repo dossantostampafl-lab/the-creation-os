@@ -87,35 +87,44 @@ if [ -z "$container" ]; then
   exit 1
 fi
 docker exec -i "$container" python -c '
-import json
 import os
 
 import httpx
 
 key = os.getenv("ELEVENLABS_API_KEY", "")
 voice = os.getenv("ELEVENLABS_VOICE_ID", "")
-print(f"   Asking https://api.elevenlabs.io/v1/voices/{voice}")
+model = os.getenv("ELEVENLABS_MODEL_ID", "eleven_multilingual_v2")
+headers = {"xi-api-key": key}
+
+# The name is nice to have, and needs the voices_read permission a key may not carry. It is
+# asked for first and its refusal is reported, never fatal: the app never calls this endpoint.
 try:
-    response = httpx.get(
-        f"https://api.elevenlabs.io/v1/voices/{voice}",
-        headers={"xi-api-key": key},
-        timeout=20,
+    named = httpx.get(f"https://api.elevenlabs.io/v1/voices/{voice}", headers=headers, timeout=20)
+    if named.status_code == 200:
+        print("   Voice:", named.json().get("name", "<unnamed>"))
+    elif named.status_code == 401:
+        print("   (the key cannot read voice names; that permission is not needed to speak)")
+    else:
+        print(f"   (could not read the voice name: HTTP {named.status_code})")
+except Exception as exc:
+    print(f"   (could not read the voice name: {type(exc).__name__})")
+
+# This is the call the application makes, so this is the one that has to work. Two words keep
+# it to a few credits.
+try:
+    spoken = httpx.post(
+        f"https://api.elevenlabs.io/v1/text-to-speech/{voice}",
+        headers=headers,
+        json={"text": "Estou aqui.", "model_id": model},
+        timeout=40,
     )
 except Exception as exc:
     raise SystemExit(f"   The request never arrived: {type(exc).__name__}: {exc}")
 
-print(f"   HTTP {response.status_code}")
-try:
-    body = response.json()
-except ValueError:
-    print("   " + response.text[:200])
-    raise SystemExit(1 if response.status_code >= 400 else 0)
-
-if response.status_code == 200:
-    # The name is the proof: a wrong id that still resolved would show the wrong voice here.
-    print("   Voice:", body.get("name", "<unnamed>"))
-    print("   Category:", body.get("category", "<unknown>"))
+print(f"   Speaking: HTTP {spoken.status_code}")
+if spoken.status_code == 200:
+    print("  ", len(spoken.content), "bytes of", spoken.headers.get("content-type", "audio"))
 else:
-    print("   " + json.dumps(body)[:300])
+    print("   " + spoken.text[:300])
     raise SystemExit(1)
 '
