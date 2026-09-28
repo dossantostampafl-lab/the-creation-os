@@ -88,6 +88,8 @@ async def test_database_accepts_each_single_origin_and_rejects_both_or_neither()
     async with factory() as session:
         session.add(Creator(id=creator_id, username=f"creator-{creator_id[:8]}", password_hash="x", is_active=True))
         session.add(Universe(id=universe_id, code=f"u-{universe_id[:8]}", name="Schema Test", active=True))
+        await session.flush()
+
         session.add(Conversation(id=conversation_id, creator_id=creator_id, title="schema"))
         await session.flush()
 
