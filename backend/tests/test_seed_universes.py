@@ -9,7 +9,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 import app.admin.seed as seed
-from app.admin.seed import UNIVERSES, seed_universes
+from app.admin.seed import CANONICAL_UNIVERSES, seed_universes
 from app.config import settings
 from app.models.entities import Agent, Chronicle, Creator, Universe
 
@@ -73,16 +73,17 @@ async def test_seed_makes_every_universe_able_to_take_a_mission_step(database, m
     async with database() as session:
         universes = {item.code: item for item in (await session.scalars(select(Universe))).all()}
         agents = {item.code: item for item in (await session.scalars(select(Agent))).all()}
-        assert sorted(universes) == sorted(code for code, _, _ in UNIVERSES)
-        for code, _, _ in UNIVERSES:
-            assert universes[code].active, f"{code} must be active to take a step"
-            agent = agents[f"{code}-agent"]
-            assert agent.active and agent.universe_id == universes[code].id
+        assert sorted(universes) == sorted(spec.code for spec in CANONICAL_UNIVERSES)
+        for spec in CANONICAL_UNIVERSES:
+            assert universes[spec.code].id == spec.id
+            assert universes[spec.code].active, f"{spec.code} must be active to take a step"
+            agent = agents[spec.agent_code]
+            assert agent.active and agent.universe_id == universes[spec.code].id
             # Without this the Agent's first task fails with "Agent has no inference_provider".
             assert agent.capabilities_json["inference_provider"] == "freellmapi"
         events = [item.event_type for item in (await session.scalars(select(Chronicle))).all()]
-        assert events.count("universe_created") == len(UNIVERSES)
-        assert events.count("agent_created") == len(UNIVERSES)
+        assert events.count("universe_created") == len(CANONICAL_UNIVERSES)
+        assert events.count("agent_created") == len(CANONICAL_UNIVERSES)
 
 
 @pytest.mark.asyncio
@@ -108,7 +109,7 @@ async def test_seed_reactivates_a_universe_or_agent_that_was_turned_off(database
     monkeypatch.setattr(settings, "sovereign_creator_id", creator_id)
     assert await seed_universes() == 0
 
-    code = UNIVERSES[0][0]
+    code = CANONICAL_UNIVERSES[0].code
     async with database() as session:
         universe = await session.scalar(select(Universe).where(Universe.code == code))
         agent = await session.scalar(select(Agent).where(Agent.code == f"{code}-agent"))
