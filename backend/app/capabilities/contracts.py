@@ -20,6 +20,7 @@ class CapabilityIntent(BaseModel):
     external_effect: bool = False
     idempotency_class: IdempotencyClass = IdempotencyClass.SAFE
     idempotency_key: str | None = Field(default=None, max_length=256)
+    economic: dict[str, Any] = Field(default_factory=dict)
 
 
 class MissionAuthorization(BaseModel):

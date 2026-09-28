@@ -1,5 +1,21 @@
 # Decision Changelog
 
+## 2026-09-27 — Autonomous Universes + Opportunity Fabric + Economic Core
+
+### DEC-2026-09-27-01 — Autonomous Universes opportunity economy implemented and verified
+**Status:** accepted
+
+The approved Autonomous Universes + Opportunity Fabric + Economic Core design has been implemented by extending the existing Creation kernel rather than introducing a parallel platform. The implementation covers deterministic Opportunity discovery/deduplication, independent competing Theses, PostgreSQL-enforced Executive Lease exclusivity, Opportunity-origin Missions using the existing authorization/runtime path, append-oriented economic accounting, conservative economic risk gates, uncertainty/reconciliation semantics, Universe perception priors, provider-ready web capabilities, bounded local provider contracts, feature-gated remote/MCP provider contracts, UniverseMemory learning, Creator isolation, Chronicle evidence, idempotency and database-backed concurrency invariants.
+
+Real economic mode remains disabled by default. Remote provider connectivity remains feature-gated until the corresponding endpoint/credential/certification requirements are present; provider discovery alone grants no authority.
+
+Verification evidence at implementation SHA `6a2cd353b521600f6ccc1b7ed6ea2beca413ea78`: CI run `36371499895` passed backend, frontend/Playwright, Docker stack and runtime-build jobs; backend evidence is 540 passed / 1 skipped, Ruff green, mypy green on 133 source files, and Alembic fresh/roundtrip migration verification green. Security run `36371499984` passed dependency audit plus CodeQL for Python and JavaScript/TypeScript.
+
+Affected canonical files: `PROJECT_STATE.yaml`, `FROZEN_DECISIONS.md`, `CHANGELOG_DECISIONS.md`, Opportunity/economy models and services, CapabilityRuntime, web provider contracts, Universe seed profiles, projections, tests and CI migration gates.
+
+This decision required code migration and does not activate real money or uncertified remote providers.
+
+
 ## 2026-09-26 — Dashboard mobile PWA release candidate
 
 ### DEC-2026-09-26-01 — The Creation dashboard becomes an installable responsive PWA

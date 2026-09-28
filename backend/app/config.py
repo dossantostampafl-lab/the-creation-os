@@ -55,6 +55,31 @@ class Settings(BaseSettings):
     web_capability_enabled: bool = Field(True, env="WEB_CAPABILITY_ENABLED")
     web_timeout_seconds: float = Field(15.0, gt=0.0, env="WEB_TIMEOUT_SECONDS")
     web_max_bytes: int = Field(500_000, ge=1, env="WEB_MAX_BYTES")
+    web_provider_preference: str = Field("", env="WEB_PROVIDER_PREFERENCE")
+    web_crawlee_endpoint: str | None = Field(None, env="WEB_CRAWLEE_ENDPOINT")
+    web_crawl4ai_endpoint: str | None = Field(None, env="WEB_CRAWL4AI_ENDPOINT")
+    web_firecrawl_endpoint: str | None = Field(None, env="WEB_FIRECRAWL_ENDPOINT")
+    web_firecrawl_api_key: SecretStr | None = Field(None, env="WEB_FIRECRAWL_API_KEY")
+    web_exa_endpoint: str | None = Field(None, env="WEB_EXA_ENDPOINT")
+    web_exa_api_key: SecretStr | None = Field(None, env="WEB_EXA_API_KEY")
+    web_tavily_endpoint: str | None = Field(None, env="WEB_TAVILY_ENDPOINT")
+    web_tavily_api_key: SecretStr | None = Field(None, env="WEB_TAVILY_API_KEY")
+    web_brave_endpoint: str | None = Field(None, env="WEB_BRAVE_ENDPOINT")
+    web_brave_api_key: SecretStr | None = Field(None, env="WEB_BRAVE_API_KEY")
+    web_apify_endpoint: str | None = Field(None, env="WEB_APIFY_ENDPOINT")
+    web_apify_api_key: SecretStr | None = Field(None, env="WEB_APIFY_API_KEY")
+    web_remote_security_review: str = Field("pending", env="WEB_REMOTE_SECURITY_REVIEW")
+    web_remote_shadow_enabled: bool = Field(True, env="WEB_REMOTE_SHADOW_ENABLED")
+    web_remote_production_enabled: bool = Field(False, env="WEB_REMOTE_PRODUCTION_ENABLED")
+    real_economic_mode_enabled: bool = Field(False, env="REAL_ECONOMIC_MODE_ENABLED")
+    economic_currency: str = Field("BRL", env="ECONOMIC_CURRENCY")
+    economic_genesis_amount: float = Field(10.0, ge=0.0, env="ECONOMIC_GENESIS_AMOUNT")
+    economic_structural_reserve_ratio: float = Field(0.50, ge=0.0, le=1.0, env="ECONOMIC_STRUCTURAL_RESERVE_RATIO")
+    economic_max_operational_ratio: float = Field(0.50, ge=0.0, le=1.0, env="ECONOMIC_MAX_OPERATIONAL_RATIO")
+    economic_max_risk_per_action_ratio: float = Field(0.10, ge=0.0, le=1.0, env="ECONOMIC_MAX_RISK_PER_ACTION_RATIO")
+    economic_max_exposure_ratio: float = Field(0.30, ge=0.0, le=1.0, env="ECONOMIC_MAX_EXPOSURE_RATIO")
+    economic_daily_stop_ratio: float = Field(0.10, ge=0.0, le=1.0, env="ECONOMIC_DAILY_STOP_RATIO")
+    economic_drawdown_stop_ratio: float = Field(0.20, ge=0.0, le=1.0, env="ECONOMIC_DRAWDOWN_STOP_RATIO")
     proto_base_url: str | None = Field(None, env="PROTO_BASE_URL")
     proto_creation_shared_secret: SecretStr | None = Field(None, env="PROTO_CREATION_SHARED_SECRET")
     proto_timeout_seconds: float = Field(10.0, gt=0.0, le=60.0, env="PROTO_TIMEOUT_SECONDS")
@@ -73,6 +98,10 @@ class Settings(BaseSettings):
     @property
     def cors_origins(self) -> list[str]:
         return [origin.strip() for origin in self.cors_allow_origins.split(",") if origin.strip()]
+
+    @property
+    def web_provider_preferences(self) -> list[str]:
+        return [name.strip().lower() for name in self.web_provider_preference.split(",") if name.strip()]
 
     @property
     def inference_provider_chain(self) -> list[str]:

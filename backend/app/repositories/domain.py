@@ -25,6 +25,7 @@ from app.models.entities import (
     Universe,
     UniverseMemory,
 )
+from app.models.opportunity import Opportunity
 
 MEMORY_LAYERS: dict[str, tuple[type, str]] = {
     "conversation": (ConversationMemory, "conversation_id"),
@@ -108,6 +109,14 @@ class DomainRepository:
         if lock:
             stmt = stmt.with_for_update()
         return await self.session.scalar(stmt)
+
+    async def opportunity_by_fingerprint(self, creator_id: str, fingerprint: str) -> Opportunity | None:
+        return await self.session.scalar(
+            select(Opportunity).where(
+                Opportunity.creator_id == creator_id,
+                Opportunity.fingerprint == fingerprint,
+            )
+        )
 
     async def owner_id(self, model: type, entity_id: str) -> str | None:
         if model is Inception:

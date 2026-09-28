@@ -11,6 +11,7 @@ from app.capabilities.gateway import CapabilityGateway
 from app.capabilities.proto import ProtoCapabilityAdapter
 from app.capabilities.runtime import CapabilityRuntime
 from app.capabilities.web import WebCapabilityAdapter
+from app.capabilities.web_providers import RemoteContractWebProvider, WebProviderMetadata
 from app.capabilities.workspace import WorkspaceCapabilityAdapter
 from app.config import settings
 from app.db.session import AsyncSessionLocal
@@ -23,6 +24,65 @@ from app.models.entities import Mission
 from app.projections.refresher import ProjectionRefresher
 
 POLL_INTERVAL_SECONDS = 1.0
+
+
+def _secret_value(value) -> str | None:
+    return value.get_secret_value() if value is not None else None
+
+
+def build_web_providers() -> list[RemoteContractWebProvider]:
+    providers: list[RemoteContractWebProvider] = []
+
+    local_specs = [
+        ("crawlee", settings.web_crawlee_endpoint, ("crawl",), "local:crawlee"),
+        ("crawl4ai", settings.web_crawl4ai_endpoint, ("crawl", "extract"), "local:crawl4ai"),
+    ]
+    for name, endpoint, actions, origin in local_specs:
+        if not endpoint:
+            continue
+        providers.append(
+            RemoteContractWebProvider(
+                name=name,
+                endpoint=endpoint,
+                actions=actions,
+                metadata=WebProviderMetadata(
+                    origin=origin,
+                    license="configured-local-provider",
+                    security_review="approved",
+                    supported_actions=frozenset(actions),
+                    shadow_enabled=True,
+                    production_enabled=True,
+                ),
+            )
+        )
+
+    remote_specs = [
+        ("firecrawl", settings.web_firecrawl_endpoint, _secret_value(settings.web_firecrawl_api_key), ("search", "crawl", "extract")),
+        ("exa", settings.web_exa_endpoint, _secret_value(settings.web_exa_api_key), ("search", "extract")),
+        ("tavily", settings.web_tavily_endpoint, _secret_value(settings.web_tavily_api_key), ("search", "extract")),
+        ("brave", settings.web_brave_endpoint, _secret_value(settings.web_brave_api_key), ("search",)),
+        ("apify", settings.web_apify_endpoint, _secret_value(settings.web_apify_api_key), ("search", "crawl", "extract")),
+    ]
+    for name, endpoint, api_key, actions in remote_specs:
+        if not endpoint:
+            continue
+        providers.append(
+            RemoteContractWebProvider(
+                name=name,
+                endpoint=endpoint,
+                api_key=api_key,
+                actions=actions,
+                metadata=WebProviderMetadata(
+                    origin=f"remote:{name}",
+                    license="provider-terms",
+                    security_review=settings.web_remote_security_review,
+                    supported_actions=frozenset(actions),
+                    shadow_enabled=settings.web_remote_shadow_enabled,
+                    production_enabled=settings.web_remote_production_enabled,
+                ),
+            )
+        )
+    return providers
 
 
 def build_capability_gateway() -> CapabilityGateway:
@@ -40,6 +100,8 @@ def build_capability_gateway() -> CapabilityGateway:
             WebCapabilityAdapter(
                 timeout_seconds=settings.web_timeout_seconds,
                 max_bytes=settings.web_max_bytes,
+                providers=build_web_providers(),
+                preferred_providers=settings.web_provider_preferences,
             )
         )
     if settings.proto_bridge_configured:
