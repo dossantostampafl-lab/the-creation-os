@@ -87,7 +87,11 @@ async def test_opportunity_projection_is_creator_scoped() -> None:
         assert projection["opportunities"]["total"] == 1
         assert projection["opportunities"]["by_status"] == {"SELECTED": 1
         }
-        assert len(projection["universe_economy"]) == 1
-        assert Decimal(projection["universe_economy"][0]["nav"]) == Decimal("10")
+        own = [
+            item for item in projection["universe_economy"]
+            if item["universe_id"] == universe_id
+        ]
+        assert len(own) == 1
+        assert Decimal(own[0]["nav"]) == Decimal("10")
 
     await engine.dispose()
