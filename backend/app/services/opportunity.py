@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import datetime, timezone
 from typing import Any
 
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+
 from app.models.entities import Universe
-from app.models.opportunity import Opportunity, OpportunityThesis
+from app.models.opportunity import Opportunity, OpportunityLease, OpportunityThesis
 from app.repositories.domain import DomainRepository
 from app.schemas.opportunity import OpportunityThesisCreate
 from app.services.domain import NotFoundError
@@ -153,3 +157,249 @@ async def submit_thesis(
     )
     await repository.commit()
     return item
+
+
+class LeaseConflictError(RuntimeError):
+    """Raised when an exclusive executive lease cannot be acquired."""
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _is_executive_lease_conflict(exc: IntegrityError) -> bool:
+    constraint_name = getattr(getattr(exc, "orig", None), "diag", None)
+    constraint_name = getattr(constraint_name, "constraint_name", None)
+    if constraint_name == "uq_opportunity_active_executive_lease":
+        return True
+    return "uq_opportunity_active_executive_lease" in str(exc)
+
+
+async def _validated_competition_entities(
+    repository: DomainRepository,
+    *,
+    opportunity_id: str,
+    thesis_id: str,
+    universe_id: str,
+    lock_opportunity: bool,
+) -> tuple[Opportunity, OpportunityThesis, Universe]:
+    opportunity = (
+        await repository.get_for_update(Opportunity, opportunity_id)
+        if lock_opportunity
+        else await repository.get(Opportunity, opportunity_id)
+    )
+    if opportunity is None:
+        raise NotFoundError("Opportunity not found")
+
+    thesis = await repository.get(OpportunityThesis, thesis_id)
+    if thesis is None or thesis.opportunity_id != opportunity.id:
+        raise NotFoundError("Opportunity thesis not found")
+
+    universe = await repository.get(Universe, universe_id)
+    if universe is None or thesis.universe_id != universe.id:
+        raise NotFoundError("Universe not found for thesis")
+
+    return opportunity, thesis, universe
+
+
+async def acquire_research_lease(
+    repository: DomainRepository,
+    *,
+    opportunity_id: str,
+    thesis_id: str,
+    universe_id: str,
+    expires_at: datetime,
+    correlation_id: str,
+) -> OpportunityLease:
+    now = _utcnow()
+    if expires_at <= now:
+        raise ValueError("lease expires_at must be in the future")
+
+    opportunity, thesis, universe = await _validated_competition_entities(
+        repository,
+        opportunity_id=opportunity_id,
+        thesis_id=thesis_id,
+        universe_id=universe_id,
+        lock_opportunity=False,
+    )
+    lease = await repository.add(
+        OpportunityLease(
+            opportunity_id=opportunity.id,
+            thesis_id=thesis.id,
+            universe_id=universe.id,
+            lease_type="RESEARCH",
+            status="ACTIVE",
+            expires_at=expires_at,
+        )
+    )
+    await repository.add_event(
+        "opportunity_lease_acquired",
+        "opportunity",
+        opportunity.id,
+        universe.id,
+        "universe",
+        correlation_id,
+        {"lease_id": lease.id, "lease_type": lease.lease_type, "thesis_id": thesis.id},
+    )
+    await repository.commit()
+    return lease
+
+
+async def acquire_executive_lease(
+    repository: DomainRepository,
+    *,
+    opportunity_id: str,
+    thesis_id: str,
+    universe_id: str,
+    expires_at: datetime,
+    correlation_id: str,
+) -> OpportunityLease:
+    now = _utcnow()
+    if expires_at <= now:
+        raise ValueError("lease expires_at must be in the future")
+
+    opportunity, thesis, universe = await _validated_competition_entities(
+        repository,
+        opportunity_id=opportunity_id,
+        thesis_id=thesis_id,
+        universe_id=universe_id,
+        lock_opportunity=True,
+    )
+
+    expired = list(
+        (
+            await repository.session.scalars(
+                select(OpportunityLease)
+                .where(
+                    OpportunityLease.opportunity_id == opportunity.id,
+                    OpportunityLease.lease_type == "EXECUTIVE",
+                    OpportunityLease.status == "ACTIVE",
+                    OpportunityLease.expires_at <= now,
+                )
+                .with_for_update()
+            )
+        ).all()
+    )
+    for stale in expired:
+        stale.status = "EXPIRED"
+        stale.released_at = now
+        await repository.add_event(
+            "opportunity_lease_expired",
+            "opportunity",
+            opportunity.id,
+            stale.universe_id,
+            "universe",
+            correlation_id,
+            {"lease_id": stale.id, "thesis_id": stale.thesis_id},
+        )
+    if expired:
+        await repository.session.flush()
+
+    lease = OpportunityLease(
+        opportunity_id=opportunity.id,
+        thesis_id=thesis.id,
+        universe_id=universe.id,
+        lease_type="EXECUTIVE",
+        status="ACTIVE",
+        expires_at=expires_at,
+    )
+    try:
+        lease = await repository.add(lease)
+    except IntegrityError as exc:
+        await repository.rollback()
+        if _is_executive_lease_conflict(exc):
+            raise LeaseConflictError("an active executive lease already exists") from exc
+        raise
+
+    await repository.add_event(
+        "opportunity_lease_acquired",
+        "opportunity",
+        opportunity.id,
+        universe.id,
+        "universe",
+        correlation_id,
+        {"lease_id": lease.id, "lease_type": lease.lease_type, "thesis_id": thesis.id},
+    )
+    await repository.commit()
+    return lease
+
+
+async def release_lease(
+    repository: DomainRepository,
+    *,
+    lease_id: str,
+    universe_id: str,
+    correlation_id: str,
+) -> OpportunityLease:
+    lease = await repository.get_for_update(OpportunityLease, lease_id)
+    if lease is None or lease.universe_id != universe_id:
+        raise NotFoundError("Opportunity lease not found")
+
+    universe = await repository.get(Universe, universe_id)
+    if universe is None:
+        raise NotFoundError("Universe not found")
+
+    if lease.status == "ACTIVE":
+        lease.status = "RELEASED"
+        lease.released_at = _utcnow()
+        await repository.session.flush()
+        await repository.add_event(
+            "opportunity_lease_released",
+            "opportunity",
+            lease.opportunity_id,
+            universe.id,
+            "universe",
+            correlation_id,
+            {"lease_id": lease.id, "lease_type": lease.lease_type, "thesis_id": lease.thesis_id},
+        )
+        await repository.commit()
+    return lease
+
+
+async def select_thesis(
+    repository: DomainRepository,
+    *,
+    opportunity_id: str,
+    thesis_id: str,
+    correlation_id: str,
+) -> OpportunityThesis:
+    opportunity = await repository.get_for_update(Opportunity, opportunity_id)
+    if opportunity is None:
+        raise NotFoundError("Opportunity not found")
+
+    thesis = await repository.get(OpportunityThesis, thesis_id)
+    if thesis is None or thesis.opportunity_id != opportunity.id:
+        raise NotFoundError("Opportunity thesis not found")
+
+    universe = await repository.get(Universe, thesis.universe_id)
+    if universe is None:
+        raise NotFoundError("Universe not found")
+
+    previously_selected = list(
+        (
+            await repository.session.scalars(
+                select(OpportunityThesis).where(
+                    OpportunityThesis.opportunity_id == opportunity.id,
+                    OpportunityThesis.status == "SELECTED",
+                    OpportunityThesis.id != thesis.id,
+                )
+            )
+        ).all()
+    )
+    for previous in previously_selected:
+        previous.status = "PROPOSED"
+
+    thesis.status = "SELECTED"
+    opportunity.status = "SELECTED"
+    await repository.session.flush()
+    await repository.add_event(
+        "opportunity_thesis_selected",
+        "opportunity",
+        opportunity.id,
+        universe.id,
+        "universe",
+        correlation_id,
+        {"thesis_id": thesis.id},
+    )
+    await repository.commit()
+    return thesis
