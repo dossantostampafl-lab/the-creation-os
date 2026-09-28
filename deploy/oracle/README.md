@@ -94,6 +94,12 @@ curl -fsSL https://raw.githubusercontent.com/dossantostampafl-lab/the-creation-o
 | Parar | `cd /opt/the-creation-os && sudo docker compose -f docker-compose.yml -f docker-compose.cloud.yml down` |
 | Backup do banco | `cd /opt/the-creation-os && sudo docker compose exec -T postgres pg_dump -U postgres the_creation_os > backup.sql` |
 
+### O servidor aguenta execução privilegiada do Security Task Force?
+
+No GitHub, **Actions → Deploy → Run workflow → task `stf-host-check`**. É somente-leitura: mostra arquitetura, tipo de máquina (shape), virtualização, `/dev/kvm`, Kata e Firecracker, e termina com o veredito de `deploy/stf/verify-host.sh`. Nada é instalado.
+
+Uma VM comum da Oracle normalmente **não** expõe KVM (só os bare metal `BM.*`), e nesse caso o veredito é "execução privilegiada desligada". O restante do Task Force (autorização, auditoria, Range isolado) não depende disso.
+
 ## Domínio próprio (opcional, grátis)
 Crie um nome em **duckdns.org** apontando para o IP da máquina e rode:
 

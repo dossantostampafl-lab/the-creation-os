@@ -21,6 +21,7 @@ on:
           - logs
           - set-voice
           - smoke-test
+          - stf-host-check
           - seed
       ref:
         description: "Branch or tag to take the code from. Empty means the default branch."
@@ -166,8 +167,8 @@ jobs:
           fi
           target="${target:-main}"
           sudo git fetch --prune origin
-          sudo git checkout "origin/$target" -- deploy/oracle
-          sudo chmod +x deploy/oracle/*.sh
+          sudo git checkout "origin/$target" -- deploy/oracle deploy/stf
+          sudo chmod +x deploy/oracle/*.sh deploy/stf/*.sh
           echo "== Deploy scripts taken from origin/$target =="
 
           COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.cloud.yml)
@@ -207,6 +208,11 @@ jobs:
               api="$(sudo docker ps --filter 'label=com.docker.compose.service=api' --format '{{.ID}}' | head -1)"
               sudo docker exec -i "$api" seed-universes
               sudo ./deploy/oracle/smoke-test.sh --deus
+              ;;
+            stf-host-check)
+              # Read-only: reports whether this server could run privileged Task Force work
+              # (KVM, Kata, Firecracker). It installs and changes nothing.
+              sudo ./deploy/oracle/stf-host-check.sh
               ;;
             smoke-test)
               # --deus sends one short message, so the report covers the path that matters
