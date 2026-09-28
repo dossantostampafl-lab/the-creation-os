@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import httpx
@@ -7,6 +8,7 @@ import httpx
 from .contracts import is_environment_id
 
 RANGE_PREFIX = "cyber_range:"
+_SCENARIO_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 
 
 class RangeRefused(ValueError):
@@ -16,6 +18,12 @@ class RangeRefused(ValueError):
 def _require_range(environment_id: str) -> None:
     if not is_environment_id(environment_id) or not environment_id.startswith(RANGE_PREFIX):
         raise RangeRefused("the Cyber Range refuses any environment that is not cyber_range:*")
+
+
+def _scenario(scenario_id: str) -> str:
+    if not _SCENARIO_ID.fullmatch(scenario_id) or ".." in scenario_id:
+        raise RangeRefused("scenario id is not allowed")
+    return scenario_id
 
 
 class RangeController:
@@ -36,7 +44,7 @@ class RangeController:
 
     async def start(self, environment_id: str, scenario_id: str) -> dict[str, Any]:
         _require_range(environment_id)
-        return await self._call("POST", f"/scenarios/{scenario_id}/start")
+        return await self._call("POST", f"/scenarios/{_scenario(scenario_id)}/start")
 
     async def reset(self, environment_id: str) -> dict[str, Any]:
         _require_range(environment_id)
@@ -48,10 +56,12 @@ class RangeController:
 
     async def verify(self, environment_id: str, scenario_id: str) -> bool:
         _require_range(environment_id)
+        _scenario(scenario_id)
         state = await self._call("GET", "/state")
         return any(s.get("scenario_id") == scenario_id and s.get("status") == "active" for s in state["scenarios"])
 
     async def record_evidence(self, environment_id: str, scenario_id: str, kind: str, payload: dict[str, Any]) -> str:
         _require_range(environment_id)
+        _scenario(scenario_id)
         result = await self._call("POST", "/evidence", json={"scenario_id": scenario_id, "kind": kind, "payload": payload})
         return result["evidence_id"]

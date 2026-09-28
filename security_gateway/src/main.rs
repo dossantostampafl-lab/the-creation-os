@@ -36,6 +36,10 @@ fn main() {
     };
     let state_dir =
         std::env::var("STF_GATEWAY_STATE_DIR").unwrap_or_else(|_| "/var/lib/stf-gateway".into());
+    if let Err(error) = std::fs::create_dir_all(&state_dir) {
+        eprintln!("state directory unavailable: {error}");
+        std::process::exit(2);
+    }
     let replay = match FileReplayStore::open(&Path::new(&state_dir).join("nonces.log")) {
         Ok(store) => store,
         Err(error) => {
