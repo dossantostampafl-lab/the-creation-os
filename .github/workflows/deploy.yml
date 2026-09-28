@@ -206,7 +206,7 @@ jobs:
               # inserting. A deploy brings new code, never new rows, so this is its own step.
               api="$(sudo docker ps --filter 'label=com.docker.compose.service=api' --format '{{.ID}}' | head -1)"
               sudo docker exec -i "$api" seed-universes
-              sudo ./deploy/oracle/smoke-test.sh
+              sudo ./deploy/oracle/smoke-test.sh --deus
               ;;
             smoke-test)
               # --deus sends one short message, so the report covers the path that matters

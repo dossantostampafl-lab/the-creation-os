@@ -91,6 +91,30 @@ with httpx.Client(base_url=BASE, timeout=45) as client:
                 detail = ""
         report(name, ok, detail)
 
+    # The count alone hid three legacy rows that the canonical seeder cannot match, because it
+    # reconciles by code and theirs are not canonical codes. Naming them makes that visible.
+    print()
+    print("== Universes ==")
+    catalog = client.get("/universes")
+    if catalog.status_code == 200:
+        CANONICAL = {
+            "knowledge", "engineering", "security", "vision", "design", "business",
+            "marketing", "legal", "finance", "automation", "communication", "evolution",
+        }
+        rows = catalog.json()
+        seen = {str(row.get("code")) for row in rows}
+        for row in sorted(rows, key=lambda r: str(r.get("code"))):
+            code = str(row.get("code"))
+            mark = "canonical" if code in CANONICAL else "NOT CANONICAL"
+            state = "active" if row.get("active") else "inactive"
+            print(f"   {code:16} {state:9} {mark}   {row.get('name', '')}")
+        report("the 12 canonical Universes exist", CANONICAL <= seen,
+               f"missing: {sorted(CANONICAL - seen)}" if CANONICAL - seen else "")
+        extra = sorted(seen - CANONICAL)
+        report("no Universe outside the canon", not extra, f"extra: {extra}" if extra else "")
+    else:
+        report("universe catalog", False, f"HTTP {catalog.status_code}")
+
     print()
     print("== Inference ==")
     inference = client.get("/system/inference")
