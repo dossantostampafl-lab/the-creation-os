@@ -472,6 +472,7 @@ export function useDeusEars({ paused, onWake, onCommand, onInterim, onLapse, onF
     window.clearTimeout(attentionTimer.current);
     attentionTimer.current = window.setTimeout(() => {
       attentive.current = false;
+      void finishCapture();
       handlers.current.onInterim("");
       handlers.current.onLapse?.();
       sync();
@@ -651,6 +652,7 @@ export function useDeusEars({ paused, onWake, onCommand, onInterim, onLapse, onF
       recognition.current = null;
       instance.abort();
     }
+    if (!shouldListen && recorder.current) void finishCapture();
     publish();
   }
 
@@ -690,6 +692,7 @@ export function useDeusEars({ paused, onWake, onCommand, onInterim, onLapse, onF
 
   const dismiss = useCallback(() => {
     setAttentive(false);
+    void finishCapture();
     handlers.current.onInterim("");
   }, [setAttentive]);
 
