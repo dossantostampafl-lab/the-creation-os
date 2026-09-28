@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from app.core.domain import InvalidOrigin, MissionStatus
-from app.models.entities import Mission, Universe
+from app.models.entities import Mission, Universe, UniverseMemory
 from app.models.opportunity import Opportunity, OpportunityLease, OpportunityThesis
 from app.repositories.domain import DomainRepository
 from app.schemas.opportunity import OpportunityThesisCreate
@@ -501,3 +501,123 @@ async def create_mission_from_opportunity(
     )
     await repository.commit()
     return mission
+
+
+
+_LEARNING_FORBIDDEN_KEYS = frozenset({
+    "authorization",
+    "authorization_json",
+    "allowed_capabilities",
+    "denied_capabilities",
+    "creator_constraints",
+    "risk_ceiling",
+    "budget",
+    "external_effects_allowed",
+    "security_policy",
+})
+
+
+def _learning_safe_mapping(value: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: item
+        for key, item in value.items()
+        if key not in _LEARNING_FORBIDDEN_KEYS
+    }
+
+
+def _learning_signal(outcome: dict[str, Any]) -> float:
+    raw_reward = outcome.get("reward")
+    if isinstance(raw_reward, (int, float)):
+        return max(-1.0, min(1.0, float(raw_reward)))
+    return 1.0 if bool(outcome.get("success")) else -1.0
+
+
+async def record_learning_episode(
+    repository: DomainRepository,
+    *,
+    universe_id: str,
+    source: str,
+    strategy: dict,
+    outcome: dict,
+    correlation_id: str,
+) -> UniverseMemory:
+    universe = await repository.get(Universe, universe_id)
+    if universe is None:
+        raise NotFoundError("Universe not found")
+    source = source.strip()
+    if not source:
+        raise ValueError("learning source is required")
+
+    safe_strategy = _learning_safe_mapping(dict(strategy))
+    safe_outcome = _learning_safe_mapping(dict(outcome))
+    signal = _learning_signal(safe_outcome)
+    key = "perception_learning_v1"
+
+    entry = await repository.session.scalar(
+        select(UniverseMemory)
+        .where(UniverseMemory.universe_id == universe.id, UniverseMemory.key == key)
+        .with_for_update()
+    )
+    if entry is None:
+        value: dict[str, Any] = {
+            "episodes": [],
+            "provider_preferences": {},
+            "sensor_preferences": {},
+            "detector_weights": {},
+        }
+    else:
+        value = dict(entry.value_json or {})
+        value.setdefault("episodes", [])
+        value.setdefault("provider_preferences", {})
+        value.setdefault("sensor_preferences", {})
+        value.setdefault("detector_weights", {})
+
+    episode = {
+        "source": source,
+        "strategy": safe_strategy,
+        "outcome": safe_outcome,
+        "signal": signal,
+        "recorded_at": _utcnow().isoformat(),
+    }
+    episodes = list(value["episodes"])
+    episodes.append(episode)
+    value["episodes"] = episodes[-100:]
+
+    for strategy_key, target_key in (
+        ("provider", "provider_preferences"),
+        ("sensor", "sensor_preferences"),
+        ("detector", "detector_weights"),
+    ):
+        selected = safe_strategy.get(strategy_key)
+        if isinstance(selected, str) and selected.strip():
+            preferences = dict(value[target_key])
+            name = selected.strip()
+            preferences[name] = round(float(preferences.get(name, 0.0)) + signal, 6)
+            value[target_key] = preferences
+
+    if entry is None:
+        entry = await repository.add(
+            UniverseMemory(universe_id=universe.id, key=key, value_json=value)
+        )
+    else:
+        entry.value_json = value
+        entry.updated_at = _utcnow()
+        await repository.session.flush()
+
+    await repository.add_event(
+        "learning_episode_recorded",
+        "universe_memory",
+        entry.id,
+        universe.id,
+        "universe",
+        correlation_id,
+        {
+            "source": source,
+            "signal": signal,
+            "provider": safe_strategy.get("provider"),
+            "sensor": safe_strategy.get("sensor"),
+            "detector": safe_strategy.get("detector"),
+        },
+    )
+    await repository.commit()
+    return entry
