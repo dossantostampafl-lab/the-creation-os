@@ -356,8 +356,15 @@ export function useDeusVoice() {
           url = URL.createObjectURL(blob);
           const next = new Audio(url);
           audio = next;
-          next.onended = () => play(index + 1);
-          next.onerror = () => play(index + 1);
+          // "ended" and "error" can both fire for one element; the queue must advance once.
+          let advanced = false;
+          const advance = () => {
+            if (advanced) return;
+            advanced = true;
+            play(index + 1);
+          };
+          next.onended = advance;
+          next.onerror = advance;
           release = meter(next);
           await next.play();
         })
