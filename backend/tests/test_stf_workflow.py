@@ -80,3 +80,33 @@ async def test_failed_verification_aborts(env, tmp_path):
     deps.verify = lambda mission_id: False
     result, _ = await run_plan(env, activities, {"mission_id": "m1", "actions": [action()]})
     assert result == "ABORTED"
+
+
+async def test_empty_plan_cannot_complete(env, tmp_path):
+    activities, deps = make(tmp_path)
+    result, _ = await run_plan(env, activities, {"mission_id": "m1", "actions": []})
+    assert result == "ABORTED" and deps.gateway.calls == []
+
+
+async def test_old_approval_does_not_unblock(env, tmp_path):
+    # With a run id, an approval id that is not a stored, matching approval keeps the run waiting.
+    activities, deps = make(tmp_path)
+    plan = {"mission_id": "m1", "run_id": str(uuid.uuid4()), "actions": [action(risk_class="R3")], "approval_timeout_seconds": 60}
+    result, handle = await run_plan(env, activities, plan, signals=[("approve", "approval-from-another-action")])
+    assert result == "ABORTED" and deps.gateway.calls == []
+    assert "AWAITING_CREATOR" in [state for _, state in deps.states] and "RUNNING" not in [s for _, s in deps.states][1:]
+
+
+async def test_cancel_survives_worker_restart(env, tmp_path):
+    client: Client = env.client
+    queue = f"stf-{uuid.uuid4()}"
+    plan = {"mission_id": "m1", "actions": [action(risk_class="R3")]}
+    activities, deps = make(tmp_path)
+    async with Worker(client, task_queue=queue, workflows=[MissionWorkflow], activities=activities.all()):
+        handle = await client.start_workflow(MissionWorkflow.run, plan, id=f"wf-{uuid.uuid4()}", task_queue=queue)
+        await handle.signal("cancel", "stop before the restart")
+    # The first worker is gone; a second one replays the history, which already holds the cancel.
+    activities, deps = make(tmp_path)
+    async with Worker(client, task_queue=queue, workflows=[MissionWorkflow], activities=activities.all()):
+        assert await handle.result() == "ABORTED"
+    assert deps.gateway.calls == [] and [s for _, s in deps.states][-1] == "ABORTED"

@@ -34,6 +34,15 @@ ACTOR = "stf-repository"
 ACTOR_ROLE = "system"
 LEASE_SECONDS = 60
 TERMINAL_RUN_STATES = ("COMPLETED", "ABORTED")
+RUN_STATES = ("QUEUED", "RUNNING", "AWAITING_CREATOR", "VERIFYING", "CANCELLING", "UNKNOWN", "COMPLETED", "ABORTED")
+_ALLOWED: dict[str, set[str]] = {
+    "QUEUED": {"RUNNING", "CANCELLING", "ABORTED"},
+    "RUNNING": {"AWAITING_CREATOR", "VERIFYING", "CANCELLING", "UNKNOWN", "ABORTED"},
+    "AWAITING_CREATOR": {"RUNNING", "CANCELLING", "ABORTED"},
+    "VERIFYING": {"COMPLETED", "CANCELLING", "UNKNOWN", "ABORTED"},
+    "CANCELLING": {"UNKNOWN", "ABORTED"},
+    "UNKNOWN": {"CANCELLING", "ABORTED"},
+}
 
 
 class IdempotencyConflict(Exception):
@@ -243,6 +252,37 @@ class StfRepository:
     async def audit(self, event_type: str, run_id: str, payload: dict, actor_id: str = ACTOR,
                     actor_role: str = ACTOR_ROLE) -> None:
         await self._domain.add_event(event_type, "stf_run", run_id, actor_id, actor_role, run_id, payload)
+
+    async def set_run_state(self, run_id: str, state: str) -> bool:
+        """Conditional transition. A terminal run never reopens, and a run marked for cancel only moves toward its end."""
+        run = await self._lock_run(run_id)
+        if run is None or run.state in TERMINAL_RUN_STATES or state == run.state:
+            return False
+        if state not in RUN_STATES or state not in _ALLOWED[run.state]:
+            return False
+        if run.desired_state == "CANCEL" and state not in ("CANCELLING", "UNKNOWN", "ABORTED"):
+            return False
+        run.state, run.updated_at = state, datetime.now(timezone.utc)
+        await self._audit("stf_run_state", run_id, {"run_id": run_id, "state": state})
+        return True
+
+    async def approval_matches(self, approval_id: str, run_id: str, action: dict) -> bool:
+        """A stored, unexpired approve decision for this run, this action and exactly these parameters."""
+        approval = await self.session.get(StfApproval, approval_id)
+        run = await self.get_run(run_id)
+        return (
+            approval is not None and run is not None and approval.run_id == run_id
+            and approval.creator_id == run.creator_id and approval.decision == "approve"
+            and approval.action_id == action.get("action_id")
+            and approval.parameters_hash == canonical_hash(action.get("parameters", {}))
+            and approval.expires_at > datetime.now(timezone.utc) and run.desired_state == "RUN"
+        )
+
+    async def mark_outbox_dead(self, outbox_id: str, token: str) -> bool:
+        result = await self.session.execute(
+            update(StfOutbox).where(StfOutbox.id == outbox_id, StfOutbox.lease_token == token, StfOutbox.status == "leased")
+            .values(status="dead", updated_at=datetime.now(timezone.utc)))
+        return cast(CursorResult, result).rowcount == 1
 
     # --- reads -------------------------------------------------------------------------------------
 

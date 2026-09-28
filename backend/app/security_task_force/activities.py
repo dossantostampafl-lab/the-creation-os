@@ -32,6 +32,8 @@ class StfDependencies:
     verify: Callable[[str], bool] | None = None
     states: list[tuple[str, str]] = field(default_factory=list)
     statuses: MissionStatusStore = field(default_factory=MissionStatusStore)
+    # Short-lived database sessions for run state, approvals and cancellation; absent for file-only runs.
+    session_factory: Callable[[], Any] | None = None
 
 
 def receipt_from(answer: dict[str, Any]) -> dict[str, Any]:
@@ -74,6 +76,17 @@ class StfActivities:
         return {"decision": decision.decision, "reasons": decision.reason_codes,
                 "decision_id": decision.decision_id, "grant_id": decision.capability_grant_reference}
 
+    @activity.defn(name="stf_check_approval")
+    async def check_approval(self, run_id: str, approval_id: str, action: dict[str, Any]) -> bool:
+        """The signal carries only an id. It unblocks the run only if that stored approval is for this run,
+        this action and these exact parameters, unexpired and an approve. Anything else fails closed."""
+        if not self._d.session_factory:
+            return False
+        from .repository import StfRepository
+
+        async with self._d.session_factory() as session:
+            return await StfRepository(session).approval_matches(approval_id, run_id, action)
+
     @activity.defn(name="stf_verify_mission")
     async def verify_mission(self, mission_id: str) -> bool:
         if self._d.verify is None:
@@ -81,14 +94,26 @@ class StfActivities:
         return bool(self._d.verify(mission_id))
 
     @activity.defn(name="stf_record_state")
-    async def record_state(self, mission_id: str, state: str) -> None:
+    async def record_state(self, mission_id: str, state: str, run_id: str | None = None) -> None:
         self._d.states.append((mission_id, state))
+        if run_id and self._d.session_factory:
+            from .repository import StfRepository
+
+            async with self._d.session_factory() as session:
+                await StfRepository(session).set_run_state(run_id, state)
+                await session.commit()
         self._d.statuses.set_state(mission_id, state)
         emit("mission.state_changed", mission_id=mission_id, state=state)
 
     @activity.defn(name="stf_revoke_grants")
-    async def revoke_grants(self, mission_id: str) -> int:
+    async def revoke_grants(self, mission_id: str, run_id: str | None = None) -> int:
         """Stop new dispatch and expire every grant of the Mission before it reaches a terminal state."""
+        if run_id and self._d.session_factory:
+            from .repository import StfRepository
+
+            async with self._d.session_factory() as session:
+                await StfRepository(session).revoke_run(run_id)
+                await session.commit()
         self._d.kill_switch.kill_mission(mission_id)
         count = self._d.grants.revoke_mission(mission_id)
         try:
@@ -142,4 +167,5 @@ class StfActivities:
         return result
 
     def all(self) -> list[Callable[..., Any]]:
-        return [self.authorize_action, self.dispatch_action, self.verify_mission, self.revoke_grants, self.record_state]
+        return [self.authorize_action, self.dispatch_action, self.verify_mission, self.revoke_grants, self.record_state,
+                self.check_approval]
