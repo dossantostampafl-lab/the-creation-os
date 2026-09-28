@@ -15,7 +15,6 @@ from app.models.opportunity import Opportunity
 from app.repositories.domain import DomainRepository
 from app.schemas.economy import UniverseEconomicProjection
 
-
 SIMULATED_MODES = frozenset({"simulation", "simulated", "paper", "shadow"})
 ACTIVE_ECONOMIC_STATUS = "ACTIVE"
 SUSPENDED_ECONOMIC_STATUS = "ECONOMIC_SUSPENDED"
