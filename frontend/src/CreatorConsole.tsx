@@ -75,7 +75,9 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
     paused: !enabled || pending || voice.speaking,
     onWake: () => {
       setConversing(true);
-      voice.acknowledge(voiceText.greeting());
+      // The wake acknowledgement is part of DEUS's identity too. Use the configured
+      // ElevenLabs path instead of silently switching to an arbitrary browser voice.
+      voice.speak(voiceText.greeting(), { onEnd: () => { if (conversing.current) ears.summon(); } });
     },
     onCommand: (text) => {
       setConversing(true);
@@ -255,7 +257,7 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
         setMessages((current) => current.filter((message) => message.id !== optimisticId));
       }
       const message = failure instanceof Error ? failure.message : "CONVERSATION_FAILED";
-      setError(message === "HTTP_503" ? "Inference provider is not configured." : "DEUS conversation failed.");
+      setError(message === "HTTP_503" ? "Inference provider is not configured." : message === "AUTH_REQUIRED" ? "Sessão expirada. Entre novamente para continuar." : "DEUS conversation failed.");
       setConversing(false);
     } finally {
       setPending(false);
