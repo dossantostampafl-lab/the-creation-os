@@ -33,8 +33,10 @@ async function installVoiceFakes(page: import("@playwright/test").Page, wakeEnab
       __say?: (text: string, confidence?: number) => boolean;
       __recorderStarted?: boolean;
       __audioPlaying?: boolean;
+      __audioPauses?: number;
     };
     const scope = window as TestScope;
+    scope.__audioPauses = 0;
 
     class FakeRecognition {
       running = false;
@@ -88,20 +90,77 @@ async function installVoiceFakes(page: import("@playwright/test").Page, wakeEnab
       scope.__audioPlaying = true;
       return Promise.resolve();
     };
-    HTMLMediaElement.prototype.pause = function pause() {};
+    HTMLMediaElement.prototype.pause = function pause() {
+      scope.__audioPauses = (scope.__audioPauses ?? 0) + 1;
+    };
   }, { wakeEnabled });
+}
+
+async function routeVoiceTurn(page: import("@playwright/test").Page, serverText = "verifique o projeto") {
+  let sttCalls = 0;
+  const deusBodies: Array<{ content: string }> = [];
+  await page.route("**/api/v1/voice/transcribe", (route) => {
+    sttCalls += 1;
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ text: serverText, language_code: "por", language_probability: 1 }) });
+  });
+  await page.route("**/api/v1/conversations/conversation-voice/deus", (route) => {
+    deusBodies.push(route.request().postDataJSON() as { content: string });
+    return route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ message_id: `m${deusBodies.length}`, conversation_id: "conversation-voice", route: "deus", response: "Verificando.", inception: null, correlation_id: `c${deusBodies.length}` }) });
+  });
+  await page.route("**/api/v1/voice/synthesize", (route) => route.fulfill({ status: 200, contentType: "audio/mpeg", body: Buffer.from("ID3-fake") }));
+  return { sttCalls: () => sttCalls, deusBodies };
 }
 
 test("active voice turn uses server STT even when browser confidence is high", async ({ page }) => {
   await installVoiceFakes(page, false);
   await mockDashboard(page);
+  const turn = await routeVoiceTurn(page);
 
-  let sttCalls = 0;
+  await page.goto("/");
+  await page.getByRole("button", { name: "Talk to DEUS" }).click();
+  await expect.poll(() => page.evaluate(() => Boolean((window as Window & { __recorderStarted?: boolean }).__recorderStarted))).toBe(true);
+  await expect.poll(() => page.evaluate(() => (window as Window & { __say?: (text: string, confidence?: number) => boolean }).__say?.("texto errado do navegador", 0.99) ?? false)).toBe(true);
+
+  await expect.poll(turn.sttCalls).toBe(1);
+  await expect.poll(() => turn.deusBodies[0]?.content).toBe("verifique o projeto");
+});
+
+test("active voice turn uses server STT when Chromium reports zero confidence", async ({ page }) => {
+  await installVoiceFakes(page, false);
+  await mockDashboard(page);
+  const turn = await routeVoiceTurn(page, "continue o projeto");
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Talk to DEUS" }).click();
+  await expect.poll(() => page.evaluate(() => Boolean((window as Window & { __recorderStarted?: boolean }).__recorderStarted))).toBe(true);
+  await expect.poll(() => page.evaluate(() => (window as Window & { __say?: (text: string, confidence?: number) => boolean }).__say?.("texto incompleto", 0) ?? false)).toBe(true);
+
+  await expect.poll(turn.sttCalls).toBe(1);
+  await expect.poll(() => turn.deusBodies[0]?.content).toBe("continue o projeto");
+});
+
+test("wake acknowledgement keeps ears open and immediate speech reaches DEUS once through server STT", async ({ page }) => {
+  await installVoiceFakes(page, true);
+  await mockDashboard(page);
+  const turn = await routeVoiceTurn(page);
+
+  await page.goto("/");
+  await expect.poll(() => page.evaluate(() => (window as Window & { __say?: (text: string, confidence?: number) => boolean }).__say?.("Deus", 0.99) ?? false)).toBe(true);
+  await expect(page.getByText("Em conversa — diga “tchau” para encerrar")).toBeVisible();
+  await expect.poll(() => page.evaluate(() => Boolean((window as Window & { __recorderStarted?: boolean }).__recorderStarted))).toBe(true);
+  await expect.poll(() => page.evaluate(() => Boolean((window as Window & { __audioPlaying?: boolean }).__audioPlaying))).toBe(true);
+
+  await expect.poll(() => page.evaluate(() => (window as Window & { __say?: (text: string, confidence?: number) => boolean }).__say?.("texto errado do navegador", 0.99) ?? false)).toBe(true);
+
+  await expect.poll(turn.sttCalls).toBe(1);
+  await expect.poll(() => turn.deusBodies.length).toBe(1);
+  expect(turn.deusBodies[0].content).toBe("verifique o projeto");
+});
+
+test("Deus plus a command in the same utterance is submitted exactly once", async ({ page }) => {
+  await installVoiceFakes(page, true);
+  await mockDashboard(page);
   const deusBodies: Array<{ content: string }> = [];
-  await page.route("**/api/v1/voice/transcribe", (route) => {
-    sttCalls += 1;
-    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ text: "verifique o projeto", language_code: "por", language_probability: 1 }) });
-  });
   await page.route("**/api/v1/conversations/conversation-voice/deus", (route) => {
     deusBodies.push(route.request().postDataJSON() as { content: string });
     return route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ message_id: "m1", conversation_id: "conversation-voice", route: "deus", response: "Verificando.", inception: null, correlation_id: "c1" }) });
@@ -109,22 +168,8 @@ test("active voice turn uses server STT even when browser confidence is high", a
   await page.route("**/api/v1/voice/synthesize", (route) => route.fulfill({ status: 200, contentType: "audio/mpeg", body: Buffer.from("ID3-fake") }));
 
   await page.goto("/");
-  await page.getByRole("button", { name: "Talk to DEUS" }).click();
-  await expect.poll(() => page.evaluate(() => Boolean((window as Window & { __recorderStarted?: boolean }).__recorderStarted))).toBe(true);
-  await expect.poll(() => page.evaluate(() => (window as Window & { __say?: (text: string, confidence?: number) => boolean }).__say?.("texto errado do navegador", 0.99) ?? false)).toBe(true);
+  await expect.poll(() => page.evaluate(() => (window as Window & { __say?: (text: string, confidence?: number) => boolean }).__say?.("Deus, verifique o projeto", 0.99) ?? false)).toBe(true);
 
-  await expect.poll(() => sttCalls).toBe(1);
-  await expect.poll(() => deusBodies[0]?.content).toBe("verifique o projeto");
-});
-
-test("wake acknowledgement never closes the ears before the immediate command", async ({ page }) => {
-  await installVoiceFakes(page, true);
-  await mockDashboard(page);
-  await page.route("**/api/v1/voice/synthesize", (route) => route.fulfill({ status: 200, contentType: "audio/mpeg", body: Buffer.from("ID3-fake") }));
-
-  await page.goto("/");
-  await expect.poll(() => page.evaluate(() => (window as Window & { __say?: (text: string, confidence?: number) => boolean }).__say?.("Deus", 0.99) ?? false)).toBe(true);
-  await expect(page.getByText("Em conversa — diga “tchau” para encerrar")).toBeVisible();
-
-  await expect.poll(() => page.evaluate(() => (window as Window & { __say?: (text: string, confidence?: number) => boolean }).__say?.("verifique o projeto", 0.99) ?? false)).toBe(true);
+  await expect.poll(() => deusBodies.length).toBe(1);
+  expect(deusBodies[0].content).toBe("verifique o projeto");
 });
