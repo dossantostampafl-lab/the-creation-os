@@ -3,9 +3,13 @@ from __future__ import annotations
 import time
 from collections.abc import Callable, Sequence
 
+from loguru import logger
+
 from app.inference.contracts import (
     CostTier,
+    InferenceAuthenticationError,
     InferenceBudgetError,
+    InferenceError,
     InferenceRateLimitError,
     InferenceRequest,
     InferenceResponse,
@@ -120,7 +124,7 @@ class ModelRouter:
         if not candidates:
             raise ProviderUnavailable("router", "no inference provider requested")
 
-        last_error: ProviderUnavailable | None = None
+        last_error: InferenceError | None = None
         for provider_name in candidates:
             provider = self.registry.get(provider_name)
             attempt = self._request_for(provider_name, request)
@@ -156,6 +160,19 @@ class ModelRouter:
                 last_error = exc
                 continue
             except InferenceTimeoutError as exc:
+                self._circuit_breaker.record_transient_failure(provider_name, now=self._clock())
+                last_error = exc
+                continue
+            except InferenceAuthenticationError as exc:
+                # A refused credential is a problem to fix, but it must not take the whole service down
+                # while a configured reserve can answer. It is logged loudly so it is not mistaken for
+                # a healthy primary, and counted so the provider is not retried on every request. When
+                # nothing else is left the error surfaces as it always did. A configuration error
+                # (a different exception) still fails closed with no reserve.
+                logger.warning(
+                    "inference provider {} refused its credential; trying the next provider if there is one",
+                    provider_name,
+                )
                 self._circuit_breaker.record_transient_failure(provider_name, now=self._clock())
                 last_error = exc
                 continue

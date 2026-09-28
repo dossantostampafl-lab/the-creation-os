@@ -4,7 +4,6 @@ import pytest
 
 from app.inference.contracts import (
     CostTier,
-    InferenceAuthenticationError,
     InferenceBudgetError,
     InferenceConfigurationError,
     InferenceRateLimitError,
@@ -246,14 +245,8 @@ async def test_open_circuit_skips_provider_before_health_or_generation() -> None
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "error",
-    [
-        InferenceAuthenticationError("primary", "bad credentials"),
-        InferenceConfigurationError("primary", "bad configuration"),
-    ],
-)
-async def test_auth_and_configuration_errors_fail_closed_without_fallback(error: Exception) -> None:
+async def test_configuration_errors_fail_closed_without_fallback() -> None:
+    error = InferenceConfigurationError("primary", "bad configuration")
     registry = ProviderRegistry()
     primary = StubProvider("primary", failure=error)
     fallback = StubProvider("fallback")
