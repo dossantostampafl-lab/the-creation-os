@@ -1,4 +1,7 @@
-from app.security_task_force.qualification import GateResult, evaluate
+import json
+from pathlib import Path
+
+from app.security_task_force.qualification import DEFAULT_RUBRIC, GateResult, evaluate
 
 REF = ("ci://run/1",)
 
@@ -43,3 +46,8 @@ def test_an_unreproduced_required_scenario_caps_the_level_at_sh_1():
 
 def test_score_below_the_first_level_is_ineligible():
     assert not evaluate(gates=ok(*ALL_GATES), scenarios=ok(*ALL_SCENARIOS), score=10).eligible
+
+
+def test_embedded_rubric_matches_the_range_rubric():
+    path = Path(__file__).resolve().parents[2] / "cyber_range" / "qualification" / "rubric.json"
+    assert json.loads(path.read_text(encoding="utf-8")) == DEFAULT_RUBRIC

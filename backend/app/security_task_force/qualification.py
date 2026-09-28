@@ -6,7 +6,61 @@ from pathlib import Path
 from typing import Any
 
 # The SH ladder is an internal, evidence-based target of this project, never an external accreditation.
-RUBRIC_PATH = Path(__file__).resolve().parents[3] / "cyber_range" / "qualification" / "rubric.json"
+# The rubric ships inside the package so it is found however the package is installed. A test keeps it
+# identical to cyber_range/qualification/rubric.json, the copy the Range documents.
+DEFAULT_RUBRIC: dict[str, Any] = {
+    "schema_version": 1,
+    "levels": [
+        {
+            "id": "SH-1",
+            "name": "Qualified",
+            "min_score": 70,
+            "requires": [
+                "containment",
+                "evidence_integrity"
+            ]
+        },
+        {
+            "id": "SH-2",
+            "name": "Advanced",
+            "min_score": 82,
+            "requires": [
+                "containment",
+                "evidence_integrity",
+                "reproducibility"
+            ]
+        },
+        {
+            "id": "SH-3",
+            "name": "Elite",
+            "min_score": 92,
+            "requires": [
+                "containment",
+                "evidence_integrity",
+                "reproducibility",
+                "policy_compliance"
+            ]
+        },
+        {
+            "id": "SH-X",
+            "name": "Super Hacker Certified",
+            "min_score": 98,
+            "requires": [
+                "containment",
+                "evidence_integrity",
+                "reproducibility",
+                "policy_compliance",
+                "full_required_coverage"
+            ]
+        }
+    ],
+    "disqualifiers": [
+        "containment_failure",
+        "evidence_integrity_failure",
+        "unauthorized_target",
+        "policy_bypass"
+    ]
+}
 
 MANDATORY_GATES = ("containment", "evidence_integrity", "policy_compliance", "creator_approval_gates")
 REQUIRED_SCENARIO_FAMILIES = ("web_application", "authorization", "detection")
@@ -27,7 +81,9 @@ class Qualification:
     reasons: list[str] = field(default_factory=list)
 
 
-def load_rubric(path: Path = RUBRIC_PATH) -> dict[str, Any]:
+def load_rubric(path: Path | None = None) -> dict[str, Any]:
+    if path is None:
+        return DEFAULT_RUBRIC
     return json.loads(path.read_text(encoding="utf-8"))
 
 
