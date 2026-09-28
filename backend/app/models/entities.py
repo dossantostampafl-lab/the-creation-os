@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, text
+from sqlalchemy import JSON, Boolean, CheckConstraint, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import ARRAY, REAL
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -78,9 +78,17 @@ class Inception(Base):
 
 class Mission(Base):
     __tablename__ = "missions"
+    __table_args__ = (
+        CheckConstraint(
+            "(inception_id IS NOT NULL AND opportunity_id IS NULL) OR "
+            "(inception_id IS NULL AND opportunity_id IS NOT NULL)",
+            name="ck_mission_exactly_one_origin",
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_string)
-    inception_id: Mapped[str] = mapped_column(ForeignKey("inceptions.id"), nullable=False, unique=True)
+    inception_id: Mapped[str | None] = mapped_column(ForeignKey("inceptions.id"), nullable=True, unique=True)
+    opportunity_id: Mapped[str | None] = mapped_column(ForeignKey("opportunities.id"), nullable=True, index=True)
     creator_id: Mapped[str] = mapped_column(ForeignKey("creator.id"), nullable=False)
     title: Mapped[str] = mapped_column(String(256), nullable=False)
     objective: Mapped[str] = mapped_column(Text, nullable=False)
@@ -91,7 +99,7 @@ class Mission(Base):
     completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))
 
-    inception: Mapped[Inception] = relationship("Inception", back_populates="mission")
+    inception: Mapped[Inception | None] = relationship("Inception", back_populates="mission")
     plan: Mapped["MissionPlan"] = relationship("MissionPlan", back_populates="mission", uselist=False)
     tasks: Mapped[list["Task"]] = relationship("Task", back_populates="mission", cascade="all, delete-orphan")
 
