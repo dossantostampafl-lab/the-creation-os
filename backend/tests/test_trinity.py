@@ -103,6 +103,9 @@ class FakeRepository:
     async def list_agents(self, universe_id):
         return [agent for agent in self.agents if universe_id is None or agent.universe_id == universe_id]
 
+    async def list_for_creator(self, model, creator_id):
+        return [mission for mission in self.missions if mission.creator_id == creator_id] if model is Mission else []
+
     async def list_messages(self, conversation_id: str, limit: int = 20):
         return [message for message in self.messages if message.conversation_id == conversation_id][-limit:]
 

@@ -11,12 +11,17 @@ const VOICE_KEY = "creation_voice_enabled";
 const WAKE_KEY = "creation_wake_word_v3";
 const QUALITY_HINTS = ["natural", "neural", "online", "google", "premium", "enhanced"];
 const MAX_SPOKEN_CHARS = 1200;
-const ATTENTION_MS = 12000;
+/** How long DEUS waits for speech after the wake word or a mic press. */
+const WAKE_ATTENTION_MS = 8000;
+/** How long DEUS waits for a follow-up once a voice conversation is under way. */
+const CONVERSATION_ATTENTION_MS = 14000;
 /** Silence after the last final segment that means the Creator has finished speaking.
   * Browsers finalise a result at every pause -- often after a single word -- so acting on
   * the first one sends a fragment and stops listening mid-sentence. */
 const SETTLE_MS = 700;
-const WAKE_WORD = /(^|[^\p{L}])(deus|zeus|d[eê]\s+us)(?![\p{L}])/iu;
+// "Deus" is often transcribed as "Zeus", "dê us", "teus" or "deu". The last two are ordinary
+// Portuguese words ("os teus planos", "deu certo"), so they only count at the start of an utterance.
+const WAKE_WORD = /(^|[^\p{L}])(deus|zeus|d[eê]\s+us)(?![\p{L}])|^[\s,.!?;:—-]*(teus|deu)(?![\p{L}])/iu;
 
 function voiceLanguage(): string {
   // DEUS is a pt-BR interface. Do not let the device/browser locale silently switch the
@@ -28,6 +33,7 @@ const portuguese = () => true;
 
 export const voiceText = {
   greeting: () => (portuguese() ? "Estou aqui." : "I'm here."),
+  moment: () => (portuguese() ? "Um momento." : "One moment."),
   wakeHint: () => (portuguese() ? "Diga “Deus” para chamar" : "Say “Deus” to call"),
   listening: () => (portuguese() ? "Ouvindo…" : "Listening…"),
   farewell: () => (portuguese() ? "Até logo." : "Goodbye."),
@@ -110,6 +116,14 @@ function speakable(text: string): string {
   const cut = plain.slice(0, MAX_SPOKEN_CHARS);
   const sentenceEnd = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "));
   return sentenceEnd > MAX_SPOKEN_CHARS / 2 ? cut.slice(0, sentenceEnd + 1) : cut;
+}
+
+/** Splits spoken text into sentences so the first one can be voiced while the rest are synthesized. */
+export function splitSentences(text: string): string[] {
+  return text
+    .split(/(?<=[.!?…])\s+(?=\S)/u)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
 }
 
 type SpeakHandlers = { onStart?: () => void; onEnd?: () => void };
@@ -279,56 +293,86 @@ export function useDeusVoice() {
       return;
     }
 
+    // One synthesis per sentence: the first sentence plays as soon as its audio arrives while the
+    // next one is already being synthesized, instead of waiting for the whole reply.
+    const sentences = splitSentences(content);
     const controller = new AbortController();
+    const syntheses: Promise<Blob>[] = [];
     let audio: HTMLAudioElement | null = null;
     let release = () => {};
     let url = "";
     let finished = false;
-    const cleanup = () => {
+    const releaseAudio = () => {
       release();
+      release = () => {};
       if (url) URL.revokeObjectURL(url);
+      url = "";
     };
     const myTurn = turn.current;
     const finish = () => {
       if (finished) return;
       finished = true;
-      cleanup();
+      releaseAudio();
       if (turn.current !== myTurn) return;
       setSpeaking(false);
       handlers.onEnd?.();
+    };
+    const synthesis = (index: number): Promise<Blob> => {
+      if (!syntheses[index]) {
+        const sentence = sentences[index];
+        const cached = phraseCache.get(sentence);
+        const pending = cached ? Promise.resolve(cached) : synthesizeVoice(sentence, controller.signal).then((blob) => {
+          if (sentence.length < 80) phraseCache.set(sentence, blob);
+          return blob;
+        });
+        // A prefetch may be abandoned (DEUS interrupted); it must not surface as an unhandled rejection.
+        pending.catch(() => undefined);
+        syntheses[index] = pending;
+      }
+      return syntheses[index];
     };
     current.current = {
       stop: () => {
         finished = true;
         controller.abort();
         audio?.pause();
-        cleanup();
+        releaseAudio();
       },
     };
     setSpeaking(true);
     handlers.onStart?.();
 
-    const cached = phraseCache.get(content);
-    (cached ? Promise.resolve(cached) : synthesizeVoice(content, controller.signal))
-      .then(async (blob) => {
-        if (finished) return;
-        if (content.length < 80) phraseCache.set(content, blob);
-        url = URL.createObjectURL(blob);
-        audio = new Audio(url);
-        audio.onended = finish;
-        audio.onerror = finish;
-        release = meter(audio);
-        await audio.play();
-      })
-      .catch((failure: unknown) => {
-        if (finished || (failure instanceof DOMException && failure.name === "AbortError")) return;
-        cleanup();
-        const notConfigured = failure instanceof Error && failure.message === "HTTP_501";
-        const autoplayBlocked = failure instanceof DOMException && failure.name === "NotAllowedError";
-        if (notConfigured) premiumRetryAt = Number.POSITIVE_INFINITY;
-        else if (!autoplayBlocked) premiumRetryAt = Date.now() + PREMIUM_RETRY_MS;
-        speakWithBrowser(content, { onEnd: finish });
-      });
+    const play = (index: number) => {
+      if (finished) return;
+      if (index >= sentences.length) {
+        finish();
+        return;
+      }
+      if (index + 1 < sentences.length) void synthesis(index + 1);
+      synthesis(index)
+        .then(async (blob) => {
+          if (finished) return;
+          releaseAudio();
+          url = URL.createObjectURL(blob);
+          const next = new Audio(url);
+          audio = next;
+          next.onended = () => play(index + 1);
+          next.onerror = () => play(index + 1);
+          release = meter(next);
+          await next.play();
+        })
+        .catch((failure: unknown) => {
+          if (finished || (failure instanceof DOMException && failure.name === "AbortError")) return;
+          releaseAudio();
+          const notConfigured = failure instanceof Error && failure.message === "HTTP_501";
+          const autoplayBlocked = failure instanceof DOMException && failure.name === "NotAllowedError";
+          if (notConfigured) premiumRetryAt = Number.POSITIVE_INFINITY;
+          else if (!autoplayBlocked) premiumRetryAt = Date.now() + PREMIUM_RETRY_MS;
+          controller.abort();
+          speakWithBrowser(sentences.slice(index).join(" "), { onEnd: finish });
+        });
+    };
+    play(0);
   }, [speakWithBrowser, stop]);
 
   const acknowledge = useCallback((text: string, handlers: SpeakHandlers = {}) => {
@@ -372,6 +416,8 @@ type EarsState = "off" | "sleeping" | "attentive";
 type EarsOptions = {
   /** DEUS is thinking or speaking: stop listening so it does not hear itself. */
   paused: boolean;
+  /** A voice conversation is under way: wait longer for the Creator's follow-up. */
+  conversing?: boolean;
   /** The Creator said only the wake word. */
   onWake: () => void;
   /** A request addressed to DEUS. */
@@ -430,7 +476,7 @@ export function interpretUtterance(transcript: string, attentive: boolean): Utte
   return request ? { kind: "command", text: request } : { kind: "wake" };
 }
 
-export function useDeusEars({ paused, onWake, onCommand, onInterim, onLapse, onFarewell }: EarsOptions) {
+export function useDeusEars({ paused, conversing = false, onWake, onCommand, onInterim, onLapse, onFarewell }: EarsOptions) {
   const supported = typeof window !== "undefined" && recognitionConstructor() !== null;
   const [wakeEnabled, setWakeEnabled] = useState(() => supported && readPreference(WAKE_KEY, true));
   const [state, setState] = useState<EarsState>("off");
@@ -449,10 +495,11 @@ export function useDeusEars({ paused, onWake, onCommand, onInterim, onLapse, onF
   const audioChunks = useRef<Blob[]>([]);
   const transcriptionRetryAt = useRef(0);
   const attentionTimer = useRef(0);
-  const desired = useRef({ wakeEnabled, paused });
+  const attentionWindow = useRef(WAKE_ATTENTION_MS);
+  const desired = useRef({ wakeEnabled, paused, conversing });
   const handlers = useRef({ onWake, onCommand, onInterim, onLapse, onFarewell });
   handlers.current = { onWake, onCommand, onInterim, onLapse, onFarewell };
-  desired.current = { wakeEnabled, paused };
+  desired.current = { wakeEnabled, paused, conversing };
 
   const publish = useCallback(() => {
     const running = recognition.current !== null;
@@ -463,7 +510,12 @@ export function useDeusEars({ paused, onWake, onCommand, onInterim, onLapse, onF
     attentive.current = value;
     window.clearTimeout(attentionTimer.current);
     // Attention always lapses: an unanswered "Deus" or mic press must not capture later speech.
-    if (value) armAttention();
+    if (value) {
+      // Fixed for the whole attention period: a wake or mic press gets the short window, a
+      // follow-up inside a conversation the long one.
+      attentionWindow.current = desired.current.conversing ? CONVERSATION_ATTENTION_MS : WAKE_ATTENTION_MS;
+      armAttention();
+    }
     publish();
     // armAttention only touches refs, so the first render's copy stays correct.
   }, [publish]);
@@ -476,7 +528,7 @@ export function useDeusEars({ paused, onWake, onCommand, onInterim, onLapse, onF
       handlers.current.onInterim("");
       handlers.current.onLapse?.();
       sync();
-    }, ATTENTION_MS);
+    }, attentionWindow.current);
   }
 
   /** A final segment is one pause, not one sentence. Collect them and decide once the Creator

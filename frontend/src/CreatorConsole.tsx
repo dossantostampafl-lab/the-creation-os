@@ -25,6 +25,7 @@ type Props = {
 };
 
 const CONVERSATION_KEY = "creation_conversation_id";
+const ACKNOWLEDGE_AFTER_MS = 1500;
 
 type Entry = { kind: "message"; at: string; message: ConversationMessage } | { kind: "proposal"; at: string; proposal: Proposal };
 
@@ -73,6 +74,7 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
   const ears = useDeusEars({
     // Never listen while DEUS cannot answer, is thinking, or is speaking (it would hear itself).
     paused: !enabled || pending || voice.speaking,
+    conversing: inConversation,
     onWake: () => {
       setConversing(true);
       // The wake acknowledgement is part of DEUS's identity too. Use the configured
@@ -187,6 +189,10 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
     voice.stop();
     setPending(true);
     setError(null);
+    // A slow answer in a voice conversation gets a short spoken acknowledgement, so silence is not mistaken for deafness.
+    const acknowledgement = window.setTimeout(() => {
+      if (conversing.current) voice.acknowledge(voiceText.moment());
+    }, ACKNOWLEDGE_AFTER_MS);
     let optimisticId: string | null = null;
     try {
       let id = conversationId;
@@ -214,6 +220,7 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
       setMessages((current) => [...current, optimistic]);
 
       const reply = await converseWithDeus(id, content);
+      window.clearTimeout(acknowledgement);
       if (reply.response) {
         const creatorMessage: ConversationMessage = {
           ...optimistic,
@@ -260,6 +267,7 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
       setError(message === "HTTP_503" ? "Inference provider is not configured." : message === "AUTH_REQUIRED" ? "Sessão expirada. Entre novamente para continuar." : "DEUS conversation failed.");
       setConversing(false);
     } finally {
+      window.clearTimeout(acknowledgement);
       setPending(false);
     }
   }

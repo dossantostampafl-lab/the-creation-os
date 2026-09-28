@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 import uuid
 
 import pytest
 
+from app.cognition.trinity import TrinityEngine
 from app.core.domain import Actor
 from app.inference.contracts import InferenceRequest, InferenceResponse
-from app.models.entities import Conversation, Message
+from app.models.entities import Agent, Conversation, Message, Mission, Universe
 from app.services.deus import SYSTEM_PROMPT, DeusConversationService, needs_trinity
 
 
@@ -26,6 +28,9 @@ class FakeRepository:
             id=str(uuid.uuid4()), creator_id=actor.id, title="Creator", status="active"
         )
         self.messages: list[Message] = []
+        self.universes: list[Universe] = []
+        self.agents: list[Agent] = []
+        self.missions: list[Mission] = []
         self.events: list[dict] = []
         self.commits = 0
 
@@ -45,6 +50,15 @@ class FakeRepository:
         if isinstance(entity, Message):
             self.messages.append(entity)
         return entity
+
+    async def list_all(self, model):
+        return self.universes if model is Universe else []
+
+    async def list_agents(self, universe_id):
+        return [agent for agent in self.agents if universe_id is None or agent.universe_id == universe_id]
+
+    async def list_for_creator(self, model, creator_id):
+        return [mission for mission in self.missions if mission.creator_id == creator_id] if model is Mission else []
 
     async def list_messages(self, conversation_id: str, limit: int = 20):
         return [message for message in self.messages if message.conversation_id == conversation_id][-limit:]
@@ -128,3 +142,107 @@ def test_deus_system_prompt_preserves_recent_dialogue_context() -> None:
     assert "always reply in brazilian portuguese" in lowered
     assert "do not switch" in lowered
     assert "transcription artifacts" in lowered
+
+
+def test_deus_system_prompt_shapes_short_spoken_prose() -> None:
+    lowered = SYSTEM_PROMPT.lower()
+    assert "one to three short sentences" in lowered
+    assert "never use lists" in lowered
+    assert "sober" in lowered
+    assert "live system state" in lowered
+
+
+def populated_repository(actor: Actor) -> FakeRepository:
+    repo = FakeRepository(actor)
+    web = Universe(id=str(uuid.uuid4()), code="WEB", name="Web", active=True)
+    content = Universe(id=str(uuid.uuid4()), code="CONTENT", name="Content", active=True)
+    finance = Universe(id=str(uuid.uuid4()), code="FINANCE", name="Finance", active=False)
+    repo.universes = [web, content, finance]
+    repo.agents = [Agent(id=str(uuid.uuid4()), code="web-agent", name="Web", universe_id=web.id, active=True)]
+    repo.missions = [
+        Mission(id=str(uuid.uuid4()), creator_id=actor.id, title="Landing page", objective="x", status="executing"),
+        Mission(id=str(uuid.uuid4()), creator_id=actor.id, title="Newsletter", objective="x", status="validated"),
+        Mission(id=str(uuid.uuid4()), creator_id=actor.id, title="Old launch", objective="x", status="manifested"),
+        Mission(id=str(uuid.uuid4()), creator_id="someone-else", title="Foreign", objective="x", status="executing"),
+    ]
+    return repo
+
+
+@pytest.mark.asyncio
+async def test_deus_answers_from_the_live_system_state() -> None:
+    actor = Actor(str(uuid.uuid4()), "creator")
+    repo = populated_repository(actor)
+    router = StubRouter()
+    service = DeusConversationService(repo, router, provider="stub", model="stub-model")
+
+    await service.respond(actor, repo.conversation.id, "Como estão os universos?", str(uuid.uuid4()))
+
+    messages = router.requests[0].messages
+    assert messages[0]["content"] == SYSTEM_PROMPT
+    live = messages[1]
+    assert live["role"] == "system" and live["content"].startswith("Live system state")
+    assert "CONTENT active but without an active Agent" in live["content"]
+    assert "FINANCE inactive" in live["content"]
+    assert "WEB ready" in live["content"]
+    assert 'Missions in execution: "Landing page" (executing).' in live["content"]
+    assert 'awaiting the Creator\'s authorization: "Newsletter".' in live["content"]
+    assert "Old launch" not in live["content"] and "Foreign" not in live["content"]
+    assert messages[-1] == {"role": "user", "content": "Como estão os universos?"}
+
+
+@pytest.mark.asyncio
+async def test_deus_still_answers_when_the_live_state_cannot_be_read() -> None:
+    actor = Actor(str(uuid.uuid4()), "creator")
+    repo = FakeRepository(actor)
+
+    async def broken(*_args):
+        raise RuntimeError("database unavailable")
+
+    repo.list_agents = broken  # type: ignore[method-assign]
+    router = StubRouter()
+    service = DeusConversationService(repo, router, provider="stub", model="stub-model")
+
+    result = await service.respond(actor, repo.conversation.id, "Status?", str(uuid.uuid4()))
+
+    assert result.response == "DEUS response"
+    assert [m["content"] for m in router.requests[0].messages if m["role"] == "system"] == [SYSTEM_PROMPT]
+
+
+class PerceptionAwaitingSnapshotRouter:
+    """Perception only answers once the live snapshot has started, proving the two overlap."""
+
+    def __init__(self, snapshot_started: asyncio.Event) -> None:
+        self.snapshot_started = snapshot_started
+        self.requests: list[InferenceRequest] = []
+
+    async def generate(self, request: InferenceRequest) -> InferenceResponse:
+        self.requests.append(request)
+        if request.metadata["route"] == "deus":
+            return InferenceResponse(provider="stub", model="stub-model", content="Pronto.")
+        await asyncio.wait_for(self.snapshot_started.wait(), timeout=1)
+        return InferenceResponse(provider="stub", model="stub-model", content=(
+            '{"intent_class": "conversation", "summary": "chat", "confidence": 0.99}'
+        ))
+
+
+@pytest.mark.asyncio
+async def test_live_snapshot_is_read_while_sophia_perceives() -> None:
+    actor = Actor(str(uuid.uuid4()), "creator")
+    repo = populated_repository(actor)
+    snapshot_started = asyncio.Event()
+    list_agents = repo.list_agents
+
+    async def observed_list_agents(universe_id):
+        snapshot_started.set()
+        return await list_agents(universe_id)
+
+    repo.list_agents = observed_list_agents  # type: ignore[method-assign]
+    router = PerceptionAwaitingSnapshotRouter(snapshot_started)
+    engine = TrinityEngine(router, provider="stub", model="stub-model", min_confidence=0.7)
+    service = DeusConversationService(repo, router, provider="stub", model="stub-model", trinity=engine)
+
+    result = await service.respond(actor, repo.conversation.id, "Hoje o dia está tranquilo", str(uuid.uuid4()))
+
+    assert result.response == "Pronto."
+    assert [request.metadata["route"] for request in router.requests] == ["trinity:sophia", "deus"]
+    assert not any(event["event_type"] == "trinity_failed" for event in repo.events)

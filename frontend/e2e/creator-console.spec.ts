@@ -250,6 +250,113 @@ test("“Deus, <request>” in one breath goes straight to DEUS and ignores othe
   expect(await spokenLines(page)).not.toContain("Estou aqui.");
 });
 
+test("common transcriptions of “Deus” wake DEUS, ordinary words do not", async ({ page }) => {
+  await installFakeSpeech(page);
+  await mockDashboard(page);
+  await page.route("**/api/v1/voice/synthesize", (route) => route.fulfill({ status: 501, body: "{}" }));
+  const sent: string[] = [];
+  await mockConversation(page, sent);
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Turn on “Deus” wake word" }).click();
+  const say = (text: string) => page.evaluate((t) => (window as unknown as { __say: (t: string) => boolean }).__say(t), text);
+
+  // Each phrase is its own utterance: segments closer than the settle pause are joined into one.
+  for (const phrase of ["isso deu certo", "os teus planos", "deusa da criação"]) {
+    await expect.poll(() => say(phrase)).toBe(true);
+    await page.waitForTimeout(900);
+  }
+  expect(sent).toEqual([]);
+  await expect.poll(() => say("teus, how are the universes?")).toBe(true);
+  await expect.poll(() => sent).toEqual(["how are the universes?"]);
+  expect(await spokenLines(page)).not.toContain("Estou aqui.");
+
+  await expect.poll(() => spokenLines(page)).toEqual(["All universes are breathing."]);
+  await expect.poll(() => say("tchau")).toBe(true);
+  await expect.poll(() => spokenLines(page)).toContain("Até logo.");
+  await expect.poll(() => say("Deu")).toBe(true);
+  await expect.poll(() => spokenLines(page)).toEqual(["All universes are breathing.", "Até logo.", "Estou aqui."]);
+});
+
+test("ElevenLabs voices a reply sentence by sentence", async ({ page }) => {
+  await installFakeSpeech(page);
+  await page.addInitScript(() => {
+    const scope = window as unknown as { __played: number };
+    scope.__played = 0;
+    HTMLMediaElement.prototype.play = function play(this: HTMLMediaElement) {
+      scope.__played += 1;
+      setTimeout(() => this.dispatchEvent(new Event("ended")), 50);
+      return Promise.resolve();
+    };
+  });
+  await mockDashboard(page);
+  const synthesized: string[] = [];
+  await page.route("**/api/v1/voice/synthesize", (route) => {
+    synthesized.push((route.request().postDataJSON() as { text: string }).text);
+    return route.fulfill({ status: 200, contentType: "audio/mpeg", body: Buffer.from("ID3-fake-mp3") });
+  });
+  await mockConversation(page, []);
+  await page.route("**/api/v1/conversations/conversation-1/deus", (route) => route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({
+    message_id: "m1", conversation_id: "conversation-1", route: "deus", correlation_id: "c1", inception: null, system_state: null,
+    response: "Os universos respiram. A missão segue em execução. Nada exige tua atenção.",
+  }) }));
+
+  await page.goto("/");
+  await page.getByLabel("Message DEUS").fill("Como estão os universos?");
+  await page.getByLabel("Message DEUS").press("Enter");
+
+  // The next sentence is synthesized while the current one plays, so requests may overlap.
+  await expect.poll(() => [...synthesized].sort()).toEqual([
+    "A missão segue em execução.",
+    "Nada exige tua atenção.",
+    "Os universos respiram.",
+  ]);
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __played: number }).__played)).toBe(3);
+  expect(await spokenLines(page)).toEqual([]);
+});
+
+test("a slow answer in a voice conversation is acknowledged with “Um momento”", async ({ page }) => {
+  await installFakeSpeech(page);
+  await mockDashboard(page);
+  await page.route("**/api/v1/voice/synthesize", (route) => route.fulfill({ status: 501, body: "{}" }));
+  const sent: string[] = [];
+  await mockConversation(page, sent);
+  await page.route("**/api/v1/conversations/conversation-1/deus", async (route) => {
+    sent.push((route.request().postDataJSON() as { content: string }).content);
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    return route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({
+      message_id: "m1", conversation_id: "conversation-1", route: "deus", correlation_id: "c1", inception: null, system_state: null,
+      response: "Todos os universos estão prontos.",
+    }) });
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Turn on “Deus” wake word" }).click();
+  await expect.poll(() => say(page, "Deus, como estão os universos?")).toBe(true);
+  await expect.poll(() => sent).toEqual(["como estão os universos?"]);
+  await expect.poll(() => spokenLines(page), { timeout: 10_000 })
+    .toEqual(["Um momento.", "Todos os universos estão prontos."]);
+});
+
+test("a slow answer to a typed message is not acknowledged aloud", async ({ page }) => {
+  await installFakeSpeech(page);
+  await mockDashboard(page);
+  await page.route("**/api/v1/voice/synthesize", (route) => route.fulfill({ status: 501, body: "{}" }));
+  await mockConversation(page, []);
+  await page.route("**/api/v1/conversations/conversation-1/deus", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    return route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({
+      message_id: "m1", conversation_id: "conversation-1", route: "deus", correlation_id: "c1", inception: null, system_state: null,
+      response: "Todos os universos estão prontos.",
+    }) });
+  });
+
+  await page.goto("/");
+  await page.getByLabel("Message DEUS").fill("Status?");
+  await page.getByLabel("Message DEUS").press("Enter");
+  await expect.poll(() => spokenLines(page), { timeout: 10_000 }).toEqual(["Todos os universos estão prontos."]);
+});
+
 test("DEUS stops listening when nobody speaks after it is summoned", async ({ page }) => {
   await page.clock.install();
   await installFakeSpeech(page);
