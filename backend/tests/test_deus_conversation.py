@@ -125,4 +125,6 @@ def test_deus_system_prompt_preserves_recent_dialogue_context() -> None:
     lowered = SYSTEM_PROMPT.lower()
     assert "continuous conversation" in lowered
     assert "never make the creator repeat context" in lowered
-    assert "brazilian portuguese" in lowered
+    assert "always reply in brazilian portuguese" in lowered
+    assert "do not switch" in lowered
+    assert "transcription artifacts" in lowered

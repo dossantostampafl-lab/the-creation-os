@@ -1,4 +1,4 @@
-const STATIC_CACHE = "creation-static-v1";
+const STATIC_CACHE = "creation-static-v2";
 const STATIC_SHELL = [
   "/",
   "/manifest.webmanifest",
