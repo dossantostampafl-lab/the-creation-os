@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isFarewell, splitWakePhrase, spokenDecision } from "./voice";
+import { interpretUtterance, isFarewell, splitWakePhrase, spokenDecision } from "./voice";
 
 describe("splitWakePhrase", () => {
   it("wakes on the bare wake word", () => {
@@ -60,5 +60,37 @@ describe("spokenDecision", () => {
     expect(spokenDecision("start a landing page")).toBeNull();
     expect(spokenDecision("cancela o lembrete")).toBeNull();
     expect(spokenDecision("aprova e depois me conta")).toBeNull();
+  });
+});
+
+describe("interpretUtterance", () => {
+  it("sends the whole sentence, not the first pause", () => {
+    // The browser finalises at every pause, so this arrives as several segments joined by the
+    // caller. Acting on "Deus, crie" alone is what made the microphone seem to hear one word.
+    expect(interpretUtterance("Deus, crie um universo de finanças", false))
+      .toEqual({ kind: "command", text: "crie um universo de finanças" });
+    expect(interpretUtterance("crie um universo de finanças", true))
+      .toEqual({ kind: "command", text: "crie um universo de finanças" });
+  });
+
+  it("wakes on the bare wake word and waits for the request", () => {
+    expect(interpretUtterance("Deus", false)).toEqual({ kind: "wake" });
+    expect(interpretUtterance("ei, deus!", false)).toEqual({ kind: "wake" });
+  });
+
+  it("ignores speech that was not addressed to DEUS", () => {
+    expect(interpretUtterance("adeus, até amanhã", false)).toEqual({ kind: "ignore" });
+    expect(interpretUtterance("qualquer conversa na sala", false)).toEqual({ kind: "ignore" });
+    expect(interpretUtterance("   ", true)).toEqual({ kind: "ignore" });
+  });
+
+  it("hears a goodbye only while attentive", () => {
+    expect(interpretUtterance("tchau", true)).toEqual({ kind: "farewell" });
+    // Asleep, a goodbye is just talk in the room.
+    expect(interpretUtterance("tchau", false)).toEqual({ kind: "ignore" });
+  });
+
+  it("treats a leading name as address once already listening", () => {
+    expect(interpretUtterance("Deus, status", true)).toEqual({ kind: "command", text: "status" });
   });
 });

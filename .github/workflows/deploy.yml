@@ -21,6 +21,7 @@ on:
           - logs
           - set-voice
           - smoke-test
+          - seed
       ref:
         description: "Branch or tag to take the code from. Empty means the default branch."
         type: string
@@ -199,6 +200,13 @@ jobs:
               ;;
             set-voice)
               sudo -E ./deploy/oracle/set-voice.sh
+              ;;
+            seed)
+              # Idempotent: it reconciles the canonical Universes and their Agents rather than
+              # inserting. A deploy brings new code, never new rows, so this is its own step.
+              api="$(sudo docker ps --filter 'label=com.docker.compose.service=api' --format '{{.ID}}' | head -1)"
+              sudo docker exec -i "$api" seed-universes
+              sudo ./deploy/oracle/smoke-test.sh
               ;;
             smoke-test)
               # --deus sends one short message, so the report covers the path that matters

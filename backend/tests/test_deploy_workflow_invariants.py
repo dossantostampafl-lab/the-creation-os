@@ -311,3 +311,13 @@ def test_the_smoke_test_checks_what_the_interface_depends_on() -> None:
         assert path in script, f"the smoke test never exercises {path}"
     # The console's own enabling expression, so the report says why it is disabled.
     assert "the console stays disabled while this is false" in script
+
+
+def test_the_seed_task_runs_the_idempotent_seeder_and_reports() -> None:
+    """A deploy brings code, never rows. The 12 canonical Universes of #69 reached the server
+    and the database kept the 4 it had, so every request outside them was judged unviable."""
+    remote = _remote_script()
+    assert "seed-universes" in remote, "no task seeds the canonical Universes"
+    seeding = remote.index("seed-universes")
+    reporting = remote.index("smoke-test.sh", seeding)
+    assert seeding < reporting, "the seed must report what the system looks like afterwards"

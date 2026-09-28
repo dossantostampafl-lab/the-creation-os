@@ -229,6 +229,7 @@ não pode alcançar o servidor.
 | `logs` | Últimas linhas dos logs do `api` e do `worker`, com segredos mascarados. |
 | `set-voice` | Liga a voz do DEUS no ElevenLabs e confirma com a própria ElevenLabs. |
 | `smoke-test` | Exercita o app inteiro por dentro e diz o que passou e o que falhou. |
+| `seed` | Semeia os 12 Universos canônicos e seus Agents, e mostra o resultado. |
 
 ### Os segredos, configurados uma vez
 
@@ -321,3 +322,14 @@ Duas linhas do relatório valem mais que as outras quando algo parece quebrado n
   erro nenhum aparecer, porque o envio simplesmente retorna.
 - **`ElevenLabs synthesis`** com 501 significa que a voz do navegador está sendo usada no lugar
   da sua.
+
+## Os Universos não vêm com o deploy
+
+Um deploy traz código, nunca linhas no banco. Quando o PR #69 levou os 12 Universos canônicos ao
+servidor, o banco continuou com os 4 que já tinha — e um pedido fora deles o ROCKMAM julga
+inviável, então o DEUS não tem o que propor e parece "não saber o que fazer".
+
+A tarefa `seed` resolve. O seeder é idempotente: ele reconcilia os 12 sem duplicar os que já
+existem, e no fim o relatório mostra a contagem.
+
+Confira em `smoke-test` a linha `universes`. Se disser menos que 12, é isso.
