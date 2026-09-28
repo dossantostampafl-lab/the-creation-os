@@ -18,6 +18,38 @@ from app.repositories.domain import DomainRepository
 from app.services.domain import LivingCoreService
 
 
+
+PERCEPTION_PROFILES: dict[str, dict[str, Any]] = {
+    "knowledge": {"preferred_sensors": ["web.search", "web.fetch", "research.semantic", "workspace.read"], "detectors": ["information_gap", "pain_recurrence", "demand_gap"]},
+    "engineering": {"preferred_sensors": ["web.search", "web.fetch", "specialized.web", "workspace.read"], "detectors": ["capability_gap", "efficiency_gap", "technology_shift"]},
+    "security": {"preferred_sensors": ["web.search", "web.fetch", "specialized.web", "workspace.read"], "detectors": ["capability_gap", "technology_shift", "regulatory_change"]},
+    "vision": {"preferred_sensors": ["web.search", "web.crawl", "research.semantic"], "detectors": ["trend_acceleration", "behavior_change", "temporal_window"]},
+    "design": {"preferred_sensors": ["web.search", "web.extract", "browser.observe"], "detectors": ["pain_recurrence", "conversion_friction", "attention_gap"]},
+    "business": {"preferred_sensors": ["web.search", "web.crawl", "specialized.web"], "detectors": ["demand_gap", "supply_scarcity", "price_gap", "arbitrage"]},
+    "marketing": {"preferred_sensors": ["web.search", "web.crawl", "research.semantic"], "detectors": ["attention_gap", "demand_gap", "trend_acceleration", "conversion_friction"]},
+    "legal": {"preferred_sensors": ["web.search", "web.fetch", "research.semantic", "workspace.read"], "detectors": ["regulatory_change", "information_gap", "pain_recurrence"]},
+    "finance": {"preferred_sensors": ["market.read", "web.search", "web.fetch", "proto.read"], "detectors": ["price_gap", "arbitrage", "temporal_window", "capacity_mismatch"]},
+    "automation": {"preferred_sensors": ["web.search", "specialized.web", "workspace.read"], "detectors": ["efficiency_gap", "capability_gap", "capacity_mismatch"]},
+    "communication": {"preferred_sensors": ["web.search", "web.crawl", "research.semantic"], "detectors": ["attention_gap", "behavior_change", "demand_gap"]},
+    "evolution": {"preferred_sensors": ["chronicle.read", "metrics.read", "workspace.read"], "detectors": ["efficiency_gap", "technology_shift", "behavior_change"]},
+}
+
+
+def canonical_perception_profile(universe_code: str) -> dict[str, Any]:
+    try:
+        raw = PERCEPTION_PROFILES[universe_code]
+    except KeyError as exc:
+        raise ValueError(f"unknown canonical Universe: {universe_code}") from exc
+    return {
+        "preferred_sensors": list(raw["preferred_sensors"]),
+        "detector_weights": {detector: 1.0 for detector in raw["detectors"]},
+        "exploration_strategy": {
+            "mode": "cross_sector",
+            "exploration_weight": 0.25,
+            "priors_are_permissions": False,
+        },
+    }
+
 @dataclass(frozen=True)
 class CanonicalUniverse:
     id: str
@@ -39,6 +71,7 @@ class CanonicalUniverse:
         return {
             "inference_provider": settings.llm_provider,
             "description": self.description,
+            **canonical_perception_profile(self.code),
         }
 
 
@@ -183,6 +216,20 @@ async def seed_universes() -> int:
             elif not agent.active:
                 await service.set_agent_active(actor, agent.id, True, str(uuid.uuid4()))
                 staffed.append(spec.agent_code)
+
+            expected_capabilities = spec.capabilities
+            if agent is not None and agent.capabilities_json != expected_capabilities:
+                agent.capabilities_json = expected_capabilities
+                await repository.add_event(
+                    "agent_profile_reconciled",
+                    "agent",
+                    agent.id,
+                    actor.id,
+                    actor.role,
+                    str(uuid.uuid4()),
+                    {"universe_id": universe.id, "profile": "perception-priors-v1"},
+                )
+                await repository.commit()
 
         print(
             json.dumps(
