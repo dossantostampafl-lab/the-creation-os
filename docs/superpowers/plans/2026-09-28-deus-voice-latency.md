@@ -115,55 +115,41 @@ git commit -m "fix: make DEUS voice capture continuous and STT authoritative"
 
 **Interfaces:**
 - Produces: `classify_deus_route(content: str) -> Literal["conversation", "simple_action", "mission"]`.
-- `needs_trinity(content: str) -> bool` remains available for compatibility but becomes `classify_deus_route(content) == "mission"`.
+- `needs_trinity(content: str) -> bool` remains available for compatibility and becomes `classify_deus_route(content) == "mission"`.
 - `DeusConversationService._reason(...)` continues to call Trinity only when `needs_trinity` is true; authorization/safety checks outside Trinity remain untouched.
 
-- [ ] **Step 1: Add failing classifier tests**
+- [ ] **Step 1: Add failing classifier and inference-count tests**
 
-In `backend/tests/test_deus_conversation.py`, add a parametrized test proving:
+In `backend/tests/test_deus_conversation.py`, import `classify_deus_route` and add a parametrized test proving:
 - `conversation`: `Qual é o status disso?`, `e agora?`, `como ficou o que falamos?`;
 - `simple_action`: `continue`, `prossiga`, `mostre`, `verifique`, `repita`, `abra`, `feche`, `corrija esse erro` when the wording is bounded/contextual;
 - `mission`: `implemente um novo sistema`, `crie um universo`, `publique em produção`, `deploy agora`, `altere a governança`, `configure segurança`, `automatize pagamentos`, `autoriza`, `cancela a missão`.
 
-Also assert `needs_trinity(...)` is true only for the mission set.
+Also add an async inference-count test with a real `TrinityEngine` + stub router: for `continue` and `corrija esse erro`, assert only one `route == "deus"` request and no `trinity:sophia`/`trinity:rockmam` request. Add/retain a mission case such as `implemente um novo sistema` that asserts Trinity is attempted before the final DEUS generation.
 
 Run: `cd backend && pytest tests/test_deus_conversation.py -q`
-Expected: FAIL because `classify_deus_route` does not exist and the current `_ACTION_REQUEST` routes bounded corrections/continuations through Trinity.
+Expected: FAIL because `classify_deus_route` does not exist and the current `_ACTION_REQUEST` sends bounded continuation/correction through Trinity.
 
-- [ ] **Step 2: Implement the deterministic classifier**
+- [ ] **Step 2: Implement and wire the deterministic classifier**
 
 In `backend/app/services/deus.py`:
-- define a `DeusRoute = Literal[...]` alias;
+- import `Literal` and define `DeusRoute = Literal["conversation", "simple_action", "mission"]`;
 - define explicit regexes for governance/sensitive mission verbs and substantial creation/execution verbs;
 - define a conservative simple-action pattern limited to short contextual commands (`continue/prossiga/mostre/verifique/repita/abra/feche`) plus bounded corrective follow-ups such as `corrija isso/esse erro` without a new project/objective clause;
-- implement `classify_deus_route(content)` with precedence `mission` > `conversation` > `simple_action` > conservative `mission` for ambiguous non-dialogue statements;
-- implement `needs_trinity(content)` as a wrapper around the classifier.
+- implement `classify_deus_route(content)` with sensitive/substantial mission detection first, explicit dialogue next, bounded simple action next, and conservative `mission` fallback for ambiguous non-dialogue statements;
+- implement `needs_trinity(content)` as `classify_deus_route(content) == "mission"`.
 
 The classifier must remain deterministic and zero-model-call.
 
 Run: `cd backend && pytest tests/test_deus_conversation.py -q`
-Expected: PASS.
+Expected: PASS, including one-primary-generation behavior for simple actions and preserved Trinity routing for mission/sensitive requests.
 
-- [ ] **Step 3: Add failing inference-count coverage for simple actions**
-
-Add an async test with a real `TrinityEngine` + stub router, call `DeusConversationService.respond(...)` with `continue` and `corrija esse erro`, and assert the router receives only one `route == "deus"` request and no `trinity:sophia` or `trinity:rockmam` request.
-
-Run: `cd backend && pytest tests/test_deus_conversation.py -q`
-Expected: FAIL until the classifier is wired through `needs_trinity`.
-
-- [ ] **Step 4: Verify mission requests still traverse Trinity**
-
-Add/retain an async test using `implemente um novo sistema` or an equivalent mission phrase and assert at least a Trinity route is attempted before DEUS final generation. Sensitive authorization/mission-decision flows remain handled by existing proposal/mission APIs and must not be collapsed into the simple path.
-
-Run: `cd backend && pytest tests/test_deus_conversation.py -q`
-Expected: PASS after classifier implementation.
-
-- [ ] **Step 5: Run backend quality gates**
+- [ ] **Step 3: Run backend quality gates**
 
 Run: `cd backend && ruff check app tests && mypy app && pytest`
 Expected: PASS.
 
-- [ ] **Step 6: Commit Task 2**
+- [ ] **Step 4: Commit Task 2**
 
 ```bash
 git add backend/app/services/deus.py backend/tests/test_deus_conversation.py
