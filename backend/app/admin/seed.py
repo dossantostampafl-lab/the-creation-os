@@ -142,6 +142,8 @@ async def seed_universes() -> int:
                 universe = await repository.add(
                     Universe(id=spec.id, code=spec.code, name=spec.name, active=spec.active)
                 )
+                if universe is None:
+                    raise RuntimeError(f"failed to create canonical universe: {spec.code}")
                 correlation_id = str(uuid.uuid4())
                 await repository.add_event(
                     "universe_created",
