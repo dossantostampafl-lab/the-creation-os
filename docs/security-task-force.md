@@ -56,7 +56,7 @@ themselves have not been run in the development sandbox.
 
 ### Checking a host for privileged execution
 
-`deploy/stf/verify-host.sh` is a read-only check of KVM, Kata and Firecracker (plus jailer). It exits 0 only when a
+On the Oracle server, run the `Deploy` workflow with the task `stf-host-check` (it calls `deploy/oracle/stf-host-check.sh`, which prints the host facts and then this verdict). `deploy/stf/verify-host.sh` is a read-only check of KVM, Kata and Firecracker (plus jailer). It exits 0 only when a
 strong backend is available; run it on the host before enabling `STF_KATA_AVAILABLE` / `STF_FIRECRACKER_AVAILABLE`.
 
 ## Status (evidence-based)

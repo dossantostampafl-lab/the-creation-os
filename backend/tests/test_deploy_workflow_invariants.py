@@ -321,3 +321,21 @@ def test_the_seed_task_runs_the_idempotent_seeder_and_reports() -> None:
     seeding = remote.index("seed-universes")
     reporting = remote.index("smoke-test.sh", seeding)
     assert seeding < reporting, "the seed must report what the system looks like afterwards"
+
+
+def test_the_stf_host_check_task_exists_and_only_reads() -> None:
+    options = _workflow()[True]["workflow_dispatch"]["inputs"]["task"]["options"]
+    assert "stf-host-check" in options
+    remote = _remote_script()
+    assert "stf-host-check)" in remote and "stf-host-check.sh" in remote
+    # The verifier lives in deploy/stf, so the run must refresh that directory as well.
+    assert "deploy/oracle deploy/stf" in remote
+
+    script = (REPO_ROOT / "deploy" / "oracle" / "stf-host-check.sh").read_text(encoding="utf-8")
+    verifier = (REPO_ROOT / "deploy" / "stf" / "verify-host.sh").read_text(encoding="utf-8")
+    for body in (script, verifier):
+        code = "\n".join(line for line in body.splitlines() if not line.lstrip().startswith("#"))
+        for forbidden in (r"\brm\b", r"\bmv\b", r"\bapt(-get)?\b", r"\bdnf\b", r"\byum\b", r"\bpip\b",
+                          r"\bsystemctl\s+(start|enable|restart|stop)", r"\bmodprobe\b", r"\bchmod\b", r"\bchown\b",
+                          r"\btee\b", r">\s*/(?!dev/null)", r"-X\s+(POST|PUT|DELETE)"):
+            assert not re.search(forbidden, code), (forbidden, body[:40])
