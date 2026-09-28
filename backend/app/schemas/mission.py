@@ -82,7 +82,9 @@ class MissionAuthorizationRequest(BaseModel):
 
 class MissionResponse(BaseModel):
     id: str
-    inception_id: str
+    inception_id: str | None
+    opportunity_id: str | None
+    origin_type: str
     creator_id: str
     title: str
     objective: str
