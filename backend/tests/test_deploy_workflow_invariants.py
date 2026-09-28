@@ -257,3 +257,35 @@ def test_the_recorded_host_keys_do_not_expose_the_address() -> None:
     text = (REPO_ROOT / "deploy" / "oracle" / "known_hosts").read_text(encoding="utf-8")
     # An unhashed entry would put the server's address in the repository.
     assert not re.search(r"^\s*[0-9]{1,3}(\.[0-9]{1,3}){3}\s", text, re.MULTILINE)
+
+
+def test_the_log_task_redacts_secrets() -> None:
+    """A workflow log is readable by everyone with access to the repository, and a traceback
+    can carry whatever was in scope when it was raised."""
+    script = (REPO_ROOT / "deploy" / "oracle" / "show-logs.sh").read_text(encoding="utf-8")
+    assert "redacted" in script
+    for pattern in ("sk-", "wrkspc_", "Bearer"):
+        assert pattern in script, f"the redaction does not cover {pattern}"
+    # The line count reaches a shell, so it is held to digits.
+    assert "The line count must be a number" in script
+
+
+def test_every_secret_reaches_the_server_on_stdin() -> None:
+    """An argument is visible in the server's process list; each secret gets its own line."""
+    text = WORKFLOW.read_text(encoding="utf-8")
+    for name in ("ANTHROPIC_API_KEY", "CREATOR_PASSWORD", "ELEVENLABS_API_KEY"):
+        assert f"IFS= read -r {name}" in text, f"{name} does not arrive on stdin"
+        assert f"{name}='" not in text, f"{name} is passed as an argument"
+    # Written and read in the same order, or two secrets swap places and each lands in the
+    # other's variable -- which no test of their presence alone would notice.
+    names = ["ANTHROPIC_API_KEY", "CREATOR_PASSWORD", "ELEVENLABS_API_KEY"]
+    written = sorted(names, key=lambda n: text.index(f"printf '%s\\n' \"${{{n}:-}}\""))
+    read = sorted(names, key=lambda n: text.index(f"IFS= read -r {n}"))
+    assert written == read, (written, read)
+
+
+def test_the_voice_id_is_checked_before_it_reaches_a_url() -> None:
+    script = (REPO_ROOT / "deploy" / "oracle" / "set-voice.sh").read_text(encoding="utf-8")
+    assert "^[A-Za-z0-9]{20}$" in script
+    # The proof of a correct voice is its name coming back, not a 200 alone.
+    assert 'body.get(\\"name\\"' in script or 'body.get("name"' in script

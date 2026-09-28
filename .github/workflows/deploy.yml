@@ -18,6 +18,8 @@ on:
           - set-inference
           - set-creator-password
           - tidy
+          - logs
+          - set-voice
       ref:
         description: "Branch or tag to take the code from. Empty means the default branch."
         type: string
@@ -108,6 +110,8 @@ jobs:
           ANTHROPIC_MODEL: ${{ secrets.ANTHROPIC_MODEL }}
           ANTHROPIC_WORKSPACE_ID: ${{ secrets.ANTHROPIC_WORKSPACE_ID }}
           CREATOR_PASSWORD: ${{ secrets.CREATOR_PASSWORD }}
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+          ELEVENLABS_VOICE_ID: ${{ secrets.ELEVENLABS_VOICE_ID }}
         run: |
           set -euo pipefail
 
@@ -126,6 +130,7 @@ jobs:
           {
             printf '%s\n' "${ANTHROPIC_API_KEY:-}"
             printf '%s\n' "${CREATOR_PASSWORD:-}"
+            printf '%s\n' "${ELEVENLABS_API_KEY:-}"
             cat <<'REMOTE'
           set -euo pipefail
           # A server can carry more than one checkout: install.sh works where it is, and
@@ -188,6 +193,12 @@ jobs:
             tidy)
               sudo ./deploy/oracle/tidy-server.sh
               ;;
+            logs)
+              sudo ./deploy/oracle/show-logs.sh 150
+              ;;
+            set-voice)
+              sudo -E ./deploy/oracle/set-voice.sh
+              ;;
             *)
               echo "Unknown task: $TASK" >&2
               exit 1
@@ -198,9 +209,11 @@ jobs:
                 "${USERNAME:-ubuntu}@$HOST" \
                 "export REPO_DIR='${REPO_DIR:-}' TASK='$TASK' REF='$REF' \
                         ANTHROPIC_MODEL='${ANTHROPIC_MODEL:-}' \
-                        ANTHROPIC_WORKSPACE_ID='${ANTHROPIC_WORKSPACE_ID:-}'; \
+                        ANTHROPIC_WORKSPACE_ID='${ANTHROPIC_WORKSPACE_ID:-}' \
+                        ELEVENLABS_VOICE_ID='${ELEVENLABS_VOICE_ID:-}'; \
                  IFS= read -r ANTHROPIC_API_KEY; IFS= read -r CREATOR_PASSWORD; \
-                 export ANTHROPIC_API_KEY CREATOR_PASSWORD; exec bash -s"
+                 IFS= read -r ELEVENLABS_API_KEY; \
+                 export ANTHROPIC_API_KEY CREATOR_PASSWORD ELEVENLABS_API_KEY; exec bash -s"
 
       - name: Remove the key from the runner
         if: always()
