@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import os
 import uuid
 
@@ -10,14 +11,16 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.models.entities import Creator, Universe
 from app.repositories.domain import DomainRepository
 from app.services.domain import NotFoundError
-from app.services.opportunity import (
-    create_or_get_opportunity,
-    normalize_opportunity_fingerprint,
-    submit_thesis,
-)
-from app.schemas.opportunity import OpportunityThesisCreate
 
 pytestmark = pytest.mark.integration
+
+
+def _service():
+    return importlib.import_module("app.services.opportunity")
+
+
+def _schema():
+    return importlib.import_module("app.schemas.opportunity")
 
 
 def _discovery_kwargs(*, creator_id: str, universe_id: str) -> dict:
@@ -34,6 +37,7 @@ def _discovery_kwargs(*, creator_id: str, universe_id: str) -> dict:
 
 
 def test_normalized_equivalent_opportunities_have_same_fingerprint() -> None:
+    normalize_opportunity_fingerprint = _service().normalize_opportunity_fingerprint
     left = normalize_opportunity_fingerprint(
         sector=" Software ",
         problem_or_gap="Teams   lose context across AI agents",
@@ -52,6 +56,7 @@ def test_normalized_equivalent_opportunities_have_same_fingerprint() -> None:
 
 @pytest.mark.asyncio
 async def test_create_or_get_dedupes_within_creator_but_not_across_creators() -> None:
+    create_or_get_opportunity = _service().create_or_get_opportunity
     engine = create_async_engine(os.environ["DATABASE_URL"])
     factory = async_sessionmaker(engine, expire_on_commit=False)
     creator_a = str(uuid.uuid4())
@@ -99,6 +104,8 @@ async def test_create_or_get_dedupes_within_creator_but_not_across_creators() ->
 
 @pytest.mark.asyncio
 async def test_discovery_requires_evidence_and_thesis_is_creator_scoped() -> None:
+    service = _service()
+    OpportunityThesisCreate = _schema().OpportunityThesisCreate
     engine = create_async_engine(os.environ["DATABASE_URL"])
     factory = async_sessionmaker(engine, expire_on_commit=False)
     creator_id = str(uuid.uuid4())
@@ -118,10 +125,10 @@ async def test_discovery_requires_evidence_and_thesis_is_creator_scoped() -> Non
         kwargs = _discovery_kwargs(creator_id=creator_id, universe_id=universe_id)
         kwargs["evidence_refs"] = []
         with pytest.raises(ValueError, match="evidence"):
-            await create_or_get_opportunity(repository, **kwargs)
+            await service.create_or_get_opportunity(repository, **kwargs)
 
         kwargs["evidence_refs"] = ["https://example.test/evidence/owner"]
-        opportunity = await create_or_get_opportunity(repository, **kwargs)
+        opportunity = await service.create_or_get_opportunity(repository, **kwargs)
 
         with pytest.raises(ValidationError):
             OpportunityThesisCreate(
@@ -150,7 +157,7 @@ async def test_discovery_requires_evidence_and_thesis_is_creator_scoped() -> Non
             evidence_refs=["https://example.test/evidence/thesis"],
         )
         with pytest.raises(NotFoundError):
-            await submit_thesis(
+            await service.submit_thesis(
                 repository,
                 opportunity_id=opportunity.id,
                 universe_id=universe_id,
