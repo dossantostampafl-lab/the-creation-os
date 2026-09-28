@@ -118,3 +118,69 @@ async def test_opportunity_mission_rejects_wrong_creator_and_expired_or_wrong_le
         assert expired.released_at is not None
 
     await engine.dispose()
+
+
+
+@pytest.mark.asyncio
+async def test_opportunity_mission_rejects_unselected_thesis_and_lost_lease() -> None:
+    engine = create_async_engine(os.environ["DATABASE_URL"])
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    ids = await _seed(factory)
+    alternate_thesis = str(uuid.uuid4())
+
+    async with factory() as session:
+        session.add(OpportunityThesis(
+            id=alternate_thesis,
+            opportunity_id=ids["opportunity"],
+            universe_id=ids["universe"],
+            proposed_value="alternate",
+            target_payer="payer",
+            capture_path="service",
+            estimated_cost_json={},
+            expected_value_json={},
+            max_downside_json={},
+            confidence=0.4,
+            falsification_conditions_json=["invalid"],
+            evidence_refs_json=["test:evidence"],
+            status="PROPOSED",
+        ))
+        await session.commit()
+
+    async with factory() as session:
+        repo = DomainRepository(session)
+        with pytest.raises(InvalidOrigin, match="selected thesis"):
+            await create_mission_from_opportunity(
+                repo,
+                creator_id=ids["creator"],
+                opportunity_id=ids["opportunity"],
+                thesis_id=alternate_thesis,
+                executive_lease_id=ids["lease"],
+                title="bad thesis",
+                objective="bad",
+                authorization={},
+                correlation_id=str(uuid.uuid4()),
+            )
+
+    async with factory() as session:
+        lease = await session.get(OpportunityLease, ids["lease"])
+        assert lease is not None
+        lease.status = "RELEASED"
+        lease.released_at = datetime.now(timezone.utc)
+        await session.commit()
+
+    async with factory() as session:
+        repo = DomainRepository(session)
+        with pytest.raises(InvalidOrigin, match="active executive lease"):
+            await create_mission_from_opportunity(
+                repo,
+                creator_id=ids["creator"],
+                opportunity_id=ids["opportunity"],
+                thesis_id=ids["thesis"],
+                executive_lease_id=ids["lease"],
+                title="lost lease",
+                objective="bad",
+                authorization={},
+                correlation_id=str(uuid.uuid4()),
+            )
+
+    await engine.dispose()
