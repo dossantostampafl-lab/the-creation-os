@@ -14,6 +14,7 @@ from .grants import GrantStore
 from .kill_switch import KillSwitch
 from .ledger import DispatchLedger
 from .policy import OpaClient
+from .status_store import MissionStatusStore
 from .workflows import MissionWorkflow
 
 TASK_QUEUE = "security-task-force"
@@ -23,7 +24,7 @@ def build_dependencies() -> StfDependencies:
     key = os.environ.get("STF_GATEWAY_SIGNING_KEY", "").encode()
     if len(key) < 32:
         raise RuntimeError("STF_GATEWAY_SIGNING_KEY (32+ characters) is required")
-    state = Path(os.environ.get("STF_STATE_DIR", "/var/lib/stf"))
+    state = Path(os.environ.get("STF_STATE_DIR", "/var/lib/creation/stf"))
     return StfDependencies(
         contracts=ContractStore(state / "contracts.json"),
         grants=GrantStore(state / "grants.json"),
@@ -31,6 +32,7 @@ def build_dependencies() -> StfDependencies:
         ledger=DispatchLedger(state / "ledger.json"),
         gateway=TcpGatewayClient(),
         signing_key=key,
+        statuses=MissionStatusStore(state / "status.json"),
         policy=OpaClient(os.environ.get("OPA_URL", "http://stf-opa:8181")),
     )
 

@@ -414,7 +414,7 @@ async def list_chronicles(
     s: LivingCoreService = Depends(service),
 ):
     return [
-        ChronicleResponse(**{name: getattr(x, name) for name in ChronicleResponse.model_fields})
+        ChronicleResponse(**{name: getattr(x, name) for name in ChronicleResponse.model_fields if hasattr(x, name)})
         for x in await s.chronicles(a, limit, offset)
     ]
 

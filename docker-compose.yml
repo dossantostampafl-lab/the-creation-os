@@ -26,6 +26,10 @@ services:
       PROTO_CREATION_SHARED_SECRET: ${PROTO_CREATION_SHARED_SECRET:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    volumes:
+      # Compiled Task Force contracts, grants and kill switch: shared with stf-worker so a revoke
+      # or a cancel made through the API is seen by the worker.
+      - stf_state:/var/lib/creation/stf
     ports:
       - "127.0.0.1:${CREATION_API_PORT:-8000}:8000"
     depends_on:
@@ -138,6 +142,9 @@ services:
       TEMPORAL_ADDRESS: stf-temporal:7233
       NATS_URL: nats://stf-nats:4222
       OPA_URL: http://stf-opa:8181
+      STF_STATE_DIR: /var/lib/creation/stf
+    volumes:
+      - stf_state:/var/lib/creation/stf
     command: ["python", "-m", "app.security_task_force.temporal_worker"]
     depends_on: [stf-temporal, stf-nats, stf-opa]
     networks: [stf-control]
@@ -166,6 +173,7 @@ volumes:
   workspace_data:
   stf_nats_data:
   stf_gateway_data:
+  stf_state:
 
 networks:
   tco_net:

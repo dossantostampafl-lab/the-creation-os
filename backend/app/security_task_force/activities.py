@@ -15,6 +15,7 @@ from .grants import GrantStore
 from .kill_switch import KillSwitch
 from .ledger import DispatchLedger
 from .policy import PolicyClient
+from .status_store import MissionStatusStore
 from .telemetry import emit
 
 
@@ -29,6 +30,7 @@ class StfDependencies:
     policy: PolicyClient | None = None
     verify: Callable[[str], bool] = lambda mission_id: True
     states: list[tuple[str, str]] = field(default_factory=list)
+    statuses: MissionStatusStore = field(default_factory=MissionStatusStore)
 
 
 class StfActivities:
@@ -62,6 +64,7 @@ class StfActivities:
     @activity.defn(name="stf_record_state")
     async def record_state(self, mission_id: str, state: str) -> None:
         self._d.states.append((mission_id, state))
+        self._d.statuses.set_state(mission_id, state)
         emit("mission.state_changed", mission_id=mission_id, state=state)
 
     @activity.defn(name="stf_revoke_grants")

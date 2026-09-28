@@ -16,6 +16,8 @@ THE CREATION OS é um sistema persistente de execução governada com API FastAP
 - `backend/app/worker.py` — loop operacional de reconciliação, execução, conclusão e atualização de projeções.
 - `frontend` — Living Operations Terminal em React/TypeScript/Vite, alimentado pelos endpoints de estado/projeções/Chronicle/inference e SSE autenticado.
 
+O Security Task Force (Missions vinculadas a alvos e ambientes autorizados, gateway em Rust, OPA e Temporal, opt-in pelo perfil `security-task-force`) está descrito em [`docs/security-task-force.md`](docs/security-task-force.md).
+
 DEUS permanece como interface conceitual do Criador. Trabalho operacional é executado pelo runtime governado de Missions, Tasks, Agents e capabilities; a interface não executa capabilities diretamente.
 
 ## Requisitos
