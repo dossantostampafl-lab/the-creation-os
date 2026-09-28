@@ -257,3 +257,14 @@ def test_the_recorded_host_keys_do_not_expose_the_address() -> None:
     text = (REPO_ROOT / "deploy" / "oracle" / "known_hosts").read_text(encoding="utf-8")
     # An unhashed entry would put the server's address in the repository.
     assert not re.search(r"^\s*[0-9]{1,3}(\.[0-9]{1,3}){3}\s", text, re.MULTILINE)
+
+
+def test_the_log_task_redacts_secrets() -> None:
+    """A workflow log is readable by everyone with access to the repository, and a traceback
+    can carry whatever was in scope when it was raised."""
+    script = (REPO_ROOT / "deploy" / "oracle" / "show-logs.sh").read_text(encoding="utf-8")
+    assert "redacted" in script
+    for pattern in ("sk-", "wrkspc_", "Bearer"):
+        assert pattern in script, f"the redaction does not cover {pattern}"
+    # The line count reaches a shell, so it is held to digits.
+    assert "The line count must be a number" in script

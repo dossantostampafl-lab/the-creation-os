@@ -18,6 +18,7 @@ on:
           - set-inference
           - set-creator-password
           - tidy
+          - logs
       ref:
         description: "Branch or tag to take the code from. Empty means the default branch."
         type: string
@@ -187,6 +188,9 @@ jobs:
               ;;
             tidy)
               sudo ./deploy/oracle/tidy-server.sh
+              ;;
+            logs)
+              sudo ./deploy/oracle/show-logs.sh 150
               ;;
             *)
               echo "Unknown task: $TASK" >&2
