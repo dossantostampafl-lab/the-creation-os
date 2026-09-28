@@ -42,12 +42,18 @@ jobs:
           new = '''  async function maybeImproveTranscript(browserText: string, _averageConfidence: number | null): Promise<string> {\n    // Once DEUS is attentive, captured audio is authoritative. Chromium confidence is too\n    // inconsistent to decide whether the high-quality server STT should run.\n    const audio = await finishCapture();\n    if (!audio || audio.size < 400 || Date.now() < transcriptionRetryAt.current) return browserText;\n    try {\n      const improved = await transcribeVoice(audio);\n      return improved.text.trim() || browserText;\n    } catch (failure) {\n      const disabled = failure instanceof Error && failure.message === "HTTP_501";\n      transcriptionRetryAt.current = disabled ? Number.POSITIVE_INFINITY : Date.now() + 60_000;\n      return browserText;\n    }\n  }\n'''
           if old not in text:
               raise SystemExit("frontend STT block not found")
-          voice.write_text(text.replace(old, new, 1))
+          text = text.replace(old, new, 1)
+
+          old_ack = '''  const acknowledge = useCallback((text: string, handlers: SpeakHandlers = {}) => {\n    const content = speakable(text);\n    stop();\n    if (!enabledRef.current || !content) {\n      handlers.onEnd?.();\n      return;\n    }\n    // Wake acknowledgements must be immediate: never wait on a network TTS round trip.\n    speakWithBrowser(content, handlers);\n  }, [speakWithBrowser, stop]);\n'''
+          new_ack = '''  const acknowledge = useCallback((text: string, handlers: SpeakHandlers = {}) => {\n    const content = speakable(text);\n    if (!enabledRef.current || !content) {\n      handlers.onEnd?.();\n      return;\n    }\n    // Wake acknowledgement is deliberately outside the `speaking` state. It keeps DEUS's\n    // configured voice identity while the ears remain armed for the Creator's next words.\n    const cached = phraseCache.get(content);\n    const pending = cached ? Promise.resolve(cached) : synthesizeVoice(content).then((blob) => {\n      if (content.length < 80) phraseCache.set(content, blob);\n      return blob;\n    });\n    void pending.then((blob) => {\n      const url = URL.createObjectURL(blob);\n      const audio = new Audio(url);\n      let finished = false;\n      const finish = () => {\n        if (finished) return;\n        finished = true;\n        URL.revokeObjectURL(url);\n        handlers.onEnd?.();\n      };\n      audio.onended = finish;\n      audio.onerror = finish;\n      handlers.onStart?.();\n      void audio.play().catch(finish);\n    }).catch(() => handlers.onEnd?.());\n  }, []);\n'''
+          if old_ack not in text:
+              raise SystemExit("wake acknowledgement function not found")
+          voice.write_text(text.replace(old_ack, new_ack, 1))
 
           console = Path("frontend/src/CreatorConsole.tsx")
           text = console.read_text()
           old = '''    onWake: () => {\n      setConversing(true);\n      // The wake acknowledgement is part of DEUS's identity too. Use the configured\n      // ElevenLabs path instead of silently switching to an arbitrary browser voice.\n      voice.speak(voiceText.greeting(), { onEnd: () => { if (conversing.current) ears.summon(); } });\n    },\n'''
-          new = '''    onWake: () => {\n      setConversing(true);\n      // Re-open capture immediately. A spoken acknowledgement must never gate the Creator's\n      // next words; preserving the first word matters more than playing a greeting.\n      ears.summon();\n    },\n'''
+          new = '''    onWake: () => {\n      setConversing(true);\n      // Arm capture before acknowledging the wake word. The greeting is non-gating and keeps\n      // DEUS's configured premium voice without closing the ears.\n      ears.summon();\n      voice.acknowledge(voiceText.greeting());\n    },\n'''
           if old not in text:
               raise SystemExit("wake acknowledgement block not found")
           console.write_text(text.replace(old, new, 1))
