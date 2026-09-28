@@ -15,7 +15,6 @@ from app.services.economy import (
     EconomicPolicyError,
     append_ledger_entry,
     ensure_genesis_allocation,
-    mark_capability_uncertain,
     project_universe_economy,
 )
 
