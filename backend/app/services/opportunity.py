@@ -635,18 +635,22 @@ async def record_learning_episode(
             value[target_key] = preferences
 
     if entry is None:
-        entry = await repository.add(
+        created = await repository.add(
             UniverseMemory(universe_id=universe.id, key=key, value_json=value)
         )
+        if not isinstance(created, UniverseMemory):
+            raise TypeError("repository returned an invalid UniverseMemory")
+        memory = created
     else:
         entry.value_json = value
         entry.updated_at = _utcnow()
         await repository.session.flush()
+        memory = entry
 
     await repository.add_event(
         "learning_episode_recorded",
         "universe_memory",
-        entry.id,
+        memory.id,
         universe.id,
         "universe",
         correlation_id,
@@ -659,4 +663,4 @@ async def record_learning_episode(
         },
     )
     await repository.commit()
-    return entry
+    return memory
