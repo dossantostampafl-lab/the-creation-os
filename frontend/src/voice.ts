@@ -12,6 +12,10 @@ const WAKE_KEY = "creation_wake_word";
 const QUALITY_HINTS = ["natural", "neural", "online", "google", "premium", "enhanced"];
 const MAX_SPOKEN_CHARS = 1200;
 const ATTENTION_MS = 8000;
+/** Silence after the last final segment that means the Creator has finished speaking.
+  * Browsers finalise a result at every pause -- often after a single word -- so acting on
+  * the first one sends a fragment and stops listening mid-sentence. */
+const SETTLE_MS = 1400;
 const WAKE_WORD = /(^|[^\p{L}])(deus|zeus)(?![\p{L}])/iu;
 
 function voiceLanguage(): string {
@@ -372,6 +376,28 @@ export function splitWakePhrase(transcript: string): { woke: boolean; request: s
   return { woke: true, request };
 }
 
+/** What an utterance means, once the Creator has finished saying it. */
+export type Utterance =
+  | { kind: "farewell" }
+  | { kind: "command"; text: string }
+  | { kind: "wake" }
+  | { kind: "ignore" };
+
+/** Decides without touching state, so the rule can be read and tested on its own. */
+export function interpretUtterance(transcript: string, attentive: boolean): Utterance {
+  const text = transcript.trim();
+  if (!text) return { kind: "ignore" };
+  if (attentive) {
+    if (isFarewell(text)) return { kind: "farewell" };
+    // Already listening, so a leading "Deus, ..." is just a form of address.
+    const { woke, request } = splitWakePhrase(text);
+    return { kind: "command", text: woke && request ? request : text };
+  }
+  const { woke, request } = splitWakePhrase(text);
+  if (!woke) return { kind: "ignore" };
+  return request ? { kind: "command", text: request } : { kind: "wake" };
+}
+
 export function useDeusEars({ paused, onWake, onCommand, onInterim, onLapse, onFarewell }: EarsOptions) {
   const supported = typeof window !== "undefined" && recognitionConstructor() !== null;
   const [wakeEnabled, setWakeEnabled] = useState(() => supported && readPreference(WAKE_KEY, false));
@@ -381,6 +407,9 @@ export function useDeusEars({ paused, onWake, onCommand, onInterim, onLapse, onF
   const mounted = useRef(false);
   const failures = useRef(0);
   const attentive = useRef(false);
+  /** Final segments of the sentence in progress, and the timer that ends it. */
+  const spoken = useRef<string[]>([]);
+  const settleTimer = useRef<number | undefined>(undefined);
   const attentionTimer = useRef(0);
   const desired = useRef({ wakeEnabled, paused });
   const handlers = useRef({ onWake, onCommand, onInterim, onLapse, onFarewell });
@@ -411,28 +440,44 @@ export function useDeusEars({ paused, onWake, onCommand, onInterim, onLapse, onF
     }, ATTENTION_MS);
   }
 
+  /** A final segment is one pause, not one sentence. Collect them and decide once the Creator
+    * stops: acting on the first sends a fragment ("Deus, crie" from "Deus, crie um universo")
+    * and ends the turn while they are still talking. */
   function handleFinal(transcript: string) {
     const text = transcript.trim();
     if (!text) return;
-    if (attentive.current) {
-      setAttentive(false);
-      if (isFarewell(text)) {
+    spoken.current.push(text);
+    waitForTheEnd();
+  }
+
+  function waitForTheEnd() {
+    window.clearTimeout(settleTimer.current);
+    settleTimer.current = window.setTimeout(flush, SETTLE_MS);
+  }
+
+  function flush() {
+    window.clearTimeout(settleTimer.current);
+    const said = spoken.current.join(" ").replace(/\s+/g, " ").trim();
+    spoken.current = [];
+    if (!said) return;
+
+    const utterance = interpretUtterance(said, attentive.current);
+    switch (utterance.kind) {
+      case "ignore":
+        return;
+      case "farewell":
+        setAttentive(false);
         handlers.current.onInterim("");
         handlers.current.onFarewell?.();
         return;
-      }
-      // Already listening, so a leading "Deus, ..." is just a form of address.
-      const { woke, request } = splitWakePhrase(text);
-      handlers.current.onCommand(woke && request ? request : text);
-      return;
-    }
-    const { woke, request } = splitWakePhrase(text);
-    if (!woke) return;
-    if (request) {
-      handlers.current.onCommand(request);
-    } else {
-      setAttentive(true);
-      handlers.current.onWake();
+      case "wake":
+        setAttentive(true);
+        handlers.current.onWake();
+        return;
+      case "command":
+        setAttentive(false);
+        handlers.current.onCommand(utterance.text);
+        return;
     }
   }
 
@@ -451,9 +496,13 @@ export function useDeusEars({ paused, onWake, onCommand, onInterim, onLapse, onF
         if (result.isFinal) handleFinal(result[0].transcript);
         else interim += result[0].transcript;
       }
-      if (attentive.current && interim) {
-        armAttention();
-        handlers.current.onInterim(interim.trim());
+      if (interim) {
+        // Still speaking: hold both the attention window and the end-of-sentence timer open.
+        if (spoken.current.length) waitForTheEnd();
+        if (attentive.current) {
+          armAttention();
+          handlers.current.onInterim(interim.trim());
+        }
       }
     };
     instance.onerror = (event) => {
