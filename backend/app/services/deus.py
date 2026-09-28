@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import re
 
 from loguru import logger
 
@@ -24,13 +25,48 @@ from app.services.domain import NotFoundError, add_mission_plan
 
 SYSTEM_PROMPT = (
     "You are DEUS, the Creator-facing interface of THE CREATION OS. "
-    "Answer the Creator clearly and concisely. Do not claim that an action, Mission, Agent, "
-    "Capability, deployment, or external operation occurred unless that fact is present in the "
-    "conversation or supplied system context. When execution is required, describe the required "
-    "next action rather than pretending it already happened. "
-    "Your replies are also spoken aloud to the Creator, so write natural prose: no Markdown, "
-    "tables, or code blocks unless the Creator asks for them."
+    "Treat this as one continuous conversation, not isolated prompts. Resolve pronouns, short "
+    "follow-ups, ellipsis, and references such as 'isso', 'ele', 'continua', 'como falamos' and "
+    "'e agora?' from the recent dialogue before answering. Never make the Creator repeat context "
+    "that is already present in the conversation. Reply in the language of the Creator's latest "
+    "message; default to Brazilian Portuguese when the language is ambiguous. "
+    "Answer clearly and concisely. Do not claim that an action, Mission, Agent, Capability, "
+    "deployment, or external operation occurred unless that fact is present in the conversation "
+    "or supplied system context. When execution is required, describe the required next action "
+    "rather than pretending it already happened. "
+    "Your replies are also spoken aloud to the Creator, so prefer short natural sentences and no "
+    "Markdown, tables, or code blocks unless the Creator explicitly asks for them."
 )
+
+# Obvious dialogue and read-only questions do not need an extra SOPHIA model call before DEUS answers.
+# Requests that contain an execution verb still go through the Trinity, even when phrased as a question.
+_ACTION_REQUEST = re.compile(
+    r"\\b(cri(?:e|ar)|fa(?:ça|ca|zer)|implement(?:e|ar)|corrij(?:a|ir)|execut(?:e|ar)|"
+    r"inici(?:e|ar)|constru(?:a|ir)|public(?:e|ar)|deploy|instal(?:e|ar)|remov(?:a|er)|"
+    r"alter(?:e|ar)|atualiz(?:e|ar)|configur(?:e|ar)|integr(?:e|ar)|automatiz(?:e|ar)|"
+    r"prossig(?:a|uir)|continu(?:e|ar)|cancel(?:e|ar)|autoriz(?:e|ar)|aprov(?:e|ar))\\b",
+    re.IGNORECASE,
+)
+_DIALOGUE_OPENING = re.compile(
+    r"^\\s*(oi|olá|ola|bom dia|boa tarde|boa noite|deus\\b|status\\b|"
+    r"o que\\b|qual\\b|quais\\b|como\\b|quando\\b|onde\\b|quem\\b|"
+    r"por que\\b|porque\\b|quanto\\b|quantos\\b|me diga\\b|me explique\\b|"
+    r"explique\\b|entendeu\\b|e (isso|agora|ele|ela|eles|elas)\\b)",
+    re.IGNORECASE,
+)
+
+
+def needs_trinity(content: str) -> bool:
+    """Keep governance for execution requests while making ordinary dialogue single-pass."""
+    normalized = " ".join(content.split())
+    if not normalized:
+        return False
+    if _ACTION_REQUEST.search(normalized):
+        return True
+    if "?" in normalized or _DIALOGUE_OPENING.search(normalized):
+        return False
+    # Ambiguous statements still go through SOPHIA rather than being guessed locally.
+    return True
 
 
 @dataclass(frozen=True)
@@ -112,7 +148,7 @@ class DeusConversationService:
 
     async def _reason(self, actor: Actor, content: str, history: list[Message]) -> TrinityOutcome:
         """Run the Trinity over the Creator's message. It fails open: DEUS still answers."""
-        if self.trinity is None:
+        if self.trinity is None or not needs_trinity(content):
             return TrinityOutcome()
         stage = "perception"
         intent: IntentEnvelope | None = None
