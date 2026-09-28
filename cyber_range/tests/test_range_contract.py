@@ -106,3 +106,12 @@ def test_targets_have_no_privileged_mode() -> None:
     compose = load_compose()
     for service_name in ("controller", "juice-shop", "webgoat"):
         assert compose["services"][service_name].get("privileged") is not True
+
+
+def test_reset_preserves_evidence_volumes() -> None:
+    """A reset clears scenario state; the evidence journal and the snapshots are proof and stay."""
+    for name in ("reset.sh", "reset.ps1"):
+        script = (ROOT / "scripts" / name).read_text(encoding="utf-8")
+        code = "\n".join(line for line in script.splitlines() if not line.lstrip().startswith(("#",)))
+        assert "down -v" not in code and "--volumes" not in code, f"{name} deletes every volume"
+        assert "range_evidence" not in code and "range_snapshots" not in code, f"{name} touches the proof volumes"

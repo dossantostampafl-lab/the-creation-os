@@ -28,6 +28,11 @@ no gateway or executor handle; only workflow activities dispatch, and only throu
 - A dispatch is at-most-once per idempotency key; a reservation that never completed is reported unknown, not repeated.
 - The gateway refuses replayed nonces across restarts, tampered signatures/parameters, mismatched target, environment,
   action class or capability, and any environment prefix not listed in `STF_ALLOWED_ENVIRONMENTS` (default: Range only).
+- A `permit` is authorization, never success. The gateway answers with a `status` (`denied`, `authorized`, `executed`) and only
+  an `execution_id` makes work executed; with the isolation adapters not connected the honest end of a run is `authorized`. A request
+  that left the process without an answer is `unknown` and is never sent again on its own. With no verifier configured nothing
+  completes, so a Mission ends `ABORTED` instead of falsely `COMPLETED`.
+- The Range reset clears scenario state only; the evidence journal and the snapshots are preserved.
 - There is no plain-Docker sandbox fallback: without Kata or Firecracker, privileged execution stays off while the
   control plane keeps running.
 - The Cyber Range client refuses anything outside `cyber_range:*`. Success in the Range grants no real-environment authority.

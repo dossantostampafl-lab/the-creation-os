@@ -10,7 +10,7 @@ from .authorization import authorize_and_grant
 from .contract_store import ContractStore
 from .contracts import ActionRequest, AuthorizationDecision
 from .envelope import build_envelope, parameters_hash
-from .gateway_client import GatewayClient, GatewayUnavailable
+from .gateway_client import GatewayClient, GatewayOutcomeUnknown, GatewayUnavailable
 from .grants import GrantStore
 from .kill_switch import KillSwitch
 from .ledger import DispatchLedger
@@ -28,9 +28,26 @@ class StfDependencies:
     gateway: GatewayClient
     signing_key: bytes
     policy: PolicyClient | None = None
-    verify: Callable[[str], bool] = lambda mission_id: True
+    # No default: a Mission is verified by something that checks evidence, or it is not verified at all.
+    verify: Callable[[str], bool] | None = None
     states: list[tuple[str, str]] = field(default_factory=list)
     statuses: MissionStatusStore = field(default_factory=MissionStatusStore)
+
+
+def receipt_from(answer: dict[str, Any]) -> dict[str, Any]:
+    """What the gateway's answer proves. `permit` is authorization; only an execution id is execution."""
+    reasons = [str(item) for item in answer.get("reasons", [])]
+    if answer.get("decision") != "permit":
+        return {"status": "denied", "reasons": reasons}
+    status = answer.get("status")
+    execution_id = answer.get("execution_id")
+    if status == "executed" and isinstance(execution_id, str) and execution_id:
+        return {"status": "executed", "execution_id": execution_id, "reasons": reasons}
+    if status in ("authorized", "dispatched"):
+        return {"status": status, "reasons": reasons}
+    # An unrecognized answer to a permitted request (no status, or "executed" without proof) may hide
+    # an effect, so it is unknown rather than either success or refusal.
+    return {"status": "unknown", "reasons": [*reasons, "unproven_gateway_answer"]}
 
 
 class StfActivities:
@@ -59,6 +76,8 @@ class StfActivities:
 
     @activity.defn(name="stf_verify_mission")
     async def verify_mission(self, mission_id: str) -> bool:
+        if self._d.verify is None:
+            return False  # nothing can prove the run, so nothing completes
         return bool(self._d.verify(mission_id))
 
     @activity.defn(name="stf_record_state")
@@ -74,7 +93,7 @@ class StfActivities:
         count = self._d.grants.revoke_mission(mission_id)
         try:
             await self._d.gateway.control({"op": "kill", "mission_id": mission_id})
-        except GatewayUnavailable:
+        except (GatewayUnavailable, GatewayOutcomeUnknown):
             pass  # the gateway also refuses on its own revocation state; this only tightens it sooner
         emit("grant.revoked", mission_id=mission_id, revoked=count)
         return count
@@ -109,9 +128,12 @@ class StfActivities:
         try:
             answer = await self._d.gateway.execute(envelope, requested)
         except GatewayUnavailable:
+            # Nothing was sent, so nothing can have happened.
             return self._finish(request, {"status": "denied", "reasons": ["gateway_unavailable"]})
-        status = "executed" if answer.get("decision") == "permit" else "denied"
-        return self._finish(request, {"status": status, "reasons": answer.get("reasons", [])})
+        except GatewayOutcomeUnknown:
+            # Sent, no answer: the effect may exist. Recorded as unknown so it is not repeated.
+            return self._finish(request, {"status": "unknown", "reasons": ["gateway_response_lost"]})
+        return self._finish(request, receipt_from(answer))
 
     def _finish(self, request: ActionRequest, result: dict[str, Any]) -> dict[str, Any]:
         self._d.ledger.complete(request.idempotency_key, result)

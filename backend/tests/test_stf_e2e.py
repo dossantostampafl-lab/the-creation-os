@@ -44,12 +44,21 @@ def requested_for(req: ActionRequest) -> dict:
             "parameters_hash": parameters_hash(req.parameters), "tool_id": req.capability, "args_json": "{}"}
 
 
-async def test_full_chain_in_the_range_with_evidence_and_verified_finding(gateway, tmp_path):
+async def test_the_real_gateway_authorizes_but_executes_nothing_until_a_runtime_is_connected(gateway, tmp_path):
+    """Python authorization -> signed envelope -> the real Rust gateway. The adapters are not connected to an
+    isolation runtime, so the honest end of this chain is "authorized", never "executed"."""
     activities, deps = make(tmp_path, gateway=TcpGatewayClient("127.0.0.1", gateway.port))
     decision = await activities.authorize_action("m1", action(), None)
     result = await activities.dispatch_action(action(), decision)
-    assert result == {"status": "executed", "reasons": []}
+    assert result["status"] == "authorized" and result["status"] != "executed"
+    assert "execution_id" not in result and result["reasons"] == ["ExecutionNotImplemented"]
+    # And the workflow's verification cannot complete a run that nothing proved.
+    assert await activities.verify_mission("m1") is True  # only because this double declares it; see below
+    deps.verify = None
+    assert await activities.verify_mission("m1") is False
 
+
+async def test_finding_verification_needs_correlated_intact_evidence():
     recorded = []
 
     def range_api(request: httpx.Request) -> httpx.Response:
@@ -66,6 +75,11 @@ async def test_full_chain_in_the_range_with_evidence_and_verified_finding(gatewa
                              mission_id="m1", action_id="a1", environment_id=RANGE)
     assert verdict.status == "confirmed" and recorded == ["/evidence"]
     assert attack.chronicle_payload()["environment_id"] == RANGE
+    # Evidence for another action never confirms this one.
+    other = EvidenceRecord.build(evidence_id="e2", mission_id="m1", action_id="a-other", environment_id=RANGE,
+                                 source="range", acquired_at="now", payload={"ok": True})
+    assert verify_finding(other, defense, purple_required=True, reproduced=True, mission_id="m1", action_id="a1",
+                          environment_id=RANGE).status == "rejected"
 
 
 async def test_approval_gate_and_r5_never_execute_without_creator_or_new_mission(gateway, tmp_path):

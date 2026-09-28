@@ -231,3 +231,42 @@ fn server_permits_through_an_isolated_backend() {
         serde_json::json!({"op": "execute", "envelope": envelope(), "requested": r}).to_string();
     assert!(gateway.handle_line(&line, 100).contains("\"permit\""));
 }
+
+#[test]
+fn a_permit_is_authorization_not_execution() {
+    use creation_security_gateway::sandbox::SandboxBackend;
+    use creation_security_gateway::server::Gateway;
+    let mut gateway = Gateway {
+        state: state(),
+        backend: SandboxBackend::Kata,
+        key: KEY.to_vec(),
+    };
+    let mut r = requested();
+    r.tool_id = "range.health.verify".into();
+    let line =
+        serde_json::json!({"op": "execute", "envelope": envelope(), "requested": r}).to_string();
+    let reply: serde_json::Value = serde_json::from_str(&gateway.handle_line(&line, 100)).unwrap();
+    assert_eq!(reply["decision"], "permit");
+    assert_eq!(reply["status"], "authorized");
+    assert!(
+        reply.get("execution_id").is_none(),
+        "nothing ran, so there is no execution id"
+    );
+}
+
+#[test]
+fn every_reply_to_an_execute_carries_a_status() {
+    use creation_security_gateway::sandbox::SandboxBackend;
+    use creation_security_gateway::server::Gateway;
+    let mut gateway = Gateway {
+        state: state(),
+        backend: SandboxBackend::Unavailable,
+        key: KEY.to_vec(),
+    };
+    let line =
+        serde_json::json!({"op": "execute", "envelope": envelope(), "requested": requested()})
+            .to_string();
+    let reply: serde_json::Value = serde_json::from_str(&gateway.handle_line(&line, 100)).unwrap();
+    assert_eq!(reply["decision"], "deny");
+    assert_eq!(reply["status"], "denied");
+}

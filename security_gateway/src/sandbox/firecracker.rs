@@ -1,4 +1,4 @@
-use super::{Sandbox, SandboxBackend};
+use super::{Sandbox, SandboxBackend, SandboxError};
 
 pub struct FirecrackerSandbox {
     pub available: bool,
@@ -9,15 +9,15 @@ impl Sandbox for FirecrackerSandbox {
         SandboxBackend::Firecracker
     }
 
-    fn execute_allowlisted(&self, tool_id: &str, _args_json: &str) -> Result<String, String> {
+    fn execute_allowlisted(&self, tool_id: &str, _args_json: &str) -> Result<String, SandboxError> {
         if !self.available {
-            return Err("Firecracker unavailable".into());
+            return Err(SandboxError::Unavailable);
         }
         if tool_id != "range.health.verify" {
-            return Err("tool is not allowlisted".into());
+            return Err(SandboxError::NotAllowlisted);
         }
-        // Authorization is enforced by the gateway; running work inside Firecracker is an operator-supplied
-        // integration that has not been exercised on a real host, so no work is executed here.
-        Ok("authorized for the Firecracker boundary; no work executed by this adapter".into())
+        // Running work inside Firecracker is an operator-supplied integration that has not been connected or
+        // exercised on a real host. Until it is, this adapter never reports work as executed.
+        Err(SandboxError::NotImplemented)
     }
 }
