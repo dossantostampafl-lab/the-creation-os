@@ -246,7 +246,7 @@ class CapabilityRuntime:
                 amount=amount,
                 currency=currency,
                 external_reference=external_reference,
-                correlation_id=invocation_id,
+                correlation_id=str((mission.authorization_json or {}).get("correlation_id") or invocation_id),
             )
             repository = DomainRepository(session)
             metadata: dict[str, Any] = {
