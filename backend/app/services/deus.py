@@ -297,6 +297,8 @@ class DeusConversationService:
             "cache_sensitivity": "PRIVATE",
             "cache_tags": [f"conversation:{conversation_id}", "route:deus"],
             "tool_state_class": "read_only",
+            "latency_class": "interactive",
+            "skip_health_probe": True,
         }
         if outcome.deliberation is not None:
             messages.append({"role": "system", "content": proposal_note(outcome.deliberation)})
