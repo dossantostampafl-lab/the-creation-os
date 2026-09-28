@@ -115,7 +115,7 @@ def upgrade() -> None:
         sa.Column("id", sa.String(length=36), nullable=False),
         sa.Column("creator_id", sa.String(length=36), nullable=False),
         sa.Column("universe_id", sa.String(length=36), nullable=False),
-        sa.Column("mission_id", sa.String(length=36), nullable=False),
+        sa.Column("mission_id", sa.String(length=36), nullable=True),
         sa.Column("opportunity_id", sa.String(length=36), nullable=True),
         sa.Column("entry_type", sa.String(length=64), nullable=False),
         sa.Column("amount", sa.Numeric(precision=20, scale=6), nullable=False),
@@ -135,6 +135,13 @@ def upgrade() -> None:
     op.create_index("ix_economic_ledger_entries_universe_id", "economic_ledger_entries", ["universe_id"])
     op.create_index("ix_economic_ledger_entries_mission_id", "economic_ledger_entries", ["mission_id"])
     op.create_index("ix_economic_ledger_entries_opportunity_id", "economic_ledger_entries", ["opportunity_id"])
+    op.create_index(
+        "uq_economic_ledger_external_transition",
+        "economic_ledger_entries",
+        ["creator_id", "universe_id", "entry_type", "external_reference"],
+        unique=True,
+        postgresql_where=sa.text("external_reference IS NOT NULL"),
+    )
 
 
 def downgrade() -> None:
