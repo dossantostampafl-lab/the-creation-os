@@ -114,8 +114,17 @@ export type ProposalSummary = {
   mission_status?: string;
 };
 
+export type DeusConversationReply = {
+  message_id: string;
+  conversation_id: string;
+  route: "deus";
+  response: string;
+  inception: ProposalSummary | null;
+  correlation_id: string;
+};
+
 export const converseWithDeus = (conversationId: string, content: string) =>
-  api<{ response: string; inception: ProposalSummary | null }>(`/conversations/${conversationId}/deus`, {
+  api<DeusConversationReply>(`/conversations/${conversationId}/deus`, {
     method: "POST",
     body: JSON.stringify({ content, metadata: {} }),
   });
@@ -172,6 +181,26 @@ export async function synthesizeVoice(text: string, signal?: AbortSignal): Promi
   const audio = await response.blob();
   if (!audio.size || !audio.type.startsWith("audio/")) throw new Error("VOICE_INVALID_AUDIO");
   return audio;
+}
+
+
+export type VoiceTranscript = {
+  text: string;
+  language_code: string | null;
+  language_probability: number | null;
+};
+
+/** High-accuracy STT for attentive turns. Browser recognition remains the instant fail-open path. */
+export async function transcribeVoice(audio: Blob, signal?: AbortSignal): Promise<VoiceTranscript> {
+  const response = await fetch(`${API_BASE}/voice/transcribe`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token()}`, "Content-Type": audio.type || "audio/webm" },
+    body: audio,
+    signal,
+  });
+  if (response.status === 401 || response.status === 403) throw new Error("AUTH_REQUIRED");
+  if (!response.ok) throw new Error(`HTTP_${response.status}`);
+  return response.json() as Promise<VoiceTranscript>;
 }
 
 export type StreamHandlers = {

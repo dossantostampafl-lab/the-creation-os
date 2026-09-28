@@ -302,3 +302,20 @@ async def test_budget_rejection_fails_closed_without_fallback() -> None:
 
     assert primary.calls == 0
     assert fallback.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_interactive_request_can_skip_redundant_health_probe() -> None:
+    registry = ProviderRegistry()
+    provider = StubProvider("interactive")
+    registry.register(provider)
+    register_profile(registry, "interactive")
+
+    request = request_for("interactive", max_cost_tier=CostTier.LOW).model_copy(
+        update={"metadata": {"skip_health_probe": True, "latency_class": "interactive"}}
+    )
+    response = await ModelRouter(registry).generate(request)
+
+    assert response.provider == "interactive"
+    assert provider.health_calls == 0
+    assert provider.calls == 1

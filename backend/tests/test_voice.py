@@ -14,6 +14,10 @@ from app.services.voice import (
     VOICE_PROVIDER_UNAVAILABLE,
     VOICE_SYNTHESIS_DISABLED,
     VOICE_SYNTHESIS_EMPTY_TEXT,
+    VOICE_TRANSCRIPTION_DISABLED,
+    VOICE_TRANSCRIPTION_EMPTY_AUDIO,
+    VOICE_TRANSCRIPTION_TOO_LARGE,
+    VOICE_TRANSCRIPTION_UNAVAILABLE,
     VoiceSynthesisService,
 )
 
@@ -36,6 +40,13 @@ class FakeVoiceService:
         assert text == "DEUS presente"
         assert correlation_id
         return b"audio-bytes", "audio/mpeg"
+
+    async def transcribe(self, actor: Actor, audio: bytes, content_type: str, correlation_id: str):
+        assert actor.role == "creator"
+        assert audio == b"voice-bytes"
+        assert content_type == "audio/webm"
+        assert correlation_id
+        return "Deus, status dos universos", "por", 0.98
 
 
 @pytest.mark.asyncio
@@ -163,6 +174,110 @@ async def test_voice_synthesize_endpoint_maps_failures_to_http_status(error, sta
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.post("/api/v1/voice/synthesize", json={"text": "DEUS presente"})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == status
+
+
+@pytest.mark.asyncio
+async def test_voice_transcription_rejects_empty_audio():
+    service = VoiceSynthesisService(FakeVoiceRepository())  # type: ignore[arg-type]
+    with pytest.raises(VOICE_TRANSCRIPTION_EMPTY_AUDIO):
+        await service.transcribe(Actor("creator-1", "creator"), b"", "audio/webm", "c")
+
+
+@pytest.mark.asyncio
+async def test_voice_transcription_calls_scribe_in_portuguese(monkeypatch):
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers["xi-api-key"] == "secret-key"
+        assert request.url.path == "/v1/speech-to-text"
+        body = request.content
+        assert b"scribe_v2" in body
+        assert b"por" in body
+        assert b"voice-bytes" in body
+        return httpx.Response(
+            200,
+            json={
+                "text": "Deus, status dos universos",
+                "language_code": "por",
+                "language_probability": 0.98,
+            },
+        )
+
+    monkeypatch.setattr("app.services.voice.settings.elevenlabs_enabled", True)
+    monkeypatch.setattr("app.services.voice.settings.elevenlabs_api_key", SecretStr("secret-key"))
+    monkeypatch.setattr("app.services.voice.settings.elevenlabs_stt_model_id", "scribe_v2")
+    repository = FakeVoiceRepository()
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    service = VoiceSynthesisService(repository, client=client)  # type: ignore[arg-type]
+
+    text, language_code, probability = await service.transcribe(
+        Actor("creator-1", "creator"), b"voice-bytes", "audio/webm", "c"
+    )
+
+    await client.aclose()
+    assert text == "Deus, status dos universos"
+    assert language_code == "por"
+    assert probability == 0.98
+    assert [event[0] for event in repository.events] == [
+        "voice.transcription.requested",
+        "voice.transcription.succeeded",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_voice_transcribe_endpoint_returns_text():
+    async def fake_creator():
+        return TokenPayload(sub="creator-1", type="access", jti="jti", exp=9999999999)
+
+    app.dependency_overrides[get_sovereign_creator] = fake_creator
+    app.dependency_overrides[voice_service_dependency] = lambda: FakeVoiceService()
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post(
+                "/api/v1/voice/transcribe",
+                headers={"Authorization": "Bearer test-token", "Content-Type": "audio/webm"},
+                content=b"voice-bytes",
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "text": "Deus, status dos universos",
+        "language_code": "por",
+        "language_probability": 0.98,
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("error", "status"),
+    [
+        (VOICE_TRANSCRIPTION_DISABLED("disabled"), 501),
+        (VOICE_TRANSCRIPTION_EMPTY_AUDIO("empty"), 422),
+        (VOICE_TRANSCRIPTION_TOO_LARGE("large"), 422),
+        (VOICE_TRANSCRIPTION_UNAVAILABLE("down"), 503),
+    ],
+)
+async def test_voice_transcribe_endpoint_maps_failures(error, status):
+    async def fake_creator():
+        return TokenPayload(sub="creator-1", type="access", jti="jti", exp=9999999999)
+
+    class RaisingTranscriptionService:
+        async def transcribe(self, actor, audio, content_type, correlation_id):
+            raise error
+
+    app.dependency_overrides[get_sovereign_creator] = fake_creator
+    app.dependency_overrides[voice_service_dependency] = lambda: RaisingTranscriptionService()
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post(
+                "/api/v1/voice/transcribe",
+                headers={"Content-Type": "audio/webm"},
+                content=b"voice",
+            )
     finally:
         app.dependency_overrides.clear()
 

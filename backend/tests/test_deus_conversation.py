@@ -7,7 +7,7 @@ import pytest
 from app.core.domain import Actor
 from app.inference.contracts import InferenceRequest, InferenceResponse
 from app.models.entities import Conversation, Message
-from app.services.deus import DeusConversationService
+from app.services.deus import SYSTEM_PROMPT, DeusConversationService, needs_trinity
 
 
 class StubRouter:
@@ -111,3 +111,18 @@ async def test_deus_rejects_conversation_owned_by_another_creator() -> None:
 
     with pytest.raises(Exception, match="Conversation not found"):
         await service.respond(other, repo.conversation.id, "hello", str(uuid.uuid4()))
+
+
+def test_deus_fast_path_keeps_dialogue_single_pass_but_governs_execution() -> None:
+    assert needs_trinity("Qual é o status disso?") is False
+    assert needs_trinity("e agora?") is False
+    assert needs_trinity("como ficou o que falamos?") is False
+    assert needs_trinity("corrija isso agora") is True
+    assert needs_trinity("você consegue implementar isso?") is True
+
+
+def test_deus_system_prompt_preserves_recent_dialogue_context() -> None:
+    lowered = SYSTEM_PROMPT.lower()
+    assert "continuous conversation" in lowered
+    assert "never make the creator repeat context" in lowered
+    assert "brazilian portuguese" in lowered

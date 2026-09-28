@@ -139,9 +139,13 @@ class ModelRouter:
                 continue
 
             try:
-                health = await provider.health()
-                if not health.available:
-                    raise ProviderUnavailable(provider_name, health.detail or "provider unavailable")
+                # Interactive DEUS turns skip the redundant preflight network call. Provider
+                # generation already reports timeout/rate-limit/unavailable failures and the
+                # circuit-breaker/fallback path below handles them without a second round trip.
+                if not bool(attempt.metadata.get("skip_health_probe")):
+                    health = await provider.health()
+                    if not health.available:
+                        raise ProviderUnavailable(provider_name, health.detail or "provider unavailable")
                 response = await provider.generate(attempt)
             except InferenceRateLimitError as exc:
                 self._rate_limit_cooldown.register(

@@ -75,7 +75,7 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
     paused: !enabled || pending || voice.speaking,
     onWake: () => {
       setConversing(true);
-      voice.speak(voiceText.greeting());
+      voice.acknowledge(voiceText.greeting());
     },
     onCommand: (text) => {
       setConversing(true);
@@ -173,11 +173,10 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
     }
   }
 
-  function voiceReply(latest: ConversationMessage[]) {
-    const reply = [...latest].reverse().find((message) => message.role === "deus");
-    if (!reply) return;
+  function voiceReply(content: string) {
+    if (!content.trim()) return;
     // Keep the conversation going: listen for the follow-up once DEUS has finished speaking.
-    voice.speak(reply.content, { onEnd: () => { if (conversing.current) ears.summon(); } });
+    voice.speak(content, { onEnd: () => { if (conversing.current) ears.summon(); } });
   }
 
   async function send(text?: string) {
@@ -186,6 +185,7 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
     voice.stop();
     setPending(true);
     setError(null);
+    let optimisticId: string | null = null;
     try {
       let id = conversationId;
       if (!id) {
@@ -195,14 +195,65 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
         setConversationId(id);
       }
       setInput("");
+
+      // Render the Creator's words immediately; do not make the UI wait for inference.
+      optimisticId = `local-creator-${crypto.randomUUID()}`;
+      const optimistic: ConversationMessage = {
+        id: optimisticId,
+        conversation_id: id,
+        actor_id: "creator",
+        role: "creator",
+        content,
+        route: "deus",
+        metadata_json: { optimistic: true },
+        correlation_id: "",
+        created_at: new Date().toISOString(),
+      };
+      setMessages((current) => [...current, optimistic]);
+
       const reply = await converseWithDeus(id, content);
-      const latest = await fetchConversationMessages(id);
-      setMessages(latest);
-      if (reply.inception) {
-        await fetchInception(reply.inception.id).then(loadProposal).then(upsertProposal).catch(() => undefined);
+      if (reply.response) {
+        const creatorMessage: ConversationMessage = {
+          ...optimistic,
+          id: reply.message_id || optimistic.id,
+          metadata_json: {},
+          correlation_id: reply.correlation_id || "",
+        };
+        const deusMessage: ConversationMessage = {
+          id: `local-deus-${reply.correlation_id || crypto.randomUUID()}`,
+          conversation_id: id,
+          actor_id: "deus",
+          role: "deus",
+          content: reply.response,
+          route: "deus",
+          metadata_json: {},
+          correlation_id: reply.correlation_id || "",
+          created_at: new Date().toISOString(),
+        };
+        setMessages((current) => [
+          ...current.filter((message) => message.id !== optimistic.id),
+          creatorMessage,
+          deusMessage,
+        ]);
+        optimisticId = null;
+
+        // Start speech as soon as the model response arrives. Proposal hydration is independent.
+        voiceReply(reply.response);
+        if (reply.inception) {
+          void fetchInception(reply.inception.id).then(loadProposal).then(upsertProposal).catch(() => undefined);
+        }
+      } else {
+        // Compatibility with an older API/mocked response: fall back to one authoritative refresh.
+        const latest = await fetchConversationMessages(id);
+        setMessages(latest);
+        optimisticId = null;
+        const deus = [...latest].reverse().find((message) => message.role === "deus");
+        if (deus) voiceReply(deus.content);
       }
-      voiceReply(latest);
     } catch (failure) {
+      if (optimisticId) {
+        setMessages((current) => current.filter((message) => message.id !== optimisticId));
+      }
       const message = failure instanceof Error ? failure.message : "CONVERSATION_FAILED";
       setError(message === "HTTP_503" ? "Inference provider is not configured." : "DEUS conversation failed.");
       setConversing(false);

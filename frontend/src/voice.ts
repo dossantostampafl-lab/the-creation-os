@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { synthesizeVoice } from "./api";
+import { synthesizeVoice, transcribeVoice } from "./api";
 
 /**
  * DEUS's voice and ears.
@@ -11,15 +11,18 @@ const VOICE_KEY = "creation_voice_enabled";
 const WAKE_KEY = "creation_wake_word";
 const QUALITY_HINTS = ["natural", "neural", "online", "google", "premium", "enhanced"];
 const MAX_SPOKEN_CHARS = 1200;
-const ATTENTION_MS = 8000;
+const ATTENTION_MS = 12000;
 /** Silence after the last final segment that means the Creator has finished speaking.
   * Browsers finalise a result at every pause -- often after a single word -- so acting on
   * the first one sends a fragment and stops listening mid-sentence. */
-const SETTLE_MS = 1400;
-const WAKE_WORD = /(^|[^\p{L}])(deus|zeus)(?![\p{L}])/iu;
+const SETTLE_MS = 700;
+const WAKE_WORD = /(^|[^\p{L}])(deus|zeus|d[eê]\s+us)(?![\p{L}])/iu;
 
 function voiceLanguage(): string {
-  return navigator.language || "en-US";
+  const browser = navigator.language || "pt-BR";
+  // The Creator speaks Brazilian Portuguese. Normalize any Portuguese browser locale so the
+  // recognizer does not silently fall back to a different Portuguese acoustic model.
+  return browser.toLowerCase().startsWith("pt") ? "pt-BR" : browser;
 }
 
 const portuguese = () => voiceLanguage().toLowerCase().startsWith("pt");
@@ -329,14 +332,28 @@ export function useDeusVoice() {
       });
   }, [speakWithBrowser, stop]);
 
-  return { supported, enabled, speaking, toggle, speak, stop };
+  const acknowledge = useCallback((text: string, handlers: SpeakHandlers = {}) => {
+    const content = speakable(text);
+    stop();
+    if (!enabledRef.current || !content) {
+      handlers.onEnd?.();
+      return;
+    }
+    // Wake acknowledgements must be immediate: never wait on a network TTS round trip.
+    speakWithBrowser(content, handlers);
+  }, [speakWithBrowser, stop]);
+
+  return { supported, enabled, speaking, toggle, speak, acknowledge, stop };
 }
 
-type RecognitionResultEvent = Event & { resultIndex: number; results: ArrayLike<ArrayLike<{ transcript: string }> & { isFinal: boolean }> };
+type RecognitionAlternative = { transcript: string; confidence?: number };
+type RecognitionResult = ArrayLike<RecognitionAlternative> & { isFinal: boolean };
+type RecognitionResultEvent = Event & { resultIndex: number; results: ArrayLike<RecognitionResult> };
 type Recognition = EventTarget & {
   lang: string;
   interimResults: boolean;
   continuous: boolean;
+  maxAlternatives?: number;
   start: () => void;
   stop: () => void;
   abort: () => void;
@@ -376,6 +393,22 @@ export function splitWakePhrase(transcript: string): { woke: boolean; request: s
   return { woke: true, request };
 }
 
+
+export function bestRecognitionAlternative(
+  result: RecognitionResult,
+  attentive: boolean,
+): RecognitionAlternative {
+  const alternatives = Array.from({ length: result.length }, (_, index) => result[index]).filter(Boolean);
+  if (!alternatives.length) return { transcript: "", confidence: 0 };
+  if (!attentive) {
+    const wakeMatches = alternatives.filter((item) => splitWakePhrase(item.transcript).woke);
+    if (wakeMatches.length) {
+      return wakeMatches.reduce((best, item) => (item.confidence ?? 0) > (best.confidence ?? 0) ? item : best);
+    }
+  }
+  return alternatives.reduce((best, item) => (item.confidence ?? 0) > (best.confidence ?? 0) ? item : best);
+}
+
 /** What an utterance means, once the Creator has finished saying it. */
 export type Utterance =
   | { kind: "farewell" }
@@ -400,7 +433,7 @@ export function interpretUtterance(transcript: string, attentive: boolean): Utte
 
 export function useDeusEars({ paused, onWake, onCommand, onInterim, onLapse, onFarewell }: EarsOptions) {
   const supported = typeof window !== "undefined" && recognitionConstructor() !== null;
-  const [wakeEnabled, setWakeEnabled] = useState(() => supported && readPreference(WAKE_KEY, false));
+  const [wakeEnabled, setWakeEnabled] = useState(() => supported && readPreference(WAKE_KEY, true));
   const [state, setState] = useState<EarsState>("off");
   const [error, setError] = useState<string | null>(null);
   const recognition = useRef<Recognition | null>(null);
@@ -409,7 +442,12 @@ export function useDeusEars({ paused, onWake, onCommand, onInterim, onLapse, onF
   const attentive = useRef(false);
   /** Final segments of the sentence in progress, and the timer that ends it. */
   const spoken = useRef<string[]>([]);
+  const confidences = useRef<number[]>([]);
   const settleTimer = useRef<number | undefined>(undefined);
+  const mediaStream = useRef<MediaStream | null>(null);
+  const recorder = useRef<MediaRecorder | null>(null);
+  const audioChunks = useRef<Blob[]>([]);
+  const transcriptionRetryAt = useRef(0);
   const attentionTimer = useRef(0);
   const desired = useRef({ wakeEnabled, paused });
   const handlers = useRef({ onWake, onCommand, onInterim, onLapse, onFarewell });
@@ -434,6 +472,7 @@ export function useDeusEars({ paused, onWake, onCommand, onInterim, onLapse, onF
     window.clearTimeout(attentionTimer.current);
     attentionTimer.current = window.setTimeout(() => {
       attentive.current = false;
+      void finishCapture();
       handlers.current.onInterim("");
       handlers.current.onLapse?.();
       sync();
@@ -443,10 +482,11 @@ export function useDeusEars({ paused, onWake, onCommand, onInterim, onLapse, onF
   /** A final segment is one pause, not one sentence. Collect them and decide once the Creator
     * stops: acting on the first sends a fragment ("Deus, crie" from "Deus, crie um universo")
     * and ends the turn while they are still talking. */
-  function handleFinal(transcript: string) {
+  function handleFinal(transcript: string, confidence?: number) {
     const text = transcript.trim();
     if (!text) return;
     spoken.current.push(text);
+    if (typeof confidence === "number" && confidence > 0) confidences.current.push(confidence);
     waitForTheEnd();
   }
 
@@ -455,17 +495,61 @@ export function useDeusEars({ paused, onWake, onCommand, onInterim, onLapse, onF
     settleTimer.current = window.setTimeout(flush, SETTLE_MS);
   }
 
+  async function finishCapture(): Promise<Blob | null> {
+    const active = recorder.current;
+    if (!active || active.state === "inactive") return null;
+    recorder.current = null;
+    return new Promise((resolve) => {
+      active.onstop = () => {
+        const chunks = audioChunks.current;
+        audioChunks.current = [];
+        resolve(chunks.length ? new Blob(chunks, { type: active.mimeType || "audio/webm" }) : null);
+      };
+      try {
+        active.stop();
+      } catch {
+        audioChunks.current = [];
+        resolve(null);
+      }
+    });
+  }
+
+  async function maybeImproveTranscript(browserText: string, averageConfidence: number | null): Promise<string> {
+    // Confidence 0/undefined is common on Chromium and does not mean "bad". Only pay the
+    // network/STT latency when the recognizer explicitly reports low confidence.
+    if (averageConfidence === null || averageConfidence >= 0.72 || Date.now() < transcriptionRetryAt.current) {
+      void finishCapture();
+      return browserText;
+    }
+    const audio = await finishCapture();
+    if (!audio || audio.size < 400) return browserText;
+    try {
+      const improved = await transcribeVoice(audio);
+      return improved.text.trim() || browserText;
+    } catch (failure) {
+      const disabled = failure instanceof Error && failure.message === "HTTP_501";
+      transcriptionRetryAt.current = disabled ? Number.POSITIVE_INFINITY : Date.now() + 60_000;
+      return browserText;
+    }
+  }
+
   function flush() {
     window.clearTimeout(settleTimer.current);
     const said = spoken.current.join(" ").replace(/\s+/g, " ").trim();
+    const heardConfidence = confidences.current.length
+      ? confidences.current.reduce((sum, value) => sum + value, 0) / confidences.current.length
+      : null;
     spoken.current = [];
+    confidences.current = [];
     if (!said) return;
 
     const utterance = interpretUtterance(said, attentive.current);
     switch (utterance.kind) {
       case "ignore":
+        void finishCapture();
         return;
       case "farewell":
+        void finishCapture();
         setAttentive(false);
         handlers.current.onInterim("");
         handlers.current.onFarewell?.();
@@ -474,10 +558,14 @@ export function useDeusEars({ paused, onWake, onCommand, onInterim, onLapse, onF
         setAttentive(true);
         handlers.current.onWake();
         return;
-      case "command":
+      case "command": {
         setAttentive(false);
-        handlers.current.onCommand(utterance.text);
+        handlers.current.onInterim("");
+        const browserText = utterance.text;
+        void maybeImproveTranscript(browserText, heardConfidence)
+          .then((text) => handlers.current.onCommand(text));
         return;
+      }
     }
   }
 
@@ -485,16 +573,18 @@ export function useDeusEars({ paused, onWake, onCommand, onInterim, onLapse, onF
     const Ctor = recognitionConstructor();
     if (!Ctor || recognition.current) return;
     const instance = new Ctor();
-    instance.lang = voiceLanguage();
+    instance.lang = "pt-BR";
     instance.interimResults = true;
     instance.continuous = true;
+    instance.maxAlternatives = 4;
     instance.onresult = (event) => {
       failures.current = 0;
       let interim = "";
       for (let i = event.resultIndex; i < event.results.length; i += 1) {
         const result = event.results[i];
-        if (result.isFinal) handleFinal(result[0].transcript);
-        else interim += result[0].transcript;
+        const best = bestRecognitionAlternative(result, attentive.current);
+        if (result.isFinal) handleFinal(best.transcript, best.confidence);
+        else interim += best.transcript;
       }
       if (interim) {
         // Still speaking: hold both the attention window and the end-of-sentence timer open.
@@ -522,7 +612,7 @@ export function useDeusEars({ paused, onWake, onCommand, onInterim, onLapse, onF
       if (recognition.current === instance) recognition.current = null;
       // Browsers end recognition after silence; keep listening while DEUS is meant to,
       // backing off when the recognition service keeps failing (offline, for example).
-      window.setTimeout(sync, 250 * 2 ** Math.min(failures.current, 6));
+      window.setTimeout(sync, failures.current ? 250 * 2 ** Math.min(failures.current, 6) : 100);
     };
     recognition.current = instance;
     try {
@@ -533,16 +623,36 @@ export function useDeusEars({ paused, onWake, onCommand, onInterim, onLapse, onF
     }
   }
 
+  async function ensureCapture() {
+    if (!attentive.current || desired.current.paused || recorder.current || typeof MediaRecorder === "undefined") return;
+    if (!navigator.mediaDevices?.getUserMedia || Date.now() < transcriptionRetryAt.current) return;
+    try {
+      mediaStream.current ??= await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
+      });
+      if (!attentive.current || desired.current.paused) return;
+      const next = new MediaRecorder(mediaStream.current);
+      audioChunks.current = [];
+      next.ondataavailable = (event) => { if (event.data.size) audioChunks.current.push(event.data); };
+      recorder.current = next;
+      next.start(200);
+    } catch {
+      // Web Speech remains fully functional when MediaRecorder/getUserMedia is unavailable.
+    }
+  }
+
   function sync() {
     if (!mounted.current) return;
     const { wakeEnabled: wake, paused: hold } = desired.current;
     const shouldListen = !hold && (wake || attentive.current);
     if (shouldListen && !recognition.current) start();
+    if (shouldListen && attentive.current) void ensureCapture();
     if (!shouldListen && recognition.current) {
       const instance = recognition.current;
       recognition.current = null;
       instance.abort();
     }
+    if (!shouldListen && recorder.current) void finishCapture();
     publish();
   }
 
@@ -554,6 +664,11 @@ export function useDeusEars({ paused, onWake, onCommand, onInterim, onLapse, onF
       const instance = recognition.current;
       recognition.current = null;
       instance?.abort();
+      const activeRecorder = recorder.current;
+      recorder.current = null;
+      if (activeRecorder && activeRecorder.state !== "inactive") activeRecorder.stop();
+      mediaStream.current?.getTracks().forEach((track) => track.stop());
+      mediaStream.current = null;
     };
   }, []);
 
@@ -577,6 +692,7 @@ export function useDeusEars({ paused, onWake, onCommand, onInterim, onLapse, onF
 
   const dismiss = useCallback(() => {
     setAttentive(false);
+    void finishCapture();
     handlers.current.onInterim("");
   }, [setAttentive]);
 
