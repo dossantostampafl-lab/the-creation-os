@@ -64,6 +64,8 @@ def provider_eligible(
     material: bool = False,
 ) -> bool:
     metadata = provider.metadata
+    if not metadata.origin.strip() or not metadata.license.strip() or not metadata.security_review.strip():
+        return False
     if action not in provider.actions or action not in metadata.supported_actions:
         return False
     if metadata.health.strip().lower() not in {"healthy", "degraded"}:
@@ -250,7 +252,10 @@ class RemoteContractWebProvider:
         if response.status_code in {408, 425, 429, 500, 502, 503, 504}:
             raise ProviderUnavailable(f"{self.name} unavailable: HTTP {response.status_code}")
         response.raise_for_status()
-        data = response.json()
+        try:
+            data = response.json()
+        except ValueError as exc:
+            raise ProviderUnavailable(f"{self.name} returned malformed JSON") from exc
         if not isinstance(data, dict):
             raise ProviderUnavailable(f"{self.name} returned a malformed response")
         return data
