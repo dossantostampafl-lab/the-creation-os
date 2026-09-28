@@ -1,0 +1,50 @@
+name: Apply cancellable DEUS wake acknowledgement
+
+on:
+  push:
+    branches: [feat/deus-voice-latency]
+    paths:
+      - .github/workflows/deus-voice-ack-cancel-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: feat/deus-voice-latency
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+      - name: Make premium acknowledgement cancellable without blocking ears
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("frontend/src/voice.ts")
+          text = path.read_text()
+          old = '''  const acknowledge = useCallback((text: string, handlers: SpeakHandlers = {}) => {\n    const content = speakable(text);\n    if (!enabledRef.current || !content) {\n      handlers.onEnd?.();\n      return;\n    }\n    // Wake acknowledgement is deliberately outside the `speaking` state. It keeps DEUS's\n    // configured voice identity while the ears remain armed for the Creator's next words.\n    const cached = phraseCache.get(content);\n    const pending = cached ? Promise.resolve(cached) : synthesizeVoice(content).then((blob) => {\n      if (content.length < 80) phraseCache.set(content, blob);\n      return blob;\n    });\n    void pending.then((blob) => {\n      const url = URL.createObjectURL(blob);\n      const audio = new Audio(url);\n      let finished = false;\n      const finish = () => {\n        if (finished) return;\n        finished = true;\n        URL.revokeObjectURL(url);\n        handlers.onEnd?.();\n      };\n      audio.onended = finish;\n      audio.onerror = finish;\n      handlers.onStart?.();\n      void audio.play().catch(finish);\n    }).catch(() => handlers.onEnd?.());\n  }, []);\n'''
+          new = '''  const acknowledge = useCallback((text: string, handlers: SpeakHandlers = {}) => {\n    const content = speakable(text);\n    if (!enabledRef.current || !content) {\n      handlers.onEnd?.();\n      return;\n    }\n    // Wake acknowledgement stays outside the `speaking` state so the ears remain armed, but\n    // it still participates in stop(): an immediate Creator command cancels pending synthesis\n    // or pauses playback instead of letting “Estou aqui” overlap the command/reply.\n    current.current?.stop();\n    const controller = new AbortController();\n    let audio: HTMLAudioElement | null = null;\n    let url = "";\n    let finished = false;\n    let handle: { stop: () => void };\n    const finish = () => {\n      if (finished) return;\n      finished = true;\n      if (url) URL.revokeObjectURL(url);\n      if (current.current === handle) current.current = null;\n      handlers.onEnd?.();\n    };\n    handle = {\n      stop: () => {\n        if (finished) return;\n        controller.abort();\n        audio?.pause();\n        finish();\n      },\n    };\n    current.current = handle;\n    const cached = phraseCache.get(content);\n    const pending = cached ? Promise.resolve(cached) : synthesizeVoice(content, controller.signal).then((blob) => {\n      if (content.length < 80) phraseCache.set(content, blob);\n      return blob;\n    });\n    void pending.then((blob) => {\n      if (finished) return;\n      url = URL.createObjectURL(blob);\n      audio = new Audio(url);\n      audio.onended = finish;\n      audio.onerror = finish;\n      handlers.onStart?.();\n      void audio.play().catch(finish);\n    }).catch((failure: unknown) => {\n      if (finished || (failure instanceof DOMException && failure.name === "AbortError")) return;\n      finish();\n    });\n  }, []);\n'''
+          if old not in text:
+              raise SystemExit("acknowledge block not found")
+          path.write_text(text.replace(old, new, 1))
+      - name: Verify targeted GREEN and complete frontend suite
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+          npm test
+          npx playwright install chromium
+          npm run test:e2e
+      - name: Commit fix and remove temporary workflow
+        run: |
+          rm .github/workflows/deus-voice-ack-cancel-fix.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/voice.ts .github/workflows/deus-voice-ack-cancel-fix.yml
+          git commit -m "fix: cancel wake acknowledgement when Creator speaks"
+          git push origin HEAD:feat/deus-voice-latency
