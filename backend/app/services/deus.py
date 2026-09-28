@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import re
+from collections.abc import Awaitable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -19,7 +21,7 @@ from app.core.domain import (
 )
 from app.inference.contracts import InferenceRequest, ModelRequirements
 from app.inference.router import ModelRouter
-from app.models.entities import Conversation, Inception, Message, Mission, Universe
+from app.models.entities import Agent, Conversation, Inception, Message, Mission, Universe
 from app.repositories.domain import DomainRepository
 from app.services.domain import NotFoundError, add_mission_plan
 
@@ -35,9 +37,18 @@ SYSTEM_PROMPT = (
     "deployment, or external operation occurred unless that fact is present in the conversation "
     "or supplied system context. When execution is required, describe the required next action "
     "rather than pretending it already happened. "
-    "Your replies are also spoken aloud to the Creator, so prefer short natural sentences and no "
-    "Markdown, tables, or code blocks unless the Creator explicitly asks for them."
+    "Your replies are also spoken aloud to the Creator. Speak in flowing prose: by default answer in "
+    "one to three short sentences, and go into more detail only when the Creator asks for it. "
+    "In conversation never use lists, bullet points, numbered items, headings, Markdown, tables, or "
+    "code blocks; when there are several items, weave them into a single natural sentence. "
+    "Keep a sober, serene, quietly divine tone: calm and certain, never effusive, without filler "
+    "openings such as 'Claro!' or 'Ótima pergunta', and without repeating the question back. "
+    "When a live system state is supplied, answer questions about Universes, Agents, and Missions "
+    "from those facts, naming them specifically; if a fact is not in that state, say you do not "
+    "see it rather than guessing."
 )
+
+LIVE_ITEMS = 8
 
 # Obvious dialogue and read-only questions do not need an extra SOPHIA model call before DEUS answers.
 # Requests that contain an execution verb still go through the Trinity, even when phrased as a question.
@@ -120,17 +131,71 @@ def proposal_note(deliberation: TrinityDeliberation) -> str:
     )
 
 
-async def universe_readiness(repo: DomainRepository) -> dict[str, UniverseReadiness]:
-    """Which Universes could take a Mission step right now."""
-    staffed = {agent.universe_id for agent in await repo.list_agents(None) if agent.active}
+def readiness_of(universes: list[Universe], agents: list[Agent]) -> dict[str, UniverseReadiness]:
+    staffed = {agent.universe_id for agent in agents if agent.active}
     return {
         universe.code: (
             UniverseReadiness.INACTIVE if not universe.active
             else UniverseReadiness.READY if universe.id in staffed
             else UniverseReadiness.NO_ACTIVE_AGENT
         )
-        for universe in await repo.list_all(Universe)
+        for universe in universes
     }
+
+
+async def universe_readiness(repo: DomainRepository) -> dict[str, UniverseReadiness]:
+    """Which Universes could take a Mission step right now."""
+    agents = await repo.list_agents(None)
+    return readiness_of(await repo.list_all(Universe), agents)
+
+
+RUNNING_MISSION = {MissionStatus.AUTHORIZED.value, MissionStatus.DISTRIBUTED.value, MissionStatus.EXECUTING.value}
+READINESS_TEXT = {
+    UniverseReadiness.READY: "ready",
+    UniverseReadiness.INACTIVE: "inactive",
+    UniverseReadiness.NO_ACTIVE_AGENT: "active but without an active Agent",
+    UniverseReadiness.UNKNOWN: "unknown",
+}
+
+
+@dataclass(frozen=True)
+class SystemSnapshot:
+    readiness: dict[str, UniverseReadiness]
+    running: list[Mission]
+    awaiting_authorization: list[Mission]
+
+
+async def system_snapshot(repo: DomainRepository, creator_id: str) -> SystemSnapshot:
+    """The live facts DEUS answers from. Queries run one after another: they share one DB session."""
+    agents = await repo.list_agents(None)
+    universes = await repo.list_all(Universe)
+    missions = await repo.list_for_creator(Mission, creator_id)
+    return SystemSnapshot(
+        readiness=readiness_of(universes, agents),
+        running=[mission for mission in missions if mission.status in RUNNING_MISSION],
+        awaiting_authorization=[mission for mission in missions if mission.status == MissionStatus.VALIDATED.value],
+    )
+
+
+def _listed(items: list[str]) -> str:
+    shown = ", ".join(items[:LIVE_ITEMS])
+    return shown + (f" and {len(items) - LIVE_ITEMS} more" if len(items) > LIVE_ITEMS else "")
+
+
+def live_context_note(snapshot: SystemSnapshot) -> str:
+    """One system line of current facts, so status questions get specific answers."""
+    # Every Universe is listed: DEUS is told to answer only from these facts.
+    universes = (
+        ", ".join(f"{code} {READINESS_TEXT[state]}" for code, state in sorted(snapshot.readiness.items()))
+        if snapshot.readiness else "none exist yet"
+    )
+    running = _listed([f'"{m.title}" ({m.status})' for m in snapshot.running]) or "none"
+    awaiting = _listed([f'"{m.title}"' for m in snapshot.awaiting_authorization]) or "none"
+    return (
+        f"Live system state right now. Universes: {universes}. "
+        f"Missions under way, each with its exact status (only 'executing' has started work): {running}. "
+        f"Missions validated and awaiting the Creator's authorization: {awaiting}."
+    )
 
 
 class DeusConversationService:
@@ -149,8 +214,13 @@ class DeusConversationService:
         self.model = model
         self.trinity = trinity
 
-    async def _reason(self, actor: Actor, content: str, history: list[Message]) -> TrinityOutcome:
-        """Run the Trinity over the Creator's message. It fails open: DEUS still answers."""
+    async def _reason(
+        self, actor: Actor, content: str, history: list[Message], snapshot: Awaitable[SystemSnapshot],
+    ) -> TrinityOutcome:
+        """Run the Trinity over the Creator's message. It fails open: DEUS still answers.
+
+        ``snapshot`` is already being fetched while SOPHIA perceives, so deliberation does not wait for it.
+        """
         if self.trinity is None or not needs_trinity(content):
             return TrinityOutcome()
         stage = "perception"
@@ -161,7 +231,7 @@ class DeusConversationService:
             if not self.trinity.calls_for_deliberation(intent):
                 return TrinityOutcome(intent=intent)
             stage = "deliberation"
-            readiness = await universe_readiness(self.repo)
+            readiness = (await snapshot).readiness
             deliberation = await self.trinity.deliberate(content, intent, readiness, creator_id=actor.id)
             return TrinityOutcome(intent=intent, deliberation=deliberation)
         except Exception as exc:
@@ -287,8 +357,16 @@ class DeusConversationService:
             correlation_id=correlation_id,
         ))
         history = await self.repo.list_messages(conversation_id, limit=20)
-        outcome = await self._reason(actor, content, history)
+        # The snapshot's DB reads overlap SOPHIA's model call; nothing else touches the session meanwhile.
+        snapshot_task = asyncio.ensure_future(system_snapshot(self.repo, actor.id))
+        outcome = await self._reason(actor, content, history, snapshot_task)
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        try:
+            messages.append({"role": "system", "content": live_context_note(await snapshot_task)})
+        except Exception as exc:
+            logger.bind(component="deus", error_type=exc.__class__.__name__).warning(
+                "live system context unavailable"
+            )
         messages.extend({
             "role": "assistant" if item.role == "deus" else "user",
             "content": item.content,

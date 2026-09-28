@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bestRecognitionAlternative, interpretUtterance, isFarewell, splitWakePhrase, spokenDecision } from "./voice";
+import { bestRecognitionAlternative, interpretUtterance, isFarewell, splitSentences, splitWakePhrase, spokenDecision } from "./voice";
 
 describe("splitWakePhrase", () => {
   it("wakes on the bare wake word", () => {
@@ -16,6 +16,24 @@ describe("splitWakePhrase", () => {
   it("ignores words that merely contain the wake word", () => {
     expect(splitWakePhrase("adeus, até amanhã")).toEqual({ woke: false, request: "" });
     expect(splitWakePhrase("deusa da criação")).toEqual({ woke: false, request: "" });
+  });
+
+  it("wakes on common transcriptions of “Deus”", () => {
+    expect(splitWakePhrase("Zeus")).toEqual({ woke: true, request: "" });
+    expect(splitWakePhrase("dê us, status")).toEqual({ woke: true, request: "status" });
+  });
+
+  it("does not wake on words that merely resemble “Deus”", () => {
+    expect(splitWakePhrase("Teus")).toEqual({ woke: false, request: "" });
+    expect(splitWakePhrase("teus planos estão prontos")).toEqual({ woke: false, request: "" });
+    expect(splitWakePhrase("Deu!")).toEqual({ woke: false, request: "" });
+    expect(splitWakePhrase("deu certo")).toEqual({ woke: false, request: "" });
+    expect(splitWakePhrase("os teus planos estão prontos")).toEqual({ woke: false, request: "" });
+    expect(splitWakePhrase("isso deu certo")).toEqual({ woke: false, request: "" });
+    expect(splitWakePhrase("deusa da criação")).toEqual({ woke: false, request: "" });
+    expect(splitWakePhrase("adeus")).toEqual({ woke: false, request: "" });
+    expect(splitWakePhrase("deixa")).toEqual({ woke: false, request: "" });
+    expect(splitWakePhrase("teuso")).toEqual({ woke: false, request: "" });
   });
 });
 
@@ -112,5 +130,18 @@ describe("bestRecognitionAlternative", () => {
       { transcript: "status dos universos", confidence: 0.89 },
     ], { isFinal: true });
     expect(bestRecognitionAlternative(result, true).transcript).toBe("status dos universos");
+  });
+});
+
+describe("splitSentences", () => {
+  it("splits a reply into sentences for incremental speech", () => {
+    expect(splitSentences("Os universos respiram. A missão segue em execução! Algo mais?"))
+      .toEqual(["Os universos respiram.", "A missão segue em execução!", "Algo mais?"]);
+  });
+
+  it("keeps a single sentence and decimal numbers whole", () => {
+    expect(splitSentences("Tudo em ordem")).toEqual(["Tudo em ordem"]);
+    expect(splitSentences("A versão 2.5 está pronta.")).toEqual(["A versão 2.5 está pronta."]);
+    expect(splitSentences("  ")).toEqual([]);
   });
 });
