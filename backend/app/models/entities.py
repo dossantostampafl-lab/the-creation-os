@@ -88,7 +88,7 @@ class Mission(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_string)
     inception_id: Mapped[str | None] = mapped_column(ForeignKey("inceptions.id"), nullable=True, unique=True)
-    opportunity_id: Mapped[str | None] = mapped_column(ForeignKey("opportunities.id"), nullable=True, index=True)
+    opportunity_id: Mapped[str | None] = mapped_column(ForeignKey("opportunities.id"), nullable=True, unique=True, index=True)
     creator_id: Mapped[str] = mapped_column(ForeignKey("creator.id"), nullable=False)
     title: Mapped[str] = mapped_column(String(256), nullable=False)
     objective: Mapped[str] = mapped_column(Text, nullable=False)
@@ -102,6 +102,10 @@ class Mission(Base):
     inception: Mapped[Inception | None] = relationship("Inception", back_populates="mission")
     plan: Mapped["MissionPlan"] = relationship("MissionPlan", back_populates="mission", uselist=False)
     tasks: Mapped[list["Task"]] = relationship("Task", back_populates="mission", cascade="all, delete-orphan")
+
+    @property
+    def origin_type(self) -> str:
+        return "CREATOR_INCEPTION" if self.inception_id is not None else "OPPORTUNITY"
 
 
 class MissionPlan(Base):
