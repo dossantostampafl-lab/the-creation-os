@@ -5,11 +5,17 @@ import uuid
 
 import pytest
 
-from app.cognition.trinity import TrinityEngine
+from app.cognition.trinity import TrinityEngine, UniverseReadiness
 from app.core.domain import Actor
 from app.inference.contracts import InferenceRequest, InferenceResponse
 from app.models.entities import Agent, Conversation, Message, Mission, Universe
-from app.services.deus import SYSTEM_PROMPT, DeusConversationService, needs_trinity
+from app.services.deus import (
+    SYSTEM_PROMPT,
+    DeusConversationService,
+    SystemSnapshot,
+    live_context_note,
+    needs_trinity,
+)
 
 
 class StubRouter:
@@ -184,7 +190,8 @@ async def test_deus_answers_from_the_live_system_state() -> None:
     assert "CONTENT active but without an active Agent" in live["content"]
     assert "FINANCE inactive" in live["content"]
     assert "WEB ready" in live["content"]
-    assert 'Missions in execution: "Landing page" (executing).' in live["content"]
+    assert "Missions under way, each with its exact status" in live["content"]
+    assert '"Landing page" (executing).' in live["content"]
     assert 'awaiting the Creator\'s authorization: "Newsletter".' in live["content"]
     assert "Old launch" not in live["content"] and "Foreign" not in live["content"]
     assert messages[-1] == {"role": "user", "content": "Como estão os universos?"}
@@ -246,3 +253,9 @@ async def test_live_snapshot_is_read_while_sophia_perceives() -> None:
     assert result.response == "Pronto."
     assert [request.metadata["route"] for request in router.requests] == ["trinity:sophia", "deus"]
     assert not any(event["event_type"] == "trinity_failed" for event in repo.events)
+
+
+def test_live_context_lists_every_universe() -> None:
+    readiness = {f"U{index:02d}": UniverseReadiness.READY for index in range(12)}
+    note = live_context_note(SystemSnapshot(readiness=readiness, running=[], awaiting_authorization=[]))
+    assert all(f"U{index:02d} ready" in note for index in range(12))

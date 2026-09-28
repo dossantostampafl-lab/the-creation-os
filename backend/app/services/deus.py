@@ -184,14 +184,16 @@ def _listed(items: list[str]) -> str:
 
 def live_context_note(snapshot: SystemSnapshot) -> str:
     """One system line of current facts, so status questions get specific answers."""
+    # Every Universe is listed: DEUS is told to answer only from these facts.
     universes = (
-        _listed([f"{code} {READINESS_TEXT[state]}" for code, state in sorted(snapshot.readiness.items())])
+        ", ".join(f"{code} {READINESS_TEXT[state]}" for code, state in sorted(snapshot.readiness.items()))
         if snapshot.readiness else "none exist yet"
     )
     running = _listed([f'"{m.title}" ({m.status})' for m in snapshot.running]) or "none"
     awaiting = _listed([f'"{m.title}"' for m in snapshot.awaiting_authorization]) or "none"
     return (
-        f"Live system state right now. Universes: {universes}. Missions in execution: {running}. "
+        f"Live system state right now. Universes: {universes}. "
+        f"Missions under way, each with its exact status (only 'executing' has started work): {running}. "
         f"Missions validated and awaiting the Creator's authorization: {awaiting}."
     )
 
