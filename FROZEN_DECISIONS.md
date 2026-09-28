@@ -1,6 +1,6 @@
 # Frozen Decisions — THE CREATION OS / Security Task Force
 
-Status date: 2026-09-23
+Status date: 2026-09-27
 
 This file records design decisions already accepted by the Creator. They are not to be silently redesigned. A future change must explicitly supersede the affected decision and be recorded in `CHANGELOG_DECISIONS.md`.
 
@@ -70,3 +70,19 @@ After the required validation gates are satisfied, the Security Task Force is no
 
 ## FD-020 — Executor isolation choice is delegated to SOPHIA
 The Creator delegates the final technical choice between Kata Containers and Firecracker to SOPHIA. SOPHIA must select the option that best satisfies isolation strength, compatibility with the local Docker/Desktop and host environment, performance, operational complexity, auditability, recovery behavior, and least-privilege requirements. This delegation does not permit weakening the isolation boundary or replacing the Rust Gateway/Authorization controls; it only delegates the implementation choice of sandbox technology.
+
+
+## FD-021 — Autonomous Universes evolve the existing kernel
+The 12 canonical Universes are autonomous cognitive fields, not rigid departments or independent execution stacks. Opportunity-origin work must reuse the existing Mission, MissionPlan, MissionStep, Task, AgentRuntime, CapabilityRuntime, CapabilityGateway, Chronicle, worker and UniverseMemory architecture. A second runtime, second gateway, parallel workflow engine, or vendor-specific authority plane is not permitted without an explicit superseding decision.
+
+## FD-022 — Opportunity discovery and competition never grant execution authority
+Evidence may be shared while each Universe keeps its own interpretation, hypothesis, strategy and memory. An Opportunity, a winning Thesis, an Executive Lease, available capital, or read access does not authorize execution. Material execution only occurs through an Opportunity-origin Mission with the existing authorization envelope and downstream capability policy.
+
+## FD-023 — Economic state is ledger-derived and reconciliation-safe
+Economic state is derived from append-oriented EconomicLedgerEntry history rather than a mutable balance source of truth. Real economic mode is disabled by default and must be explicitly enabled. Capital is reserved before material execution, uncertain AT_MOST_ONCE outcomes remain frozen as RECONCILIATION_REQUIRED, debt/margin/leverage/negative balance are not implicit capabilities, economic suspension is sticky, and recapitalization is never automatic.
+
+## FD-024 — Provider discovery never grants provider authority
+Universes request stable logical capabilities rather than named vendors. Web, MCP and plugin provider discovery is informational only. Providers must pass origin/license/security review, capability mapping, sandbox or shadow validation, contract tests and certification before material production use. Provider choice must not weaken Mission authorization, SSRF controls, Creator scope, or reconciliation requirements.
+
+## FD-025 — Learning may optimize behavior but never expand authority
+UniverseMemory may learn provider preference, sensor preference, detector weights, retrieval strategy, exploration/exploitation balance, thesis patterns, critic intensity and tool preference from outcomes. Learning may narrow or optimize behavior but cannot expand Creator constraints, Mission authorization, CapabilityGateway rules, risk ceilings, security policy, reconciliation requirements or audit obligations.
