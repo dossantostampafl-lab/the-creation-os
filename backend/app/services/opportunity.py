@@ -194,7 +194,17 @@ def _utcnow() -> datetime:
 def _integrity_constraint_name(exc: IntegrityError) -> str | None:
     diagnostic = getattr(getattr(exc, "orig", None), "diag", None)
     name = getattr(diagnostic, "constraint_name", None)
-    return str(name) if name else None
+    if name:
+        return str(name)
+    message = str(exc)
+    for candidate in (
+        "uq_opportunity_creator_fingerprint",
+        "uq_opportunity_active_executive_lease",
+        "ix_missions_opportunity_id",
+    ):
+        if candidate in message:
+            return candidate
+    return None
 
 
 def _is_executive_lease_conflict(exc: IntegrityError) -> bool:
