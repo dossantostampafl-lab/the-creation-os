@@ -147,6 +147,13 @@ services:
     build:
       context: ./security_gateway
     profiles: ["security-task-force"]
+    environment:
+      STF_GATEWAY_SIGNING_KEY: ${STF_GATEWAY_SIGNING_KEY:-}
+      STF_SANDBOX_BACKEND: ${STF_SANDBOX_BACKEND:-auto}
+      STF_ALLOWED_ENVIRONMENTS: ${STF_ALLOWED_ENVIRONMENTS:-cyber_range:}
+      STF_GATEWAY_STATE_DIR: /var/lib/stf-gateway
+    volumes:
+      - stf_gateway_data:/var/lib/stf-gateway
     networks: [stf-control, stf-execution]
     read_only: true
     tmpfs: [/tmp]
@@ -158,6 +165,7 @@ volumes:
   redis_data:
   workspace_data:
   stf_nats_data:
+  stf_gateway_data:
 
 networks:
   tco_net:
