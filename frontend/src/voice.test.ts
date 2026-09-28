@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { interpretUtterance, isFarewell, splitWakePhrase, spokenDecision } from "./voice";
+import { bestRecognitionAlternative, interpretUtterance, isFarewell, splitWakePhrase, spokenDecision } from "./voice";
 
 describe("splitWakePhrase", () => {
   it("wakes on the bare wake word", () => {
@@ -92,5 +92,25 @@ describe("interpretUtterance", () => {
 
   it("treats a leading name as address once already listening", () => {
     expect(interpretUtterance("Deus, status", true)).toEqual({ kind: "command", text: "status" });
+  });
+});
+
+
+describe("bestRecognitionAlternative", () => {
+  it("prefers a wake-word alternative while sleeping even when it is not the first hypothesis", () => {
+    const result = Object.assign([
+      { transcript: "adeus", confidence: 0.91 },
+      { transcript: "Deus", confidence: 0.76 },
+      { transcript: "dê us", confidence: 0.68 },
+    ], { isFinal: true });
+    expect(bestRecognitionAlternative(result, false).transcript).toBe("Deus");
+  });
+
+  it("prefers the highest-confidence dictation while already attentive", () => {
+    const result = Object.assign([
+      { transcript: "status dos universo", confidence: 0.51 },
+      { transcript: "status dos universos", confidence: 0.89 },
+    ], { isFinal: true });
+    expect(bestRecognitionAlternative(result, true).transcript).toBe("status dos universos");
   });
 });
