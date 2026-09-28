@@ -51,7 +51,7 @@ def upgrade() -> None:
         ["opportunity_id"],
         ["id"],
     )
-    op.create_index("ix_missions_opportunity_id", "missions", ["opportunity_id"])
+    op.create_index("ix_missions_opportunity_id", "missions", ["opportunity_id"], unique=True)
     op.create_check_constraint(
         "ck_mission_exactly_one_origin",
         "missions",
