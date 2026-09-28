@@ -16,7 +16,7 @@ const ATTENTION_MS = 12000;
   * Browsers finalise a result at every pause -- often after a single word -- so acting on
   * the first one sends a fragment and stops listening mid-sentence. */
 const SETTLE_MS = 700;
-const WAKE_WORD = /(^|[^\\p{L}])(deus|zeus|d[eê]\\s+us)(?![\\p{L}])/iu;
+const WAKE_WORD = /(^|[^\p{L}])(deus|zeus|d[eê]\s+us)(?![\p{L}])/iu;
 
 function voiceLanguage(): string {
   const browser = navigator.language || "pt-BR";
@@ -572,7 +572,7 @@ export function useDeusEars({ paused, onWake, onCommand, onInterim, onLapse, onF
     const Ctor = recognitionConstructor();
     if (!Ctor || recognition.current) return;
     const instance = new Ctor();
-    instance.lang = voiceLanguage();
+    instance.lang = "pt-BR";
     instance.interimResults = true;
     instance.continuous = true;
     instance.maxAlternatives = 4;
@@ -611,7 +611,7 @@ export function useDeusEars({ paused, onWake, onCommand, onInterim, onLapse, onF
       if (recognition.current === instance) recognition.current = null;
       // Browsers end recognition after silence; keep listening while DEUS is meant to,
       // backing off when the recognition service keeps failing (offline, for example).
-      window.setTimeout(sync, 250 * 2 ** Math.min(failures.current, 6));
+      window.setTimeout(sync, failures.current ? 250 * 2 ** Math.min(failures.current, 6) : 100);
     };
     recognition.current = instance;
     try {
