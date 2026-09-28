@@ -37,6 +37,7 @@ from app.capabilities.web_providers import (
 
 CAPABILITY = "web"
 FETCH_ACTION = "fetch"
+ACTION = FETCH_ACTION  # backward-compatible alias
 SUPPORTED_ACTIONS = frozenset({"fetch", "search", "crawl", "extract"})
 MAX_REDIRECTS = 3
 
