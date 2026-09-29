@@ -28,7 +28,9 @@ pub trait ExecutionJournal: Send {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
 enum Record {
-    Begun { execution_id: String },
+    Begun {
+        execution_id: String,
+    },
     Finished {
         execution_id: String,
         outcome: JournalOutcome,
@@ -79,8 +81,7 @@ impl FileExecutionJournal {
     }
 
     fn append(&mut self, record: &Record) -> io::Result<()> {
-        serde_json::to_writer(&mut self.file, record)
-            .map_err(io::Error::other)?;
+        serde_json::to_writer(&mut self.file, record).map_err(io::Error::other)?;
         self.file.write_all(b"\n")?;
         self.file.flush()?;
         self.file.sync_data()?;
