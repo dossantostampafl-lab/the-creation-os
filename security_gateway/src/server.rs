@@ -16,8 +16,6 @@ fn reply(decision: &str, reasons: Vec<String>) -> String {
     json!({ "decision": decision, "reasons": reasons }).to_string()
 }
 
-/// The answer to an execute request: `decision` is the authorization outcome, `status` is what actually
-/// happened (denied, authorized, executed), and `execution_id` exists only when work really ran.
 fn reply_execute(
     decision: &str,
     status: &str,
@@ -32,14 +30,29 @@ fn reply_execute(
 }
 
 impl Gateway {
-    /// One JSON line in, one JSON line out. Control messages only ever tighten the state.
     pub fn handle_line(&mut self, line: &str, now_unix: i64) -> String {
+        if line.len() > 64 * 1024 {
+            return reply("deny", vec!["message_too_large".into()]);
+        }
         let message: Value = match serde_json::from_str(line) {
             Ok(value) => value,
             Err(_) => return reply("deny", vec!["malformed".into()]),
         };
         match message.get("op").and_then(Value::as_str) {
             Some("execute") => self.execute(&message, now_unix),
+            Some("revoke_grant") | Some("set_mission_version") | Some("kill") => {
+                self.control(&message)
+            }
+            _ => reply("deny", vec!["unknown_op".into()]),
+        }
+    }
+
+    fn control(&mut self, message: &Value) -> String {
+        let token = message.get("service_token").and_then(Value::as_str);
+        if !self.state.control_allowed(token) {
+            return reply("deny", vec!["control_auth_required".into()]);
+        }
+        match message.get("op").and_then(Value::as_str) {
             Some("revoke_grant") => {
                 if let Some(id) = message.get("grant_id").and_then(Value::as_str) {
                     self.state.revoked_grants.insert(id.to_owned());
@@ -90,12 +103,10 @@ impl Gateway {
                 .execute_allowlisted(&requested.tool_id, &requested.args_json),
             SandboxBackend::Firecracker => FirecrackerSandbox { available: true }
                 .execute_allowlisted(&requested.tool_id, &requested.args_json),
-            // No isolated backend: a permitted request still never runs anywhere.
             SandboxBackend::Unavailable => Err(SandboxError::Unavailable),
         };
         match outcome {
             Ok(execution_id) => reply_execute("permit", "executed", vec![], Some(execution_id)),
-            // Authorized, but nothing ran: a permit is not an execution.
             Err(SandboxError::NotImplemented) => reply_execute(
                 "permit",
                 "authorized",
