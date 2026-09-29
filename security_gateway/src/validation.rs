@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use subtle::ConstantTimeEq;
 
+use crate::authority::{AuthorityCheck, DenyAuthority};
 use crate::contracts::{ExecutionEnvelope, RequestedAction};
 use crate::replay::ReplayStore;
 use crate::signature;
@@ -40,6 +41,7 @@ pub struct GatewayState {
     pub global_kill: bool,
     pub allowed_environment_prefixes: Vec<String>,
     pub replay: Box<dyn ReplayStore>,
+    authority: Box<dyn AuthorityCheck>,
     control_token: Option<Vec<u8>>,
 }
 
@@ -52,8 +54,18 @@ impl GatewayState {
             global_kill: false,
             allowed_environment_prefixes,
             replay,
+            authority: Box::new(DenyAuthority),
             control_token: None,
         }
+    }
+
+    pub fn with_authority(mut self, authority: Box<dyn AuthorityCheck>) -> Self {
+        self.authority = authority;
+        self
+    }
+
+    pub fn claim_authority(&self, envelope: &ExecutionEnvelope) -> Result<(), String> {
+        self.authority.claim(envelope)
     }
 
     pub fn with_control_token(mut self, token: impl Into<Vec<u8>>) -> Self {
@@ -76,8 +88,10 @@ fn deny(reason: DenyReason) -> GatewayDecision {
     GatewayDecision::Deny(reason)
 }
 
-pub fn evaluate(
-    state: &mut GatewayState,
+/// Validate every signed/runtime binding without spending the replay nonce.
+/// The server uses this before contacting the durable authority service, so invalid envelopes never reach it.
+pub fn evaluate_preclaim(
+    state: &GatewayState,
     envelope: &ExecutionEnvelope,
     requested: &RequestedAction,
     key: &[u8],
@@ -145,8 +159,27 @@ pub fn evaluate(
     if envelope.decision != "permit" || envelope.decision_id.is_empty() {
         return deny(DenyReason::PolicyNotPermit);
     }
-    if !state.replay.reserve(&envelope.nonce) {
+    GatewayDecision::Permit
+}
+
+/// Spend the nonce only after the durable authority service has successfully claimed this execution.
+pub fn reserve_nonce(state: &mut GatewayState, nonce: &str) -> GatewayDecision {
+    if !state.replay.reserve(nonce) {
         return deny(DenyReason::Replay);
     }
     GatewayDecision::Permit
+}
+
+/// Full in-process validation helper retained for pure contract tests.
+pub fn evaluate(
+    state: &mut GatewayState,
+    envelope: &ExecutionEnvelope,
+    requested: &RequestedAction,
+    key: &[u8],
+    now_unix: i64,
+) -> GatewayDecision {
+    match evaluate_preclaim(state, envelope, requested, key, now_unix) {
+        GatewayDecision::Permit => reserve_nonce(state, &envelope.nonce),
+        denied => denied,
+    }
 }
