@@ -17,7 +17,10 @@ impl AuthorityCheck for PermitAuthority {
 }
 
 fn path(label: &str) -> std::path::PathBuf {
-    std::env::temp_dir().join(format!("stf-gateway-journal-{label}-{}.jsonl", std::process::id()))
+    std::env::temp_dir().join(format!(
+        "stf-gateway-journal-{label}-{}.jsonl",
+        std::process::id()
+    ))
 }
 
 fn envelope(execution_id: &str, nonce: &str) -> ExecutionEnvelope {
@@ -73,9 +76,12 @@ fn line(execution_id: &str, nonce: &str) -> String {
 
 fn gateway(journal: FileExecutionJournal) -> Gateway {
     Gateway {
-        state: GatewayState::new(Box::new(ReplayGuard::default()), vec!["cyber_range:".into()])
-            .with_authority(Box::new(PermitAuthority))
-            .with_execution_journal(Box::new(journal)),
+        state: GatewayState::new(
+            Box::new(ReplayGuard::default()),
+            vec!["cyber_range:".into()],
+        )
+        .with_authority(Box::new(PermitAuthority))
+        .with_execution_journal(Box::new(journal)),
         backend: SandboxBackend::Kata,
         key: KEY.to_vec(),
     }
