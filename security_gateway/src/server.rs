@@ -4,7 +4,7 @@ use crate::contracts::{ExecutionEnvelope, RequestedAction};
 use crate::sandbox::firecracker::FirecrackerSandbox;
 use crate::sandbox::kata::KataSandbox;
 use crate::sandbox::{Sandbox, SandboxBackend, SandboxError};
-use crate::validation::{evaluate, GatewayDecision, GatewayState};
+use crate::validation::{evaluate_preclaim, reserve_nonce, GatewayDecision, GatewayState};
 
 pub struct Gateway {
     pub state: GatewayState,
@@ -93,11 +93,29 @@ impl Gateway {
         let (Ok(envelope), Ok(requested)) = (envelope, requested) else {
             return reply_execute("deny", "denied", vec!["malformed".into()], None);
         };
+
+        // Cryptographic and structural checks happen before the authority service sees the claim.
         if let GatewayDecision::Deny(reason) =
-            evaluate(&mut self.state, &envelope, &requested, &self.key, now_unix)
+            evaluate_preclaim(&self.state, &envelope, &requested, &self.key, now_unix)
         {
             return reply_execute("deny", "denied", vec![format!("{reason:?}")], None);
         }
+
+        // A signed permit is never sufficient: cancellation/revocation are re-read from durable state here.
+        if self.state.claim_authority(&envelope).is_err() {
+            return reply_execute(
+                "deny",
+                "denied",
+                vec!["RuntimeAuthorityDenied".into()],
+                None,
+            );
+        }
+
+        // Spend replay protection only after a successful, idempotent pre-effect claim.
+        if let GatewayDecision::Deny(reason) = reserve_nonce(&mut self.state, &envelope.nonce) {
+            return reply_execute("deny", "denied", vec![format!("{reason:?}")], None);
+        }
+
         let outcome = match self.backend {
             SandboxBackend::Kata => KataSandbox { available: true }
                 .execute_allowlisted(&requested.tool_id, &requested.args_json),
