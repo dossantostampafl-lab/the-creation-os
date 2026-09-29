@@ -62,23 +62,27 @@ fn serve_once(status: &str) -> (String, thread::JoinHandle<String>) {
                 break;
             }
         }
-        let response = format!(
-            "HTTP/1.1 {status}\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{{}}"
-        );
+        let response =
+            format!("HTTP/1.1 {status}\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{{}}");
         stream.write_all(response.as_bytes()).unwrap();
         String::from_utf8(request).unwrap()
     });
-    (format!("http://{address}/api/v1/deus/security-missions/internal/execution-claims"), handle)
+    (
+        format!("http://{address}/api/v1/deus/security-missions/internal/execution-claims"),
+        handle,
+    )
 }
 
 #[test]
 fn remote_authority_posts_only_runtime_bindings_with_service_identity() {
     let (url, server) = serve_once("200 OK");
-    let authority = HttpAuthority::new(url, "service-token-that-is-at-least-32-bytes".into()).unwrap();
+    let authority =
+        HttpAuthority::new(url, "service-token-that-is-at-least-32-bytes".into()).unwrap();
     authority.claim(&envelope()).unwrap();
     let request = server.join().unwrap();
 
-    assert!(request.starts_with("POST /api/v1/deus/security-missions/internal/execution-claims HTTP/1.1"));
+    assert!(request
+        .starts_with("POST /api/v1/deus/security-missions/internal/execution-claims HTTP/1.1"));
     assert!(request.contains("X-STF-Service-Token: service-token-that-is-at-least-32-bytes"));
     assert!(request.contains("\"execution_id\":\"exec-1\""));
     assert!(request.contains("\"run_id\":\"run-1\""));
@@ -93,7 +97,8 @@ fn remote_authority_posts_only_runtime_bindings_with_service_identity() {
 #[test]
 fn remote_authority_fails_closed_on_non_200_response() {
     let (url, server) = serve_once("409 Conflict");
-    let authority = HttpAuthority::new(url, "service-token-that-is-at-least-32-bytes".into()).unwrap();
+    let authority =
+        HttpAuthority::new(url, "service-token-that-is-at-least-32-bytes".into()).unwrap();
     assert!(authority.claim(&envelope()).is_err());
     server.join().unwrap();
 }
