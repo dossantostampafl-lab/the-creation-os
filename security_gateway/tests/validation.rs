@@ -1,3 +1,4 @@
+use creation_security_gateway::authority::AuthorityCheck;
 use creation_security_gateway::contracts::{ExecutionEnvelope, RequestedAction};
 use creation_security_gateway::replay::ReplayGuard;
 use creation_security_gateway::signature::expected_signature;
@@ -5,6 +6,13 @@ use creation_security_gateway::validation::{evaluate, DenyReason, GatewayDecisio
 
 const KEY: &[u8] = b"test-key";
 const CONTROL: &str = "control-token-that-is-at-least-32-bytes";
+
+struct PermitAuthority;
+impl AuthorityCheck for PermitAuthority {
+    fn claim(&self, _envelope: &ExecutionEnvelope) -> Result<(), String> {
+        Ok(())
+    }
+}
 
 fn envelope() -> ExecutionEnvelope {
     let mut e = ExecutionEnvelope {
@@ -53,6 +61,7 @@ fn state() -> GatewayState {
         Box::new(ReplayGuard::default()),
         vec!["cyber_range:".into()],
     )
+    .with_authority(Box::new(PermitAuthority))
 }
 
 fn deny(reason: DenyReason) -> GatewayDecision {
