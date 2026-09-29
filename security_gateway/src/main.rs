@@ -3,6 +3,7 @@ use std::net::TcpListener;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use creation_security_gateway::journal::FileExecutionJournal;
 use creation_security_gateway::replay::FileReplayStore;
 use creation_security_gateway::sandbox::{probe, SandboxBackend};
 use creation_security_gateway::server::Gateway;
@@ -51,6 +52,14 @@ fn main() {
             std::process::exit(2);
         }
     };
+    let execution_journal =
+        match FileExecutionJournal::open(Path::new(&state_dir).join("executions.jsonl")) {
+            Ok(journal) => journal,
+            Err(error) => {
+                eprintln!("execution journal unavailable: {error}");
+                std::process::exit(2);
+            }
+        };
     let prefixes = std::env::var("STF_ALLOWED_ENVIRONMENTS")
         .unwrap_or_else(|_| "cyber_range:".into())
         .split(',')
@@ -58,7 +67,9 @@ fn main() {
         .filter(|item| !item.is_empty())
         .collect();
     let mut gateway = Gateway {
-        state: GatewayState::new(Box::new(replay), prefixes).with_control_token(control_token),
+        state: GatewayState::new(Box::new(replay), prefixes)
+            .with_control_token(control_token)
+            .with_execution_journal(Box::new(execution_journal)),
         backend,
         key,
     };
