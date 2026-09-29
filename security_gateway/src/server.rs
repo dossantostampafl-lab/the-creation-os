@@ -1,6 +1,7 @@
 use serde_json::{json, Value};
 
 use crate::contracts::{ExecutionEnvelope, RequestedAction};
+use crate::journal::{BeginExecution, JournalOutcome};
 use crate::sandbox::firecracker::FirecrackerSandbox;
 use crate::sandbox::kata::KataSandbox;
 use crate::sandbox::{Sandbox, SandboxBackend, SandboxError};
@@ -27,6 +28,15 @@ fn reply_execute(
         value["execution_id"] = json!(id);
     }
     value.to_string()
+}
+
+fn render_outcome(outcome: JournalOutcome) -> String {
+    reply_execute(
+        &outcome.decision,
+        &outcome.status,
+        outcome.reasons,
+        outcome.execution_id,
+    )
 }
 
 impl Gateway {
@@ -94,14 +104,12 @@ impl Gateway {
             return reply_execute("deny", "denied", vec!["malformed".into()], None);
         };
 
-        // Cryptographic and structural checks happen before the authority service sees the claim.
         if let GatewayDecision::Deny(reason) =
             evaluate_preclaim(&self.state, &envelope, &requested, &self.key, now_unix)
         {
             return reply_execute("deny", "denied", vec![format!("{reason:?}")], None);
         }
 
-        // A signed permit is never sufficient: cancellation/revocation are re-read from durable state here.
         if self.state.claim_authority(&envelope).is_err() {
             return reply_execute(
                 "deny",
@@ -111,9 +119,47 @@ impl Gateway {
             );
         }
 
-        // Spend replay protection only after a successful, idempotent pre-effect claim.
+        match self.state.begin_execution(&envelope.execution_id) {
+            Ok(BeginExecution::Fresh) => {}
+            Ok(BeginExecution::Unknown) => {
+                return reply_execute(
+                    "deny",
+                    "unknown",
+                    vec!["ExecutionOutcomeUnknown".into()],
+                    None,
+                );
+            }
+            Ok(BeginExecution::Finished(outcome)) => return render_outcome(outcome),
+            Err(_) => {
+                return reply_execute(
+                    "deny",
+                    "denied",
+                    vec!["ExecutionJournalUnavailable".into()],
+                    None,
+                );
+            }
+        }
+
         if let GatewayDecision::Deny(reason) = reserve_nonce(&mut self.state, &envelope.nonce) {
-            return reply_execute("deny", "denied", vec![format!("{reason:?}")], None);
+            let outcome = JournalOutcome {
+                decision: "deny".into(),
+                status: "denied".into(),
+                reasons: vec![format!("{reason:?}")],
+                execution_id: None,
+            };
+            if self
+                .state
+                .finish_execution(&envelope.execution_id, outcome.clone())
+                .is_err()
+            {
+                return reply_execute(
+                    "deny",
+                    "unknown",
+                    vec!["ExecutionOutcomePersistenceFailed".into()],
+                    None,
+                );
+            }
+            return render_outcome(outcome);
         }
 
         let outcome = match self.backend {
@@ -123,20 +169,45 @@ impl Gateway {
                 .execute_allowlisted(&requested.tool_id, &requested.args_json),
             SandboxBackend::Unavailable => Err(SandboxError::Unavailable),
         };
-        match outcome {
-            Ok(execution_id) => reply_execute("permit", "executed", vec![], Some(execution_id)),
-            Err(SandboxError::NotImplemented) => reply_execute(
-                "permit",
-                "authorized",
-                vec!["ExecutionNotImplemented".into()],
+        let outcome = match outcome {
+            Ok(execution_id) => JournalOutcome {
+                decision: "permit".into(),
+                status: "executed".into(),
+                reasons: vec![],
+                execution_id: Some(execution_id),
+            },
+            Err(SandboxError::NotImplemented) => JournalOutcome {
+                decision: "permit".into(),
+                status: "authorized".into(),
+                reasons: vec!["ExecutionNotImplemented".into()],
+                execution_id: None,
+            },
+            Err(SandboxError::NotAllowlisted) => JournalOutcome {
+                decision: "deny".into(),
+                status: "denied".into(),
+                reasons: vec!["ToolNotAllowlisted".into()],
+                execution_id: None,
+            },
+            Err(SandboxError::Unavailable) => JournalOutcome {
+                decision: "deny".into(),
+                status: "denied".into(),
+                reasons: vec!["SandboxUnavailable".into()],
+                execution_id: None,
+            },
+        };
+
+        if self
+            .state
+            .finish_execution(&envelope.execution_id, outcome.clone())
+            .is_err()
+        {
+            return reply_execute(
+                "deny",
+                "unknown",
+                vec!["ExecutionOutcomePersistenceFailed".into()],
                 None,
-            ),
-            Err(SandboxError::NotAllowlisted) => {
-                reply_execute("deny", "denied", vec!["ToolNotAllowlisted".into()], None)
-            }
-            Err(SandboxError::Unavailable) => {
-                reply_execute("deny", "denied", vec!["SandboxUnavailable".into()], None)
-            }
+            );
         }
+        render_outcome(outcome)
     }
 }
