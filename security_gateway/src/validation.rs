@@ -1,11 +1,15 @@
 use std::collections::{HashMap, HashSet};
 
+use subtle::ConstantTimeEq;
+
 use crate::contracts::{ExecutionEnvelope, RequestedAction};
 use crate::replay::ReplayStore;
 use crate::signature;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DenyReason {
+    ProtocolVersion,
+    RuntimeBindingMissing,
     BadSignature,
     KillSwitch,
     Expired,
@@ -17,6 +21,7 @@ pub enum DenyReason {
     ActionClassMismatch,
     CapabilityMismatch,
     ParametersTampered,
+    ToolMismatch,
     Replay,
     PolicyNotPermit,
     MissingGrant,
@@ -28,8 +33,6 @@ pub enum GatewayDecision {
     Deny(DenyReason),
 }
 
-/// Everything the gateway remembers. Nothing here is ever loosened by a message from outside:
-/// revocations, kills and mission versions only move toward "less allowed".
 pub struct GatewayState {
     pub revoked_grants: HashSet<String>,
     pub min_mission_version: HashMap<String, u64>,
@@ -37,6 +40,7 @@ pub struct GatewayState {
     pub global_kill: bool,
     pub allowed_environment_prefixes: Vec<String>,
     pub replay: Box<dyn ReplayStore>,
+    control_token: Option<Vec<u8>>,
 }
 
 impl GatewayState {
@@ -48,7 +52,24 @@ impl GatewayState {
             global_kill: false,
             allowed_environment_prefixes,
             replay,
+            control_token: None,
         }
+    }
+
+    pub fn with_control_token(mut self, token: impl Into<Vec<u8>>) -> Self {
+        self.control_token = Some(token.into());
+        self
+    }
+
+    pub fn control_allowed(&self, supplied: Option<&str>) -> bool {
+        let Some(expected) = self.control_token.as_deref() else {
+            return false;
+        };
+        let Some(supplied) = supplied else {
+            return false;
+        };
+        expected.len() == supplied.len()
+            && bool::from(expected.ct_eq(supplied.as_bytes()))
     }
 }
 
@@ -56,8 +77,6 @@ fn deny(reason: DenyReason) -> GatewayDecision {
     GatewayDecision::Deny(reason)
 }
 
-/// Parse -> integrity -> expiry/revocation -> mission/version -> target -> environment ->
-/// action class -> invocation/replay -> policy decision. The first failure denies; nothing dispatches.
 pub fn evaluate(
     state: &mut GatewayState,
     envelope: &ExecutionEnvelope,
@@ -65,6 +84,17 @@ pub fn evaluate(
     key: &[u8],
     now_unix: i64,
 ) -> GatewayDecision {
+    if envelope.protocol_version != 2 {
+        return deny(DenyReason::ProtocolVersion);
+    }
+    if envelope.run_id.is_empty()
+        || envelope.execution_id.is_empty()
+        || envelope.contract_hash.is_empty()
+        || envelope.plan_hash.is_empty()
+        || envelope.tool_id.is_empty()
+    {
+        return deny(DenyReason::RuntimeBindingMissing);
+    }
     if !signature::verify_signature(envelope, key) {
         return deny(DenyReason::BadSignature);
     }
@@ -110,10 +140,12 @@ pub fn evaluate(
     if envelope.parameters_hash != requested.parameters_hash {
         return deny(DenyReason::ParametersTampered);
     }
+    if envelope.tool_id != requested.tool_id || envelope.tool_id != envelope.capability {
+        return deny(DenyReason::ToolMismatch);
+    }
     if envelope.decision != "permit" || envelope.decision_id.is_empty() {
         return deny(DenyReason::PolicyNotPermit);
     }
-    // Last, because it spends the nonce: a request refused above must not burn it.
     if !state.replay.reserve(&envelope.nonce) {
         return deny(DenyReason::Replay);
     }
