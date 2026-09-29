@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod authority;
 pub mod contracts;
+pub mod journal;
 pub mod replay;
 pub mod sandbox;
 pub mod server;
