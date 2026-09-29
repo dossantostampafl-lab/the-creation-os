@@ -86,13 +86,22 @@ async function installVoiceFakes(page: import("@playwright/test").Page, wakeEnab
       return true;
     };
 
-    HTMLMediaElement.prototype.play = function play() {
-      scope.__audioPlaying = true;
-      return Promise.resolve();
-    };
-    HTMLMediaElement.prototype.pause = function pause() {
-      scope.__audioPauses = (scope.__audioPauses ?? 0) + 1;
-    };
+    class FakeAudio {
+      onended: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      paused = true;
+      constructor(_src?: string) {}
+      play() {
+        this.paused = false;
+        scope.__audioPlaying = true;
+        return Promise.resolve();
+      }
+      pause() {
+        this.paused = true;
+        scope.__audioPauses = (scope.__audioPauses ?? 0) + 1;
+      }
+    }
+    Object.defineProperty(window, "Audio", { configurable: true, value: FakeAudio });
   }, { wakeEnabled });
 }
 

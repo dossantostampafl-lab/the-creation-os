@@ -196,6 +196,9 @@ export function useDeusVoice() {
   const [speaking, setSpeaking] = useState(false);
   const voices = useRef<SpeechSynthesisVoice[]>([]);
   const current = useRef<{ stop: () => void } | null>(null);
+  // Wake acknowledgements never set `speaking`, but stop() still needs an independent handle
+  // so a Creator command can cancel them without interfering with the main reply queue.
+  const acknowledgement = useRef<{ stop: () => void } | null>(null);
   // Each speak() is a new turn; callbacks from an interrupted turn must not touch the current one.
   const turn = useRef(0);
   const enabledRef = useRef(enabled);
@@ -210,6 +213,8 @@ export function useDeusVoice() {
   }, [browserVoice]);
 
   useEffect(() => () => {
+    acknowledgement.current?.stop();
+    acknowledgement.current = null;
     current.current?.stop();
     current.current = null;
     if (browserVoice) window.speechSynthesis.cancel();
@@ -218,6 +223,8 @@ export function useDeusVoice() {
 
   const stop = useCallback(() => {
     turn.current += 1;
+    acknowledgement.current?.stop();
+    acknowledgement.current = null;
     current.current?.stop();
     current.current = null;
     if (browserVoice) window.speechSynthesis.cancel();
@@ -386,28 +393,48 @@ export function useDeusVoice() {
       handlers.onEnd?.();
       return;
     }
-    // Wake acknowledgement is deliberately outside the `speaking` state. It keeps DEUS's
-    // configured voice identity while the ears remain armed for the Creator's next words.
+    // Keep the wake acknowledgement outside `speaking` so the ears stay armed, while retaining
+    // a dedicated cancellation handle. A command can therefore barge in without “Estou aqui”
+    // overlapping the command or the reply that follows.
+    acknowledgement.current?.stop();
+    const controller = new AbortController();
+    let audio: HTMLAudioElement | null = null;
+    let url = "";
+    let finished = false;
+    let handle: { stop: () => void };
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      if (url) URL.revokeObjectURL(url);
+      if (acknowledgement.current === handle) acknowledgement.current = null;
+      handlers.onEnd?.();
+    };
+    handle = {
+      stop: () => {
+        if (finished) return;
+        controller.abort();
+        audio?.pause();
+        finish();
+      },
+    };
+    acknowledgement.current = handle;
     const cached = phraseCache.get(content);
-    const pending = cached ? Promise.resolve(cached) : synthesizeVoice(content).then((blob) => {
+    const pending = cached ? Promise.resolve(cached) : synthesizeVoice(content, controller.signal).then((blob) => {
       if (content.length < 80) phraseCache.set(content, blob);
       return blob;
     });
     void pending.then((blob) => {
-      const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
-      let finished = false;
-      const finish = () => {
-        if (finished) return;
-        finished = true;
-        URL.revokeObjectURL(url);
-        handlers.onEnd?.();
-      };
+      if (finished) return;
+      url = URL.createObjectURL(blob);
+      audio = new Audio(url);
       audio.onended = finish;
       audio.onerror = finish;
       handlers.onStart?.();
       void audio.play().catch(finish);
-    }).catch(() => handlers.onEnd?.());
+    }).catch((failure: unknown) => {
+      if (finished || (failure instanceof DOMException && failure.name === "AbortError")) return;
+      finish();
+    });
   }, []);
 
   return { supported, enabled, speaking, toggle, speak, acknowledge, stop };
