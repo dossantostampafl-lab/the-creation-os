@@ -68,8 +68,7 @@ impl GatewayState {
         let Some(supplied) = supplied else {
             return false;
         };
-        expected.len() == supplied.len()
-            && bool::from(expected.ct_eq(supplied.as_bytes()))
+        expected.len() == supplied.len() && bool::from(expected.ct_eq(supplied.as_bytes()))
     }
 }
 
