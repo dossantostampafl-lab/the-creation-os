@@ -36,9 +36,9 @@ impl HttpAuthority {
         if token.len() < 32 {
             return Err("runtime authority token must be at least 32 characters".into());
         }
-        let rest = url
-            .strip_prefix("http://")
-            .ok_or_else(|| "runtime authority URL must use internal http:// transport".to_string())?;
+        let rest = url.strip_prefix("http://").ok_or_else(|| {
+            "runtime authority URL must use internal http:// transport".to_string()
+        })?;
         let (authority, path) = rest
             .split_once('/')
             .ok_or_else(|| "runtime authority URL must include an absolute path".to_string())?;
