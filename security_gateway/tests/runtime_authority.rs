@@ -9,6 +9,11 @@ const KEY: &[u8] = b"test-key";
 
 fn envelope() -> ExecutionEnvelope {
     let mut value = ExecutionEnvelope {
+        protocol_version: 2,
+        run_id: "run-1".into(),
+        execution_id: "exec-1".into(),
+        contract_hash: "c".repeat(64),
+        plan_hash: "p".repeat(64),
         mission_id: "m1".into(),
         mission_version: 1,
         action_id: "a1".into(),
@@ -24,6 +29,7 @@ fn envelope() -> ExecutionEnvelope {
         expires_unix: 200,
         nonce: "n1".into(),
         parameters_hash: "abc".into(),
+        tool_id: "range.health.verify".into(),
         signature: String::new(),
     };
     value.signature = expected_signature(&value, KEY);
