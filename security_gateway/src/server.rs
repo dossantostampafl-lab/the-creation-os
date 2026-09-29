@@ -3,7 +3,7 @@ use serde_json::{json, Value};
 use crate::contracts::{ExecutionEnvelope, RequestedAction};
 use crate::sandbox::firecracker::FirecrackerSandbox;
 use crate::sandbox::kata::KataSandbox;
-use crate::sandbox::{Sandbox, SandboxBackend};
+use crate::sandbox::{Sandbox, SandboxBackend, SandboxError};
 use crate::validation::{evaluate, GatewayDecision, GatewayState};
 
 pub struct Gateway {
@@ -14,6 +14,21 @@ pub struct Gateway {
 
 fn reply(decision: &str, reasons: Vec<String>) -> String {
     json!({ "decision": decision, "reasons": reasons }).to_string()
+}
+
+/// The answer to an execute request: `decision` is the authorization outcome, `status` is what actually
+/// happened (denied, authorized, executed), and `execution_id` exists only when work really ran.
+fn reply_execute(
+    decision: &str,
+    status: &str,
+    reasons: Vec<String>,
+    execution_id: Option<String>,
+) -> String {
+    let mut value = json!({ "decision": decision, "status": status, "reasons": reasons });
+    if let Some(id) = execution_id {
+        value["execution_id"] = json!(id);
+    }
+    value.to_string()
 }
 
 impl Gateway {
@@ -63,12 +78,12 @@ impl Gateway {
         let requested: Result<RequestedAction, _> =
             serde_json::from_value(message["requested"].clone());
         let (Ok(envelope), Ok(requested)) = (envelope, requested) else {
-            return reply("deny", vec!["malformed".into()]);
+            return reply_execute("deny", "denied", vec!["malformed".into()], None);
         };
         if let GatewayDecision::Deny(reason) =
             evaluate(&mut self.state, &envelope, &requested, &self.key, now_unix)
         {
-            return reply("deny", vec![format!("{reason:?}")]);
+            return reply_execute("deny", "denied", vec![format!("{reason:?}")], None);
         }
         let outcome = match self.backend {
             SandboxBackend::Kata => KataSandbox { available: true }
@@ -76,11 +91,23 @@ impl Gateway {
             SandboxBackend::Firecracker => FirecrackerSandbox { available: true }
                 .execute_allowlisted(&requested.tool_id, &requested.args_json),
             // No isolated backend: a permitted request still never runs anywhere.
-            SandboxBackend::Unavailable => return reply("deny", vec!["SandboxUnavailable".into()]),
+            SandboxBackend::Unavailable => Err(SandboxError::Unavailable),
         };
         match outcome {
-            Ok(_) => reply("permit", vec![]),
-            Err(reason) => reply("deny", vec![reason]),
+            Ok(execution_id) => reply_execute("permit", "executed", vec![], Some(execution_id)),
+            // Authorized, but nothing ran: a permit is not an execution.
+            Err(SandboxError::NotImplemented) => reply_execute(
+                "permit",
+                "authorized",
+                vec!["ExecutionNotImplemented".into()],
+                None,
+            ),
+            Err(SandboxError::NotAllowlisted) => {
+                reply_execute("deny", "denied", vec!["ToolNotAllowlisted".into()], None)
+            }
+            Err(SandboxError::Unavailable) => {
+                reply_execute("deny", "denied", vec!["SandboxUnavailable".into()], None)
+            }
         }
     }
 }

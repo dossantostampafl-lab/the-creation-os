@@ -1,5 +1,4 @@
 import inspect
-import os
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -7,7 +6,6 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from jose import jwt
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.api.security_task_force import get_adapter
 from app.config import settings
@@ -99,12 +97,9 @@ def test_chronicle_response_surfaces_task_force_correlation():
 
 
 @pytest.mark.integration
-async def test_http_routes_require_the_sovereign_creator_and_write_the_chronicle(tmp_path):
-    engine = create_async_engine(os.environ["DATABASE_URL"])
-    factory = async_sessionmaker(engine, expire_on_commit=False)
+async def test_http_routes_require_the_sovereign_creator_and_write_the_chronicle(tmp_path, stf_db):
+    _, factory = stf_db  # the guarded disposable database, already emptied; never DATABASE_URL
     creator_id, other_id = str(uuid.uuid4()), str(uuid.uuid4())
-    async with engine.begin() as connection:
-        await connection.execute(text("TRUNCATE chronicles, creator RESTART IDENTITY CASCADE"))
     async with factory() as session:
         session.add_all([Creator(id=creator_id, username="creator", password_hash="x", is_active=True),
                          Creator(id=other_id, username="other", password_hash="x", is_active=True)])
@@ -149,7 +144,6 @@ async def test_http_routes_require_the_sovereign_creator_and_write_the_chronicle
     finally:
         settings.sovereign_creator_id = previous
         app.dependency_overrides.clear()
-        await engine.dispose()
 
 
 def test_required_policy_engine_is_never_bypassed(monkeypatch):

@@ -21,6 +21,9 @@ jobs:
       CREATOR_BOOTSTRAP_PASSWORD: ci-password
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/the_creation_os
       REDIS_URL: redis://localhost:6379/0
+      # Disposable database for the Security Task Force integration tests; the guard refuses anything else.
+      STF_TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/test_stf_runtime
+      STF_REQUIRE_TEST_DATABASE: "1"
     services:
       postgres:
         image: pgvector/pgvector:pg16
@@ -62,13 +65,17 @@ jobs:
             exit 1
           fi
       - run: mypy app
-      - name: Verify Alembic fresh upgrade and 0010 roundtrip
+      - name: Verify Alembic fresh upgrade and 0010/0011 roundtrip
         run: |
           python -m alembic upgrade head
           python -m alembic downgrade 0009
           python -m alembic upgrade 0010
           python -m alembic downgrade 0009
           python -m alembic upgrade head
+          python -m alembic downgrade 0010_opportunity_economy
+          python -m alembic upgrade head
+      - name: Create the disposable Security Task Force test database
+        run: PGPASSWORD=postgres psql -h localhost -U postgres -c "CREATE DATABASE test_stf_runtime"
       - run: pytest
 
   frontend:

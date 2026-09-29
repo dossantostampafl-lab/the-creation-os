@@ -49,3 +49,17 @@ fn signature_detects_tampering() {
     e.target = "other-target".into();
     assert!(!signature::verify_signature(&e, b"test-key"));
 }
+
+#[test]
+fn adapters_without_a_real_integration_refuse_to_execute() {
+    use creation_security_gateway::sandbox::firecracker::FirecrackerSandbox;
+    use creation_security_gateway::sandbox::kata::KataSandbox;
+    use creation_security_gateway::sandbox::Sandbox;
+    // Presence of a backend flag does not make an execution: nothing is connected yet.
+    assert!(KataSandbox { available: true }
+        .execute_allowlisted("range.health.verify", "{}")
+        .is_err());
+    assert!(FirecrackerSandbox { available: true }
+        .execute_allowlisted("range.health.verify", "{}")
+        .is_err());
+}

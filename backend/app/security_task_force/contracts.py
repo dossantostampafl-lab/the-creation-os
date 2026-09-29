@@ -37,6 +37,8 @@ class MissionState(StrEnum):
     RUNNING = "RUNNING"
     AWAITING_CREATOR = "AWAITING_CREATOR"
     VERIFYING = "VERIFYING"
+    CANCELLING = "CANCELLING"
+    UNKNOWN = "UNKNOWN"
     COMPLETED = "COMPLETED"
     ABORTED = "ABORTED"
 
@@ -47,9 +49,14 @@ _TRANSITIONS: dict[MissionState, frozenset[MissionState]] = {
     MissionState.DRAFT: frozenset({MissionState.COMPILED, MissionState.ABORTED}),
     MissionState.COMPILED: frozenset({MissionState.AUTHORIZED, MissionState.ABORTED}),
     MissionState.AUTHORIZED: frozenset({MissionState.RUNNING, MissionState.ABORTED}),
-    MissionState.RUNNING: frozenset({MissionState.AWAITING_CREATOR, MissionState.VERIFYING, MissionState.ABORTED}),
-    MissionState.AWAITING_CREATOR: frozenset({MissionState.RUNNING, MissionState.ABORTED}),
-    MissionState.VERIFYING: frozenset({MissionState.COMPLETED, MissionState.ABORTED}),
+    MissionState.RUNNING: frozenset({MissionState.AWAITING_CREATOR, MissionState.VERIFYING, MissionState.CANCELLING,
+                                     MissionState.UNKNOWN, MissionState.ABORTED}),
+    MissionState.AWAITING_CREATOR: frozenset({MissionState.RUNNING, MissionState.CANCELLING, MissionState.ABORTED}),
+    MissionState.VERIFYING: frozenset({MissionState.COMPLETED, MissionState.CANCELLING, MissionState.UNKNOWN,
+                                       MissionState.ABORTED}),
+    # Cancelling ends only after reconciliation; an unknown outcome is resolved or aborted, never completed.
+    MissionState.CANCELLING: frozenset({MissionState.UNKNOWN, MissionState.ABORTED}),
+    MissionState.UNKNOWN: frozenset({MissionState.CANCELLING, MissionState.ABORTED}),
     MissionState.COMPLETED: frozenset(),
     MissionState.ABORTED: frozenset(),
 }

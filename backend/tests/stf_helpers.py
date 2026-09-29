@@ -23,7 +23,9 @@ def action(**overrides):
 
 class FakeGateway:
     def __init__(self, answer=None, fail=False):
-        self.calls, self.controls, self.answer, self.fail = [], [], answer or {"decision": "permit", "reasons": []}, fail
+        # The positive double says outright that the work ran and names it; production never assumes this.
+        default = {"decision": "permit", "status": "executed", "execution_id": "exec-1", "reasons": []}
+        self.calls, self.controls, self.answer, self.fail = [], [], answer or default, fail
 
     async def execute(self, envelope, requested):
         if self.fail:
@@ -36,11 +38,11 @@ class FakeGateway:
         return {"decision": "ok"}
 
 
-def make(tmp_path, gateway=None, policy=None):
+def make(tmp_path, gateway=None, policy=None, verify=lambda mission_id: True):
     contracts = ContractStore(tmp_path / "contracts.json")
     contracts.put(compile_verified_contract(intent="validate", candidate=CANDIDATE, authorized_environments=[RANGE]))
     deps = StfDependencies(
         contracts=contracts, grants=GrantStore(tmp_path / "grants.json"), kill_switch=KillSwitch(tmp_path / "kill.json"),
-        ledger=DispatchLedger(tmp_path / "ledger.json"), gateway=gateway or FakeGateway(), signing_key=b"k" * 40, policy=policy,
+        ledger=DispatchLedger(tmp_path / "ledger.json"), gateway=gateway or FakeGateway(), signing_key=b"k" * 40, policy=policy, verify=verify,
     )
     return StfActivities(deps), deps

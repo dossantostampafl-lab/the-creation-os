@@ -15,7 +15,7 @@ async def test_permitted_action_reaches_the_gateway_once_with_a_signed_envelope(
     assert decision["decision"] == "permit"
     first = await activities.dispatch_action(action(), decision)
     again = await activities.dispatch_action(action(), decision)
-    assert first == again == {"status": "executed", "reasons": []}
+    assert first == again == {"status": "executed", "execution_id": "exec-1", "reasons": []}
     assert len(deps.gateway.calls) == 1  # the duplicate key never repeats the external effect
     envelope, requested = deps.gateway.calls[0]
     assert envelope["environment"] == requested["environment"] == RANGE and len(envelope["signature"]) == 64
@@ -97,3 +97,54 @@ async def test_malformed_actions_are_rejected(tmp_path, bad):
     activities, _ = make(tmp_path)
     with pytest.raises(ValueError):
         await activities.authorize_action("m1", action(**bad), None)
+
+
+# --- Task 1: no success without proof ---------------------------------------------------------
+
+async def test_no_verifier_never_completes(tmp_path):
+    from app.security_task_force.activities import StfActivities, StfDependencies
+    from app.security_task_force.contract_store import ContractStore
+    from app.security_task_force.grants import GrantStore
+    from app.security_task_force.kill_switch import KillSwitch
+    from app.security_task_force.ledger import DispatchLedger
+
+    deps = StfDependencies(  # production shape: nobody supplied a verifier
+        contracts=ContractStore(tmp_path / "c.json"), grants=GrantStore(tmp_path / "g.json"),
+        kill_switch=KillSwitch(tmp_path / "k.json"), ledger=DispatchLedger(tmp_path / "l.json"),
+        gateway=FakeGateway(), signing_key=b"k" * 40,
+    )
+    assert await StfActivities(deps).verify_mission("m1") is False
+
+
+async def test_permit_is_not_execution(tmp_path):
+    gateway = FakeGateway(answer={"decision": "permit", "status": "authorized", "reasons": ["ExecutionNotImplemented"]})
+    activities, _ = make(tmp_path, gateway=gateway)
+    decision = await activities.authorize_action("m1", action(), None)
+    result = await activities.dispatch_action(action(), decision)
+    assert result["status"] != "executed"
+    assert result["status"] == "authorized"
+
+
+async def test_executed_needs_an_execution_id(tmp_path):
+    gateway = FakeGateway(answer={"decision": "permit", "status": "executed", "reasons": []})  # no execution_id
+    activities, _ = make(tmp_path, gateway=gateway)
+    decision = await activities.authorize_action("m1", action(), None)
+    assert (await activities.dispatch_action(action(), decision))["status"] != "executed"
+
+
+async def test_timeout_after_send_is_unknown(tmp_path):
+    from app.security_task_force.gateway_client import GatewayOutcomeUnknown
+
+    class LostAnswer(FakeGateway):
+        async def execute(self, envelope, requested):
+            self.calls.append((envelope, requested))  # the request left this process
+            raise GatewayOutcomeUnknown("timeout waiting for the answer")
+
+    gateway = LostAnswer()
+    activities, deps = make(tmp_path, gateway=gateway)
+    decision = await activities.authorize_action("m1", action(), None)
+    result = await activities.dispatch_action(action(), decision)
+    assert result["status"] == "unknown"
+    # An unknown outcome is never sent a second time on its own.
+    again = await activities.dispatch_action(action(), decision)
+    assert again["status"] == "unknown" and len(gateway.calls) == 1

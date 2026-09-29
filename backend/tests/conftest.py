@@ -6,3 +6,7 @@ os.environ.setdefault("CREATOR_BOOTSTRAP_USERNAME", "creator")
 os.environ.setdefault("CREATOR_BOOTSTRAP_PASSWORD", "test-password")
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/the_creation_os")
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
+
+
+# The guarded disposable-database fixture for Security Task Force integration tests.
+from stf_database import stf_db  # noqa: E402,F401
