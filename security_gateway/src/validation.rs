@@ -1,9 +1,11 @@
 use std::collections::{HashMap, HashSet};
+use std::io;
 
 use subtle::ConstantTimeEq;
 
 use crate::authority::{AuthorityCheck, DenyAuthority};
 use crate::contracts::{ExecutionEnvelope, RequestedAction};
+use crate::journal::{BeginExecution, ExecutionJournal, JournalOutcome, MemoryExecutionJournal};
 use crate::replay::ReplayStore;
 use crate::signature;
 
@@ -42,6 +44,7 @@ pub struct GatewayState {
     pub allowed_environment_prefixes: Vec<String>,
     pub replay: Box<dyn ReplayStore>,
     authority: Box<dyn AuthorityCheck>,
+    execution_journal: Box<dyn ExecutionJournal>,
     control_token: Option<Vec<u8>>,
 }
 
@@ -55,6 +58,7 @@ impl GatewayState {
             allowed_environment_prefixes,
             replay,
             authority: Box::new(DenyAuthority),
+            execution_journal: Box::new(MemoryExecutionJournal::default()),
             control_token: None,
         }
     }
@@ -66,6 +70,23 @@ impl GatewayState {
 
     pub fn claim_authority(&self, envelope: &ExecutionEnvelope) -> Result<(), String> {
         self.authority.claim(envelope)
+    }
+
+    pub fn with_execution_journal(mut self, journal: Box<dyn ExecutionJournal>) -> Self {
+        self.execution_journal = journal;
+        self
+    }
+
+    pub fn begin_execution(&mut self, execution_id: &str) -> io::Result<BeginExecution> {
+        self.execution_journal.begin(execution_id)
+    }
+
+    pub fn finish_execution(
+        &mut self,
+        execution_id: &str,
+        outcome: JournalOutcome,
+    ) -> io::Result<()> {
+        self.execution_journal.finish(execution_id, outcome)
     }
 
     pub fn with_control_token(mut self, token: impl Into<Vec<u8>>) -> Self {
