@@ -13,6 +13,7 @@ import pytest
 
 GATEWAY_DIR = Path(__file__).resolve().parents[2] / "security_gateway"
 KEY = "k" * 40
+CONTROL_TOKEN = "c" * 40
 
 
 def _require(message: str) -> None:
@@ -37,17 +38,33 @@ def free_port() -> int:
 
 
 class GatewayProcess:
-    def __init__(self, binary: Path, state_dir: Path, *, port: int | None = None, kata: bool = True,
-                 allowed: str = "cyber_range:") -> None:
+    def __init__(
+        self,
+        binary: Path,
+        state_dir: Path,
+        *,
+        port: int | None = None,
+        kata: bool = True,
+        allowed: str = "cyber_range:",
+    ) -> None:
         self.port = port or free_port()
-        self._env = {**os.environ, "STF_GATEWAY_ADDR": f"127.0.0.1:{self.port}", "STF_GATEWAY_SIGNING_KEY": KEY,
-                     "STF_GATEWAY_STATE_DIR": str(state_dir), "STF_ALLOWED_ENVIRONMENTS": allowed,
-                     "STF_KATA_AVAILABLE": "1" if kata else "0", "STF_SANDBOX_BACKEND": "auto"}
+        self._env = {
+            **os.environ,
+            "STF_GATEWAY_ADDR": f"127.0.0.1:{self.port}",
+            "STF_GATEWAY_SIGNING_KEY": KEY,
+            "STF_GATEWAY_CONTROL_TOKEN": CONTROL_TOKEN,
+            "STF_GATEWAY_STATE_DIR": str(state_dir),
+            "STF_ALLOWED_ENVIRONMENTS": allowed,
+            "STF_KATA_AVAILABLE": "1" if kata else "0",
+            "STF_SANDBOX_BACKEND": "auto",
+        }
         self._binary = binary
         self._process: subprocess.Popen | None = None
 
     def start(self) -> "GatewayProcess":
-        self._process = subprocess.Popen([str(self._binary)], env=self._env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self._process = subprocess.Popen(
+            [str(self._binary)], env=self._env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
         for _ in range(100):
             try:
                 socket.create_connection(("127.0.0.1", self.port), timeout=0.1).close()
