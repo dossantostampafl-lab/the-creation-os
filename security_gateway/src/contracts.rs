@@ -2,6 +2,11 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutionEnvelope {
+    pub protocol_version: u8,
+    pub run_id: String,
+    pub execution_id: String,
+    pub contract_hash: String,
+    pub plan_hash: String,
     pub mission_id: String,
     pub mission_version: u64,
     pub action_id: String,
@@ -17,6 +22,7 @@ pub struct ExecutionEnvelope {
     pub expires_unix: i64,
     pub nonce: String,
     pub parameters_hash: String,
+    pub tool_id: String,
     pub signature: String,
 }
 
