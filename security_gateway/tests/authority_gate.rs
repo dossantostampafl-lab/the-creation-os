@@ -65,13 +65,17 @@ fn requested() -> RequestedAction {
 }
 
 fn line() -> String {
-    serde_json::json!({"op": "execute", "envelope": envelope(), "requested": requested()}).to_string()
+    serde_json::json!({"op": "execute", "envelope": envelope(), "requested": requested()})
+        .to_string()
 }
 
 fn gateway(authority: Box<dyn AuthorityCheck>) -> Gateway {
     Gateway {
-        state: GatewayState::new(Box::new(ReplayGuard::default()), vec!["cyber_range:".into()])
-            .with_authority(authority),
+        state: GatewayState::new(
+            Box::new(ReplayGuard::default()),
+            vec!["cyber_range:".into()],
+        )
+        .with_authority(authority),
         backend: SandboxBackend::Kata,
         key: KEY.to_vec(),
     }
