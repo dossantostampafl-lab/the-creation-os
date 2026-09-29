@@ -251,8 +251,7 @@ fn a_permit_is_authorization_not_execution() {
     let line =
         serde_json::json!({"op": "execute", "envelope": envelope(), "requested": requested()})
             .to_string();
-    let reply: serde_json::Value =
-        serde_json::from_str(&gateway.handle_line(&line, 100)).unwrap();
+    let reply: serde_json::Value = serde_json::from_str(&gateway.handle_line(&line, 100)).unwrap();
     assert_eq!(reply["decision"], "permit");
     assert_eq!(reply["status"], "authorized");
     assert!(
@@ -273,8 +272,7 @@ fn every_reply_to_an_execute_carries_a_status() {
     let line =
         serde_json::json!({"op": "execute", "envelope": envelope(), "requested": requested()})
             .to_string();
-    let reply: serde_json::Value =
-        serde_json::from_str(&gateway.handle_line(&line, 100)).unwrap();
+    let reply: serde_json::Value = serde_json::from_str(&gateway.handle_line(&line, 100)).unwrap();
     assert_eq!(reply["decision"], "deny");
     assert_eq!(reply["status"], "denied");
 }
