@@ -44,7 +44,10 @@ fn requested() -> RequestedAction {
 }
 
 fn state() -> GatewayState {
-    GatewayState::new(Box::new(ReplayGuard::default()), vec!["cyber_range:".into()])
+    GatewayState::new(
+        Box::new(ReplayGuard::default()),
+        vec!["cyber_range:".into()],
+    )
 }
 
 #[test]
@@ -53,8 +56,14 @@ fn envelope_serializes_the_protocol_v2_runtime_binding() {
     assert_eq!(value["protocol_version"], 2);
     assert_eq!(value["run_id"], "run-1");
     assert_eq!(value["execution_id"], "exec-1");
-    assert_eq!(value["contract_hash"], "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc");
-    assert_eq!(value["plan_hash"], "pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp");
+    assert_eq!(
+        value["contract_hash"],
+        "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    );
+    assert_eq!(
+        value["plan_hash"],
+        "pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp"
+    );
     assert_eq!(value["tool_id"], "range.health.verify");
 }
 
@@ -62,12 +71,19 @@ fn envelope_serializes_the_protocol_v2_runtime_binding() {
 fn changing_the_effective_tool_is_never_permitted() {
     let mut request = requested();
     request.tool_id = "range.health.verify.other".into();
-    assert_ne!(evaluate(&mut state(), &envelope(), &request, KEY, 100), GatewayDecision::Permit);
+    assert_ne!(
+        evaluate(&mut state(), &envelope(), &request, KEY, 100),
+        GatewayDecision::Permit
+    );
 }
 
 #[test]
 fn unauthenticated_control_messages_fail_closed() {
-    let mut gateway = Gateway { state: state(), backend: SandboxBackend::Unavailable, key: KEY.to_vec() };
+    let mut gateway = Gateway {
+        state: state(),
+        backend: SandboxBackend::Unavailable,
+        key: KEY.to_vec(),
+    };
     let reply = gateway.handle_line(r#"{"op":"kill","mission_id":"m1"}"#, 100);
     assert!(reply.contains("deny"));
     assert!(reply.contains("control_auth_required"));
