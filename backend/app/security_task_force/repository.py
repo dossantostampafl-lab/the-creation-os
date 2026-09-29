@@ -170,6 +170,107 @@ class StfRepository:
         })
         return DispatchReceipt("authorized", dispatch.execution_id, [])
 
+    async def claim_execution(
+        self, *, execution_id: str, run_id: str, contract_hash: str, plan_hash: str,
+        tool_id: str, parameters_hash: str,
+    ) -> DispatchReceipt:
+        """Revalidate persisted authority immediately before the gateway performs any effect.
+
+        Reserving a dispatch spends the grant budget but is not permission to execute forever. This claim locks
+        the run, dispatch and grant, then checks cancellation/revocation/expiry plus every runtime binding again.
+        No grant budget is consumed a second time.
+        """
+        run = await self._lock_run(run_id)
+        if run is None:
+            return DispatchReceipt("denied", None, ["run_unknown"])
+
+        dispatch = await self.session.scalar(
+            select(StfDispatch).where(
+                StfDispatch.execution_id == execution_id, StfDispatch.run_id == run_id,
+            ).with_for_update()
+        )
+        if dispatch is None:
+            await self._audit("stf.dispatch.claim_denied", run_id, {
+                "run_id": run_id, "execution_id": execution_id, "reason_codes": ["dispatch_unknown"],
+            })
+            return DispatchReceipt("denied", None, ["dispatch_unknown"])
+
+        async def refuse(reason: str) -> DispatchReceipt:
+            await self._audit("stf.dispatch.claim_denied", run_id, {
+                "run_id": run_id, "execution_id": execution_id, "action_id": dispatch.action_id,
+                "reason_codes": [reason],
+            })
+            return DispatchReceipt("denied", execution_id, [reason])
+
+        if run.desired_state == "CANCEL" or run.state in TERMINAL_RUN_STATES:
+            return await refuse("run_cancelled")
+        if dispatch.status not in ("authorized", "dispatched"):
+            return await refuse("dispatch_not_claimable")
+        if run.plan_hash != plan_hash or run.plan_hash != canonical_hash(run.plan_json):
+            return await refuse("plan_hash_mismatch")
+
+        contract = await self.session.scalar(
+            select(StfContract).where(
+                StfContract.creator_id == run.creator_id,
+                StfContract.mission_id == run.mission_id,
+                StfContract.mission_version == run.mission_version,
+            )
+        )
+        if contract is None or contract.contract_hash != contract_hash:
+            return await refuse("contract_hash_mismatch")
+
+        action_json = next(
+            (item for item in run.plan_json if isinstance(item, dict) and item.get("action_id") == dispatch.action_id),
+            None,
+        )
+        if action_json is None:
+            return await refuse("action_missing_from_plan")
+        try:
+            action = ActionRequest.model_validate(action_json)
+        except ValueError:
+            return await refuse("action_invalid")
+        if dispatch.request_hash != canonical_hash(action.model_dump(mode="json")):
+            return await refuse("dispatch_request_mismatch")
+        if action.capability != "range.health.verify" or tool_id != action.capability:
+            return await refuse("tool_mismatch")
+        if canonical_hash(action.parameters) != parameters_hash:
+            return await refuse("parameters_hash_mismatch")
+
+        grant = await self.session.scalar(
+            select(StfGrant).where(
+                StfGrant.grant_id == dispatch.grant_id, StfGrant.run_id == run_id,
+            ).with_for_update()
+        )
+        if grant is None:
+            return await refuse("grant_missing")
+        if grant.revoked:
+            return await refuse("grant_revoked")
+        if grant.expires_at <= datetime.now(timezone.utc):
+            return await refuse("grant_expired")
+        if grant.invocations < 1 or grant.invocations > grant.max_invocations:
+            return await refuse("grant_budget_invalid")
+        if (
+            grant.mission_id != action.mission_id
+            or grant.mission_version != action.mission_version
+            or grant.actor != action.actor
+            or grant.capability != action.capability
+            or grant.target_id != action.target_id
+            or grant.environment_id != action.environment_id
+            or grant.action_class != action.action_class
+        ):
+            return await refuse("grant_mismatch")
+
+        if dispatch.status == "authorized":
+            dispatch.status = "dispatched"
+            dispatch.reason_codes = []
+            dispatch.updated_at = datetime.now(timezone.utc)
+            await self._audit("stf.dispatch.claimed", run_id, {
+                "run_id": run_id, "execution_id": execution_id, "action_id": dispatch.action_id,
+                "grant_id": dispatch.grant_id, "tool_id": tool_id,
+            })
+            await self.session.flush()
+        return DispatchReceipt("dispatched", execution_id, [])
+
     async def record_outcome(self, execution_id: str, status: str, reason_codes: list[str] | None = None,
                              evidence_id: str | None = None) -> None:
         values: dict = {"status": status, "reason_codes": reason_codes or [], "updated_at": datetime.now(timezone.utc)}
