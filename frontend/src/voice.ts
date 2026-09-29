@@ -196,6 +196,9 @@ export function useDeusVoice() {
   const [speaking, setSpeaking] = useState(false);
   const voices = useRef<SpeechSynthesisVoice[]>([]);
   const current = useRef<{ stop: () => void } | null>(null);
+  // Wake acknowledgements never set `speaking`, but stop() still needs an independent handle
+  // so a Creator command can cancel them without interfering with the main reply queue.
+  const acknowledgement = useRef<{ stop: () => void } | null>(null);
   // Each speak() is a new turn; callbacks from an interrupted turn must not touch the current one.
   const turn = useRef(0);
   const enabledRef = useRef(enabled);
@@ -210,6 +213,8 @@ export function useDeusVoice() {
   }, [browserVoice]);
 
   useEffect(() => () => {
+    acknowledgement.current?.stop();
+    acknowledgement.current = null;
     current.current?.stop();
     current.current = null;
     if (browserVoice) window.speechSynthesis.cancel();
@@ -218,6 +223,8 @@ export function useDeusVoice() {
 
   const stop = useCallback(() => {
     turn.current += 1;
+    acknowledgement.current?.stop();
+    acknowledgement.current = null;
     current.current?.stop();
     current.current = null;
     if (browserVoice) window.speechSynthesis.cancel();
@@ -382,14 +389,53 @@ export function useDeusVoice() {
 
   const acknowledge = useCallback((text: string, handlers: SpeakHandlers = {}) => {
     const content = speakable(text);
-    stop();
     if (!enabledRef.current || !content) {
       handlers.onEnd?.();
       return;
     }
-    // Wake acknowledgements must be immediate: never wait on a network TTS round trip.
-    speakWithBrowser(content, handlers);
-  }, [speakWithBrowser, stop]);
+    // Keep the wake acknowledgement outside `speaking` so the ears stay armed, while retaining
+    // a dedicated cancellation handle. A command can therefore barge in without “Estou aqui”
+    // overlapping the command or the reply that follows.
+    acknowledgement.current?.stop();
+    const controller = new AbortController();
+    let audio: HTMLAudioElement | null = null;
+    let url = "";
+    let finished = false;
+    let handle: { stop: () => void };
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      if (url) URL.revokeObjectURL(url);
+      if (acknowledgement.current === handle) acknowledgement.current = null;
+      handlers.onEnd?.();
+    };
+    handle = {
+      stop: () => {
+        if (finished) return;
+        controller.abort();
+        audio?.pause();
+        finish();
+      },
+    };
+    acknowledgement.current = handle;
+    const cached = phraseCache.get(content);
+    const pending = cached ? Promise.resolve(cached) : synthesizeVoice(content, controller.signal).then((blob) => {
+      if (content.length < 80) phraseCache.set(content, blob);
+      return blob;
+    });
+    void pending.then((blob) => {
+      if (finished) return;
+      url = URL.createObjectURL(blob);
+      audio = new Audio(url);
+      audio.onended = finish;
+      audio.onerror = finish;
+      handlers.onStart?.();
+      void audio.play().catch(finish);
+    }).catch((failure: unknown) => {
+      if (finished || (failure instanceof DOMException && failure.name === "AbortError")) return;
+      finish();
+    });
+  }, []);
 
   return { supported, enabled, speaking, toggle, speak, acknowledge, stop };
 }
@@ -571,15 +617,11 @@ export function useDeusEars({ paused, conversing = false, onWake, onCommand, onI
     });
   }
 
-  async function maybeImproveTranscript(browserText: string, averageConfidence: number | null): Promise<string> {
-    // Confidence 0/undefined is common on Chromium and does not mean "bad". Only pay the
-    // network/STT latency when the recognizer explicitly reports low confidence.
-    if (averageConfidence === null || averageConfidence >= 0.72 || Date.now() < transcriptionRetryAt.current) {
-      void finishCapture();
-      return browserText;
-    }
+  async function maybeImproveTranscript(browserText: string, _averageConfidence: number | null): Promise<string> {
+    // Once DEUS is attentive, captured audio is authoritative. Chromium confidence is too
+    // inconsistent to decide whether the high-quality server STT should run.
     const audio = await finishCapture();
-    if (!audio || audio.size < 400) return browserText;
+    if (!audio || audio.size < 400 || Date.now() < transcriptionRetryAt.current) return browserText;
     try {
       const improved = await transcribeVoice(audio);
       return improved.text.trim() || browserText;

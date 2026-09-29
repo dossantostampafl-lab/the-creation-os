@@ -125,6 +125,17 @@ async function mockConversation(page: import("@playwright/test").Page, sent: str
 
 const spokenLines = (page: import("@playwright/test").Page) => page.evaluate(() => (window as unknown as { __spoken: string[] }).__spoken);
 
+async function mockPremiumAcknowledgements(page: import("@playwright/test").Page, synthesized: string[]) {
+  await page.route("**/api/v1/voice/synthesize", (route) => {
+    const text = (route.request().postDataJSON() as { text: string }).text;
+    if (text === "Estou aqui." || text === "Um momento.") {
+      synthesized.push(text);
+      return route.fulfill({ status: 200, contentType: "audio/mpeg", body: Buffer.from("ID3-ack") });
+    }
+    return route.fulfill({ status: 501, contentType: "application/json", body: "{}" });
+  });
+}
+
 test("wake word is enabled by default for a fresh Creator session", async ({ page }) => {
   await installFakeSpeech(page, "unset");
   await mockDashboard(page);
@@ -216,7 +227,8 @@ test("DEUS speaks with the ElevenLabs voice through the backend when it is confi
 test("saying “Deus” wakes DEUS, which answers and then hears the request", async ({ page }) => {
   await installFakeSpeech(page);
   await mockDashboard(page);
-  await page.route("**/api/v1/voice/synthesize", (route) => route.fulfill({ status: 501, body: "{}" }));
+  const acknowledgements: string[] = [];
+  await mockPremiumAcknowledgements(page, acknowledgements);
   const sent: string[] = [];
   await mockConversation(page, sent);
 
@@ -225,11 +237,12 @@ test("saying “Deus” wakes DEUS, which answers and then hears the request", a
   await expect(page.getByText("Diga “Deus” para chamar")).toBeVisible();
 
   await expect.poll(() => page.evaluate(() => (window as unknown as { __say: (t: string) => boolean }).__say("Deus"))).toBe(true);
-  await expect.poll(() => spokenLines(page)).toEqual(["Estou aqui."]);
+  await expect.poll(() => acknowledgements).toEqual(["Estou aqui."]);
+  expect(await spokenLines(page)).toEqual([]);
 
   await expect.poll(() => page.evaluate(() => (window as unknown as { __say: (t: string) => boolean }).__say("Status report"))).toBe(true);
   await expect.poll(() => sent).toEqual(["Status report"]);
-  await expect.poll(() => spokenLines(page)).toEqual(["Estou aqui.", "All universes are breathing."]);
+  await expect.poll(() => spokenLines(page)).toEqual(["All universes are breathing."]);
 });
 
 test("“Deus, <request>” in one breath goes straight to DEUS and ignores other speech", async ({ page }) => {
@@ -253,7 +266,8 @@ test("“Deus, <request>” in one breath goes straight to DEUS and ignores othe
 test("common transcriptions of “Deus” wake DEUS, ordinary words do not", async ({ page }) => {
   await installFakeSpeech(page);
   await mockDashboard(page);
-  await page.route("**/api/v1/voice/synthesize", (route) => route.fulfill({ status: 501, body: "{}" }));
+  const acknowledgements: string[] = [];
+  await mockPremiumAcknowledgements(page, acknowledgements);
   const sent: string[] = [];
   await mockConversation(page, sent);
 
@@ -275,7 +289,8 @@ test("common transcriptions of “Deus” wake DEUS, ordinary words do not", asy
   await expect.poll(() => say("tchau")).toBe(true);
   await expect.poll(() => spokenLines(page)).toContain("Até logo.");
   await expect.poll(() => say("dê us")).toBe(true);
-  await expect.poll(() => spokenLines(page)).toEqual(["All universes are breathing.", "Até logo.", "Estou aqui."]);
+  await expect.poll(() => acknowledgements).toEqual(["Estou aqui."]);
+  await expect.poll(() => spokenLines(page)).toEqual(["All universes are breathing.", "Até logo."]);
 });
 
 test("ElevenLabs voices a reply sentence by sentence", async ({ page }) => {
@@ -318,7 +333,8 @@ test("ElevenLabs voices a reply sentence by sentence", async ({ page }) => {
 test("a slow answer in a voice conversation is acknowledged with “Um momento”", async ({ page }) => {
   await installFakeSpeech(page);
   await mockDashboard(page);
-  await page.route("**/api/v1/voice/synthesize", (route) => route.fulfill({ status: 501, body: "{}" }));
+  const acknowledgements: string[] = [];
+  await mockPremiumAcknowledgements(page, acknowledgements);
   const sent: string[] = [];
   await mockConversation(page, sent);
   await page.route("**/api/v1/conversations/conversation-1/deus", async (route) => {
@@ -334,8 +350,9 @@ test("a slow answer in a voice conversation is acknowledged with “Um momento�
   await page.getByRole("button", { name: "Turn on “Deus” wake word" }).click();
   await expect.poll(() => say(page, "Deus, como estão os universos?")).toBe(true);
   await expect.poll(() => sent).toEqual(["como estão os universos?"]);
+  await expect.poll(() => acknowledgements, { timeout: 10_000 }).toEqual(["Um momento."]);
   await expect.poll(() => spokenLines(page), { timeout: 10_000 })
-    .toEqual(["Um momento.", "Todos os universos estão prontos."]);
+    .toEqual(["Todos os universos estão prontos."]);
 });
 
 test("a slow answer to a typed message is not acknowledged aloud", async ({ page }) => {
@@ -408,7 +425,8 @@ test("typing while DEUS listens keeps the typed text and ends listening", async 
 test("after “Deus” the conversation continues without the wake word until goodbye", async ({ page }) => {
   await installFakeSpeech(page);
   await mockDashboard(page);
-  await page.route("**/api/v1/voice/synthesize", (route) => route.fulfill({ status: 501, body: "{}" }));
+  const acknowledgements: string[] = [];
+  await mockPremiumAcknowledgements(page, acknowledgements);
   const sent: string[] = [];
   await mockConversation(page, sent);
   const say = (text: string) => page.evaluate((t) => (window as unknown as { __say: (t: string) => boolean }).__say(t), text);
@@ -417,19 +435,20 @@ test("after “Deus” the conversation continues without the wake word until go
   await page.getByRole("button", { name: "Turn on “Deus” wake word" }).click();
 
   await expect.poll(() => say("Deus")).toBe(true);
-  await expect.poll(() => spokenLines(page)).toEqual(["Estou aqui."]);
+  await expect.poll(() => acknowledgements).toEqual(["Estou aqui."]);
+  expect(await spokenLines(page)).toEqual([]);
   await expect.poll(() => say("Status report")).toBe(true);
   await expect.poll(() => sent).toEqual(["Status report"]);
   await expect(page.getByText("Em conversa — diga “tchau” para encerrar")).toBeVisible();
 
   // No wake word needed for the follow-up.
-  await expect.poll(() => spokenLines(page)).toHaveLength(2);
+  await expect.poll(() => spokenLines(page)).toHaveLength(1);
   await expect.poll(() => say("And the missions?")).toBe(true);
   await expect.poll(() => sent).toEqual(["Status report", "And the missions?"]);
 
-  await expect.poll(() => spokenLines(page)).toHaveLength(3);
+  await expect.poll(() => spokenLines(page)).toHaveLength(2);
   await expect.poll(() => say("tchau")).toBe(true);
-  await expect.poll(() => spokenLines(page)).toEqual(["Estou aqui.", "All universes are breathing.", "All universes are breathing.", "Até logo."]);
+  await expect.poll(() => spokenLines(page)).toEqual(["All universes are breathing.", "All universes are breathing.", "Até logo."]);
   expect(sent).toEqual(["Status report", "And the missions?"]);
   await expect(page.getByText("Diga “Deus” para chamar")).toBeVisible();
 });

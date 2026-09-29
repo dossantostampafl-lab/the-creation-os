@@ -77,9 +77,10 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
     conversing: inConversation,
     onWake: () => {
       setConversing(true);
-      // The wake acknowledgement is part of DEUS's identity too. Use the configured
-      // ElevenLabs path instead of silently switching to an arbitrary browser voice.
-      voice.speak(voiceText.greeting(), { onEnd: () => { if (conversing.current) ears.summon(); } });
+      // Arm capture before acknowledging the wake word. The greeting is non-gating and keeps
+      // DEUS's configured premium voice without closing the ears.
+      ears.summon();
+      voice.acknowledge(voiceText.greeting());
     },
     onCommand: (text) => {
       setConversing(true);
