@@ -31,6 +31,7 @@ async function installVoiceFakes(page: import("@playwright/test").Page, wakeEnab
     type TestScope = Window & {
       __recognizer?: FakeRecognition;
       __say?: (text: string, confidence?: number) => boolean;
+      __sayInterim?: (text: string, confidence?: number) => boolean;
       __recorderStarted?: boolean;
       __audioPlaying?: boolean;
       __audioPauses?: number;
@@ -96,6 +97,14 @@ async function installVoiceFakes(page: import("@playwright/test").Page, wakeEnab
       return true;
     };
 
+    scope.__sayInterim = (text: string, confidence = 0.99) => {
+      const recognition = scope.__recognizer;
+      if (!recognition?.running) return false;
+      const result = Object.assign([{ transcript: text, confidence }], { isFinal: false });
+      recognition.onresult?.({ resultIndex: 0, results: [result] });
+      return true;
+    };
+
     class FakeAudio {
       onended: (() => void) | null = null;
       onerror: (() => void) | null = null;
@@ -129,6 +138,22 @@ async function routeVoiceTurn(page: import("@playwright/test").Page, serverText 
   await page.route("**/api/v1/voice/synthesize", (route) => route.fulfill({ status: 200, contentType: "audio/mpeg", body: Buffer.from("ID3-fake") }));
   return { sttCalls: () => sttCalls, deusBodies };
 }
+
+test("wake hypothesis primes recorder before the final recognition result", async ({ page }) => {
+  await installVoiceFakes(page, true);
+  await mockDashboard(page);
+  await routeVoiceTurn(page);
+
+  await page.goto("/");
+  await expect.poll(() => page.evaluate(() =>
+    (window as Window & { __sayInterim?: (text: string, confidence?: number) => boolean })
+      .__sayInterim?.("Deus", 0.99) ?? false
+  )).toBe(true);
+
+  await expect.poll(() => page.evaluate(() =>
+    Boolean((window as Window & { __recorderStarted?: boolean }).__recorderStarted)
+  )).toBe(true);
+});
 
 test("active voice turn uses server STT even when browser confidence is high", async ({ page }) => {
   await installVoiceFakes(page, false);
