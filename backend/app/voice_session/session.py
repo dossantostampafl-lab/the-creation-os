@@ -245,6 +245,13 @@ class VoiceSessionGateway:
         self,
     ) -> AsyncIterator[dict[str, object]]:
         transcript = await self.stt.receive_transcript()
+        async for event in self.process_transcript(transcript):
+            yield event
+
+    async def process_transcript(
+        self,
+        transcript: STTTranscript,
+    ) -> AsyncIterator[dict[str, object]]:
         decision = self.session.on_transcript(transcript)
 
         if decision.wake_detected:
