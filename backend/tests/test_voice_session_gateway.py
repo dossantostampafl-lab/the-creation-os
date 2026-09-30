@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic.v1 import SecretStr
 from starlette.websockets import WebSocketDisconnect
 
 from app.api import voice_session as voice_session_api
@@ -30,6 +31,21 @@ class FakeRealtimeSTT:
 
     async def receive_transcript(self) -> STTTranscript:
         return self.transcripts.pop(0)
+
+
+class HangingRealtimeSTT:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_args):
+        return None
+
+    async def send_audio(self, audio: bytes, *, commit: bool = False) -> None:
+        return None
+
+    async def receive_transcript(self) -> STTTranscript:
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable")
 
 
 class StubStreamingProvider:
@@ -102,9 +118,55 @@ def voice_client(monkeypatch):
     async def fake_consume_ticket(ticket: str) -> str | None:
         return "creator-1" if ticket == "ticket-1" else None
 
+    class FakeDbContext:
+        async def __aenter__(self):
+            return object()
+
+        async def __aexit__(self, *_args):
+            return None
+
+    class FakeBridge:
+        async def validate(self) -> None:
+            return None
+
+        async def build_request(self, command: str, turn_id: int) -> InferenceRequest:
+            return InferenceRequest(messages=[{"role": "user", "content": command}])
+
+        async def complete_turn(self, turn_id: int, text: str, provider: str) -> None:
+            return None
+
     app.dependency_overrides[get_sovereign_creator] = fake_creator
     monkeypatch.setattr(voice_session_api, "issue_voice_ticket", fake_issue_ticket)
     monkeypatch.setattr(voice_session_api, "consume_voice_ticket", fake_consume_ticket)
+    monkeypatch.setattr(voice_session_api, "AsyncSessionLocal", lambda: FakeDbContext())
+    monkeypatch.setattr(
+        voice_session_api,
+        "VoiceConversationBridge",
+        lambda *_args, **_kwargs: FakeBridge(),
+    )
+    monkeypatch.setattr(
+        voice_session_api,
+        "build_primary_provider",
+        lambda: StubStreamingProvider("freellmapi", []),
+    )
+    monkeypatch.setattr(
+        voice_session_api,
+        "build_klaus_provider",
+        lambda: StubStreamingProvider("klaus", []),
+    )
+    monkeypatch.setattr(
+        voice_session_api,
+        "ElevenLabsRealtimeSTT",
+        lambda *_args, **_kwargs: HangingRealtimeSTT(),
+    )
+    monkeypatch.setattr(voice_session_api.settings, "deus_voice_session_enabled", True)
+    monkeypatch.setattr(voice_session_api.settings, "elevenlabs_enabled", True)
+    monkeypatch.setattr(
+        voice_session_api.settings,
+        "elevenlabs_api_key",
+        SecretStr("test-secret"),
+    )
+
     with TestClient(app) as client:
         yield client
     app.dependency_overrides.clear()
@@ -118,7 +180,7 @@ def test_sovereign_creator_can_issue_ephemeral_voice_ticket(voice_client: TestCl
 
 
 def test_websocket_consumes_ticket_and_announces_armed_session(voice_client: TestClient):
-    with voice_client.websocket_connect("/api/v1/voice/session?ticket=ticket-1") as websocket:
+    with voice_client.websocket_connect("/api/v1/voice/session?ticket=ticket-1&conversation_id=conversation-1") as websocket:
         ready = websocket.receive_json()
 
     assert ready["type"] == "session_ready"
@@ -130,7 +192,7 @@ def test_websocket_consumes_ticket_and_announces_armed_session(voice_client: Tes
 
 def test_websocket_rejects_invalid_ticket(voice_client: TestClient):
     with pytest.raises(WebSocketDisconnect) as denied:
-        with voice_client.websocket_connect("/api/v1/voice/session?ticket=bad-ticket") as websocket:
+        with voice_client.websocket_connect("/api/v1/voice/session?ticket=bad-ticket&conversation_id=conversation-1") as websocket:
             websocket.receive_json()
 
     assert denied.value.code == 4401
