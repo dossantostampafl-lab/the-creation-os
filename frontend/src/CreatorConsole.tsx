@@ -25,7 +25,7 @@ type Props = {
 };
 
 const CONVERSATION_KEY = "creation_conversation_id";
-const ACKNOWLEDGE_AFTER_MS = 1500;
+const ACKNOWLEDGE_AFTER_MS = 800;
 
 type Entry = { kind: "message"; at: string; message: ConversationMessage } | { kind: "proposal"; at: string; proposal: Proposal };
 
