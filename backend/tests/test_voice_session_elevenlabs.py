@@ -66,7 +66,7 @@ def test_tts_config_uses_stream_input_existing_voice_and_portuguese():
     assert parsed.path == "/v1/text-to-speech/voice-123/stream-input"
     assert query["model_id"] == ["eleven_flash_v2_5"]
     assert query["language_code"] == ["pt"]
-    assert query["output_format"] == ["mp3_22050_32"]
+    assert query["output_format"] == ["pcm_24000"]
     assert config.headers == {"xi-api-key": "secret-value"}
 
 
