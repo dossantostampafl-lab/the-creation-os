@@ -15,7 +15,7 @@ class ElevenLabsTTSConfig:
     voice_id: str
     model_id: str = "eleven_flash_v2_5"
     language_code: str = "pt"
-    output_format: str = "mp3_22050_32"
+    output_format: str = "pcm_24000"
 
     @property
     def url(self) -> str:
