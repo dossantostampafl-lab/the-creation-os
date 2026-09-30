@@ -3,7 +3,6 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 
 import pytest
-
 from app.voice_session.protocol import parse_client_event
 from app.voice_session.tickets import consume_voice_ticket, issue_voice_ticket
 
