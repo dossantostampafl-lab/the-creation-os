@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -217,16 +218,20 @@ class VoiceSessionGateway:
     ) -> None:
         await self.stt.send_audio(audio, commit=commit)
 
-    async def _emit_audio(
+    def _audio_event(
         self,
-        tts: RealtimeTTS,
+        audio: bytes,
         *,
         turn_id: int,
         metrics: VoiceTurnMetrics,
         speaking: bool,
     ) -> tuple[dict[str, object] | None, bool]:
-        audio = await tts.receive_audio()
-        if not audio or turn_id != self.session.turn_id:
+        if (
+            not audio
+            or turn_id != self.session.turn_id
+            or self.session.state
+            not in {SessionState.THINKING, SessionState.SPEAKING}
+        ):
             return None, speaking
         if not speaking:
             speaking = self.session.mark_speaking(turn_id)
@@ -240,6 +245,20 @@ class VoiceSessionGateway:
             },
             speaking,
         )
+
+    async def _read_tts_audio(
+        self,
+        tts: RealtimeTTS,
+        queue: asyncio.Queue[bytes | None | BaseException],
+    ) -> None:
+        try:
+            while True:
+                audio = await tts.receive_audio()
+                await queue.put(audio)
+                if audio is None:
+                    return
+        except BaseException as exc:
+            await queue.put(exc)
 
     async def process_next_transcript(
         self,
@@ -315,6 +334,33 @@ class VoiceSessionGateway:
         emitted_model_text = False
         response_parts: list[str] = []
         async with self.tts_factory() as tts:
+            audio_queue: asyncio.Queue[bytes | None | BaseException] = (
+                asyncio.Queue()
+            )
+            audio_reader = asyncio.create_task(
+                self._read_tts_audio(tts, audio_queue)
+            )
+            audio_done = False
+
+            async def emit_ready_audio() -> AsyncIterator[dict[str, object]]:
+                nonlocal speaking, audio_done
+                await asyncio.sleep(0)
+                while not audio_queue.empty():
+                    item = audio_queue.get_nowait()
+                    if isinstance(item, BaseException):
+                        raise item
+                    if item is None:
+                        audio_done = True
+                        return
+                    event, speaking = self._audio_event(
+                        item,
+                        turn_id=turn_id,
+                        metrics=metrics,
+                        speaking=speaking,
+                    )
+                    if event is not None:
+                        yield event
+
             try:
                 async for chunk in stream_with_fallback(
                     request,
@@ -351,13 +397,7 @@ class VoiceSessionGateway:
                         "text": chunk.text,
                     }
 
-                    audio_event, speaking = await self._emit_audio(
-                        tts,
-                        turn_id=turn_id,
-                        metrics=metrics,
-                        speaking=speaking,
-                    )
-                    if audio_event is not None:
+                    async for audio_event in emit_ready_audio():
                         yield audio_event
             except InferenceError:
                 if emitted_model_text:
@@ -375,26 +415,26 @@ class VoiceSessionGateway:
                     "provider": "unavailable",
                     "text": _SERVICE_UNAVAILABLE,
                 }
-                audio_event, speaking = await self._emit_audio(
-                    tts,
+                async for audio_event in emit_ready_audio():
+                    yield audio_event
+
+            await tts.finish()
+            while not audio_done:
+                item = await audio_queue.get()
+                if isinstance(item, BaseException):
+                    raise item
+                if item is None:
+                    audio_done = True
+                    break
+                audio_event, speaking = self._audio_event(
+                    item,
                     turn_id=turn_id,
                     metrics=metrics,
                     speaking=speaking,
                 )
                 if audio_event is not None:
                     yield audio_event
-
-            await tts.finish()
-            while True:
-                audio_event, speaking = await self._emit_audio(
-                    tts,
-                    turn_id=turn_id,
-                    metrics=metrics,
-                    speaking=speaking,
-                )
-                if audio_event is None:
-                    break
-                yield audio_event
+            await audio_reader
 
         if speaking:
             self.session.finish_speaking(turn_id)
