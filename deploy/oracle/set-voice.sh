@@ -4,8 +4,8 @@
 #   sudo ELEVENLABS_API_KEY=... ELEVENLABS_VOICE_ID=... ./deploy/oracle/set-voice.sh
 #   sudo ./deploy/oracle/set-voice.sh                    # asks for both
 #
-# Without this, the API answers 501 and the interface falls back to the browser's own speech
-# synthesis for the rest of the session -- which is what "the voice is wrong" sounds like.
+# This configures the only production voice path: backend-managed realtime ElevenLabs STT/TTS.
+# Browser-native speech recognition/synthesis is not used by the realtime DEUS session.
 set -euo pipefail
 
 if [ "$(id -u)" -ne 0 ]; then
@@ -64,6 +64,26 @@ env_set ELEVENLABS_API_KEY "$api_key"
 env_set ELEVENLABS_VOICE_ID "$voice_id"
 env_set ELEVENLABS_MODEL_ID "$model_id"
 env_set ELEVENLABS_STT_MODEL_ID "${ELEVENLABS_STT_MODEL_ID:-scribe_v2_realtime}"
+env_set DEUS_VOICE_SESSION_ENABLED true
+env_set DEUS_VOICE_PRIMARY_PROVIDER freellmapi
+env_set DEUS_VOICE_FALLBACK_PROVIDER klaus
+env_set DEUS_VOICE_FIRST_TOKEN_TIMEOUT_MS "${DEUS_VOICE_FIRST_TOKEN_TIMEOUT_MS:-2500}"
+
+klaus_provider="${KLAUS_PROVIDER:-$(env_get KLAUS_PROVIDER)}"
+if [ -z "$klaus_provider" ]; then
+  echo "KLAUS_PROVIDER is not mapped to a concrete provider; restoring previous .env." >&2
+  mv .env.bak .env
+  exit 1
+fi
+case "$klaus_provider" in
+  anthropic|openai|openai_compatible) ;;
+  *)
+    echo "KLAUS_PROVIDER must be anthropic, openai, or openai_compatible." >&2
+    mv .env.bak .env
+    exit 1
+    ;;
+esac
+env_set KLAUS_PROVIDER "$klaus_provider"
 unset api_key
 chmod 600 .env
 
@@ -72,6 +92,10 @@ printf '  ELEVENLABS_ENABLED=%s\n' "$(env_get ELEVENLABS_ENABLED)"
 printf '  ELEVENLABS_VOICE_ID=%s\n' "$(env_get ELEVENLABS_VOICE_ID)"
 printf '  ELEVENLABS_MODEL_ID=%s\n' "$(env_get ELEVENLABS_MODEL_ID)"
 printf '  ELEVENLABS_STT_MODEL_ID=%s\n' "$(env_get ELEVENLABS_STT_MODEL_ID)"
+printf '  DEUS_VOICE_SESSION_ENABLED=%s\n' "$(env_get DEUS_VOICE_SESSION_ENABLED)"
+printf '  DEUS_VOICE_PRIMARY_PROVIDER=%s\n' "$(env_get DEUS_VOICE_PRIMARY_PROVIDER)"
+printf '  DEUS_VOICE_FALLBACK_PROVIDER=%s\n' "$(env_get DEUS_VOICE_FALLBACK_PROVIDER)"
+printf '  KLAUS_PROVIDER=%s\n' "$(env_get KLAUS_PROVIDER)"
 printf '  ELEVENLABS_API_KEY=%s\n' "$([ -n "$(env_get ELEVENLABS_API_KEY)" ] && echo '<set>' || echo '<empty>')"
 
 echo
