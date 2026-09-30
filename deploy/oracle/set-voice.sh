@@ -63,7 +63,7 @@ env_set ELEVENLABS_ENABLED true
 env_set ELEVENLABS_API_KEY "$api_key"
 env_set ELEVENLABS_VOICE_ID "$voice_id"
 env_set ELEVENLABS_MODEL_ID "$model_id"
-env_set ELEVENLABS_STT_MODEL_ID "${ELEVENLABS_STT_MODEL_ID:-scribe_v2}"
+env_set ELEVENLABS_STT_MODEL_ID "${ELEVENLABS_STT_MODEL_ID:-scribe_v2_realtime}"
 unset api_key
 chmod 600 .env
 
