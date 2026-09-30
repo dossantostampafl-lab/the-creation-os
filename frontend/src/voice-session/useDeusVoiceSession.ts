@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-import { API_BASE, issueVoiceSessionTicket } from "../api";
+import { API_BASE, issueVoiceSessionTicket, preloadVoiceAcknowledgement } from "../api";
 import { bytesToBase64, MicrophonePcmCapture } from "./audio-capture";
 import { Pcm16AudioSink, StreamingAudioPlayer } from "./player";
 import type { VoiceServerEvent } from "./protocol";
@@ -102,6 +102,14 @@ export function useDeusVoiceSession(options: UseDeusVoiceSessionOptions): DeusVo
     let replyTurn = 0;
     let replyText = "";
     let replyProvider: string | null = null;
+    let acknowledgementAudio: Uint8Array | null = null;
+    let acknowledgementGeneration = 0;
+    const acknowledgementPromise = preloadVoiceAcknowledgement()
+      .then((audio) => {
+        acknowledgementAudio = audio;
+        return audio;
+      })
+      .catch(() => null);
 
     const model = new VoiceSessionModel();
     const capture = new MicrophonePcmCapture();
@@ -181,9 +189,24 @@ export function useDeusVoiceSession(options: UseDeusVoiceSessionOptions): DeusVo
       }
       if (event.type === "wake_detected") {
         callbacks.current.onWake?.();
+        const generation = ++acknowledgementGeneration;
+        const play = (audio: Uint8Array | null) => {
+          if (
+            !audio
+            || disposed
+            || generation !== acknowledgementGeneration
+          ) return;
+          player.startTurn(event.turn_id);
+          void sink.resume().catch(() => undefined);
+          player.push(event.turn_id, audio);
+        };
+        if (acknowledgementAudio) play(acknowledgementAudio);
+        else void acknowledgementPromise.then(play);
         return;
       }
       if (event.type === "transcript_commit") {
+        acknowledgementGeneration += 1;
+        player.stop();
         replyTurn = event.turn_id;
         replyText = "";
         replyProvider = null;
@@ -283,6 +306,8 @@ export function useDeusVoiceSession(options: UseDeusVoiceSessionOptions): DeusVo
 
     return () => {
       disposed = true;
+      acknowledgementGeneration += 1;
+      player.stop();
       if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
       document.removeEventListener("pointerdown", resumeAudio);
       document.removeEventListener("keydown", resumeAudio);
