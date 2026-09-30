@@ -3,6 +3,8 @@ export type AudioSink = {
   stop: () => void;
 };
 
+export const voiceActivity = { level: 0 };
+
 export class Pcm16AudioSink implements AudioSink {
   private readonly context: AudioContext;
   private readonly sampleRate: number;
@@ -27,10 +29,14 @@ export class Pcm16AudioSink implements AudioSink {
     const audioBuffer = this.context.createBuffer(1, sampleCount, this.sampleRate);
     const channel = audioBuffer.getChannelData(0);
     const view = new DataView(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+    let energy = 0;
     for (let index = 0; index < sampleCount; index += 1) {
       const value = view.getInt16(index * 2, true);
-      channel[index] = value < 0 ? value / 32768 : value / 32767;
+      const normalized = value < 0 ? value / 32768 : value / 32767;
+      channel[index] = normalized;
+      energy += normalized * normalized;
     }
+    voiceActivity.level = Math.min(1, Math.sqrt(energy / sampleCount) * 4);
 
     const source = this.context.createBufferSource();
     source.buffer = audioBuffer;
@@ -48,6 +54,7 @@ export class Pcm16AudioSink implements AudioSink {
     }
     this.sources.clear();
     this.nextStart = this.context.currentTime;
+    voiceActivity.level = 0;
   }
 
   async close(): Promise<void> {
