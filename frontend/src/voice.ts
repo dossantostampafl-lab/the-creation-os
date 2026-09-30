@@ -569,6 +569,9 @@ export function useDeusEars({ paused, conversing = false, onWake, onCommand, onI
   const wakeChunks = useRef<Blob[]>([]);
   const wakeTimer = useRef(0);
   const wakeTranscriptionInFlight = useRef(false);
+  // Prevent server-wake capture from restarting in the tiny gap between dispatching a command
+  // and React publishing `paused=true` for the pending DEUS request.
+  const commandDispatching = useRef(false);
   const transcriptionRetryAt = useRef(0);
   const attentionTimer = useRef(0);
   const attentionWindow = useRef(WAKE_ATTENTION_MS);
@@ -775,6 +778,8 @@ export function useDeusEars({ paused, conversing = false, onWake, onCommand, onI
         handlers.current.onWake();
       } else if (utterance.kind === "command") {
         setError(null);
+        commandDispatching.current = true;
+        stopWakeCapture();
         handlers.current.onCommand(utterance.text);
       }
     } catch (failure) {
@@ -840,6 +845,8 @@ export function useDeusEars({ paused, conversing = false, onWake, onCommand, onI
   function sync() {
     if (!mounted.current) return;
     const { wakeEnabled: wake, paused: hold } = desired.current;
+    // Once the pending/speaking state is visible, the React state itself owns suppression.
+    if (hold) commandDispatching.current = false;
     const shouldListen = !hold && (wake || attentive.current);
     const hasNative = recognitionConstructor() !== null;
     const useNative = shouldListen && hasNative && !gestureBlocked.current && failures.current < 3;
@@ -851,7 +858,7 @@ export function useDeusEars({ paused, conversing = false, onWake, onCommand, onI
       instance.abort();
     }
 
-    const needsServerWake = shouldListen && wake && !attentive.current && (!hasNative || gestureBlocked.current || failures.current >= 3);
+    const needsServerWake = shouldListen && wake && !attentive.current && !commandDispatching.current && (!hasNative || gestureBlocked.current || failures.current >= 3);
     if (needsServerWake) void ensureWakeCapture();
     else stopWakeCapture();
 
