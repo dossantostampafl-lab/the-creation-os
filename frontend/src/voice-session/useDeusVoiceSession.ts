@@ -189,6 +189,7 @@ export function useDeusVoiceSession(options: UseDeusVoiceSessionOptions): DeusVo
       }
       if (event.type === "wake_detected") {
         callbacks.current.onWake?.();
+        if (!event.acknowledge) return;
         const generation = ++acknowledgementGeneration;
         const play = (audio: Uint8Array | null) => {
           if (
