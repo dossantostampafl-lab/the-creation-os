@@ -90,6 +90,7 @@ class Settings(BaseSettings):
     elevenlabs_timeout_seconds: float = Field(12.0, env="ELEVENLABS_TIMEOUT_SECONDS")
     voice_synthesis_max_chars: int = Field(1200, env="VOICE_SYNTHESIS_MAX_CHARS")
     voice_transcription_max_bytes: int = Field(5_000_000, ge=1, env="VOICE_TRANSCRIPTION_MAX_BYTES")
+    voice_session_ticket_ttl_seconds: int = Field(20, ge=5, le=120, env="VOICE_SESSION_TICKET_TTL_SECONDS")
 
     class Config:
         env_file = os.path.join(os.path.dirname(__file__), "..", "..", ".env")
