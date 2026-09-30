@@ -52,3 +52,16 @@ describe("StreamingAudioPlayer", () => {
     expect(sink.chunks.map((chunk) => Array.from(chunk))).toEqual([[4]]);
   });
 });
+
+
+  it("stops acknowledgement audio even after its synthetic turn was finished", () => {
+    const sink = new FakeSink();
+    const player = new StreamingAudioPlayer(sink);
+
+    player.startTurn(0);
+    player.push(0, new Uint8Array([1]));
+    expect(player.finish(0)).toBe(true);
+    player.stop();
+
+    expect(sink.stops).toBe(1);
+  });
