@@ -137,7 +137,10 @@ def test_deus_fast_path_keeps_dialogue_single_pass_but_governs_execution() -> No
     assert needs_trinity("Qual é o status disso?") is False
     assert needs_trinity("e agora?") is False
     assert needs_trinity("como ficou o que falamos?") is False
-    assert needs_trinity("corrija isso agora") is True
+    assert needs_trinity("corrija isso agora") is False
+    assert needs_trinity("continue o projeto") is False
+    assert needs_trinity("melhore isso") is False
+    assert needs_trinity("corrija o código") is True
     assert needs_trinity("você consegue implementar isso?") is True
 
 
