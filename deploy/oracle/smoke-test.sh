@@ -103,15 +103,18 @@ with httpx.Client(base_url=BASE, timeout=45) as client:
         }
         rows = catalog.json()
         seen = {str(row.get("code")) for row in rows}
+        active_seen = {str(row.get("code")) for row in rows if row.get("active")}
         for row in sorted(rows, key=lambda r: str(r.get("code"))):
             code = str(row.get("code"))
             mark = "canonical" if code in CANONICAL else "NOT CANONICAL"
             state = "active" if row.get("active") else "inactive"
             print(f"   {code:16} {state:9} {mark}   {row.get('name', '')}")
-        report("the 12 canonical Universes exist", CANONICAL <= seen,
-               f"missing: {sorted(CANONICAL - seen)}" if CANONICAL - seen else "")
-        extra = sorted(seen - CANONICAL)
-        report("no Universe outside the canon", not extra, f"extra: {extra}" if extra else "")
+        missing_active = sorted(CANONICAL - active_seen)
+        report("the 12 canonical Universes are active", not missing_active,
+               f"missing or inactive: {missing_active}" if missing_active else "")
+        extra_active = sorted(active_seen - CANONICAL)
+        report("no active Universe outside the canon", not extra_active,
+               f"active extra: {extra_active}" if extra_active else "")
     else:
         report("universe catalog", False, f"HTTP {catalog.status_code}")
 
