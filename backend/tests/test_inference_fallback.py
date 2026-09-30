@@ -177,8 +177,10 @@ def test_bootstrap_without_a_fallback_uses_only_the_primary(freellmapi_with_anth
     assert router._candidate_names(request()) == ["freellmapi"]
 
 
-def test_bootstrap_rejects_a_fallback_without_its_credentials(freellmapi_with_anthropic_fallback) -> None:
+def test_bootstrap_skips_a_fallback_without_its_credentials(freellmapi_with_anthropic_fallback) -> None:
+    # A reserve missing its key must not take down a primary that works; it is skipped and logged.
     freellmapi_with_anthropic_fallback.setenv("ANTHROPIC_API_KEY", "")
 
-    with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):
-        build_model_router()
+    router = build_model_router()
+    assert tuple(router.registry.names()) == ("freellmapi",)
+    assert router._candidate_names(request()) == ["freellmapi"]
