@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bestRecognitionAlternative, interpretUtterance, isFarewell, splitSentences, splitWakePhrase, spokenDecision } from "./voice";
+import { bestRecognitionAlternative, interpretUtterance, isFarewell, preferServerTranscript, splitSentences, splitWakePhrase, spokenDecision } from "./voice";
 
 describe("splitWakePhrase", () => {
   it("wakes on the bare wake word", () => {
@@ -130,6 +130,29 @@ describe("bestRecognitionAlternative", () => {
       { transcript: "status dos universos", confidence: 0.89 },
     ], { isFinal: true });
     expect(bestRecognitionAlternative(result, true).transcript).toBe("status dos universos");
+  });
+});
+
+describe("preferServerTranscript", () => {
+  it("keeps the browser sentence when server audio started too late and is clearly clipped", () => {
+    expect(preferServerTranscript(
+      "continue a análise do projeto inteiro",
+      "projeto",
+    )).toBe("continue a análise do projeto inteiro");
+  });
+
+  it("uses server STT when it contains a complete correction", () => {
+    expect(preferServerTranscript(
+      "texto errado do navegador",
+      "continue o projeto",
+    )).toBe("continue o projeto");
+  });
+
+  it("removes a repeated wake word from the authoritative server transcript", () => {
+    expect(preferServerTranscript(
+      "verifique o projeto",
+      "Deus, verifique o projeto",
+    )).toBe("verifique o projeto");
   });
 });
 
