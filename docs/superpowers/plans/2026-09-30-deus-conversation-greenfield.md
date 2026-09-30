@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace the existing DEUS voice conversation subsystem with a realtime, Android-first Creator↔DEUS session using ElevenLabs realtime STT/TTS, FreeLLMAPI streaming first, Anthropic fallback, and no microphone button between turns.
+**Goal:** Replace the existing DEUS voice conversation subsystem with a realtime, Android-first Creator↔DEUS session using ElevenLabs realtime STT/TTS, FreeLLMAPI streaming first, Klaus fallback, and no microphone button between turns.
 
 **Architecture:** A single authenticated backend Voice Session Gateway owns session state, ElevenLabs STT/TTS streams, inference routing, cancellation and latency telemetry. The browser owns only microphone capture, VAD/barge-in, WebSocket transport and streaming playback. Legacy browser SpeechRecognition/MediaRecorder orchestration is deleted after the new path passes deployed acceptance.
 
@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Wake phrase is exactly **Deus**; normal language is **pt-BR**.
-- FreeLLMAPI is the primary conversational provider; Anthropic/Claude is fallback.
+- FreeLLMAPI is the primary conversational provider; Klaus is fallback; its concrete provider/model/API mapping must be explicitly verified before deployment.
 - ElevenLabs uses the existing API key and voice ID for STT/TTS.
 - Realtime STT model is `scribe_v2_realtime`.
 - No provider API key reaches the browser.
@@ -29,7 +29,7 @@
 - Stale audio/model/TTS events from a cancelled turn must never reach the active turn.
 - DEUS playback must not retrigger wake detection or become Creator text.
 - Network reconnect during a committed turn must not duplicate the persisted Creator message.
-- FreeLLM first-token timeout/failure must switch once to Anthropic without interleaving provider text.
+- FreeLLM first-token timeout/failure must switch once to Klaus without interleaving provider text.
 
 ---
 
@@ -63,7 +63,7 @@
 - Consumes: existing `InferenceProvider.stream`, registry, conversation message history.
 - Produces: `stream_deus_reply(...)->AsyncIterator[VoiceTextDelta]` and provider/fallback metadata.
 
-- [ ] **Step 1: Write failing tests** proving FreeLLM first, Anthropic on timeout/error, no interleaving, no Trinity invocation, and stale-turn cancellation.
+- [ ] **Step 1: Write failing tests** proving FreeLLM first, Klaus on timeout/error, no interleaving, no Trinity invocation, and stale-turn cancellation.
 - [ ] **Step 2: Run** targeted test; Expected: FAIL for missing adapter.
 - [ ] **Step 3: Implement minimal streaming adapter** with 2500 ms first-token deadline and one fallback attempt.
 - [ ] **Step 4: Run targeted + full backend suite**; Expected: PASS.
@@ -159,7 +159,7 @@
 - Consumes: Tasks 1-6.
 - Produces: Oracle deploy config for realtime STT, voice health proof and smoke evidence.
 
-- [ ] **Step 1: Write failing config/smoke assertions** for `scribe_v2_realtime`, voice-session availability and FreeLLM primary/Anthropic fallback configuration.
+- [ ] **Step 1: Write failing config/smoke assertions** for `scribe_v2_realtime`, voice-session availability and FreeLLM primary/Klaus fallback configuration.
 - [ ] **Step 2: Run relevant tests/shell validation in CI**; Expected: FAIL before deploy changes.
 - [ ] **Step 3: Implement deploy and smoke updates** reusing existing secrets.
 - [ ] **Step 4: Run CI-equivalent checks**; Expected: PASS.
@@ -199,7 +199,7 @@
 
 ## Self-review
 
-- Spec coverage: wake, continuous listening, pt-BR, realtime STT/TTS, FreeLLM primary, Anthropic fallback, direct DEUS path, barge-in, observability, Android, deployment and legacy removal are each mapped to tasks.
+- Spec coverage: wake, continuous listening, pt-BR, realtime STT/TTS, FreeLLM primary, Klaus fallback, direct DEUS path, barge-in, observability, Android, deployment and legacy removal are each mapped to tasks.
 - Type consistency: session/turn identifiers originate in Task 1 and are consumed unchanged by Tasks 2-6.
 - Review Focus: all five listed failure modes are explicitly tested by their owning tasks.
 - Proportion: plan specifies interfaces, tests and gates; implementation bodies remain with the executor.
