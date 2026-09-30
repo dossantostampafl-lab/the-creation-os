@@ -86,7 +86,7 @@ class Settings(BaseSettings):
     elevenlabs_api_key: SecretStr | None = Field(None, env="ELEVENLABS_API_KEY")
     elevenlabs_voice_id: str = Field("configured-voice-id", env="ELEVENLABS_VOICE_ID")
     elevenlabs_model_id: str = Field("eleven_flash_v2_5", env="ELEVENLABS_MODEL_ID")
-    elevenlabs_stt_model_id: str = Field("scribe_v2", env="ELEVENLABS_STT_MODEL_ID")
+    elevenlabs_stt_model_id: str = Field("scribe_v2_realtime", env="ELEVENLABS_STT_MODEL_ID")
     elevenlabs_timeout_seconds: float = Field(12.0, env="ELEVENLABS_TIMEOUT_SECONDS")
     voice_synthesis_max_chars: int = Field(1200, env="VOICE_SYNTHESIS_MAX_CHARS")
     voice_transcription_max_bytes: int = Field(5_000_000, ge=1, env="VOICE_TRANSCRIPTION_MAX_BYTES")
