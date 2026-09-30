@@ -8,6 +8,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, WebSocket, status
 from pydantic import BaseModel, ValidationError
 from starlette.websockets import WebSocketDisconnect
+from websockets.exceptions import WebSocketException
 
 from app.auth.dependencies import get_sovereign_creator
 from app.config import settings
@@ -183,101 +184,114 @@ async def voice_session_socket(
             await websocket.close(code=4404)
             return
 
-        async with ElevenLabsRealtimeSTT(stt_config) as stt:
-            gateway = VoiceSessionGateway(
-                session=session,
-                stt=stt,
-                primary=primary,
-                fallback=fallback,
-                tts_factory=lambda: ElevenLabsRealtimeTTS(tts_config),
-                request_builder=bridge.build_request,
-                on_turn_completed=bridge.complete_turn,
-                first_token_timeout_seconds=(
-                    settings.deus_voice_first_token_timeout_ms / 1000
-                ),
-            )
+        await websocket.accept()
+        try:
+            async with ElevenLabsRealtimeSTT(stt_config) as stt:
+                gateway = VoiceSessionGateway(
+                    session=session,
+                    stt=stt,
+                    primary=primary,
+                    fallback=fallback,
+                    tts_factory=lambda: ElevenLabsRealtimeTTS(tts_config),
+                    request_builder=bridge.build_request,
+                    on_turn_completed=bridge.complete_turn,
+                    first_token_timeout_seconds=(
+                        settings.deus_voice_first_token_timeout_ms / 1000
+                    ),
+                )
 
-            await websocket.accept()
-            await send_json(
-                {
-                    "type": "session_ready",
-                    "session_id": session.session_id,
-                    "creator_id": creator_id,
-                    "state": session.state.value,
-                    "turn_id": session.turn_id,
-                }
-            )
+                await send_json(
+                    {
+                        "type": "session_ready",
+                        "session_id": session.session_id,
+                        "creator_id": creator_id,
+                        "state": session.state.value,
+                        "turn_id": session.turn_id,
+                    }
+                )
 
-            async def transcript_pump() -> None:
-                while session.state.value != "CLOSED":
-                    transcript = await stt.receive_transcript()
-                    async for outbound in gateway.process_transcript(transcript):
-                        await send_json(outbound)
+                async def transcript_pump() -> None:
+                    while session.state.value != "CLOSED":
+                        transcript = await stt.receive_transcript()
+                        async for outbound in gateway.process_transcript(transcript):
+                            await send_json(outbound)
 
-            pump = asyncio.create_task(transcript_pump())
-            try:
-                while True:
-                    payload = await websocket.receive_json()
-                    try:
-                        event = ClientEvent.model_validate(payload)
-                    except ValidationError:
-                        await send_json(
-                            {
-                                "type": "error",
-                                "code": "INVALID_VOICE_EVENT",
-                                "message": "Invalid voice event.",
-                            }
-                        )
-                        continue
-
-                    if event.session_id != session.session_id:
-                        await send_json(
-                            {
-                                "type": "stale_session",
-                                "session_id": session.session_id,
-                                "turn_id": session.turn_id,
-                            }
-                        )
-                        continue
-
-                    if event.type == "audio":
+                pump = asyncio.create_task(transcript_pump())
+                try:
+                    while True:
+                        payload = await websocket.receive_json()
                         try:
-                            audio = decode_audio_payload(event)
-                        except ValueError as exc:
+                            event = ClientEvent.model_validate(payload)
+                        except ValidationError:
                             await send_json(
                                 {
                                     "type": "error",
-                                    "code": "INVALID_AUDIO_FRAME",
-                                    "message": str(exc),
+                                    "code": "INVALID_VOICE_EVENT",
+                                    "message": "Invalid voice event.",
                                 }
                             )
                             continue
-                        await gateway.send_audio(audio, commit=event.commit)
-                        continue
 
-                    if event.type == "commit":
-                        await gateway.send_audio(b"", commit=True)
-                        continue
+                        if event.session_id != session.session_id:
+                            await send_json(
+                                {
+                                    "type": "stale_session",
+                                    "session_id": session.session_id,
+                                    "turn_id": session.turn_id,
+                                }
+                            )
+                            continue
 
-                    if event.type == "barge_in":
-                        cancelled = session.barge_in(event.turn_id)
-                        await send_json(
-                            {
-                                "type": "barge_in",
-                                "session_id": session.session_id,
-                                "turn_id": event.turn_id,
-                                "cancelled": cancelled,
-                                "state": session.state.value,
-                            }
-                        )
-                        continue
+                        if event.type == "audio":
+                            try:
+                                audio = decode_audio_payload(event)
+                            except ValueError as exc:
+                                await send_json(
+                                    {
+                                        "type": "error",
+                                        "code": "INVALID_AUDIO_FRAME",
+                                        "message": str(exc),
+                                    }
+                                )
+                                continue
+                            await gateway.send_audio(audio, commit=event.commit)
+                            continue
 
-                    if event.type == "stop":
-                        session.close()
-                        await websocket.close(code=1000)
-                        return
-            except WebSocketDisconnect:
-                session.close()
-            finally:
-                pump.cancel()
-                await asyncio.gather(pump, return_exceptions=True)
+                        if event.type == "commit":
+                            await gateway.send_audio(b"", commit=True)
+                            continue
+
+                        if event.type == "barge_in":
+                            cancelled = session.barge_in(event.turn_id)
+                            await send_json(
+                                {
+                                    "type": "barge_in",
+                                    "session_id": session.session_id,
+                                    "turn_id": event.turn_id,
+                                    "cancelled": cancelled,
+                                    "state": session.state.value,
+                                }
+                            )
+                            continue
+
+                        if event.type == "stop":
+                            session.close()
+                            await websocket.close(code=1000)
+                            return
+                except WebSocketDisconnect:
+                    session.close()
+                finally:
+                    pump.cancel()
+                    await asyncio.gather(pump, return_exceptions=True)
+        except (OSError, TimeoutError, WebSocketException):
+            try:
+                await send_json(
+                    {
+                        "type": "error",
+                        "code": "VOICE_STT_UNAVAILABLE",
+                        "message": "Realtime speech recognition is unavailable.",
+                    }
+                )
+                await websocket.close(code=1013)
+            except (RuntimeError, WebSocketDisconnect):
+                pass
