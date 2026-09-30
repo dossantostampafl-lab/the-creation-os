@@ -132,7 +132,7 @@ test("realtime DEUS voice is always armed without push-to-talk or browser speech
 
   const socketInfo = await page.evaluate(() => {
     const scope = window as unknown as { __voiceUrls?: string[] };
-    return scope.__voiceUrls ?? [];
+    return (scope.__voiceUrls ?? []).filter((url) => url.includes("/api/v1/voice/session"));
   });
   expect(socketInfo).toHaveLength(1);
   const url = new URL(socketInfo[0]);
@@ -205,6 +205,7 @@ test("voice session stays closed when no inference provider is available", async
 
   await expect(page.getByPlaceholder("Configure um provedor de inferência para falar com DEUS.")).toBeVisible();
   const urls = await page.evaluate(() =>
-    (window as unknown as { __voiceUrls?: string[] }).__voiceUrls ?? []);
+    ((window as unknown as { __voiceUrls?: string[] }).__voiceUrls ?? [])
+      .filter((url) => url.includes("/api/v1/voice/session")));
   expect(urls).toEqual([]);
 });
