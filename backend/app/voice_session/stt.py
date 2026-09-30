@@ -3,8 +3,10 @@ from __future__ import annotations
 import base64
 import json
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import urlencode
+
+from websockets.asyncio.client import connect as websocket_connect
 
 
 @dataclass(frozen=True)
@@ -59,3 +61,53 @@ def parse_stt_event(raw: str) -> STTTranscript | None:
     if message_type == "committed_transcript":
         return STTTranscript(text=text, committed=True)
     return None
+
+
+class ElevenLabsRealtimeSTT:
+    def __init__(
+        self,
+        config: ElevenLabsSTTConfig,
+        *,
+        connector: Callable[..., Any] = websocket_connect,
+        open_timeout: float = 12.0,
+    ) -> None:
+        self.config = config
+        self._connector = connector
+        self._open_timeout = open_timeout
+        self._context: Any | None = None
+        self._connection: Any | None = None
+
+    async def __aenter__(self) -> "ElevenLabsRealtimeSTT":
+        self._context = self._connector(
+            self.config.url,
+            additional_headers=self.config.headers,
+            open_timeout=self._open_timeout,
+        )
+        self._connection = await self._context.__aenter__()
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+        context = self._context
+        self._context = None
+        self._connection = None
+        if context is not None:
+            await context.__aexit__(exc_type, exc, tb)
+
+    def _require_connection(self) -> Any:
+        if self._connection is None:
+            raise RuntimeError("ElevenLabs realtime STT is not connected")
+        return self._connection
+
+    async def send_audio(self, audio: bytes, *, commit: bool = False) -> None:
+        connection = self._require_connection()
+        await connection.send(json.dumps(encode_audio_chunk(audio, commit=commit)))
+
+    async def receive_transcript(self) -> STTTranscript:
+        connection = self._require_connection()
+        while True:
+            raw = await connection.recv()
+            if isinstance(raw, bytes):
+                raw = raw.decode("utf-8")
+            transcript = parse_stt_event(raw)
+            if transcript is not None:
+                return transcript
