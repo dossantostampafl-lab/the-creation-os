@@ -76,7 +76,7 @@ def test_tts_messages_stream_text_without_exposing_api_key():
     close = encode_tts_close()
 
     assert initialize["text"] == " "
-    assert text == {"text": "Olá "}
+    assert text == {"text": "Olá ", "try_trigger_generation": True}
     assert close == {"text": ""}
     assert "key" not in repr((initialize, text, close)).lower()
 
