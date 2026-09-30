@@ -19,6 +19,8 @@ const CONVERSATION_ATTENTION_MS = 14000;
   * Browsers finalise a result at every pause -- often after a single word -- so acting on
   * the first one sends a fragment and stops listening mid-sentence. */
 const SETTLE_MS = 700;
+/** Server-STT wake fallback records short self-contained clips when browser recognition is blocked. */
+const WAKE_CHUNK_MS = 2200;
 const WAKE_WORD = /(^|[^\p{L}])(deus|zeus|d[eê]\s+us)(?![\p{L}])/iu;
 
 function voiceLanguage(): string {
@@ -528,7 +530,11 @@ export function interpretUtterance(transcript: string, attentive: boolean): Utte
 }
 
 export function useDeusEars({ paused, conversing = false, onWake, onCommand, onInterim, onLapse, onFarewell }: EarsOptions) {
-  const supported = typeof window !== "undefined" && recognitionConstructor() !== null;
+  const nativeRecognition = typeof window !== "undefined" && recognitionConstructor() !== null;
+  const serverWake = typeof window !== "undefined"
+    && typeof MediaRecorder !== "undefined"
+    && Boolean(navigator.mediaDevices?.getUserMedia);
+  const supported = nativeRecognition || serverWake;
   const [wakeEnabled, setWakeEnabled] = useState(() => supported && readPreference(WAKE_KEY, true));
   const [state, setState] = useState<EarsState>("off");
   const [error, setError] = useState<string | null>(null);
@@ -544,6 +550,10 @@ export function useDeusEars({ paused, conversing = false, onWake, onCommand, onI
   const mediaStream = useRef<MediaStream | null>(null);
   const recorder = useRef<MediaRecorder | null>(null);
   const audioChunks = useRef<Blob[]>([]);
+  const wakeRecorder = useRef<MediaRecorder | null>(null);
+  const wakeChunks = useRef<Blob[]>([]);
+  const wakeTimer = useRef(0);
+  const wakeTranscriptionInFlight = useRef(false);
   const transcriptionRetryAt = useRef(0);
   const attentionTimer = useRef(0);
   const attentionWindow = useRef(WAKE_ATTENTION_MS);
@@ -553,7 +563,7 @@ export function useDeusEars({ paused, conversing = false, onWake, onCommand, onI
   desired.current = { wakeEnabled, paused, conversing };
 
   const publish = useCallback(() => {
-    const running = recognition.current !== null;
+    const running = recognition.current !== null || wakeRecorder.current !== null;
     setState(attentive.current ? "attentive" : running && desired.current.wakeEnabled ? "sleeping" : "off");
   }, []);
 
@@ -697,10 +707,10 @@ export function useDeusEars({ paused, conversing = false, onWake, onCommand, onI
     instance.onerror = (event) => {
       const blocked = event.error === "not-allowed" || event.error === "service-not-allowed";
       if (blocked || event.error === "audio-capture") {
-        setError(blocked ? "O navegador bloqueou o microfone." : "Nenhum microfone encontrado.");
-        // A browser may reject automatic SpeechRecognition before the first user gesture even
-        // when microphone permission is otherwise valid. Never persist that transient condition
-        // as "wake word off" — doing so made push-to-talk work while "Deus" stayed dead forever.
+        // On Android, automatic Web Speech can be blocked before any gesture even when ordinary
+        // microphone capture is allowed. Switch to backend STT wake detection instead of making
+        // the Creator press the mic just to arm the page.
+        setError(event.error === "audio-capture" ? "Nenhum microfone encontrado." : null);
         if (blocked) gestureBlocked.current = true;
         attentive.current = false;
       } else if (event.error !== "no-speech" && event.error !== "aborted") {
@@ -719,6 +729,74 @@ export function useDeusEars({ paused, conversing = false, onWake, onCommand, onI
       if (attentive.current) armAttention();
     } catch {
       recognition.current = null;
+    }
+  }
+
+  function stopWakeCapture() {
+    window.clearTimeout(wakeTimer.current);
+    wakeTimer.current = 0;
+    const active = wakeRecorder.current;
+    wakeRecorder.current = null;
+    wakeChunks.current = [];
+    if (active && active.state !== "inactive") {
+      try { active.stop(); } catch { /* already stopping */ }
+    }
+  }
+
+  async function handleWakeAudio(audio: Blob) {
+    if (!mounted.current || attentive.current || desired.current.paused || !desired.current.wakeEnabled) return;
+    if (audio.size < 400 || wakeTranscriptionInFlight.current || Date.now() < transcriptionRetryAt.current) return;
+    wakeTranscriptionInFlight.current = true;
+    try {
+      const transcript = await transcribeVoice(audio);
+      const utterance = interpretUtterance(transcript.text, false);
+      if (utterance.kind === "wake") {
+        setError(null);
+        setAttentive(true);
+        handlers.current.onWake();
+      } else if (utterance.kind === "command") {
+        setError(null);
+        handlers.current.onCommand(utterance.text);
+      }
+    } catch (failure) {
+      const disabled = failure instanceof Error && failure.message === "HTTP_501";
+      transcriptionRetryAt.current = disabled ? Number.POSITIVE_INFINITY : Date.now() + 60_000;
+    } finally {
+      wakeTranscriptionInFlight.current = false;
+    }
+  }
+
+  async function ensureWakeCapture() {
+    if (!desired.current.wakeEnabled || desired.current.paused || attentive.current || wakeRecorder.current) return;
+    if (typeof MediaRecorder === "undefined" || !navigator.mediaDevices?.getUserMedia) return;
+    if (Date.now() < transcriptionRetryAt.current || wakeTranscriptionInFlight.current) return;
+    try {
+      mediaStream.current ??= await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
+      });
+      if (!mounted.current || desired.current.paused || attentive.current || !desired.current.wakeEnabled) return;
+      const next = new MediaRecorder(mediaStream.current);
+      wakeChunks.current = [];
+      next.ondataavailable = (event) => { if (event.data.size) wakeChunks.current.push(event.data); };
+      next.onstop = () => {
+        window.clearTimeout(wakeTimer.current);
+        if (wakeRecorder.current === next) wakeRecorder.current = null;
+        const chunks = wakeChunks.current;
+        wakeChunks.current = [];
+        const audio = chunks.length ? new Blob(chunks, { type: next.mimeType || "audio/webm" }) : null;
+        if (audio) void handleWakeAudio(audio).finally(sync);
+        else sync();
+      };
+      wakeRecorder.current = next;
+      next.start(200);
+      publish();
+      wakeTimer.current = window.setTimeout(() => {
+        if (wakeRecorder.current !== next) return;
+        try { next.stop(); } catch { wakeRecorder.current = null; sync(); }
+      }, WAKE_CHUNK_MS);
+    } catch {
+      // Native Web Speech can still work. If it cannot, surface the real microphone limitation.
+      if (!recognitionConstructor() || gestureBlocked.current) setError("O navegador não liberou a escuta contínua do microfone.");
     }
   }
 
@@ -744,13 +822,21 @@ export function useDeusEars({ paused, conversing = false, onWake, onCommand, onI
     if (!mounted.current) return;
     const { wakeEnabled: wake, paused: hold } = desired.current;
     const shouldListen = !hold && (wake || attentive.current);
-    if (shouldListen && !gestureBlocked.current && !recognition.current) start();
-    if (shouldListen && attentive.current) void ensureCapture();
-    if (!shouldListen && recognition.current) {
+    const hasNative = recognitionConstructor() !== null;
+    const useNative = shouldListen && hasNative && !gestureBlocked.current && failures.current < 3;
+
+    if (useNative && !recognition.current) start();
+    if ((!useNative || !shouldListen) && recognition.current) {
       const instance = recognition.current;
       recognition.current = null;
       instance.abort();
     }
+
+    const needsServerWake = shouldListen && wake && !attentive.current && (!hasNative || gestureBlocked.current || failures.current >= 3);
+    if (needsServerWake) void ensureWakeCapture();
+    else stopWakeCapture();
+
+    if (shouldListen && attentive.current) void ensureCapture();
     if (!shouldListen && recorder.current) void finishCapture();
     publish();
   }
@@ -772,9 +858,7 @@ export function useDeusEars({ paused, conversing = false, onWake, onCommand, onI
     window.addEventListener("keydown", rearm, true);
     window.addEventListener("focus", rearm);
     document.addEventListener("visibilitychange", onVisible);
-    const heartbeat = window.setInterval(() => {
-      if (!gestureBlocked.current) sync();
-    }, 1000);
+    const heartbeat = window.setInterval(sync, 1000);
     sync();
     return () => {
       mounted.current = false;
@@ -790,6 +874,7 @@ export function useDeusEars({ paused, conversing = false, onWake, onCommand, onI
       const activeRecorder = recorder.current;
       recorder.current = null;
       if (activeRecorder && activeRecorder.state !== "inactive") activeRecorder.stop();
+      stopWakeCapture();
       mediaStream.current?.getTracks().forEach((track) => track.stop());
       mediaStream.current = null;
     };
