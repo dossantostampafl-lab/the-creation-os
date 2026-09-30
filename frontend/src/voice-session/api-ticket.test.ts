@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { issueVoiceSessionTicket } from "../api";
+import { issueVoiceSessionTicket, preloadVoiceAcknowledgement } from "../api";
 
 describe("issueVoiceSessionTicket", () => {
   beforeEach(() => {
@@ -37,3 +37,28 @@ describe("issueVoiceSessionTicket", () => {
     });
   });
 });
+
+
+  it("preloads the fixed ElevenLabs wake acknowledgement over authenticated HTTP", async () => {
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response(
+      new Uint8Array([1, 2, 3]),
+      {
+        status: 200,
+        headers: {
+          "Content-Type": "application/octet-stream",
+          "X-DEUS-Audio-Format": "pcm_s16le",
+          "X-DEUS-Audio-Sample-Rate": "24000",
+        },
+      },
+    ));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const audio = await preloadVoiceAcknowledgement();
+
+    expect(Array.from(audio)).toEqual([1, 2, 3]);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("http://localhost:8000/api/v1/voice/session/acknowledgement");
+    expect(init?.headers).toMatchObject({
+      Authorization: "Bearer access-token-1",
+    });
+  });
