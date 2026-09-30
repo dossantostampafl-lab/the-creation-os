@@ -5,7 +5,6 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 import pytest
-from app.voice_session.metrics import VoiceTurnMetrics
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
@@ -14,6 +13,7 @@ from app.auth.dependencies import get_sovereign_creator
 from app.inference.contracts import InferenceRequest, InferenceTimeoutError
 from app.main import app
 from app.schemas.auth import TokenPayload
+from app.voice_session.metrics import VoiceTurnMetrics
 from app.voice_session.session import SessionState, VoiceSession, VoiceSessionGateway
 from app.voice_session.stt import STTTranscript
 
