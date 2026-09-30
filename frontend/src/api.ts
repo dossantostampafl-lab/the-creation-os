@@ -191,6 +191,20 @@ export async function issueVoiceSessionTicket(): Promise<VoiceSessionTicket> {
   return response.json() as Promise<VoiceSessionTicket>;
 }
 
+export async function preloadVoiceAcknowledgement(): Promise<Uint8Array> {
+  const response = await authorizedFetch("/voice/session/acknowledgement");
+  if (!response.ok) throw new Error(`HTTP_${response.status}`);
+  if (response.headers.get("X-DEUS-Audio-Format") !== "pcm_s16le") {
+    throw new Error("VOICE_ACK_INVALID_FORMAT");
+  }
+  if (response.headers.get("X-DEUS-Audio-Sample-Rate") !== "24000") {
+    throw new Error("VOICE_ACK_INVALID_SAMPLE_RATE");
+  }
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (!bytes.byteLength) throw new Error("VOICE_ACK_EMPTY");
+  return bytes;
+}
+
 /** What SOPHIA and ROCKMAM concluded about a Creator request (empty for hand-made Inceptions). */
 export type TrinityAssessment = {
   sophia?: { opportunities: string[]; risks: string[]; recommendation: string };
