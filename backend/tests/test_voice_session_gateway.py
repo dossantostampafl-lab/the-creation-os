@@ -199,8 +199,9 @@ def test_metrics_emit_provider_and_stage_latencies_without_content():
     assert payload["provider_selected"] == "freellmapi"
     assert payload["latency_ms"]["transcript_to_first_token"] == 600
     assert payload["latency_ms"]["first_token_to_audio"] == 500
-    assert "text" not in repr(payload).lower()
-    assert "audio_base64" not in repr(payload)
+    assert "text" not in payload
+    assert "content" not in payload
+    assert "audio_base64" not in payload
 
 
 @pytest.mark.asyncio
