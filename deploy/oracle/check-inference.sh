@@ -52,6 +52,11 @@ else
   (
     cd "$env_dir"
     printf '   LLM_PROVIDER=%s\n' "$(env_get LLM_PROVIDER)"
+    printf '   LLM_FALLBACK_PROVIDERS=%s\n' "$(env_get LLM_FALLBACK_PROVIDERS)"
+    printf '   FREELLMAPI_MODEL=%s\n' "$(env_get FREELLMAPI_MODEL)"
+    printf '   FREELLMAPI_BASE_URL=%s\n' "$(env_get FREELLMAPI_BASE_URL)"
+    freellm_key="$(env_get FREELLMAPI_API_KEY)"
+    printf '   FREELLMAPI_API_KEY: %s\n' "$([ -n "$freellm_key" ] && echo "set, ${#freellm_key} characters" || echo "EMPTY (allowed)")"
     printf '   ANTHROPIC_MODEL=%s\n' "$(env_get ANTHROPIC_MODEL)"
     workspace="$(env_get ANTHROPIC_WORKSPACE_ID)"
     printf '   ANTHROPIC_WORKSPACE_ID=%s\n' "${workspace:-<empty, which is the usual case>}"
@@ -66,8 +71,9 @@ if [ -z "$api_container" ]; then
   echo "   No api container to ask."
 else
   docker exec -i "$api_container" sh -c \
-    'printf "   LLM_PROVIDER=%s\n   ANTHROPIC_MODEL=%s\n   ANTHROPIC_API_KEY: %s characters\n" \
-      "$LLM_PROVIDER" "$ANTHROPIC_MODEL" "${#ANTHROPIC_API_KEY}"' \
+    'printf "   LLM_PROVIDER=%s\n   LLM_FALLBACK_PROVIDERS=%s\n   FREELLMAPI_MODEL=%s\n   FREELLMAPI_BASE_URL=%s\n   FREELLMAPI_API_KEY: %s characters\n   ANTHROPIC_MODEL=%s\n   ANTHROPIC_API_KEY: %s characters\n" \
+      "$LLM_PROVIDER" "$LLM_FALLBACK_PROVIDERS" "$FREELLMAPI_MODEL" "$FREELLMAPI_BASE_URL" "${#FREELLMAPI_API_KEY}" \
+      "$ANTHROPIC_MODEL" "${#ANTHROPIC_API_KEY}"' \
     || echo "   Could not read the container's environment."
 fi
 
@@ -146,4 +152,37 @@ else:
     # An error body names the cause; a success body names the model. Neither carries the key.
     print("   " + json.dumps(body)[:400])
 ' || echo "   Could not run the probe inside the container."
+fi
+
+
+# FreeLLMAPI can be installed and healthy even while another provider is primary. Probe it
+# independently so the report answers both questions: provider order and gateway availability.
+echo
+echo "== 5. What FreeLLMAPI itself says =="
+if [ -z "$api_container" ]; then
+  echo "   No api container to ask from."
+else
+  docker exec -i "$api_container" python -c '
+import json
+import os
+
+import httpx
+
+base = os.getenv("FREELLMAPI_BASE_URL", "").strip() or "http://host.docker.internal:3001/v1"
+key = os.getenv("FREELLMAPI_API_KEY", "").strip()
+headers = {"Authorization": f"Bearer {key}"} if key else {}
+print(f"   Asking {base.rstrip('/')}/models")
+try:
+    response = httpx.get(f"{base.rstrip('/')}/models", headers=headers, timeout=20)
+except Exception as exc:
+    raise SystemExit(f"   The request never arrived: {type(exc).__name__}: {exc}")
+
+print(f"   HTTP {response.status_code}")
+try:
+    body = response.json()
+except ValueError:
+    print("   " + response.text[:300])
+else:
+    print("   " + json.dumps(body)[:400])
+' || echo "   Could not run the FreeLLMAPI probe inside the container."
 fi
