@@ -3,161 +3,208 @@ import { expect, test } from "@playwright/test";
 const state = {
   projection: "system",
   position: 1,
-  generated_at: "2026-09-11T12:00:00Z",
-  missions: [],
-  tasks: [],
-  universes: [],
-  agents: [],
+  generated_at: "2026-09-30T12:00:00Z",
+  missions: [], tasks: [], universes: [], agents: [],
   memory: { conversation: 0, mission: 0, universe: 0, conscious: 0, total: 0 },
   pulse: {},
-  counts: { missions: 0, running_missions: 0, tasks: 0, ready_tasks: 0, running_tasks: 0, failed_tasks: 0, active_universes: 0, active_agents: 0 },
-  pagination: { page: 1, page_size: 25, has_next: false, totals: { missions: 0, tasks: 0, universes: 0, agents: 0 } },
-};
-
-async function mockDashboard(page: import("@playwright/test").Page) {
-  await page.route(/\/api\/v1\/system\/state(?:\?.*)?$/, (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(state) }));
-  await page.route("**/api/v1/system/projections", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ chronicle_head: 1, projections: [] }) }));
-  await page.route("**/api/v1/chronicles?limit=40&offset=0", (route) => route.fulfill({ status: 200, contentType: "application/json", body: "[]" }));
-  await page.route("**/api/v1/system/inference", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ configured: true, configured_provider: "freellmapi", providers: [{ provider: "freellmapi", available: true, detail: null, models: [{ model: "auto", is_default: true, capabilities: ["text", "streaming"], cost_tier: "UNKNOWN" }] }] }) }));
-  await page.route("**/api/v1/system/events?after=1", (route) => route.fulfill({ status: 200, contentType: "text/event-stream", body: "" }));
-  await page.route("**/api/v1/inceptions", (route) => route.fulfill({ status: 200, contentType: "application/json", body: "[]" }));
-  await page.route("**/api/v1/voice/session/ticket", (route) => route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ ticket: "voice-ticket" }) }));
-}
-
-async function mockConversation(page: import("@playwright/test").Page) {
-  await page.route("**/api/v1/conversations", (route) => route.fulfill({
-    status: 201,
-    contentType: "application/json",
-    body: JSON.stringify({
-      id: "conversation-1",
-      creator_id: "creator-1",
-      title: "Creator Session",
-      status: "active",
-      created_at: "2026-09-11T12:00:00Z",
-      updated_at: "2026-09-11T12:00:00Z",
-    }),
-  }));
-  await page.route("**/api/v1/conversations/conversation-1/messages", (route) => route.fulfill({ status: 200, contentType: "application/json", body: "[]" }));
-}
-
-test("Creator can type to DEUS while realtime voice remains buttonless", async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem("creation_access_token", "e2e-token"));
-  await mockDashboard(page);
-  await mockConversation(page);
-  await page.route("**/api/v1/conversations/conversation-1/deus", (route) => route.fulfill({
-    status: 201,
-    contentType: "application/json",
-    body: JSON.stringify({
-      message_id: "m1",
-      conversation_id: "conversation-1",
-      route: "deus",
-      response: "Sistema operacional.",
-      inception: null,
-      correlation_id: "c1",
-    }),
-  }));
-
-  await page.goto("/");
-  await expect(page.getByRole("region", { name: "Creator Console" })).toBeVisible();
-  await page.getByLabel("Message DEUS").fill("Status?");
-  await page.getByRole("button", { name: "Send to DEUS" }).click();
-
-  await expect(page.getByText("Status?", { exact: true })).toBeVisible();
-  await expect(page.getByText("Sistema operacional.", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: /Talk to DEUS|wake word|microphone/i })).toHaveCount(0);
-});
-
-const assessment = {
-  sophia: { opportunities: ["Reach visitors"], risks: ["Copy needs review"], recommendation: "Start with one simple page." },
-  rockmam: { objective: "Publish a landing page.", constraints: [], completion_criteria: [] },
-  mission_plan: { strategy: "Write, then build.", steps: [
-    { step_key: "build", title: "Build the page", universe: "web", position: 2 },
-    { step_key: "write", title: "Write the copy", universe: "content", position: 1 },
-  ] },
-};
-
-const readyInception = {
-  id: "inception-1",
-  conversation_id: "conversation-1",
-  title: "Landing page",
-  description: "Publish a landing page.",
-  status: "approved",
-  proposed_at: "2026-09-11T12:00:02Z",
-  trinity_assessment: { ...assessment, verdict: { result: "VIABLE", blockers: [], unavailable_universes: [] }, mission_id: "mission-1" },
-};
-
-const blockedInception = {
-  ...readyInception,
-  status: "awaiting_creator_decision",
-  trinity_assessment: {
-    ...assessment,
-    verdict: { result: "REQUIRES_CREATOR", blockers: [{ universe: "web", reason: "inactive" }], unavailable_universes: ["web"] },
+  counts: {
+    missions: 0, running_missions: 0, tasks: 0, ready_tasks: 0,
+    running_tasks: 0, failed_tasks: 0, active_universes: 0, active_agents: 0,
+  },
+  pagination: {
+    page: 1, page_size: 25, has_next: false,
+    totals: { missions: 0, tasks: 0, universes: 0, agents: 0 },
   },
 };
 
-type Calls = string[];
+async function installVoiceSocket(page: import("@playwright/test").Page) {
+  await page.addInitScript(() => {
+    localStorage.setItem("creation_access_token", "e2e-token");
+    localStorage.setItem("creation_conversation_id", "conversation-1");
 
-async function mockTrinity(
-  page: import("@playwright/test").Page,
-  calls: Calls,
-  inception: typeof readyInception | typeof blockedInception = readyInception,
-) {
-  await mockConversation(page);
-  await page.route("**/api/v1/conversations/conversation-1/deus", (route) => route.fulfill({
-    status: 201,
-    contentType: "application/json",
-    body: JSON.stringify({
-      message_id: "m1",
-      conversation_id: "conversation-1",
-      route: "deus",
-      correlation_id: "c1",
-      response: "ROCKMAM preparou a missão.",
-      inception: { id: inception.id, title: inception.title, status: inception.status, verdict: inception.trinity_assessment.verdict.result },
-    }),
-  }));
-  await page.route("**/api/v1/inceptions/inception-1", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(inception) }));
-  await page.route("**/api/v1/missions/mission-1", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ id: "mission-1", inception_id: "inception-1", title: "Landing page", objective: "Publish a landing page.", status: "validated" }) }));
-  await page.route("**/api/v1/missions/mission-1/start", (route) => {
-    calls.push("start mission-1");
-    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ id: "mission-1", inception_id: "inception-1", title: "Landing page", objective: "Publish a landing page.", status: "executing" }) });
-  });
-  await page.route("**/api/v1/inceptions/inception-1/reject", (route) => {
-    calls.push("reject");
-    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ...inception, status: "rejected" }) });
+    const scope = window as unknown as {
+      __voiceSocket?: FakeWebSocket;
+      __voiceUrls?: string[];
+      __voiceSent?: string[];
+      __voiceServer?: (event: object) => boolean;
+    };
+
+    class FakeWebSocket {
+      static readonly CONNECTING = 0;
+      static readonly OPEN = 1;
+      static readonly CLOSING = 2;
+      static readonly CLOSED = 3;
+      readonly url: string;
+      readyState = FakeWebSocket.OPEN;
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onerror: ((event: Event) => void) | null = null;
+      onclose: ((event: CloseEvent) => void) | null = null;
+      onopen: ((event: Event) => void) | null = null;
+
+      constructor(url: string) {
+        this.url = url;
+        scope.__voiceSocket = this;
+        (scope.__voiceUrls ??= []).push(url);
+        setTimeout(() => {
+          this.onmessage?.(new MessageEvent("message", {
+            data: JSON.stringify({
+              type: "session_ready",
+              session_id: "voice-session-1",
+              turn_id: 0,
+              state: "ARMED",
+              creator_id: "creator-1",
+            }),
+          }));
+        }, 25);
+      }
+
+      send(payload: string) {
+        (scope.__voiceSent ??= []).push(payload);
+      }
+
+      close() {
+        this.readyState = FakeWebSocket.CLOSED;
+      }
+
+      addEventListener() {}
+      removeEventListener() {}
+      dispatchEvent() { return true; }
+    }
+
+    Object.defineProperty(window, "WebSocket", {
+      configurable: true,
+      writable: true,
+      value: FakeWebSocket,
+    });
+    scope.__voiceServer = (event: object) => {
+      const socket = scope.__voiceSocket;
+      if (!socket?.onmessage) return false;
+      socket.onmessage(new MessageEvent("message", { data: JSON.stringify(event) }));
+      return true;
+    };
   });
 }
 
-test("a viable governed Mission still requires Creator authorization", async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem("creation_access_token", "e2e-token"));
+async function mockDashboard(
+  page: import("@playwright/test").Page,
+  inferenceConfigured = true,
+) {
+  await page.route(/\/api\/v1\/system\/state(?:\?.*)?$/, (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(state) }));
+  await page.route("**/api/v1/system/projections", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ chronicle_head: 1, projections: [] }) }));
+  await page.route("**/api/v1/chronicles?limit=40&offset=0", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: "[]" }));
+  await page.route("**/api/v1/system/inference", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(inferenceConfigured
+        ? {
+            configured: true,
+            configured_provider: "freellmapi",
+            providers: [{ provider: "freellmapi", available: true, detail: null, models: [] }],
+          }
+        : { configured: false, configured_provider: "fake", providers: [] }),
+    }));
+  await page.route("**/api/v1/system/events?after=1", (route) =>
+    route.fulfill({ status: 200, contentType: "text/event-stream", body: "" }));
+  await page.route("**/api/v1/inceptions", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: "[]" }));
+  await page.route("**/api/v1/conversations/conversation-1/messages", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: "[]" }));
+  await page.route("**/api/v1/voice/session/ticket", (route) =>
+    route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify({ ticket: "voice-ticket-1" }),
+    }));
+}
+
+test("realtime DEUS voice is always armed without push-to-talk or browser speech recognition", async ({ page }) => {
+  await installVoiceSocket(page);
   await mockDashboard(page);
-  const calls: Calls = [];
-  await mockTrinity(page, calls);
 
   await page.goto("/");
-  await page.getByLabel("Message DEUS").fill("Build a landing page");
-  await page.getByLabel("Message DEUS").press("Enter");
 
-  const card = page.getByRole("article", { name: "Trinity proposal: Landing page" });
-  await expect(card.getByText("MISSION READY")).toBeVisible();
-  await card.getByRole("button", { name: "Authorize & start" }).click();
-  await expect(card.getByText("Executing")).toBeVisible();
-  expect(calls).toEqual(["start mission-1"]);
+  await expect(page.getByText("Pronto · diga “Deus”", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Talk to DEUS|Stop listening|wake word/i })).toHaveCount(0);
+
+  const socketInfo = await page.evaluate(() => {
+    const scope = window as unknown as { __voiceUrls?: string[] };
+    return scope.__voiceUrls ?? [];
+  });
+  expect(socketInfo).toHaveLength(1);
+  const url = new URL(socketInfo[0]);
+  expect(url.protocol).toBe("ws:");
+  expect(url.pathname).toBe("/api/v1/voice/session");
+  expect(url.searchParams.get("ticket")).toBe("voice-ticket-1");
+  expect(url.searchParams.get("conversation_id")).toBe("conversation-1");
+  expect(socketInfo[0]).not.toContain("e2e-token");
+
+  await page.evaluate(() => (window as unknown as { __voiceServer: (event: object) => boolean }).__voiceServer({
+    type: "wake_detected",
+    session_id: "voice-session-1",
+    turn_id: 1,
+    acknowledge: true,
+  }));
+  await page.evaluate(() => (window as unknown as { __voiceServer: (event: object) => boolean }).__voiceServer({
+    type: "transcript_commit",
+    session_id: "voice-session-1",
+    turn_id: 1,
+    text: "como está o projeto?",
+  }));
+  await page.evaluate(() => (window as unknown as { __voiceServer: (event: object) => boolean }).__voiceServer({
+    type: "state",
+    session_id: "voice-session-1",
+    turn_id: 1,
+    state: "THINKING",
+  }));
+  await page.evaluate(() => (window as unknown as { __voiceServer: (event: object) => boolean }).__voiceServer({
+    type: "text_delta",
+    session_id: "voice-session-1",
+    turn_id: 1,
+    provider: "freellmapi",
+    text: "Estou ",
+  }));
+  await page.evaluate(() => (window as unknown as { __voiceServer: (event: object) => boolean }).__voiceServer({
+    type: "text_delta",
+    session_id: "voice-session-1",
+    turn_id: 1,
+    provider: "freellmapi",
+    text: "aqui.",
+  }));
+
+  await expect(page.getByText("como está o projeto?", { exact: true })).toBeVisible();
+  await expect(page.getByText("Estou aqui.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Pensando…", { exact: true })).toBeVisible();
+
+  await page.evaluate(() => (window as unknown as { __voiceServer: (event: object) => boolean }).__voiceServer({
+    type: "state",
+    session_id: "voice-session-1",
+    turn_id: 1,
+    state: "LISTENING",
+  }));
+  await page.evaluate(() => (window as unknown as { __voiceServer: (event: object) => boolean }).__voiceServer({
+    type: "telemetry",
+    session_id: "voice-session-1",
+    turn_id: 1,
+    provider_selected: "freellmapi",
+    latency_ms: { transcript_to_first_token: 420 },
+  }));
+
+  await expect(page.getByText("Ouvindo…", { exact: true })).toBeVisible();
+  await expect(page.getByText(/freellmapi/)).toBeVisible();
 });
 
-test("an unstaffed governed Mission can be dismissed but not started", async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem("creation_access_token", "e2e-token"));
-  await mockDashboard(page);
-  const calls: Calls = [];
-  await mockTrinity(page, calls, blockedInception);
+test("voice session stays closed when no inference provider is available", async ({ page }) => {
+  await installVoiceSocket(page);
+  await mockDashboard(page, false);
 
   await page.goto("/");
-  await page.getByLabel("Message DEUS").fill("Build a landing page");
-  await page.getByLabel("Message DEUS").press("Enter");
 
-  const card = page.getByRole("article", { name: "Trinity proposal: Landing page" });
-  await expect(card.getByText("NOT VIABLE YET")).toBeVisible();
-  await expect(card.getByRole("button", { name: "Authorize & start" })).toHaveCount(0);
-  await card.getByRole("button", { name: "Dismiss" }).click();
-  await expect(card.getByText("Dismissed")).toBeVisible();
-  expect(calls).toEqual(["reject"]);
+  await expect(page.getByPlaceholder("Configure um provedor de inferência para falar com DEUS.")).toBeVisible();
+  const urls = await page.evaluate(() =>
+    (window as unknown as { __voiceUrls?: string[] }).__voiceUrls ?? []);
+  expect(urls).toEqual([]);
 });
