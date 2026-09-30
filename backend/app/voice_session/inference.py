@@ -5,7 +5,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Protocol
 
-from app.inference.contracts import InferenceError, InferenceRequest
+from app.inference.contracts import InferenceError, InferenceRequest, InferenceTimeoutError
 
 
 class StreamingProvider(Protocol):
@@ -20,11 +20,30 @@ class StreamChunk:
     text: str
 
 
-async def _stream_fallback(
+async def _stream_with_first_token_deadline(
     request: InferenceRequest,
     provider: StreamingProvider,
+    *,
+    timeout_seconds: float,
 ) -> AsyncIterator[StreamChunk]:
-    async for text in provider.stream(request):
+    stream = provider.stream(request).__aiter__()
+    try:
+        first_text = await asyncio.wait_for(
+            stream.__anext__(),
+            timeout=timeout_seconds,
+        )
+    except TimeoutError as exc:
+        raise InferenceTimeoutError(
+            provider.name,
+            f"{provider.name} first-token timeout",
+        ) from exc
+    except StopAsyncIteration:
+        return
+
+    if first_text:
+        yield StreamChunk(provider=provider.name, text=first_text)
+
+    async for text in stream:
         if text:
             yield StreamChunk(provider=provider.name, text=text)
 
@@ -46,7 +65,11 @@ async def stream_with_fallback(
             timeout=first_token_timeout_seconds,
         )
     except (TimeoutError, InferenceError, StopAsyncIteration):
-        async for chunk in _stream_fallback(request, fallback):
+        async for chunk in _stream_with_first_token_deadline(
+            request,
+            fallback,
+            timeout_seconds=first_token_timeout_seconds,
+        ):
             yield chunk
         return
 
