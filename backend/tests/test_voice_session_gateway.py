@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-from app.voice_session.session import SessionState, VoiceSession
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
@@ -9,6 +8,7 @@ from app.api import voice_session as voice_session_api
 from app.auth.dependencies import get_sovereign_creator
 from app.main import app
 from app.schemas.auth import TokenPayload
+from app.voice_session.session import SessionState, VoiceSession
 from app.voice_session.stt import STTTranscript
 
 
