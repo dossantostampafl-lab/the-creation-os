@@ -3,9 +3,9 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 
 import pytest
-from app.voice_session.inference import StreamChunk, stream_with_fallback
 
 from app.inference.contracts import InferenceRequest, InferenceTimeoutError
+from app.voice_session.inference import StreamChunk, stream_with_fallback
 
 
 class StubProvider:
