@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from loguru import logger
+
 from app.cache.bootstrap import build_cache_orchestrator
 from app.cache.routing import CachingModelRouter
 from app.config import settings
@@ -114,15 +116,28 @@ def _register_provider(registry: ProviderRegistry, provider: str) -> None:
 
 
 def build_model_router() -> ModelRouter:
-    """Every request is served by the configured provider; the chain's fallbacks only when it fails."""
+    """Every request is served by the configured provider; the chain's fallbacks only when it fails.
+
+    The primary must be fully configured or there is nothing to serve with. A reserve that is missing its
+    key or model is skipped (and logged) instead: a half-configured reserve must not take down a primary
+    that works, which is exactly when the reserve is not needed.
+    """
     registry = ProviderRegistry()
     chain = settings.inference_provider_chain
-    for provider in chain:
-        _register_provider(registry, provider)
+    _register_provider(registry, chain[0])
+    reserves: list[str] = []
+    for provider in chain[1:]:
+        try:
+            _register_provider(registry, provider)
+        except (RuntimeError, ValueError) as error:
+            logger.bind(component="inference", provider=provider, error_type=error.__class__.__name__).warning(
+                "reserve inference provider skipped: {}", error)
+            continue
+        reserves.append(provider)
     return CachingModelRouter(
         registry,
         cache=build_cache_orchestrator(),
-        fallback_providers=chain[1:],
+        fallback_providers=reserves,
         circuit_breaker=_CIRCUIT_BREAKER,
         rate_limit_cooldown=_RATE_LIMIT_COOLDOWN,
     )

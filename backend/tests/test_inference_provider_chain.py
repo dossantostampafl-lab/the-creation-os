@@ -74,11 +74,10 @@ def test_build_model_router_registers_the_whole_chain(monkeypatch) -> None:
     assert anthropic_profile.model == "claude-sonnet-4"
 
 
-def test_build_model_router_fails_closed_when_a_fallback_is_unconfigured(monkeypatch) -> None:
+def test_build_model_router_skips_a_fallback_that_is_unconfigured(monkeypatch) -> None:
     _configure_freellmapi_and_anthropic(monkeypatch)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.setattr(settings, "llm_provider", "freellmapi")
     monkeypatch.setattr(settings, "llm_fallback_providers", "anthropic")
 
-    with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY is required"):
-        build_model_router()
+    assert tuple(build_model_router().registry.names()) == ("freellmapi",)

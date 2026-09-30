@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import actor, correlation_id
@@ -11,6 +12,7 @@ from app.config import settings
 from app.core.domain import Actor
 from app.db.session import get_session
 from app.inference.bootstrap import build_model_router, resolve_configured_model
+from app.inference.contracts import InferenceError
 from app.models.entities import Conversation
 from app.repositories.domain import DomainRepository
 from app.schemas.conversation import ConversationMessageResponse, MessageRequest, MessageResponse
@@ -69,6 +71,13 @@ async def converse_with_deus(
         result = await service.respond(a, str(entity_id), body.content, cid)
     except NotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except InferenceError as exc:
+        # Every provider in the chain failed. Say so plainly (503) instead of an opaque 500, and name
+        # which provider and why in the log so the cause is found without guessing.
+        await session.rollback()
+        logger.bind(component="deus", provider=exc.provider, code=exc.code).warning(
+            "DEUS could not get an answer from any inference provider: {}", exc)
+        raise HTTPException(status_code=503, detail="DEUS could not reach any inference provider right now") from exc
 
     return MessageResponse(
         message_id=result.creator_message_id,
