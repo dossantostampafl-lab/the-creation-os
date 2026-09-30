@@ -225,7 +225,9 @@ jobs:
               sudo ./deploy/oracle/show-logs.sh 150
               ;;
             set-voice)
-              sudo -E ./deploy/oracle/set-voice.sh
+              # "Klaus" is the logical reserve in the voice protocol. On this deployment it is
+              # explicitly bound to the already configured Anthropic provider; no second key is created.
+              KLAUS_PROVIDER=anthropic sudo -E ./deploy/oracle/set-voice.sh
               ;;
             seed)
               # Idempotent: it reconciles the canonical Universes and their Agents rather than
