@@ -178,6 +178,19 @@ export const converseWithDeus = (conversationId: string, content: string) =>
     body: JSON.stringify({ content, metadata: {} }),
   });
 
+
+export type VoiceSessionTicket = {
+  ticket: string;
+};
+
+export async function issueVoiceSessionTicket(): Promise<VoiceSessionTicket> {
+  const response = await authorizedFetch("/voice/session/ticket", {
+    method: "POST",
+  });
+  if (!response.ok) throw new Error(`HTTP_${response.status}`);
+  return response.json() as Promise<VoiceSessionTicket>;
+}
+
 /** What SOPHIA and ROCKMAM concluded about a Creator request (empty for hand-made Inceptions). */
 export type TrinityAssessment = {
   sophia?: { opportunities: string[]; risks: string[]; recommendation: string };
