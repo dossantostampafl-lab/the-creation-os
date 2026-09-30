@@ -475,3 +475,29 @@ async def test_gateway_does_not_block_when_tts_buffers_until_finish():
 
 async def _collect_events(gateway: VoiceSessionGateway) -> list[dict[str, object]]:
     return [event async for event in gateway.process_next_transcript()]
+
+
+def test_websocket_reports_stt_connection_failure(voice_client: TestClient, monkeypatch):
+    class FailingSTT:
+        async def __aenter__(self):
+            raise OSError("provider unavailable")
+
+        async def __aexit__(self, *_args):
+            return None
+
+    monkeypatch.setattr(
+        voice_session_api,
+        "ElevenLabsRealtimeSTT",
+        lambda *_args, **_kwargs: FailingSTT(),
+    )
+
+    with voice_client.websocket_connect(
+        "/api/v1/voice/session?ticket=ticket-1&conversation_id=conversation-1"
+    ) as websocket:
+        event = websocket.receive_json()
+        assert event["type"] == "error"
+        assert event["code"] == "VOICE_STT_UNAVAILABLE"
+        with pytest.raises(WebSocketDisconnect) as closed:
+            websocket.receive_json()
+
+    assert closed.value.code == 1013
