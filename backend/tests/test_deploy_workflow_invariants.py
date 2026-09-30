@@ -344,7 +344,7 @@ def test_the_stf_host_check_task_exists_and_only_reads() -> None:
 def test_update_proves_the_real_deus_path_before_it_is_green() -> None:
     """Provider health alone did not catch a silent Creator -> DEUS failure in production."""
     remote = _remote_script()
-    update = remote.split("            update)", 1)[1].split("              ;;", 1)[0]
+    update = remote.split("update)", 1)[1].split(";;", 1)[0]
     inference = update.index("check-inference.sh")
     conversation = update.index("smoke-test.sh --deus")
     assert inference < conversation
@@ -362,6 +362,6 @@ def test_inference_check_reports_provider_order_and_probes_freellmapi() -> None:
 def test_freellmapi_task_places_it_before_anthropic() -> None:
     """The explicit FreeLLM task is the supported production order: gateway first, Claude reserve."""
     remote = _remote_script()
-    block = remote.split("            set-inference-freellmapi)", 1)[1].split("              ;;", 1)[0]
+    block = remote.split("set-inference-freellmapi)", 1)[1].split(";;", 1)[0]
     assert "FALLBACK_PROVIDERS=anthropic" in block
     assert "set-inference.sh freellmapi" in block
