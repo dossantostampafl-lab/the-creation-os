@@ -229,4 +229,8 @@ test("wake word falls back to backend STT when Android blocks automatic browser 
   await expect.poll(turn.sttCalls, { timeout: 7000 }).toBeGreaterThan(0);
   await expect.poll(() => turn.deusBodies[0]?.content, { timeout: 7000 }).toBe("verifique o projeto");
   await expect(page.getByText("Verificando.", { exact: true })).toBeVisible();
+  // The fallback recorder must not reopen and dispatch the same ambient chunk again while
+  // the first command is entering the pending DEUS turn.
+  await page.waitForTimeout(1600);
+  expect(turn.deusBodies).toHaveLength(1);
 });
