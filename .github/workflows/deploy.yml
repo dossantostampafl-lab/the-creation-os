@@ -203,6 +203,9 @@ jobs:
               sudo "${COMPOSE[@]}" up -d --build --remove-orphans
               sleep 30
               sudo ./deploy/oracle/check-inference.sh
+              # A green deploy must prove the Creator-facing path, not just provider health.
+              # This exercises login, the interface dependencies, ElevenLabs, and one real DEUS turn.
+              sudo ./deploy/oracle/smoke-test.sh --deus
               ;;
             set-inference)
               sudo -E ./deploy/oracle/set-inference.sh anthropic "${ANTHROPIC_MODEL:-claude-sonnet-5}"
