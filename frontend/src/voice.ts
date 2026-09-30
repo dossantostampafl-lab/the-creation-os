@@ -709,7 +709,7 @@ export function useDeusEars({ paused, conversing = false, onWake, onCommand, onI
         const best = bestRecognitionAlternative(result, attentive.current);
         // Prime the high-quality recorder as soon as any recognition hypothesis contains the
         // wake word. This removes the Android race where the Creator starts speaking while
-        // getUserMedia is still opening after the 700ms settle window.
+        // getUserMedia is still opening while the utterance is being finalized.
         if (!attentive.current && splitWakePhrase(best.transcript).woke) void ensureCapture(true);
         if (result.isFinal) handleFinal(best.transcript, best.confidence);
         else interim += best.transcript;
