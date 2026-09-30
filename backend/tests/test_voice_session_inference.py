@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 
 import pytest
@@ -20,6 +21,15 @@ class StubProvider:
             if isinstance(event, Exception):
                 raise event
             yield event
+
+
+class SlowProvider:
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+    async def stream(self, request: InferenceRequest) -> AsyncIterator[str]:
+        await asyncio.sleep(1)
+        yield "too late"
 
 
 def request() -> InferenceRequest:
@@ -92,3 +102,25 @@ async def test_stream_never_interleaves_fallback_after_primary_emits_text():
 
     assert received == [StreamChunk(provider="freellmapi", text="parcial")]
     assert fallback.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_fallback_first_token_is_bounded():
+    primary = StubProvider(
+        "freellmapi",
+        [InferenceTimeoutError("freellmapi", "timeout")],
+    )
+    fallback = SlowProvider("klaus")
+
+    with pytest.raises(InferenceTimeoutError) as error:
+        _ = [
+            chunk
+            async for chunk in stream_with_fallback(
+                request(),
+                primary=primary,
+                fallback=fallback,
+                first_token_timeout_seconds=0.01,
+            )
+        ]
+
+    assert error.value.provider == "klaus"
