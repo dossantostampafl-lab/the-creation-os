@@ -26,9 +26,9 @@ export function buildVoiceSessionUrl(
 
   const protocol = base.protocol === "https:" ? "wss:" : "ws:";
   const path = `${base.pathname.replace(/\/$/, "")}/voice/session`;
-  const params = new URLSearchParams({ ticket });
-  if (conversationId) params.set("conversation_id", conversationId);
-  return `${protocol}//${base.host}${path}?${params.toString()}`;
+  const query = `ticket=${encodeURIComponent(ticket)}`
+    + (conversationId ? `&conversation_id=${encodeURIComponent(conversationId)}` : "");
+  return `${protocol}//${base.host}${path}?${query}`;
 }
 
 export class VoiceSessionTransport {
