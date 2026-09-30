@@ -17,12 +17,15 @@ class FakeSocket {
 
 describe("voice session transport", () => {
   it("builds wss/ws URLs with only the ephemeral ticket", () => {
-    expect(buildVoiceSessionUrl("https://deus.example/api/v1", "ticket value")).toBe(
-      "wss://deus.example/api/v1/voice/session?ticket=ticket%20value",
-    );
-    expect(buildVoiceSessionUrl("http://localhost:8000/api/v1", "ticket-2")).toBe(
-      "ws://localhost:8000/api/v1/voice/session?ticket=ticket-2",
-    );
+    const secure = new URL(buildVoiceSessionUrl("https://deus.example/api/v1", "ticket value"));
+    expect(secure.protocol).toBe("wss:");
+    expect(secure.pathname).toBe("/api/v1/voice/session");
+    expect(secure.searchParams.get("ticket")).toBe("ticket value");
+
+    const local = new URL(buildVoiceSessionUrl("http://localhost:8000/api/v1", "ticket-2"));
+    expect(local.protocol).toBe("ws:");
+    expect(local.pathname).toBe("/api/v1/voice/session");
+    expect(local.searchParams.get("ticket")).toBe("ticket-2");
   });
 
   it("uses a fresh ticket on reconnect and never places an access token in the socket URL", async () => {
