@@ -4,8 +4,8 @@ import base64
 from urllib.parse import parse_qs, urlparse
 
 from app.voice_session.stt import (
-    STTTranscript,
     ElevenLabsSTTConfig,
+    STTTranscript,
     encode_audio_chunk,
     parse_stt_event,
 )
