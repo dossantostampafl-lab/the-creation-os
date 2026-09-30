@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import base64
 import re
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from enum import StrEnum
@@ -36,6 +36,8 @@ class RealtimeTTS(Protocol):
 
 
 TTSFactory = Callable[[], AbstractAsyncContextManager[RealtimeTTS]]
+RequestBuilder = Callable[[str, int], Awaitable[InferenceRequest]]
+TurnCompleted = Callable[[int, str, str], Awaitable[None]]
 
 
 class SessionState(StrEnum):
@@ -190,6 +192,8 @@ class VoiceSessionGateway:
         primary: StreamingProvider,
         fallback: StreamingProvider,
         tts_factory: TTSFactory,
+        request_builder: RequestBuilder | None = None,
+        on_turn_completed: TurnCompleted | None = None,
         first_token_timeout_seconds: float = 2.5,
     ) -> None:
         if first_token_timeout_seconds <= 0:
@@ -201,6 +205,8 @@ class VoiceSessionGateway:
         self.primary = primary
         self.fallback = fallback
         self.tts_factory = tts_factory
+        self.request_builder = request_builder
+        self.on_turn_completed = on_turn_completed
         self.first_token_timeout_seconds = first_token_timeout_seconds
 
     async def send_audio(
@@ -286,17 +292,21 @@ class VoiceSessionGateway:
             "state": SessionState.THINKING.value,
         }
 
-        request = InferenceRequest(
-            messages=[{"role": "user", "content": decision.command}],
-            metadata={
-                "voice_session_id": self.session.session_id,
-                "turn_id": turn_id,
-                "skip_health_probe": True,
-            },
-        )
+        if self.request_builder is None:
+            request = InferenceRequest(
+                messages=[{"role": "user", "content": decision.command}],
+                metadata={
+                    "voice_session_id": self.session.session_id,
+                    "turn_id": turn_id,
+                    "skip_health_probe": True,
+                },
+            )
+        else:
+            request = await self.request_builder(decision.command, turn_id)
 
         speaking = False
         emitted_model_text = False
+        response_parts: list[str] = []
         async with self.tts_factory() as tts:
             try:
                 async for chunk in stream_with_fallback(
@@ -323,6 +333,7 @@ class VoiceSessionGateway:
                                 "primary_failure_or_first_token_timeout"
                             )
 
+                    response_parts.append(chunk.text)
                     metrics.mark("first_tts_text")
                     await tts.send_text(chunk.text)
                     yield {
@@ -348,6 +359,7 @@ class VoiceSessionGateway:
                 metrics.fallback_reason = "all_providers_failed"
                 metrics.mark("first_model_token")
                 metrics.mark("first_tts_text")
+                response_parts.append(_SERVICE_UNAVAILABLE)
                 await tts.send_text(_SERVICE_UNAVAILABLE)
                 yield {
                     "type": "text_delta",
@@ -383,6 +395,12 @@ class VoiceSessionGateway:
             self.session.finish_without_audio(turn_id)
 
         metrics.mark("completed")
+        if self.on_turn_completed is not None:
+            await self.on_turn_completed(
+                turn_id,
+                "".join(response_parts),
+                metrics.provider_selected or "unknown",
+            )
         yield {
             "type": "state",
             "session_id": self.session.session_id,
