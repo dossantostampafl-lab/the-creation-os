@@ -63,3 +63,14 @@ def test_protocol_accepts_wake_control_event():
     assert event.type == "wake"
     assert event.session_id == "s1"
     assert event.turn_id == 0
+
+
+def test_protocol_accepts_pcm_audio_commit_metadata():
+    event = parse_client_event(
+        '{"type":"audio","session_id":"s1","turn_id":0,'
+        '"audio_base64":"AQI=","commit":true,"utterance_id":"u-1"}'
+    )
+
+    assert event.audio_base64 == "AQI="
+    assert event.commit is True
+    assert event.utterance_id == "u-1"
