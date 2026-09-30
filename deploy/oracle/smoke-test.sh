@@ -135,14 +135,6 @@ with httpx.Client(base_url=BASE, timeout=45) as client:
 
     print()
     print("== Voice ==")
-    voice = client.post("/voice/synthesize", json={"text": "Teste."})
-    if voice.status_code == 200:
-        report("ElevenLabs synthesis", True, f"{len(voice.content)} bytes of audio")
-    elif voice.status_code == 501:
-        report("ElevenLabs synthesis", False, "501: realtime ElevenLabs voice is disabled or has no key")
-    else:
-        report("ElevenLabs synthesis", False, f"HTTP {voice.status_code}")
-
     ticket_probe = client.post("/voice/session/ticket")
     report(
         "realtime voice ticket",
