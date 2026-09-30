@@ -27,7 +27,7 @@ Ordinary conversation must never traverse SOPHIA, ROKHMAN or Trinity. Governed e
 - Wake phrase: **Deus**.
 - Language: **pt-BR** throughout STT, prompting, response text and TTS.
 - Primary inference provider: **FreeLLMAPI**.
-- Fallback inference provider: **Anthropic/Claude** using the existing provider configuration and credentials.
+- Fallback inference provider: **Klaus**. Klaus is the Creator-specified logical fallback. Its concrete provider/model/API mapping must be verified from an explicit project configuration before deployment; it must not be silently substituted with Anthropic/Claude.
 - Voice provider: **ElevenLabs** using the existing API key and existing configured voice ID.
 - Reuse existing secrets; do not expose provider API keys to the browser.
 - No browser-native `SpeechRecognition` dependency in the new conversation path.
@@ -51,7 +51,7 @@ Recommendation: make one backend **Voice Session Gateway** own the session state
 
 ### 3.3 LLM/inference engineer
 
-Recommendation: use the existing streaming provider interfaces. Normal conversation explicitly requests `freellmapi` first and `anthropic` second. The fallback begins only when the primary raises a timeout, authentication/rate-limit/unavailable error, or fails the configured first-token deadline. Provider choice must be observable per turn.
+Recommendation: use the existing streaming provider interfaces. Normal conversation explicitly requests `freellmapi` first and the configured `klaus` fallback second. The fallback begins only when the primary raises a timeout, authentication/rate-limit/unavailable error, or fails the configured first-token deadline. Provider choice must be observable per turn.
 
 ### 3.4 Android/web engineer
 
@@ -107,13 +107,13 @@ Existing `ELEVENLABS_STT_MODEL_ID=scribe_v2` is not sufficient for the realtime 
 For every ordinary conversational turn:
 
 - preferred provider: `freellmapi`
-- fallback provider: `anthropic`
+- fallback provider: `klaus` (logical name; concrete adapter mapping must be verified before deployment)
 - streaming required
 - health preflight skipped on the interactive critical path
 - short bounded context loaded directly from the conversation store
 - no Trinity preprocessing
 
-FreeLLMAPI and Anthropic both expose streaming implementations in the current inference layer; the new subsystem consumes those interfaces rather than reimplementing provider HTTP clients.
+FreeLLMAPI already exposes streaming in the current inference layer. Klaus must be bound through the same streaming-provider interface once its concrete adapter mapping is verified; no other provider is to be substituted by assumption.
 
 #### E. ElevenLabs realtime TTS
 
@@ -238,7 +238,7 @@ For the conversational stream:
 
 1. Start FreeLLMAPI.
 2. If it produces a valid first token within the configured interactive deadline, keep that provider for the turn.
-3. If it fails with timeout, rate limit, authentication failure, unavailable/circuit-open state, malformed stream, or misses the first-token deadline, cancel it and start Anthropic/Claude.
+3. If it fails with timeout, rate limit, authentication failure, unavailable/circuit-open state, malformed stream, or misses the first-token deadline, cancel it and start Klaus.
 4. Never interleave text from two providers in one turn.
 5. Record `provider_selected`, `fallback_reason` and latencies.
 6. If both providers fail, DEUS speaks a short deterministic service message using ElevenLabs; it does not hang silently.
@@ -291,7 +291,7 @@ Attempt bounded reconnect. While reconnecting, UI shows an explicit degraded lis
 
 ### FreeLLM failure
 
-Fail over once to Anthropic/Claude according to the provider policy.
+Fail over once to Klaus according to the provider policy.
 
 ### TTS disconnect
 
@@ -358,7 +358,7 @@ Backend:
 
 - fake realtime STT server emitting partial + committed transcripts
 - fake streaming FreeLLM server
-- forced FreeLLM timeout -> Anthropic stream
+- forced FreeLLM timeout -> Klaus stream
 - fake ElevenLabs TTS chunks
 - reconnect and out-of-order event tests
 - authentication failure
@@ -392,7 +392,7 @@ Mandatory on Android Chrome against the Oracle deployment:
 7. Hear DEUS begin answering without SOPHIA/ROKHMAN/Trinity delay.
 8. Ask at least five consecutive follow-up turns.
 9. Interrupt one spoken answer and verify barge-in.
-10. Force/observe a controlled FreeLLM failure and verify Anthropic/Claude fallback.
+10. Force/observe a controlled FreeLLM failure and verify Klaus fallback.
 11. Confirm telemetry identifies the provider and latency stages without exposing credentials.
 
 No release is accepted if this sequence fails even when CI is green.
@@ -421,9 +421,6 @@ Reuse existing runtime configuration wherever valid:
 - `FREELLMAPI_API_KEY`
 - `FREELLMAPI_MODEL`
 - `FREELLMAPI_BASE_URL`
-- `ANTHROPIC_API_KEY`
-- `ANTHROPIC_MODEL`
-- `ANTHROPIC_BASE_URL`
 - `ELEVENLABS_API_KEY`
 - `ELEVENLABS_VOICE_ID`
 - `ELEVENLABS_MODEL_ID`
@@ -432,7 +429,7 @@ New or adjusted voice-session settings:
 
 - `ELEVENLABS_STT_MODEL_ID=scribe_v2_realtime`
 - `DEUS_VOICE_PRIMARY_PROVIDER=freellmapi`
-- `DEUS_VOICE_FALLBACK_PROVIDER=anthropic`
+- `DEUS_VOICE_FALLBACK_PROVIDER=klaus`
 - `DEUS_VOICE_FIRST_TOKEN_TIMEOUT_MS=2500`
 - `DEUS_VOICE_SESSION_ENABLED=true|false`
 
@@ -447,7 +444,7 @@ The work is complete only when all conditions are true:
 - wake word "Deus" works on deployed Android Chrome
 - no microphone button is needed between normal turns
 - FreeLLM is observed as primary provider
-- Anthropic/Claude fallback is proven under controlled FreeLLM failure
+- Klaus fallback is proven under controlled FreeLLM failure using its explicitly verified adapter/configuration
 - ElevenLabs existing voice is used for acknowledgement and all DEUS speech
 - normal dialogue bypasses SOPHIA/ROKHMAN/Trinity
 - barge-in works
