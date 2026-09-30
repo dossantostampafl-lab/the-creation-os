@@ -23,10 +23,14 @@ if [ -z "$container" ]; then
 fi
 
 docker exec -i -e TCO_WITH_DEUS="$with_deus" "$container" python - <<'PY'
+import asyncio
+import json
 import os
 import sys
+from urllib.parse import urlencode
 
 import httpx
+from websockets.asyncio.client import connect as websocket_connect
 
 BASE = "http://127.0.0.1:8000/api/v1"
 passed = failed = 0
@@ -135,9 +139,16 @@ with httpx.Client(base_url=BASE, timeout=45) as client:
     if voice.status_code == 200:
         report("ElevenLabs synthesis", True, f"{len(voice.content)} bytes of audio")
     elif voice.status_code == 501:
-        report("ElevenLabs synthesis", False, "501: disabled or no key -- the browser voice is used")
+        report("ElevenLabs synthesis", False, "501: realtime ElevenLabs voice is disabled or has no key")
     else:
         report("ElevenLabs synthesis", False, f"HTTP {voice.status_code}")
+
+    ticket_probe = client.post("/voice/session/ticket")
+    report(
+        "realtime voice ticket",
+        ticket_probe.status_code == 201 and bool(ticket_probe.json().get("ticket")),
+        f"HTTP {ticket_probe.status_code}",
+    )
 
     if os.getenv("TCO_WITH_DEUS") == "true":
         print()
@@ -148,6 +159,41 @@ with httpx.Client(base_url=BASE, timeout=45) as client:
         else:
             conversation_id = conversation.json()["id"]
             report("create conversation", True)
+
+            realtime_ticket = client.post("/voice/session/ticket")
+            if realtime_ticket.status_code == 201:
+                async def verify_realtime_session() -> tuple[bool, str]:
+                    query = urlencode({
+                        "ticket": realtime_ticket.json()["ticket"],
+                        "conversation_id": conversation_id,
+                    })
+                    try:
+                        async with websocket_connect(
+                            f"ws://127.0.0.1:8000/api/v1/voice/session?{query}",
+                            open_timeout=20,
+                        ) as websocket:
+                            raw = await asyncio.wait_for(websocket.recv(), timeout=20)
+                            event = json.loads(raw)
+                            ok = (
+                                event.get("type") == "session_ready"
+                                and event.get("state") == "ARMED"
+                                and bool(event.get("session_id"))
+                            )
+                            if ok:
+                                await websocket.send(json.dumps({
+                                    "type": "stop",
+                                    "session_id": event["session_id"],
+                                    "turn_id": event.get("turn_id", 0),
+                                }))
+                            return ok, f"{event.get('type')} / {event.get('state')}"
+                    except Exception as exc:
+                        return False, f"{type(exc).__name__}: {exc}"
+
+                voice_ok, voice_detail = asyncio.run(verify_realtime_session())
+                report("realtime DEUS voice session", voice_ok, voice_detail)
+            else:
+                report("realtime DEUS voice session", False, f"ticket HTTP {realtime_ticket.status_code}")
+
             reply = client.post(
                 f"/conversations/{conversation_id}/deus",
                 json={"content": "Responda apenas: estou aqui."},
