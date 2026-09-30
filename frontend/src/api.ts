@@ -230,38 +230,6 @@ export const startMission = (id: string) => api<Mission>(`/missions/${id}/start`
 
 export const cancelMission = (id: string) => api<Mission>(`/missions/${id}/cancel`, { method: "POST" });
 
-/** DEUS voice through the backend's ElevenLabs proxy; the provider key never reaches the browser. */
-export async function synthesizeVoice(text: string, signal?: AbortSignal): Promise<Blob> {
-  const response = await authorizedFetch("/voice/synthesize", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text }),
-    signal,
-  });
-  if (!response.ok) throw new Error(`HTTP_${response.status}`);
-  const audio = await response.blob();
-  if (!audio.size || !audio.type.startsWith("audio/")) throw new Error("VOICE_INVALID_AUDIO");
-  return audio;
-}
-
-export type VoiceTranscript = {
-  text: string;
-  language_code: string | null;
-  language_probability: number | null;
-};
-
-/** High-accuracy STT for attentive turns. Browser recognition remains the instant fail-open path. */
-export async function transcribeVoice(audio: Blob, signal?: AbortSignal): Promise<VoiceTranscript> {
-  const response = await authorizedFetch("/voice/transcribe", {
-    method: "POST",
-    headers: { "Content-Type": audio.type || "audio/webm" },
-    body: audio,
-    signal,
-  });
-  if (!response.ok) throw new Error(`HTTP_${response.status}`);
-  return response.json() as Promise<VoiceTranscript>;
-}
-
 export type StreamHandlers = {
   onEvent: (event: ChronicleEvent) => void;
   onResync: () => void;
