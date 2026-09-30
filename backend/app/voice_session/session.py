@@ -362,79 +362,84 @@ class VoiceSessionGateway:
                         yield event
 
             try:
-                async for chunk in stream_with_fallback(
-                    request,
-                    primary=self.primary,
-                    fallback=self.fallback,
-                    first_token_timeout_seconds=(
-                        self.first_token_timeout_seconds
-                    ),
-                ):
-                    if (
-                        turn_id != self.session.turn_id
-                        or self.session.state
-                        not in {SessionState.THINKING, SessionState.SPEAKING}
+                try:
+                    async for chunk in stream_with_fallback(
+                        request,
+                        primary=self.primary,
+                        fallback=self.fallback,
+                        first_token_timeout_seconds=(
+                            self.first_token_timeout_seconds
+                        ),
                     ):
-                        return
+                        if (
+                            turn_id != self.session.turn_id
+                            or self.session.state
+                            not in {SessionState.THINKING, SessionState.SPEAKING}
+                        ):
+                            return
 
-                    if not emitted_model_text:
-                        emitted_model_text = True
-                        metrics.mark("first_model_token")
-                        metrics.provider_selected = chunk.provider
-                        if chunk.provider != self.primary.name:
-                            metrics.fallback_reason = (
-                                "primary_failure_or_first_token_timeout"
-                            )
+                        if not emitted_model_text:
+                            emitted_model_text = True
+                            metrics.mark("first_model_token")
+                            metrics.provider_selected = chunk.provider
+                            if chunk.provider != self.primary.name:
+                                metrics.fallback_reason = (
+                                    "primary_failure_or_first_token_timeout"
+                                )
 
-                    response_parts.append(chunk.text)
+                        response_parts.append(chunk.text)
+                        metrics.mark("first_tts_text")
+                        await tts.send_text(chunk.text)
+                        yield {
+                            "type": "text_delta",
+                            "session_id": self.session.session_id,
+                            "turn_id": turn_id,
+                            "provider": chunk.provider,
+                            "text": chunk.text,
+                        }
+
+                        async for audio_event in emit_ready_audio():
+                            yield audio_event
+                except InferenceError:
+                    if emitted_model_text:
+                        raise
+                    metrics.provider_selected = "unavailable"
+                    metrics.fallback_reason = "all_providers_failed"
+                    metrics.mark("first_model_token")
                     metrics.mark("first_tts_text")
-                    await tts.send_text(chunk.text)
+                    response_parts.append(_SERVICE_UNAVAILABLE)
+                    await tts.send_text(_SERVICE_UNAVAILABLE)
                     yield {
                         "type": "text_delta",
                         "session_id": self.session.session_id,
                         "turn_id": turn_id,
-                        "provider": chunk.provider,
-                        "text": chunk.text,
+                        "provider": "unavailable",
+                        "text": _SERVICE_UNAVAILABLE,
                     }
-
                     async for audio_event in emit_ready_audio():
                         yield audio_event
-            except InferenceError:
-                if emitted_model_text:
-                    raise
-                metrics.provider_selected = "unavailable"
-                metrics.fallback_reason = "all_providers_failed"
-                metrics.mark("first_model_token")
-                metrics.mark("first_tts_text")
-                response_parts.append(_SERVICE_UNAVAILABLE)
-                await tts.send_text(_SERVICE_UNAVAILABLE)
-                yield {
-                    "type": "text_delta",
-                    "session_id": self.session.session_id,
-                    "turn_id": turn_id,
-                    "provider": "unavailable",
-                    "text": _SERVICE_UNAVAILABLE,
-                }
-                async for audio_event in emit_ready_audio():
-                    yield audio_event
 
-            await tts.finish()
-            while not audio_done:
-                item = await audio_queue.get()
-                if isinstance(item, BaseException):
-                    raise item
-                if item is None:
-                    audio_done = True
-                    break
-                audio_event, speaking = self._audio_event(
-                    item,
-                    turn_id=turn_id,
-                    metrics=metrics,
-                    speaking=speaking,
-                )
-                if audio_event is not None:
-                    yield audio_event
-            await audio_reader
+                await tts.finish()
+                while not audio_done:
+                    item = await audio_queue.get()
+                    if isinstance(item, BaseException):
+                        raise item
+                    if item is None:
+                        audio_done = True
+                        break
+                    audio_event, speaking = self._audio_event(
+                        item,
+                        turn_id=turn_id,
+                        metrics=metrics,
+                        speaking=speaking,
+                    )
+                    if audio_event is not None:
+                        yield audio_event
+                await audio_reader
+            finally:
+                if not audio_reader.done():
+                    audio_reader.cancel()
+                await asyncio.gather(audio_reader, return_exceptions=True)
 
         if speaking:
             self.session.finish_speaking(turn_id)
