@@ -92,4 +92,9 @@ export class StreamingAudioPlayer {
     this.activeTurnId = null;
     return true;
   }
+
+  stop(): void {
+    this.activeTurnId = null;
+    this.sink.stop();
+  }
 }
