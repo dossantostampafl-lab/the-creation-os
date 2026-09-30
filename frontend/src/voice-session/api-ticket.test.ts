@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { issueVoiceSessionTicket, preloadVoiceAcknowledgement } from "../api";
 
-describe("issueVoiceSessionTicket", () => {
+describe("voice session bootstrap", () => {
   beforeEach(() => {
     vi.stubGlobal("window", {
       localStorage: {
@@ -17,7 +17,7 @@ describe("issueVoiceSessionTicket", () => {
     });
   });
 
-  it("authenticates over HTTP while keeping the access token out of the URL", async () => {
+  it("authenticates the ticket request while keeping the access token out of the URL", async () => {
     const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response(
       JSON.stringify({ ticket: "ticket-1" }),
       {
@@ -36,8 +36,6 @@ describe("issueVoiceSessionTicket", () => {
       Authorization: "Bearer access-token-1",
     });
   });
-});
-
 
   it("preloads the fixed ElevenLabs wake acknowledgement over authenticated HTTP", async () => {
     const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response(
@@ -62,3 +60,4 @@ describe("issueVoiceSessionTicket", () => {
       Authorization: "Bearer access-token-1",
     });
   });
+});
