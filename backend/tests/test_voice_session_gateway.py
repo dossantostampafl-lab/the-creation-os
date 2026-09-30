@@ -295,3 +295,43 @@ async def test_gateway_speaks_deterministic_service_message_when_both_providers_
     assert tts.text == [text]
     assert events[-2]["state"] == "LISTENING"
     assert events[-1]["provider_selected"] == "unavailable"
+
+
+@pytest.mark.asyncio
+async def test_gateway_uses_request_builder_and_completion_callback():
+    stt = FakeRealtimeSTT([
+        STTTranscript(text="Deus, continue", committed=True),
+    ])
+    primary = StubStreamingProvider("freellmapi", ["Resposta"])
+    fallback = StubStreamingProvider("klaus", [])
+    tts = FakeRealtimeTTS([b"audio", None])
+    built: list[tuple[str, int]] = []
+    completed: list[tuple[int, str, str]] = []
+
+    async def build_request(command: str, turn_id: int) -> InferenceRequest:
+        built.append((command, turn_id))
+        return InferenceRequest(messages=[
+            {"role": "system", "content": "pt-BR"},
+            {"role": "user", "content": command},
+        ])
+
+    async def on_complete(turn_id: int, text: str, provider: str) -> None:
+        completed.append((turn_id, text, provider))
+
+    gateway = VoiceSessionGateway(
+        session=VoiceSession(session_id="session-1"),
+        stt=stt,
+        primary=primary,
+        fallback=fallback,
+        tts_factory=tts_factory(tts),
+        request_builder=build_request,
+        on_turn_completed=on_complete,
+        first_token_timeout_seconds=0.2,
+    )
+
+    events = [event async for event in gateway.process_next_transcript()]
+
+    assert built == [("continue", 1)]
+    assert primary.requests[0].messages[0] == {"role": "system", "content": "pt-BR"}
+    assert completed == [(1, "Resposta", "freellmapi")]
+    assert events[-1]["type"] == "telemetry"
