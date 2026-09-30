@@ -168,12 +168,12 @@ import os
 
 import httpx
 
-base = os.getenv("FREELLMAPI_BASE_URL", "").strip() or "http://host.docker.internal:3001/v1"
+base = (os.getenv("FREELLMAPI_BASE_URL", "").strip() or "http://host.docker.internal:3001/v1").rstrip("/")
 key = os.getenv("FREELLMAPI_API_KEY", "").strip()
 headers = {"Authorization": f"Bearer {key}"} if key else {}
-print(f"   Asking {base.rstrip('/')}/models")
+print(f"   Asking {base}/models")
 try:
-    response = httpx.get(f"{base.rstrip('/')}/models", headers=headers, timeout=20)
+    response = httpx.get(f"{base}/models", headers=headers, timeout=20)
 except Exception as exc:
     raise SystemExit(f"   The request never arrived: {type(exc).__name__}: {exc}")
 
