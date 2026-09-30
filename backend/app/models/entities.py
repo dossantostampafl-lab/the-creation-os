@@ -49,7 +49,10 @@ class Message(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     route: Mapped[str] = mapped_column(String(32), nullable=False)
     metadata_json: Mapped[dict] = mapped_column(JSON, nullable=False, server_default=text("'{}'"))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    # Set when the row is created, not by the database: now() is the transaction's start, so the Creator's
+    # message and DEUS's reply (one transaction) would share a timestamp and come back in random order.
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc), server_default=text("now()"))
 
     conversation: Mapped[Conversation] = relationship("Conversation", back_populates="messages")
 
