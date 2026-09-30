@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 import pytest
@@ -9,9 +10,10 @@ from starlette.websockets import WebSocketDisconnect
 
 from app.api import voice_session as voice_session_api
 from app.auth.dependencies import get_sovereign_creator
-from app.inference.contracts import InferenceRequest
+from app.inference.contracts import InferenceRequest, InferenceTimeoutError
 from app.main import app
 from app.schemas.auth import TokenPayload
+from app.voice_session.metrics import VoiceTurnMetrics
 from app.voice_session.session import SessionState, VoiceSession, VoiceSessionGateway
 from app.voice_session.stt import STTTranscript
 
@@ -29,15 +31,17 @@ class FakeRealtimeSTT:
 
 
 class StubStreamingProvider:
-    def __init__(self, name: str, chunks: list[str]) -> None:
+    def __init__(self, name: str, events: list[str | Exception]) -> None:
         self.name = name
-        self.chunks = chunks
+        self.events = events
         self.requests: list[InferenceRequest] = []
 
     async def stream(self, request: InferenceRequest) -> AsyncIterator[str]:
         self.requests.append(request)
-        for chunk in self.chunks:
-            yield chunk
+        for event in self.events:
+            if isinstance(event, Exception):
+                raise event
+            yield event
 
 
 class FakeRealtimeTTS:
@@ -53,7 +57,15 @@ class FakeRealtimeTTS:
         self.finished = True
 
     async def receive_audio(self) -> bytes | None:
-        return self.audio_events.pop(0)
+        return self.audio_events.pop(0) if self.audio_events else None
+
+
+def tts_factory(tts: FakeRealtimeTTS):
+    @asynccontextmanager
+    async def factory():
+        yield tts
+
+    return factory
 
 
 @pytest.fixture
@@ -102,6 +114,21 @@ def test_websocket_rejects_invalid_ticket(voice_client: TestClient):
     assert denied.value.code == 4401
 
 
+def test_state_machine_exposes_full_realtime_lifecycle():
+    assert [state.value for state in SessionState] == [
+        "DISCONNECTED",
+        "CONNECTING",
+        "ARMED",
+        "WAKE_DETECTED",
+        "LISTENING",
+        "COMMITTING",
+        "THINKING",
+        "SPEAKING",
+        "RECOVERING",
+        "CLOSED",
+    ]
+
+
 def test_wake_and_command_in_same_committed_transcript_starts_one_turn():
     session = VoiceSession(session_id="session-1")
 
@@ -112,7 +139,7 @@ def test_wake_and_command_in_same_committed_transcript_starts_one_turn():
     assert decision.command == "verifique o projeto"
     assert decision.turn_id == 1
     assert session.turn_id == 1
-    assert session.state is SessionState.THINKING
+    assert session.state is SessionState.COMMITTING
 
 
 def test_wake_only_enters_continuous_listening_then_followup_commits_without_second_wake():
@@ -126,7 +153,17 @@ def test_wake_only_enters_continuous_listening_then_followup_commits_without_sec
     assert session.turn_id == 1
     assert followup.command == "Como está o projeto?"
     assert followup.turn_id == 1
-    assert session.state is SessionState.THINKING
+    assert session.state is SessionState.COMMITTING
+
+
+def test_duplicate_commit_is_ignored_while_turn_is_in_flight():
+    session = VoiceSession(session_id="session-1")
+    first = session.on_transcript(STTTranscript(text="Deus, status", committed=True))
+    duplicate = session.on_transcript(STTTranscript(text="Deus, status", committed=True))
+
+    assert first.turn_id == 1
+    assert duplicate.command is None
+    assert session.turn_id == 1
 
 
 def test_barge_in_cancels_only_the_active_speaking_turn():
@@ -134,6 +171,7 @@ def test_barge_in_cancels_only_the_active_speaking_turn():
     decision = session.on_transcript(STTTranscript(text="Deus, status", committed=True))
 
     assert decision.turn_id == 1
+    assert session.mark_thinking(1) is True
     assert session.mark_speaking(1) is True
     assert session.state is SessionState.SPEAKING
     assert session.barge_in(0) is False
@@ -142,15 +180,39 @@ def test_barge_in_cancels_only_the_active_speaking_turn():
     assert session.state is SessionState.LISTENING
 
 
+def test_metrics_emit_provider_and_stage_latencies_without_content():
+    ticks = iter([10.0, 10.1, 10.3, 10.7, 10.9, 11.2, 11.5])
+    metrics = VoiceTurnMetrics(session_id="session-1", turn_id=4, clock=lambda: next(ticks))
+    metrics.mark("microphone_frame")
+    metrics.mark("transcript_committed")
+    metrics.mark("llm_started")
+    metrics.mark("first_model_token")
+    metrics.mark("first_tts_text")
+    metrics.mark("first_audio_chunk")
+    metrics.mark("completed")
+    metrics.provider_selected = "freellmapi"
+
+    payload = metrics.payload()
+
+    assert payload["session_id"] == "session-1"
+    assert payload["turn_id"] == 4
+    assert payload["provider_selected"] == "freellmapi"
+    assert payload["latency_ms"]["transcript_to_first_token"] == 600
+    assert payload["latency_ms"]["first_token_to_audio"] == 500
+    assert "text" not in repr(payload).lower()
+    assert "audio_base64" not in repr(payload)
+
+
 @pytest.mark.asyncio
 async def test_gateway_forwards_pcm_to_realtime_stt():
     stt = FakeRealtimeSTT([])
+    tts = FakeRealtimeTTS([None])
     gateway = VoiceSessionGateway(
         session=VoiceSession(session_id="session-1"),
         stt=stt,
         primary=StubStreamingProvider("freellmapi", []),
         fallback=StubStreamingProvider("klaus", []),
-        tts=FakeRealtimeTTS([None]),
+        tts_factory=tts_factory(tts),
     )
 
     await gateway.send_audio(b"\x01\x02", commit=True)
@@ -171,7 +233,7 @@ async def test_gateway_streams_committed_command_through_inference_and_tts_with_
         stt=stt,
         primary=primary,
         fallback=fallback,
-        tts=tts,
+        tts_factory=tts_factory(tts),
         first_token_timeout_seconds=0.2,
     )
 
@@ -188,12 +250,47 @@ async def test_gateway_streams_committed_command_through_inference_and_tts_with_
     assert {event["turn_id"] for event in events if "turn_id" in event} == {1}
     assert [event["type"] for event in events] == [
         "wake_detected",
+        "transcript_commit",
         "state",
         "text_delta",
         "audio_chunk",
         "text_delta",
         "audio_chunk",
         "state",
+        "telemetry",
     ]
-    assert events[1]["state"] == "THINKING"
-    assert events[-1]["state"] == "LISTENING"
+    assert events[2]["state"] == "THINKING"
+    assert events[-2]["state"] == "LISTENING"
+    assert events[-1]["provider_selected"] == "freellmapi"
+
+
+@pytest.mark.asyncio
+async def test_gateway_speaks_deterministic_service_message_when_both_providers_fail():
+    stt = FakeRealtimeSTT([
+        STTTranscript(text="Deus, responda", committed=True),
+    ])
+    primary = StubStreamingProvider(
+        "freellmapi",
+        [InferenceTimeoutError("freellmapi", "timeout")],
+    )
+    fallback = StubStreamingProvider(
+        "klaus",
+        [InferenceTimeoutError("klaus", "timeout")],
+    )
+    tts = FakeRealtimeTTS([b"service-audio", None])
+    gateway = VoiceSessionGateway(
+        session=VoiceSession(session_id="session-1"),
+        stt=stt,
+        primary=primary,
+        fallback=fallback,
+        tts_factory=tts_factory(tts),
+        first_token_timeout_seconds=0.2,
+    )
+
+    events = [event async for event in gateway.process_next_transcript()]
+
+    text = "".join(str(event.get("text", "")) for event in events if event["type"] == "text_delta")
+    assert "temporariamente indisponível" in text
+    assert tts.text == [text]
+    assert events[-2]["state"] == "LISTENING"
+    assert events[-1]["provider_selected"] == "unavailable"
