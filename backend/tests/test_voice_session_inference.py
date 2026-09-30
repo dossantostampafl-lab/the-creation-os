@@ -29,7 +29,7 @@ def request() -> InferenceRequest:
 @pytest.mark.asyncio
 async def test_stream_uses_primary_without_touching_fallback():
     primary = StubProvider("freellmapi", ["Olá", " mundo"])
-    fallback = StubProvider("anthropic", ["reserva"])
+    fallback = StubProvider("klaus", ["reserva"])
 
     chunks = [
         chunk
@@ -55,7 +55,7 @@ async def test_stream_falls_back_when_primary_fails_before_first_token():
         "freellmapi",
         [InferenceTimeoutError("freellmapi", "timeout")],
     )
-    fallback = StubProvider("anthropic", ["reserva"])
+    fallback = StubProvider("klaus", ["reserva"])
 
     chunks = [
         chunk
@@ -67,7 +67,7 @@ async def test_stream_falls_back_when_primary_fails_before_first_token():
         )
     ]
 
-    assert chunks == [StreamChunk(provider="anthropic", text="reserva")]
+    assert chunks == [StreamChunk(provider="klaus", text="reserva")]
     assert primary.calls == 1
     assert fallback.calls == 1
 
@@ -78,7 +78,7 @@ async def test_stream_never_interleaves_fallback_after_primary_emits_text():
         "freellmapi",
         ["parcial", InferenceTimeoutError("freellmapi", "timeout")],
     )
-    fallback = StubProvider("anthropic", ["não deve aparecer"])
+    fallback = StubProvider("klaus", ["não deve aparecer"])
 
     received: list[StreamChunk] = []
     with pytest.raises(InferenceTimeoutError):
