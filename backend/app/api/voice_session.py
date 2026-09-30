@@ -5,7 +5,7 @@ import base64
 import binascii
 import uuid
 
-from fastapi import APIRouter, Depends, Query, WebSocket
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, WebSocket, status
 from pydantic import BaseModel, ValidationError
 from starlette.websockets import WebSocketDisconnect
 
@@ -14,6 +14,7 @@ from app.config import settings
 from app.db.session import AsyncSessionLocal
 from app.repositories.domain import DomainRepository
 from app.schemas.auth import TokenPayload
+from app.voice_session.acknowledgement import VoiceAcknowledgementCache
 from app.voice_session.conversation import VoiceConversationBridge
 from app.voice_session.protocol import ClientEvent
 from app.voice_session.runtime import build_klaus_provider, build_primary_provider
@@ -24,6 +25,8 @@ from app.voice_session.tts import ElevenLabsRealtimeTTS, ElevenLabsTTSConfig
 
 router = APIRouter()
 MAX_AUDIO_FRAME_BYTES = 64 * 1024
+_acknowledgement_cache: VoiceAcknowledgementCache | None = None
+_acknowledgement_profile: tuple[str, str] | None = None
 
 
 class VoiceTicketResponse(BaseModel):
@@ -50,6 +53,54 @@ async def create_voice_session_ticket(
     creator: TokenPayload = Depends(get_sovereign_creator),
 ) -> VoiceTicketResponse:
     return VoiceTicketResponse(ticket=await issue_voice_ticket(creator.sub))
+
+
+def _voice_acknowledgement_cache() -> VoiceAcknowledgementCache:
+    global _acknowledgement_cache, _acknowledgement_profile
+    if (
+        not settings.deus_voice_session_enabled
+        or not settings.elevenlabs_enabled
+        or settings.elevenlabs_api_key is None
+    ):
+        raise RuntimeError("Realtime ElevenLabs voice is not configured")
+
+    profile = (settings.elevenlabs_voice_id, settings.elevenlabs_model_id)
+    if _acknowledgement_cache is None or _acknowledgement_profile != profile:
+        key = settings.elevenlabs_api_key.get_secret_value()
+        config = ElevenLabsTTSConfig(
+            api_key=key,
+            voice_id=settings.elevenlabs_voice_id,
+            model_id=settings.elevenlabs_model_id,
+        )
+        _acknowledgement_cache = VoiceAcknowledgementCache(
+            lambda: ElevenLabsRealtimeTTS(config),
+            timeout_seconds=max(5.0, settings.elevenlabs_timeout_seconds * 2),
+        )
+        _acknowledgement_profile = profile
+    return _acknowledgement_cache
+
+
+@router.get("/voice/session/acknowledgement")
+async def get_voice_session_acknowledgement(
+    _creator: TokenPayload = Depends(get_sovereign_creator),
+) -> Response:
+    try:
+        audio = await _voice_acknowledgement_cache().get()
+    except (RuntimeError, TimeoutError, OSError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Realtime DEUS acknowledgement is unavailable",
+        ) from exc
+
+    return Response(
+        content=audio,
+        media_type="application/octet-stream",
+        headers={
+            "Cache-Control": "private, max-age=3600",
+            "X-DEUS-Audio-Format": "pcm_s16le",
+            "X-DEUS-Audio-Sample-Rate": "24000",
+        },
+    )
 
 
 @router.websocket("/voice/session")
