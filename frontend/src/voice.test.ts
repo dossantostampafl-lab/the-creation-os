@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bestRecognitionAlternative, interpretUtterance, isFarewell, splitSentences, splitWakePhrase, spokenDecision } from "./voice";
+import { bestRecognitionAlternative, earsUnavailable, recognitionFailure, interpretUtterance, isFarewell, splitSentences, splitWakePhrase, spokenDecision } from "./voice";
 
 describe("splitWakePhrase", () => {
   it("wakes on the bare wake word", () => {
@@ -143,5 +143,19 @@ describe("splitSentences", () => {
     expect(splitSentences("Tudo em ordem")).toEqual(["Tudo em ordem"]);
     expect(splitSentences("A versão 2.5 está pronta.")).toEqual(["A versão 2.5 está pronta."]);
     expect(splitSentences("  ")).toEqual([]);
+  });
+});
+
+describe("why the ears do not work", () => {
+  it("explains a recognizer that cannot reach its service, and stays quiet about ordinary silence", () => {
+    expect(recognitionFailure("network")).toMatch(/Chrome ou o Edge/);
+    expect(recognitionFailure("language-not-supported")).toMatch(/pt-BR/);
+    for (const code of ["no-speech", "aborted", undefined]) expect(recognitionFailure(code)).toBeNull();
+  });
+
+  it("says so up front when the page cannot have a microphone at all", () => {
+    expect(earsUnavailable(false, true)).toMatch(/não tem reconhecimento de voz/);
+    expect(earsUnavailable(true, false)).toMatch(/https/);
+    expect(earsUnavailable(true, true)).toBeNull();
   });
 });

@@ -462,6 +462,25 @@ function recognitionConstructor(): RecognitionConstructor | null {
   return scope.SpeechRecognition ?? scope.webkitSpeechRecognition ?? null;
 }
 
+/** Why the browser's recognizer keeps failing, in words the Creator can act on. Null for ordinary silence. */
+export function recognitionFailure(code: string | undefined): string | null {
+  switch (code) {
+    case "network":
+      return "O navegador não consegue falar com o serviço de reconhecimento de voz (rede bloqueada ou navegador sem esse serviço, como o Brave). Use o Chrome ou o Edge.";
+    case "language-not-supported":
+      return "O navegador não reconhece português (pt-BR) para voz.";
+    default:
+      return null;
+  }
+}
+
+/** Reasons the ears cannot exist at all in this page, known before any attempt. */
+export function earsUnavailable(supported: boolean, secureContext: boolean): string | null {
+  if (!supported) return "Este navegador não tem reconhecimento de voz. Use o Chrome ou o Edge para chamar o DEUS por voz.";
+  if (!secureContext) return "O microfone só funciona em uma página segura (https://). Abra o endereço com https.";
+  return null;
+}
+
 type EarsState = "off" | "sleeping" | "attentive";
 
 type EarsOptions = {
@@ -678,6 +697,7 @@ export function useDeusEars({ paused, conversing = false, onWake, onCommand, onI
     instance.maxAlternatives = 4;
     instance.onresult = (event) => {
       failures.current = 0;
+      setError((current) => (current ? null : current));
       let interim = "";
       for (let i = event.resultIndex; i < event.results.length; i += 1) {
         const result = event.results[i];
@@ -705,6 +725,9 @@ export function useDeusEars({ paused, conversing = false, onWake, onCommand, onI
         attentive.current = false;
       } else if (event.error !== "no-speech" && event.error !== "aborted") {
         failures.current += 1;
+        // Quiet retries hide a recognizer that can never work; after a few, say why.
+        const reason = recognitionFailure(event.error);
+        if (reason && failures.current >= 3) setError(reason);
       }
     };
     instance.onend = () => {
@@ -822,5 +845,6 @@ export function useDeusEars({ paused, conversing = false, onWake, onCommand, onI
     handlers.current.onInterim("");
   }, [setAttentive]);
 
-  return { supported, wakeEnabled, state, error, toggleWake, summon, dismiss };
+  const unavailable = earsUnavailable(supported, typeof window === "undefined" || window.isSecureContext);
+  return { supported, wakeEnabled, state, error: error ?? unavailable, toggleWake, summon, dismiss };
 }
