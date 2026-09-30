@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -60,6 +61,26 @@ class FakeRealtimeTTS:
     async def receive_audio(self) -> bytes | None:
         return self.audio_events.pop(0) if self.audio_events else None
 
+
+
+class BufferedRealtimeTTS:
+    def __init__(self) -> None:
+        self.text: list[str] = []
+        self.finished = asyncio.Event()
+        self.audio_sent = False
+
+    async def send_text(self, text: str) -> None:
+        self.text.append(text)
+
+    async def finish(self) -> None:
+        self.finished.set()
+
+    async def receive_audio(self) -> bytes | None:
+        await self.finished.wait()
+        if self.audio_sent:
+            return None
+        self.audio_sent = True
+        return b"buffered-audio"
 
 def tts_factory(tts: FakeRealtimeTTS):
     @asynccontextmanager
@@ -360,3 +381,35 @@ def test_audio_payload_decoder_rejects_malformed_and_oversized_frames():
     )
     with pytest.raises(ValueError, match="too large"):
         decode_audio_payload(oversized)
+
+
+@pytest.mark.asyncio
+async def test_gateway_does_not_block_when_tts_buffers_until_finish():
+    stt = FakeRealtimeSTT([
+        STTTranscript(text="Deus, diga olá", committed=True),
+    ])
+    primary = StubStreamingProvider("freellmapi", ["Olá", " mundo."])
+    fallback = StubStreamingProvider("klaus", [])
+    tts = BufferedRealtimeTTS()
+    gateway = VoiceSessionGateway(
+        session=VoiceSession(session_id="session-1"),
+        stt=stt,
+        primary=primary,
+        fallback=fallback,
+        tts_factory=tts_factory(tts),
+        first_token_timeout_seconds=0.2,
+    )
+
+    events = await asyncio.wait_for(
+        _collect_events(gateway),
+        timeout=0.5,
+    )
+
+    assert tts.text == ["Olá", " mundo."]
+    assert any(event["type"] == "audio_chunk" for event in events)
+    assert events[-2]["state"] == "LISTENING"
+    assert events[-1]["type"] == "telemetry"
+
+
+async def _collect_events(gateway: VoiceSessionGateway) -> list[dict[str, object]]:
+    return [event async for event in gateway.process_next_transcript()]
