@@ -74,10 +74,33 @@ _SIMPLE_ACTIONS = frozenset({
     "corrija o erro",
 })
 
+_BOUNDED_FOLLOWUP = re.compile(
+    r"^\s*(continue|prossiga|mostre|verifique|repita|explique|responda|resuma|"
+    r"melhore|otimize|corrija|reescreva|simplifique)\b",
+    re.IGNORECASE,
+)
+_HIGH_IMPACT_TARGET = re.compile(
+    r"\b(produ[cç][aã]o|deploy|publica[cç][aã]o|publique|publicar|seguran[cç]a|governan[cç]a|"
+    r"pagamentos?|dinheiro|credenciais?|senhas?|chaves?|permiss[oõ]es|banco\s+de\s+dados|"
+    r"migra[cç][aã]o|infraestrutura|backend|frontend|c[oó]digo|api)\b",
+    re.IGNORECASE,
+)
+
 
 def _is_simple_action(content: str) -> bool:
     # Exact normalized lookup is cheaper and cannot exhibit regex backtracking on user input.
     return content.casefold().rstrip(".!?").rstrip() in _SIMPLE_ACTIONS
+
+
+def _is_bounded_followup(content: str) -> bool:
+    normalized = " ".join(content.split())
+    if not _BOUNDED_FOLLOWUP.search(normalized):
+        return False
+    if _HIGH_IMPACT_TARGET.search(normalized):
+        return False
+    # Short contextual turns such as "continue o projeto", "melhore isso" and
+    # "corrija esse erro" should not pay for SOPHIA + ROCKMAM before DEUS can answer.
+    return len(normalized.split()) <= 14
 _DIALOGUE_OPENING = re.compile(
     r"^\s*(oi|olá|ola|bom dia|boa tarde|boa noite|deus\b|status\b|"
     r"o que\b|qual\b|quais\b|como\b|quando\b|onde\b|quem\b|"
@@ -92,10 +115,10 @@ def needs_trinity(content: str) -> bool:
     normalized = " ".join(content.split())
     if not normalized:
         return False
+    if _is_simple_action(normalized) or _is_bounded_followup(normalized):
+        return False
     if _MISSION_REQUEST.search(normalized):
         return True
-    if _is_simple_action(normalized):
-        return False
     if "?" in normalized or _DIALOGUE_OPENING.search(normalized):
         return False
     # Ambiguous non-dialogue statements still fail closed into SOPHIA.

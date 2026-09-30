@@ -16,6 +16,10 @@ from app.services.deus import needs_trinity
         "abra",
         "feche",
         "corrija esse erro",
+        "continue o projeto",
+        "melhore isso",
+        "corrija o fluxo da conversa",
+        "resuma o que falamos",
     ],
 )
 def test_bounded_contextual_actions_skip_trinity(content: str) -> None:
@@ -34,6 +38,9 @@ def test_bounded_contextual_actions_skip_trinity(content: str) -> None:
         "automatize pagamentos",
         "autoriza",
         "cancela a missão",
+        "continue o deploy",
+        "melhore o backend",
+        "corrija o código",
     ],
 )
 def test_sensitive_or_substantial_actions_keep_trinity(content: str) -> None:

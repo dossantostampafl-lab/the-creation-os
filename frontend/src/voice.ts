@@ -18,9 +18,9 @@ const CONVERSATION_ATTENTION_MS = 14000;
 /** Silence after the last final segment that means the Creator has finished speaking.
   * Browsers finalise a result at every pause -- often after a single word -- so acting on
   * the first one sends a fragment and stops listening mid-sentence. */
-const SETTLE_MS = 700;
+const SETTLE_MS = 500;
 /** Server-STT wake fallback records short self-contained clips when browser recognition is blocked. */
-const WAKE_CHUNK_MS = 2200;
+const WAKE_CHUNK_MS = 1400;
 const WAKE_WORD = /(^|[^\p{L}])(deus|zeus|d[eê]\s+us)(?![\p{L}])/iu;
 
 function voiceLanguage(): string {
@@ -515,6 +515,21 @@ export type Utterance =
   | { kind: "ignore" };
 
 /** Decides without touching state, so the rule can be read and tested on its own. */
+export function preferServerTranscript(browserText: string, serverText: string): string {
+  const browser = browserText.replace(/\s+/gu, " ").trim();
+  const serverRaw = serverText.replace(/\s+/gu, " ").trim();
+  const wake = splitWakePhrase(serverRaw);
+  const server = wake.woke && wake.request ? wake.request : serverRaw;
+  if (!server) return browser;
+  if (!browser) return server;
+
+  const browserWords = browser.split(/\s+/u).filter(Boolean).length;
+  const serverWords = server.split(/\s+/u).filter(Boolean).length;
+  const clearlyClipped = serverWords < Math.max(2, Math.ceil(browserWords * 0.55))
+    && server.length < browser.length * 0.65;
+  return clearlyClipped ? browser : server;
+}
+
 export function interpretUtterance(transcript: string, attentive: boolean): Utterance {
   const text = transcript.trim();
   if (!text) return { kind: "ignore" };
@@ -554,6 +569,9 @@ export function useDeusEars({ paused, conversing = false, onWake, onCommand, onI
   const wakeChunks = useRef<Blob[]>([]);
   const wakeTimer = useRef(0);
   const wakeTranscriptionInFlight = useRef(false);
+  // Prevent server-wake capture from restarting in the tiny gap between dispatching a command
+  // and React publishing `paused=true` for the pending DEUS request.
+  const commandDispatching = useRef(false);
   const transcriptionRetryAt = useRef(0);
   const attentionTimer = useRef(0);
   const attentionWindow = useRef(WAKE_ATTENTION_MS);
@@ -634,7 +652,7 @@ export function useDeusEars({ paused, conversing = false, onWake, onCommand, onI
     if (!audio || audio.size < 400 || Date.now() < transcriptionRetryAt.current) return browserText;
     try {
       const improved = await transcribeVoice(audio);
-      return improved.text.trim() || browserText;
+      return preferServerTranscript(browserText, improved.text);
     } catch (failure) {
       const disabled = failure instanceof Error && failure.message === "HTTP_501";
       transcriptionRetryAt.current = disabled ? Number.POSITIVE_INFINITY : Date.now() + 60_000;
@@ -692,6 +710,10 @@ export function useDeusEars({ paused, conversing = false, onWake, onCommand, onI
       for (let i = event.resultIndex; i < event.results.length; i += 1) {
         const result = event.results[i];
         const best = bestRecognitionAlternative(result, attentive.current);
+        // Prime the high-quality recorder as soon as any recognition hypothesis contains the
+        // wake word. This removes the Android race where the Creator starts speaking while
+        // getUserMedia is still opening while the utterance is being finalized.
+        if (!attentive.current && splitWakePhrase(best.transcript).woke) void ensureCapture(true);
         if (result.isFinal) handleFinal(best.transcript, best.confidence);
         else interim += best.transcript;
       }
@@ -756,6 +778,8 @@ export function useDeusEars({ paused, conversing = false, onWake, onCommand, onI
         handlers.current.onWake();
       } else if (utterance.kind === "command") {
         setError(null);
+        commandDispatching.current = true;
+        stopWakeCapture();
         handlers.current.onCommand(utterance.text);
       }
     } catch (failure) {
@@ -800,14 +824,14 @@ export function useDeusEars({ paused, conversing = false, onWake, onCommand, onI
     }
   }
 
-  async function ensureCapture() {
-    if (!attentive.current || desired.current.paused || recorder.current || typeof MediaRecorder === "undefined") return;
+  async function ensureCapture(primeFromWake = false) {
+    if ((!attentive.current && !primeFromWake) || desired.current.paused || recorder.current || typeof MediaRecorder === "undefined") return;
     if (!navigator.mediaDevices?.getUserMedia || Date.now() < transcriptionRetryAt.current) return;
     try {
       mediaStream.current ??= await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
       });
-      if (!attentive.current || desired.current.paused) return;
+      if ((!attentive.current && !primeFromWake) || desired.current.paused) return;
       const next = new MediaRecorder(mediaStream.current);
       audioChunks.current = [];
       next.ondataavailable = (event) => { if (event.data.size) audioChunks.current.push(event.data); };
@@ -821,6 +845,8 @@ export function useDeusEars({ paused, conversing = false, onWake, onCommand, onI
   function sync() {
     if (!mounted.current) return;
     const { wakeEnabled: wake, paused: hold } = desired.current;
+    // Once the pending/speaking state is visible, the React state itself owns suppression.
+    if (hold) commandDispatching.current = false;
     const shouldListen = !hold && (wake || attentive.current);
     const hasNative = recognitionConstructor() !== null;
     const useNative = shouldListen && hasNative && !gestureBlocked.current && failures.current < 3;
@@ -832,7 +858,7 @@ export function useDeusEars({ paused, conversing = false, onWake, onCommand, onI
       instance.abort();
     }
 
-    const needsServerWake = shouldListen && wake && !attentive.current && (!hasNative || gestureBlocked.current || failures.current >= 3);
+    const needsServerWake = shouldListen && wake && !attentive.current && !commandDispatching.current && (!hasNative || gestureBlocked.current || failures.current >= 3);
     if (needsServerWake) void ensureWakeCapture();
     else stopWakeCapture();
 
