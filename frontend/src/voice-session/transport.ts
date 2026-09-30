@@ -10,9 +10,14 @@ export type VoiceSessionTransportOptions = {
   apiBase: string;
   issueTicket: () => Promise<VoiceTicket>;
   socketFactory: (url: string) => VoiceSocket;
+  conversationId?: string;
 };
 
-export function buildVoiceSessionUrl(apiBase: string, ticket: string): string {
+export function buildVoiceSessionUrl(
+  apiBase: string,
+  ticket: string,
+  conversationId?: string,
+): string {
   const base = new URL(apiBase);
   if (base.protocol !== "http:" && base.protocol !== "https:") {
     throw new Error("VOICE_SESSION_INVALID_API_BASE");
@@ -21,7 +26,9 @@ export function buildVoiceSessionUrl(apiBase: string, ticket: string): string {
 
   const protocol = base.protocol === "https:" ? "wss:" : "ws:";
   const path = `${base.pathname.replace(/\/$/, "")}/voice/session`;
-  return `${protocol}//${base.host}${path}?ticket=${encodeURIComponent(ticket)}`;
+  const params = new URLSearchParams({ ticket });
+  if (conversationId) params.set("conversation_id", conversationId);
+  return `${protocol}//${base.host}${path}?${params.toString()}`;
 }
 
 export class VoiceSessionTransport {
@@ -34,7 +41,11 @@ export class VoiceSessionTransport {
     if (!issued.ticket) throw new Error("VOICE_SESSION_TICKET_REQUIRED");
 
     const socket = this.options.socketFactory(
-      buildVoiceSessionUrl(this.options.apiBase, issued.ticket),
+      buildVoiceSessionUrl(
+        this.options.apiBase,
+        issued.ticket,
+        this.options.conversationId,
+      ),
     );
     socket.onclose = () => {
       if (this.socket === socket) this.socket = null;
