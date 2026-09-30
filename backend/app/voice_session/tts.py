@@ -39,7 +39,7 @@ def encode_tts_initialize() -> dict[str, Any]:
 
 
 def encode_tts_text(text: str) -> dict[str, Any]:
-    return {"text": text}
+    return {"text": text, "try_trigger_generation": True}
 
 
 def encode_tts_close() -> dict[str, Any]:
@@ -102,7 +102,15 @@ class ElevenLabsRealtimeTTS:
 
     async def receive_audio(self) -> bytes | None:
         connection = self._require_connection()
-        raw = await connection.recv()
-        if isinstance(raw, bytes):
-            raw = raw.decode("utf-8")
-        return parse_tts_event(raw)
+        while True:
+            raw = await connection.recv()
+            if isinstance(raw, bytes):
+                raw = raw.decode("utf-8")
+            payload = json.loads(raw)
+            if not isinstance(payload, dict):
+                continue
+            audio = payload.get("audio")
+            if isinstance(audio, str) and audio:
+                return base64.b64decode(audio)
+            if payload.get("is_final") is True or payload.get("isFinal") is True:
+                return None
