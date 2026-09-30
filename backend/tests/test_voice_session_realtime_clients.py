@@ -75,6 +75,7 @@ async def test_realtime_stt_connects_with_backend_key_and_streams_pcm():
 async def test_realtime_tts_initializes_streams_text_and_returns_audio():
     encoded = base64.b64encode(b"audio").decode("ascii")
     connection = FakeConnection([
+        '{"alignment":{"chars":["O"]},"is_final":false}',
         '{"audio":"' + encoded + '","is_final":false}',
     ])
     connector = FakeConnector(connection)
@@ -101,6 +102,19 @@ async def test_realtime_tts_initializes_streams_text_and_returns_audio():
     ]
     assert [json.loads(payload) for payload in connection.sent] == [
         {"text": " "},
-        {"text": "Olá "},
+        {"text": "Olá ", "try_trigger_generation": True},
         {"text": ""},
     ]
+
+
+@pytest.mark.asyncio
+async def test_realtime_tts_returns_none_only_for_final_event():
+    connection = FakeConnection([
+        '{"alignment":{"chars":["O"]},"is_final":false}',
+        '{"is_final":true}',
+    ])
+    connector = FakeConnector(connection)
+    config = ElevenLabsTTSConfig(api_key="secret", voice_id="voice-1")
+
+    async with ElevenLabsRealtimeTTS(config, connector=connector) as tts:
+        assert await tts.receive_audio() is None
