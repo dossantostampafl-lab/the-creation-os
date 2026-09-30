@@ -22,8 +22,8 @@ async function mockDashboard(page: import("@playwright/test").Page) {
   await page.route("**/api/v1/conversations/conversation-voice/messages", (route) => route.fulfill({ status: 200, contentType: "application/json", body: "[]" }));
 }
 
-async function installVoiceFakes(page: import("@playwright/test").Page, wakeEnabled: boolean) {
-  await page.addInitScript(({ wakeEnabled: wake }) => {
+async function installVoiceFakes(page: import("@playwright/test").Page, wakeEnabled: boolean, blockRecognition = false) {
+  await page.addInitScript(({ wakeEnabled: wake, blockRecognition: blocked }) => {
     localStorage.setItem("creation_access_token", "voice-test-token");
     localStorage.removeItem("creation_conversation_id");
     localStorage.setItem("creation_wake_word_v3", wake ? "on" : "off");
@@ -47,7 +47,17 @@ async function installVoiceFakes(page: import("@playwright/test").Page, wakeEnab
       onresult: ((event: unknown) => void) | null = null;
       onend: (() => void) | null = null;
       onerror: ((event: unknown) => void) | null = null;
-      start() { this.running = true; scope.__recognizer = this; }
+      start() {
+        this.running = true;
+        scope.__recognizer = this;
+        if (blocked) {
+          queueMicrotask(() => {
+            this.onerror?.({ error: "not-allowed" });
+            this.running = false;
+            this.onend?.();
+          });
+        }
+      }
       stop() { this.running = false; this.onend?.(); }
       abort() { this.stop(); }
     }
@@ -102,7 +112,7 @@ async function installVoiceFakes(page: import("@playwright/test").Page, wakeEnab
       }
     }
     Object.defineProperty(window, "Audio", { configurable: true, value: FakeAudio });
-  }, { wakeEnabled });
+  }, { wakeEnabled, blockRecognition });
 }
 
 async function routeVoiceTurn(page: import("@playwright/test").Page, serverText = "verifique o projeto") {
@@ -182,4 +192,16 @@ test("Deus plus a command in the same utterance is submitted exactly once", asyn
 
   await expect.poll(() => deusBodies.length).toBe(1);
   expect(deusBodies[0].content).toBe("verifique o projeto");
+});
+
+test("wake word falls back to backend STT when Android blocks automatic browser recognition", async ({ page }) => {
+  await installVoiceFakes(page, true, true);
+  await mockDashboard(page);
+  const turn = await routeVoiceTurn(page, "Deus, verifique o projeto");
+
+  await page.goto("/");
+
+  await expect.poll(turn.sttCalls, { timeout: 7000 }).toBeGreaterThan(0);
+  await expect.poll(() => turn.deusBodies[0]?.content, { timeout: 7000 }).toBe("verifique o projeto");
+  await expect(page.getByText("Verificando.", { exact: true })).toBeVisible();
 });
