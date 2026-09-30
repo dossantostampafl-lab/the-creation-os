@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from app.api import voice_session as voice_session_api
+from app.api.voice_session import decode_audio_payload
 from app.auth.dependencies import get_sovereign_creator
 from app.inference.contracts import InferenceRequest, InferenceTimeoutError
 from app.main import app
@@ -335,3 +336,27 @@ async def test_gateway_uses_request_builder_and_completion_callback():
     assert primary.requests[0].messages[0] == {"role": "system", "content": "pt-BR"}
     assert completed == [(1, "Resposta", "freellmapi")]
     assert events[-1]["type"] == "telemetry"
+
+
+def test_audio_payload_decoder_rejects_malformed_and_oversized_frames():
+    from app.voice_session.protocol import ClientEvent
+
+    valid = ClientEvent(
+        type="audio",
+        session_id="s1",
+        turn_id=0,
+        audio_base64="AQI=",
+        commit=True,
+        utterance_id="u-1",
+    )
+    assert decode_audio_payload(valid) == b"\x01\x02"
+
+    malformed = valid.copy(update={"audio_base64": "***"})
+    with pytest.raises(ValueError, match="base64"):
+        decode_audio_payload(malformed)
+
+    oversized = valid.copy(
+        update={"audio_base64": __import__("base64").b64encode(b"x" * 70000).decode("ascii")}
+    )
+    with pytest.raises(ValueError, match="too large"):
+        decode_audio_payload(oversized)
