@@ -96,7 +96,17 @@ jobs:
         \  const globalErrors=await page.locator('.error-banner,.console-error').allTextContents();\n\
         \  console.log(JSON.stringify({mode:mobile?'phone':'desktop',voice:status,globalErrors,failures,errors}));\n\
         \  if(globalErrors.length||errors.length||failures.length||!status.includes('Pronto'))throw\
-        \ new Error('Authenticated browser runtime failed');\n  await context.close();\n\
+        \ new Error('Authenticated browser runtime failed');\n  if (!mobile) {\n \
+        \   await page.route('**/api/v1/system/state?**', route=>route.abort('failed'));\n\
+        \    await page.reload({waitUntil:'domcontentloaded'});\n    const banner=page.locator('.error-banner');\n\
+        \    await banner.waitFor({timeout:15000});\n    const detail=await banner.innerText();\n\
+        \    if(!detail.includes('/api/v1/system/state'))throw new Error('Missing\
+        \ failed endpoint diagnostic');\n    console.log('INJECTED_NETWORK_FAILURE',detail);\n\
+        \    await page.unroute('**/api/v1/system/state?**');\n    await page.getByRole('button',{name:'Retry',exact:true}).click();\n\
+        \    await page.getByRole('textbox',{name:'Message DEUS'}).waitFor({timeout:30000});\n\
+        \    await page.waitForFunction(()=>document.querySelector('.wake-hint')?.textContent?.includes('Pronto'),{timeout:30000});\n\
+        \    if(await banner.count())throw new Error('Dashboard did not recover after\
+        \ Retry');\n    console.log('NETWORK_RECOVERY_PASS');\n  }\n  await context.close();\n\
         \ }\n} finally {await browser.close();}\nJSDIAGNOSTIC\nnode frontend/public-diagnostic.mjs"
     - name: Remove private diagnostic files
       if: always()
