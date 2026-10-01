@@ -9,7 +9,9 @@ from app.db.url import normalize_database_url
 
 
 def create_session_engine(database_url: str) -> AsyncEngine:
-    return create_async_engine(normalize_database_url(database_url), future=True, echo=False)
+    # Validate pooled connections before checkout: an idle PostgreSQL connection may
+    # have closed while the dashboard was away. Do not retry in-flight transactions.
+    return create_async_engine(normalize_database_url(database_url), future=True, echo=False, pool_pre_ping=True)
 
 
 engine = create_session_engine(settings.database_url)
