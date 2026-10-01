@@ -188,3 +188,29 @@ async def test_recognition_does_not_wait_for_obsolete_synthesis():
             await asyncio.wait_for(stt.send_audio(b'\x00\x20' * 1600), timeout=0.5)
     finally:
         lock.release()
+
+
+@pytest.mark.asyncio
+async def test_local_stt_batches_browser_worklet_frames_before_native_recognition():
+    rec = Recognizer()
+    calls = []
+    original = rec.AcceptWaveform
+    def accept(audio):
+        calls.append(len(audio))
+        return original(audio)
+    rec.AcceptWaveform = accept
+    async with local_module().VoskRealtimeSTT(recognizer=rec) as stt:
+        for _ in range(40):
+            await stt.send_audio(b'\x00\x20' * 40)
+        assert (await stt.receive_transcript()).text.startswith('deus')
+    assert calls == [3200]
+
+
+@pytest.mark.asyncio
+async def test_long_idle_does_not_force_an_immediate_empty_commit_on_next_question():
+    rec = Recognizer()
+    async with local_module().VoskRealtimeSTT(recognizer=rec) as stt:
+        for _ in range(310):
+            await stt.send_audio(b'\x00\x00' * 1600)
+        await stt.send_audio(b'\x00\x20' * 1600)
+    assert rec.finals == 0

@@ -153,6 +153,7 @@ class VoskRealtimeSTT:
         self._utterance_samples = 0
         self._has_speech = False
         self._last_partial = ''
+        self._pending_audio = bytearray()
         self._transcripts: asyncio.Queue[STTTranscript] = asyncio.Queue(maxsize=64)
 
     async def __aenter__(self) -> VoskRealtimeSTT:
@@ -168,7 +169,7 @@ class VoskRealtimeSTT:
         energy = sum(v * v for v in samples) / max(1, len(samples))
         voiced = energy > 350 * 350
         self._has_speech = self._has_speech or voiced
-        self._utterance_samples += len(samples)
+        self._utterance_samples = self._utterance_samples + len(samples) if self._has_speech else 0
         self._silence_samples = 0 if voiced else self._silence_samples + len(samples)
         with self._recognition_lock:
             endpoint = self._recognizer.AcceptWaveform(audio) if audio else False
@@ -195,9 +196,25 @@ class VoskRealtimeSTT:
         return STTTranscript(text=text, committed=True) if text else None
 
     async def send_audio(self, audio: bytes, *, commit: bool = False) -> None:
-        transcript = await asyncio.to_thread(self._process, audio, commit)
-        if transcript is not None:
-            await self._transcripts.put(transcript)
+        if len(audio) % 2:
+            raise ValueError("Local recognition expects PCM16 frames")
+        self._pending_audio.extend(audio)
+        # Browser worklets send roughly 2.7 ms frames. Batch 100 ms to avoid
+        # scheduling hundreds of native thread jobs per second.
+        committed = False
+        while len(self._pending_audio) >= 3200:
+            chunk = bytes(self._pending_audio[:3200])
+            del self._pending_audio[:3200]
+            committed = commit and not self._pending_audio
+            transcript = await asyncio.to_thread(self._process, chunk, committed)
+            if transcript is not None:
+                await self._transcripts.put(transcript)
+        if commit and not committed:
+            chunk = bytes(self._pending_audio)
+            self._pending_audio.clear()
+            transcript = await asyncio.to_thread(self._process, chunk, True)
+            if transcript is not None:
+                await self._transcripts.put(transcript)
 
     async def receive_transcript(self) -> STTTranscript:
         return await self._transcripts.get()
