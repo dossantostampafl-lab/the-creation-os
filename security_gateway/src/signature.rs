@@ -8,7 +8,12 @@ type HmacSha256 = Hmac<Sha256>;
 
 fn signing_message(e: &ExecutionEnvelope) -> String {
     format!(
-        "{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
+        "{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
+        e.protocol_version,
+        e.run_id,
+        e.execution_id,
+        e.contract_hash,
+        e.plan_hash,
         e.mission_id,
         e.mission_version,
         e.action_id,
@@ -22,7 +27,9 @@ fn signing_message(e: &ExecutionEnvelope) -> String {
         e.decision_id,
         e.grant_id,
         e.expires_unix,
-        e.parameters_hash
+        e.nonce,
+        e.parameters_hash,
+        e.tool_id
     )
 }
 

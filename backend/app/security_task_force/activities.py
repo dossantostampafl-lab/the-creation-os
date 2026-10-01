@@ -9,7 +9,7 @@ from temporalio import activity
 from .authorization import authorize_and_grant
 from .contract_store import ContractStore
 from .contracts import ActionRequest, AuthorizationDecision
-from .envelope import build_envelope, parameters_hash
+from .envelope import build_envelope, canonical_runtime_args, parameters_hash
 from .gateway_client import GatewayClient, GatewayOutcomeUnknown, GatewayUnavailable
 from .grants import GrantStore
 from .kill_switch import KillSwitch
@@ -28,11 +28,9 @@ class StfDependencies:
     gateway: GatewayClient
     signing_key: bytes
     policy: PolicyClient | None = None
-    # No default: a Mission is verified by something that checks evidence, or it is not verified at all.
     verify: Callable[[str], bool] | None = None
     states: list[tuple[str, str]] = field(default_factory=list)
     statuses: MissionStatusStore = field(default_factory=MissionStatusStore)
-    # Short-lived database sessions for run state, approvals and cancellation; absent for file-only runs.
     session_factory: Callable[[], Any] | None = None
 
 
@@ -47,16 +45,10 @@ def receipt_from(answer: dict[str, Any]) -> dict[str, Any]:
         return {"status": "executed", "execution_id": execution_id, "reasons": reasons}
     if status in ("authorized", "dispatched"):
         return {"status": status, "reasons": reasons}
-    # An unrecognized answer to a permitted request (no status, or "executed" without proof) may hide
-    # an effect, so it is unknown rather than either success or refusal.
     return {"status": "unknown", "reasons": [*reasons, "unproven_gateway_answer"]}
 
 
 class StfActivities:
-    """Every side effect of a Mission run. The workflow only orders these calls; each activity
-    reloads the current contract, grant and kill-switch state itself, so a retry or a restart
-    never acts on stale authority."""
-
     def __init__(self, deps: StfDependencies) -> None:
         self._d = deps
 
@@ -78,8 +70,6 @@ class StfActivities:
 
     @activity.defn(name="stf_check_approval")
     async def check_approval(self, run_id: str, approval_id: str, action: dict[str, Any]) -> bool:
-        """The signal carries only an id. It unblocks the run only if that stored approval is for this run,
-        this action and these exact parameters, unexpired and an approve. Anything else fails closed."""
         if not self._d.session_factory:
             return False
         from .repository import StfRepository
@@ -90,7 +80,7 @@ class StfActivities:
     @activity.defn(name="stf_verify_mission")
     async def verify_mission(self, mission_id: str) -> bool:
         if self._d.verify is None:
-            return False  # nothing can prove the run, so nothing completes
+            return False
         return bool(self._d.verify(mission_id))
 
     @activity.defn(name="stf_record_state")
@@ -107,7 +97,6 @@ class StfActivities:
 
     @activity.defn(name="stf_revoke_grants")
     async def revoke_grants(self, mission_id: str, run_id: str | None = None) -> int:
-        """Stop new dispatch and expire every grant of the Mission before it reaches a terminal state."""
         if run_id and self._d.session_factory:
             from .repository import StfRepository
 
@@ -119,13 +108,12 @@ class StfActivities:
         try:
             await self._d.gateway.control({"op": "kill", "mission_id": mission_id})
         except (GatewayUnavailable, GatewayOutcomeUnknown):
-            pass  # the gateway also refuses on its own revocation state; this only tightens it sooner
+            pass
         emit("grant.revoked", mission_id=mission_id, revoked=count)
         return count
 
     @activity.defn(name="stf_dispatch_action")
     async def dispatch_action(self, action: dict[str, Any], decision: dict[str, Any]) -> dict[str, Any]:
-        """Hand a permitted action to the gateway, at most once per idempotency key."""
         request = ActionRequest.model_validate(action)
         if not self._d.kill_switch.dispatch_allowed(request.mission_id):
             return {"status": "denied", "reasons": ["kill_switch"]}
@@ -133,7 +121,6 @@ class StfActivities:
         if state == "done":
             return self._d.ledger.result(request.idempotency_key) or {"status": "unknown"}
         if state == "unknown":
-            # Reserved earlier and never completed: the effect may or may not have happened.
             return {"status": "unknown", "reasons": ["dispatch_outcome_unknown"]}
         grant_id = decision.get("grant_id")
         grant = self._d.grants.get(grant_id) if grant_id else None
@@ -141,22 +128,37 @@ class StfActivities:
             return self._finish(request, {"status": "denied", "reasons": ["grant_invalid"]})
         permit = AuthorizationDecision(
             decision_id=decision["decision_id"], action_id=request.action_id, decision="permit",
-            policy_version="stf-v1", environment_id=request.environment_id, capability_grant_reference=grant.grant_id,
+            policy_version="stf-v1", environment_id=request.environment_id,
+            capability_grant_reference=grant.grant_id,
         )
-        envelope = build_envelope(request, permit, grant, key=self._d.signing_key, nonce=request.idempotency_key)
+        tool_id = str(decision.get("tool_id") or request.capability)
+        envelope = build_envelope(
+            request,
+            permit,
+            grant,
+            key=self._d.signing_key,
+            nonce=request.idempotency_key,
+            run_id=str(decision.get("run_id") or ""),
+            execution_id=str(decision.get("execution_id") or ""),
+            contract_hash=str(decision.get("contract_hash") or ""),
+            plan_hash=str(decision.get("plan_hash") or ""),
+            tool_id=tool_id,
+        )
         requested = {
-            "mission_version": request.mission_version, "target": request.target_id,
-            "environment": request.environment_id, "capability": request.capability,
-            "action_class": request.action_class, "parameters_hash": parameters_hash(request.parameters),
-            "tool_id": request.capability, "args_json": "{}",
+            "mission_version": request.mission_version,
+            "target": request.target_id,
+            "environment": request.environment_id,
+            "capability": request.capability,
+            "action_class": request.action_class,
+            "parameters_hash": parameters_hash(request.parameters),
+            "tool_id": tool_id,
+            "args_json": canonical_runtime_args(request),
         }
         try:
             answer = await self._d.gateway.execute(envelope, requested)
         except GatewayUnavailable:
-            # Nothing was sent, so nothing can have happened.
             return self._finish(request, {"status": "denied", "reasons": ["gateway_unavailable"]})
         except GatewayOutcomeUnknown:
-            # Sent, no answer: the effect may exist. Recorded as unknown so it is not repeated.
             return self._finish(request, {"status": "unknown", "reasons": ["gateway_response_lost"]})
         return self._finish(request, receipt_from(answer))
 
@@ -167,5 +169,5 @@ class StfActivities:
         return result
 
     def all(self) -> list[Callable[..., Any]]:
-        return [self.authorize_action, self.dispatch_action, self.verify_mission, self.revoke_grants, self.record_state,
-                self.check_approval]
+        return [self.authorize_action, self.dispatch_action, self.verify_mission, self.revoke_grants,
+                self.record_state, self.check_approval]

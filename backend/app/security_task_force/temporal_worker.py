@@ -25,17 +25,23 @@ TASK_QUEUE = "security-task-force"
 DISPATCH_INTERVAL_SECONDS = 2.0
 
 
+def _required_secret(name: str) -> str:
+    value = os.environ.get(name, "")
+    if len(value) < 32:
+        raise RuntimeError(f"{name} (32+ characters) is required")
+    return value
+
+
 def build_dependencies() -> StfDependencies:
-    key = os.environ.get("STF_GATEWAY_SIGNING_KEY", "").encode()
-    if len(key) < 32:
-        raise RuntimeError("STF_GATEWAY_SIGNING_KEY (32+ characters) is required")
+    key = _required_secret("STF_GATEWAY_SIGNING_KEY").encode()
+    control_token = _required_secret("STF_GATEWAY_CONTROL_TOKEN")
     state = Path(os.environ.get("STF_STATE_DIR", "/var/lib/creation/stf"))
     return StfDependencies(
         contracts=ContractStore(state / "contracts.json"),
         grants=GrantStore(state / "grants.json"),
         kill_switch=KillSwitch(state / "kill.json"),
         ledger=DispatchLedger(state / "ledger.json"),
-        gateway=TcpGatewayClient(),
+        gateway=TcpGatewayClient(service_token=control_token),
         signing_key=key,
         statuses=MissionStatusStore(state / "status.json"),
         policy=OpaClient(os.environ.get("OPA_URL", "http://stf-opa:8181")),
@@ -44,7 +50,6 @@ def build_dependencies() -> StfDependencies:
 
 
 async def main() -> None:
-    # Telemetry lines are one JSON object each; without a handler the stf logger drops them.
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     client = await Client.connect(os.getenv("TEMPORAL_ADDRESS", "temporal:7233"))
     activities = StfActivities(build_dependencies())

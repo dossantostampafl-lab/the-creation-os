@@ -1,19 +1,33 @@
+use creation_security_gateway::authority::AuthorityCheck;
 use creation_security_gateway::contracts::{ExecutionEnvelope, RequestedAction};
 use creation_security_gateway::replay::ReplayGuard;
 use creation_security_gateway::signature::expected_signature;
 use creation_security_gateway::validation::{evaluate, DenyReason, GatewayDecision, GatewayState};
 
 const KEY: &[u8] = b"test-key";
+const CONTROL: &str = "control-token-that-is-at-least-32-bytes";
+
+struct PermitAuthority;
+impl AuthorityCheck for PermitAuthority {
+    fn claim(&self, _envelope: &ExecutionEnvelope) -> Result<(), String> {
+        Ok(())
+    }
+}
 
 fn envelope() -> ExecutionEnvelope {
     let mut e = ExecutionEnvelope {
+        protocol_version: 2,
+        run_id: "run-1".into(),
+        execution_id: "exec-1".into(),
+        contract_hash: "c".repeat(64),
+        plan_hash: "p".repeat(64),
         mission_id: "m1".into(),
         mission_version: 1,
         action_id: "a1".into(),
         actor: "agent".into(),
         target: "juice-shop".into(),
         environment: "cyber_range:lab-a".into(),
-        capability: "range.validate".into(),
+        capability: "range.health.verify".into(),
         action_class: "validate".into(),
         risk_class: "R2".into(),
         decision: "permit".into(),
@@ -22,6 +36,7 @@ fn envelope() -> ExecutionEnvelope {
         expires_unix: 200,
         nonce: "n1".into(),
         parameters_hash: "abc".into(),
+        tool_id: "range.health.verify".into(),
         signature: String::new(),
     };
     e.signature = expected_signature(&e, KEY);
@@ -33,7 +48,7 @@ fn requested() -> RequestedAction {
         mission_version: 1,
         target: "juice-shop".into(),
         environment: "cyber_range:lab-a".into(),
-        capability: "range.validate".into(),
+        capability: "range.health.verify".into(),
         action_class: "validate".into(),
         parameters_hash: "abc".into(),
         tool_id: "range.health.verify".into(),
@@ -46,6 +61,7 @@ fn state() -> GatewayState {
         Box::new(ReplayGuard::default()),
         vec!["cyber_range:".into()],
     )
+    .with_authority(Box::new(PermitAuthority))
 }
 
 fn deny(reason: DenyReason) -> GatewayDecision {
@@ -176,10 +192,9 @@ fn missing_policy_decision_is_denied_and_does_not_burn_the_nonce() {
 
 #[test]
 fn signature_matches_the_python_authorization_plane() {
-    // Produced by backend/app/security_task_force/envelope.py for this exact envelope.
     assert_eq!(
         envelope().signature,
-        "90f082e4f960680427a8e8337a2625f188bcaece8e865ee74add71c6cf4cedce"
+        "8eb6357258b62be4c07e97575625e558e16ee97b461cb5e00039b1880e1fecf0"
     );
 }
 
@@ -194,11 +209,11 @@ fn file_replay_store_survives_a_restart() {
 }
 
 #[test]
-fn server_denies_when_no_sandbox_and_tightens_on_control_messages() {
+fn server_denies_when_no_sandbox_and_tightens_on_authenticated_control_messages() {
     use creation_security_gateway::sandbox::SandboxBackend;
     use creation_security_gateway::server::Gateway;
     let mut gateway = Gateway {
-        state: state(),
+        state: state().with_control_token(CONTROL.as_bytes().to_vec()),
         backend: SandboxBackend::Unavailable,
         key: KEY.to_vec(),
     };
@@ -208,7 +223,9 @@ fn server_denies_when_no_sandbox_and_tightens_on_control_messages() {
     assert!(gateway
         .handle_line(&line, 100)
         .contains("SandboxUnavailable"));
-    gateway.handle_line(r#"{"op":"kill","mission_id":"m1"}"#, 100);
+    let control =
+        serde_json::json!({"op":"kill","mission_id":"m1","service_token":CONTROL}).to_string();
+    assert!(gateway.handle_line(&control, 100).contains("\"ok\""));
     let again =
         serde_json::json!({"op": "execute", "envelope": envelope(), "requested": requested()})
             .to_string();
@@ -225,10 +242,9 @@ fn server_permits_through_an_isolated_backend() {
         backend: SandboxBackend::Kata,
         key: KEY.to_vec(),
     };
-    let mut r = requested();
-    r.tool_id = "range.health.verify".into();
     let line =
-        serde_json::json!({"op": "execute", "envelope": envelope(), "requested": r}).to_string();
+        serde_json::json!({"op": "execute", "envelope": envelope(), "requested": requested()})
+            .to_string();
     assert!(gateway.handle_line(&line, 100).contains("\"permit\""));
 }
 
@@ -241,10 +257,9 @@ fn a_permit_is_authorization_not_execution() {
         backend: SandboxBackend::Kata,
         key: KEY.to_vec(),
     };
-    let mut r = requested();
-    r.tool_id = "range.health.verify".into();
     let line =
-        serde_json::json!({"op": "execute", "envelope": envelope(), "requested": r}).to_string();
+        serde_json::json!({"op": "execute", "envelope": envelope(), "requested": requested()})
+            .to_string();
     let reply: serde_json::Value = serde_json::from_str(&gateway.handle_line(&line, 100)).unwrap();
     assert_eq!(reply["decision"], "permit");
     assert_eq!(reply["status"], "authorized");

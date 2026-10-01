@@ -4,6 +4,11 @@ use contracts::ExecutionEnvelope;
 
 fn envelope() -> ExecutionEnvelope {
     ExecutionEnvelope {
+        protocol_version: 2,
+        run_id: "run-1".into(),
+        execution_id: "exec-1".into(),
+        contract_hash: "c".repeat(64),
+        plan_hash: "p".repeat(64),
         mission_id: "m1".into(),
         mission_version: 1,
         action_id: "a1".into(),
@@ -19,6 +24,7 @@ fn envelope() -> ExecutionEnvelope {
         expires_unix: 200,
         nonce: "n1".into(),
         parameters_hash: "abc".into(),
+        tool_id: "range.validate".into(),
         signature: "sig".into(),
     }
 }
@@ -55,7 +61,6 @@ fn adapters_without_a_real_integration_refuse_to_execute() {
     use creation_security_gateway::sandbox::firecracker::FirecrackerSandbox;
     use creation_security_gateway::sandbox::kata::KataSandbox;
     use creation_security_gateway::sandbox::Sandbox;
-    // Presence of a backend flag does not make an execution: nothing is connected yet.
     assert!(KataSandbox { available: true }
         .execute_allowlisted("range.health.verify", "{}")
         .is_err());

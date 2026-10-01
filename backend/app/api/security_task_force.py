@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 import os
 from pathlib import Path
 from typing import Any
@@ -59,6 +60,17 @@ class CancelBody(BaseModel):
     reason: str = Field(min_length=1, max_length=1000)
 
 
+class ExecutionClaimBody(BaseModel):
+    """Bindings already signed into envelope v2; this endpoint cannot choose an effect."""
+
+    execution_id: str = Field(min_length=1, max_length=128)
+    run_id: str = Field(min_length=1, max_length=128)
+    contract_hash: str = Field(min_length=1, max_length=128)
+    plan_hash: str = Field(min_length=1, max_length=128)
+    tool_id: str = Field(min_length=1, max_length=128)
+    parameters_hash: str = Field(min_length=1, max_length=128)
+
+
 async def _chronicle(session: AsyncSession, a: Actor, cid: str, event: str, mission_id: str, payload: dict[str, Any]) -> None:
     repo = DomainRepository(session)
     await repo.add_event(event, AGGREGATE, mission_id, a.id, a.role, cid, payload)
@@ -109,6 +121,42 @@ async def compile_mission(
     })
     return {"mission_id": result.contract.mission_id, "status": result.status, "contract_hash": result.contract_hash,
             "authorized_environments": result.contract.authorized_environments}
+
+
+@router.post("/internal/execution-claims")
+async def claim_execution_authority(
+    body: ExecutionClaimBody,
+    service_token: str | None = Header(default=None, alias="X-STF-Service-Token"),
+    session: AsyncSession = Depends(get_session),
+):
+    """Gateway-only authority claim immediately before an effect.
+
+    This route does not accept a target, command or arbitrary parameters. It can only revalidate a dispatch that
+    already exists in the transactional STF runtime, and its identity is intentionally distinct from Creator auth.
+    """
+    configured = os.environ.get("STF_AUTHORITY_SERVICE_TOKEN", "")
+    if len(configured) < 32:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Runtime authority identity is not configured")
+    if service_token is None or not hmac.compare_digest(configured, service_token):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid runtime authority identity")
+    try:
+        receipt = await StfRepository(session).claim_execution(
+            execution_id=body.execution_id,
+            run_id=body.run_id,
+            contract_hash=body.contract_hash,
+            plan_hash=body.plan_hash,
+            tool_id=body.tool_id,
+            parameters_hash=body.parameters_hash,
+        )
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        raise
+    return {
+        "status": receipt.status,
+        "execution_id": receipt.execution_id,
+        "reason_codes": receipt.reason_codes,
+    }
 
 
 @router.post("/{mission_id}/authorize")
