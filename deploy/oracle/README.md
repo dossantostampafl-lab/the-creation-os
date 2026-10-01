@@ -127,7 +127,8 @@ includes local voice support. It downloads public models into the `voice_models`
 volume, validates PCM synthesis and speech recognition, then switches DEUS to
 Kokoro `pm_santa` in Brazilian Portuguese and Vosk FalaBrasil. Existing chat
 history and the wake word “Deus” stay in the same voice-session gateway. Voice
-inference uses FreeLLMAPI; no paid fallback is called in local mode. Recognition
+inference uses FreeLLMAPI; no paid fallback is called in local mode. Activation
+also keeps typed chat on FreeLLMAPI and clears its paid fallback list. Recognition
 can still make mistakes, and end-to-end latency includes silence detection,
 server CPU, the FreeLLM response and network latency.
 

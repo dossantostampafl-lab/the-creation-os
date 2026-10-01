@@ -16,6 +16,9 @@ chmod 600 .env.before-local-voice
 env_set DEUS_VOICE_ENGINE local
 env_set DEUS_VOICE_SESSION_ENABLED true
 env_set DEUS_VOICE_PRIMARY_PROVIDER freellmapi
+# The same chat remains free when a typed turn follows a voice turn.
+env_set LLM_PROVIDER freellmapi
+env_set LLM_FALLBACK_PROVIDERS ""
 env_set DEUS_LOCAL_VOICE_MODELS_DIR /var/lib/creation/voice
 env_set DEUS_LOCAL_VOICE_SILENCE_MS 400
 env_set ELEVENLABS_ENABLED false
