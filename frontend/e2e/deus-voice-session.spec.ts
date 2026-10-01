@@ -309,6 +309,16 @@ test("real audio enables speaking and canceled output cannot replace a follow-up
   const ticketCalls = { value: 0 };
   await installVoiceSockets(page);
   await mockDashboard(page, ticketCalls);
+  // Cancellation is driven by the explicit server event below. Chromium's fake
+  // microphone emits a tone; mute it so that unrelated VAD does not cancel first.
+  await page.addInitScript(() => {
+    const getUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    navigator.mediaDevices.getUserMedia = async constraints => {
+      const stream = await getUserMedia(constraints);
+      stream.getAudioTracks().forEach(track => { track.enabled = false; });
+      return stream;
+    };
+  });
   await page.goto("/");
   await expect(page.getByText(/Pronto · diga “Deus”/)).toBeVisible();
   await serverSend(page, 0, { type: "transcript_commit", session_id: "session-1", turn_id: 1, text: "Olá" });
