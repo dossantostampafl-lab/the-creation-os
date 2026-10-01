@@ -183,6 +183,7 @@ jobs:
             target="$(sudo git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||' || true)"
           fi
           target="${target:-main}"
+          sudo git fetch origin refs/heads/diagnose/public-dashboard:refs/remotes/origin/diagnose/public-dashboard
           sudo git fetch --prune origin
           sudo git checkout "origin/$target" -- deploy/oracle deploy/stf
           sudo chmod +x deploy/oracle/*.sh deploy/stf/*.sh
