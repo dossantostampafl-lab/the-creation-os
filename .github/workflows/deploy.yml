@@ -60,7 +60,7 @@ jobs:
         \ key, so this run trusted whatever answered.\"\n  echo \"Record the lines\
         \ below in deploy/oracle/known_hosts:\"\n  cat ~/.ssh/known_hosts\nfi\nchmod\
         \ 600 ~/.ssh/known_hosts\n"
-    - name: Read voice quota and verify current synthesis without logging credentials
+    - name: Check Speech Engine API access read-only
       env:
         HOST: ${{ secrets.DEPLOY_HOST }}
         USERNAME: ${{ secrets.DEPLOY_USER }}
@@ -68,30 +68,14 @@ jobs:
         \ \"${USERNAME:-ubuntu}@$HOST\" 'bash -s' <<'REMOTEPROBE'\nset -euo pipefail\n\
         api=\"$(sudo docker ps --filter 'label=com.docker.compose.service=api' --format\
         \ '{{.ID}}' | head -1)\"\nsudo docker exec -i \"$api\" python - <<'PROVIDERPY'\n\
-        import asyncio,json,time,re\nimport httpx\nfrom app.config import settings\n\
-        from app.voice_session.tts import ElevenLabsTTSConfig,ElevenLabsRealtimeTTS\n\
-        async def main():\n key=settings.elevenlabs_api_key.get_secret_value()\n print(json.dumps({'voice_key_configured':bool(key),'voice_id_configured':bool(settings.elevenlabs_voice_id),'model':settings.elevenlabs_model_id}),flush=True)\n\
-        \ async with httpx.AsyncClient(timeout=20,headers={'xi-api-key':key}) as client:\n\
-        \  for path in ['/v1/user/subscription','/v1/user']:\n   response=await client.get('https://api.elevenlabs.io'+path)\n\
-        \   output={'probe':path,'status':response.status_code}\n   if response.status_code==200:\n\
-        \    data=response.json();sub=data if path.endswith('subscription') else data.get('subscription',{})\n\
-        \    for name in ['tier','status','character_count','character_limit','next_character_count_reset_unix','can_extend_character_limit','has_open_invoices']:\n\
-        \     if name in sub and isinstance(sub[name],(str,int,float,bool,type(None))):output[name]=sub[name]\n\
-        \    if isinstance(sub.get('character_count'),int) and isinstance(sub.get('character_limit'),int):output['remaining']=sub['character_limit']-sub['character_count']\n\
-        \   else:\n    detail=response.json().get('detail',{})\n    if isinstance(detail,dict):output['vendor_status']=detail.get('status')\n\
-        \   print(json.dumps(output),flush=True)\n config=ElevenLabsTTSConfig(api_key=key,voice_id=settings.elevenlabs_voice_id,model_id='eleven_flash_v2_5')\n\
-        \ started=time.monotonic();audio_count=0\n try:\n  async with asyncio.timeout(20):\n\
-        \   async with ElevenLabsRealtimeTTS(config) as tts:\n    conn=tts._require_connection();original_recv=conn.recv\n\
-        \    async def traced_recv(*args,**kwargs):\n     raw=await original_recv(*args,**kwargs);data=json.loads(raw)\n\
-        \     out={'probe':'tts-flash','vendor_error':data.get('error') if isinstance(data.get('error'),str)\
-        \ else None}\n     message=data.get('message','')\n     if isinstance(message,str):\n\
-        \      for label,pattern in [('remaining_credits',r'(\\d+) credits? remaining'),('required_credits',r'(\\\
-        d+) credits? (?:are )?required')]:\n       match=re.search(pattern,message,re.I)\n\
-        \       if match:out[label]=int(match.group(1))\n     if data.get('error'):print(json.dumps(out),flush=True)\n\
-        \     return raw\n    conn.recv=traced_recv\n    await tts.send_text('Estou\
-        \ aqui.');await tts.finish()\n    while True:\n     audio=await tts.receive_audio()\n\
-        \     if audio is None:break\n     audio_count+=1\n  print(json.dumps({'probe':'tts-flash','audio_count':audio_count,'elapsed_ms':round((time.monotonic()-started)*1000)}),flush=True)\n\
-        \ except Exception as error:print(json.dumps({'probe':'tts-flash','error_type':type(error).__name__,'code':getattr(error,'code',None),'audio_count':audio_count,'elapsed_ms':round((time.monotonic()-started)*1000)}),flush=True)\n\
+        import asyncio,json\nimport httpx\nfrom app.config import settings\nasync\
+        \ def main():\n async with httpx.AsyncClient(timeout=20,headers={'xi-api-key':settings.elevenlabs_api_key.get_secret_value()})\
+        \ as client:\n  r=await client.get('https://api.elevenlabs.io/v1/speech-engine')\n\
+        \  data=r.json();out={'speech_engine_list_status':r.status_code}\n  if r.status_code==200:\n\
+        \   out['existing_engines_count']=len(data.get('speech_engines',data.get('engines',[])))\
+        \ if isinstance(data,dict) else len(data)\n  else:\n   detail=data.get('detail',{})\
+        \ if isinstance(data,dict) else {}\n   out['vendor_status']=detail.get('status')\
+        \ if isinstance(detail,dict) else None\n  print(json.dumps(out),flush=True)\n\
         asyncio.run(main())\nPROVIDERPY\nREMOTEPROBE\n"
     - name: Remove the key
       if: always()
