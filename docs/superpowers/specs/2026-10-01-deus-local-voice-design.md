@@ -9,7 +9,7 @@ PCM protocol. Do not purchase credits or invoke paid model fallbacks.
 
 Use process-shared CPU models in the existing API, lazy imported for installations
 that use another voice engine. Warm recognition and acknowledgement before local
-API readiness. Keep CPU inference off the event loop and use one synthesis thread and independent recognition on the two-core host. Discard
+API readiness. Keep CPU inference off the event loop and use up to two synthesis CPU threads and independent recognition on the two-core host. Discard
 cancelled synthesis jobs before native computation; an already running native call
 finishes without delivering obsolete audio.
 Buffer model tokens into phrases for synthesis, producing mono PCM16 at 24 kHz.
