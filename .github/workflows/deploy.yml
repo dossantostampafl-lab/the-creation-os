@@ -70,14 +70,15 @@ jobs:
         \ '{{.ID}}' | head -1)\"\nlive_dir=\"$(sudo docker inspect -f '{{index .Config.Labels\
         \ \"com.docker.compose.project.working_dir\"}}' \"$api\")\"\nproject=\"$(sudo\
         \ docker inspect -f '{{index .Config.Labels \"com.docker.compose.project\"\
-        }}' \"$api\")\"\ncd \"$live_dir\"\nsudo git fetch origin feat/local-deus-voice:refs/remotes/origin/feat/local-deus-voice\n\
+        }}' \"$api\")\"\ncd \"$live_dir\"\nsudo git fetch origin fix/local-voice-runtime:refs/remotes/origin/fix/local-voice-runtime\n\
         probe_dir=\"$(mktemp -d /tmp/creation-local-voice-candidate.XXXXXX)\"\ntrap\
-        \ 'sudo rm -rf \"$probe_dir\"' EXIT\nsudo git archive origin/feat/local-deus-voice\
+        \ 'sudo rm -rf \"$probe_dir\"' EXIT\nsudo git archive origin/fix/local-voice-runtime\
         \ backend | tar -x -C \"$probe_dir\"\nsudo docker build -t creation-local-voice-candidate\
         \ \"$probe_dir/backend\"\n# Persist only public model files for the eventual\
         \ production voice_models volume.\n# No production credentials, DB connectivity\
         \ or service ports in this container.\nsudo docker run --rm --name creation-local-voice-validation\
-        \ --cpus=1.5 --memory=6g \\\n -e APP_ENV=test -e APP_SECRET_KEY=local-speech-validation-secret-32-characters\
+        \ --cpus=1.5 --memory=6g --read-only --tmpfs /tmp --tmpfs /var/lib/creation/speech-runtime:rw,exec,nosuid,nodev,size=64m,mode=1777\
+        \ \\\n -e TMPDIR=/var/lib/creation/speech-runtime -e APP_ENV=test -e APP_SECRET_KEY=local-speech-validation-secret-32-characters\
         \ \\\n -e CREATOR_BOOTSTRAP_USERNAME=localprobe -e CREATOR_BOOTSTRAP_PASSWORD=localprobe\
         \ \\\n -e DATABASE_URL=postgresql+asyncpg://unused:unused@127.0.0.1/unused\
         \ \\\n -e REDIS_URL=redis://127.0.0.1:6379/0 \\\n -v \"${project}_voice_models:/var/lib/creation/voice\"\
