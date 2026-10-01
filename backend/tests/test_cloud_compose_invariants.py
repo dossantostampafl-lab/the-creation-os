@@ -61,3 +61,15 @@ def test_only_caddy_is_reachable_from_the_internet() -> None:
         for port in published(service):
             assert port.startswith("127.0.0.1:"), f"{name} publishes {port} beyond loopback"
     assert sorted(published(cloud["caddy"])) == ["443:443", "80:80"]
+
+
+def test_cloud_speech_libraries_can_load_without_making_general_tmp_executable() -> None:
+    api = load(CLOUD)['services']['api']
+    path = api.get('environment', {}).get('TMPDIR')
+    assert path and path != '/tmp', 'Phonemizer needs a dedicated executable temporary directory'
+    mounts = api.get('tmpfs', [])
+    speech = next((entry for entry in mounts if str(entry).split(':')[0] == path), '')
+    assert 'exec' in str(speech).split(':', 1)[-1].split(',')
+    assert 'nosuid' in str(speech) and 'nodev' in str(speech)
+    assert '/tmp' in mounts
+    assert api['read_only'] is True

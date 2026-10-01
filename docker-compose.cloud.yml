@@ -21,8 +21,13 @@ services:
 
   api:
     <<: *hardening
+    environment:
+      # Phonemizer copies libespeak into its temporary directory before dlopen.
+      # General /tmp stays noexec; only this small native-library tmpfs permits mapping.
+      TMPDIR: /var/lib/creation/speech-runtime
     tmpfs:
       - /tmp
+      - /var/lib/creation/speech-runtime:rw,exec,nosuid,nodev,size=64m,mode=1777
     # The API keeps its loopback port and its route to the host. Both are load-bearing: the
     # installer waits on 127.0.0.1:8000 and creates the Creator through it, and a FreeLLMAPI
     # running on this server is reached at host.docker.internal, which install.sh opens the
