@@ -16,6 +16,13 @@ class FakeSocket {
 }
 
 describe("voice session transport", () => {
+  it("resolves the production relative API base against the dashboard origin", () => {
+    expect(buildVoiceSessionUrl("/api/v1", "ticket-1", "conversation-1", "https://deus.example/dashboard"))
+      .toBe("wss://deus.example/api/v1/voice/session?ticket=ticket-1&conversation_id=conversation-1");
+    expect(buildVoiceSessionUrl("/api/v1/", "ticket-2", undefined, "http://localhost:8080/"))
+      .toBe("ws://localhost:8080/api/v1/voice/session?ticket=ticket-2");
+  });
+
   it("builds wss/ws URLs with only the ephemeral ticket", () => {
     const secure = new URL(buildVoiceSessionUrl("https://deus.example/api/v1", "ticket value"));
     expect(secure.protocol).toBe("wss:");
