@@ -72,11 +72,11 @@ jobs:
         \ env files or service ports.\nsudo docker run --rm -i --name creation-free-voice-evaluation\
         \ --cpus=1.5 --memory=3g --entrypoint /bin/sh -e HF_HUB_DISABLE_XET=1 \"$image\"\
         \ -s <<'CONTAINER'\nset -eu\npython -m venv /tmp/probe-venv\n/tmp/probe-venv/bin/pip\
-        \ install --quiet 'piper-tts==1.8.0' 'faster-whisper==1.2.1'\nmkdir -p /tmp/models\n\
-        cd /tmp/models\n/tmp/probe-venv/bin/python -m piper.download_voices pt_BR-faber-medium\n\
-        /tmp/probe-venv/bin/python - <<'BENCHMARKPY'\nimport json,time,wave,resource\n\
-        from piper import PiperVoice\nfrom faster_whisper import WhisperModel\nimport\
-        \ ctranslate2\nprint(json.dumps({'supported_cpu_types':sorted(ctranslate2.get_supported_compute_types('cpu'))}),flush=True)\n\
+        \ install --quiet 'piper-tts==1.8.0' 'faster-whisper==1.2.1' 'av==16.1.0'\n\
+        mkdir -p /tmp/models\ncd /tmp/models\n/tmp/probe-venv/bin/python -m piper.download_voices\
+        \ pt_BR-faber-medium\n/tmp/probe-venv/bin/python - <<'BENCHMARKPY'\nimport\
+        \ json,time,wave,resource\nfrom piper import PiperVoice\nfrom faster_whisper\
+        \ import WhisperModel\nimport ctranslate2\nprint(json.dumps({'supported_cpu_types':sorted(ctranslate2.get_supported_compute_types('cpu'))}),flush=True)\n\
         started=time.monotonic();voice=PiperVoice.load('/tmp/models/pt_BR-faber-medium.onnx')\n\
         print(json.dumps({'tts_load_ms':round((time.monotonic()-started)*1000)}),flush=True)\n\
         phrases=['Deus, quanto \xE9 dois mais dois?','Quanto \xE9 dez mais cinco,\
