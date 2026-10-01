@@ -373,3 +373,38 @@ test("keeps a failed Creator login actionable and does not enter the dashboard",
   await expect(page.getByText("Invalid username or password.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Enter The Creation" })).toBeEnabled();
 });
+
+test("handles a failed event snapshot refresh and recovers with Retry", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await page.addInitScript(() => {
+    localStorage.setItem("creation_access_token", "e2e-token");
+    const originalFetch = window.fetch;
+    window.fetch = async (...args) => {
+      if (String(args[0]).includes("/system/events?")) {
+        return new Response(new ReadableStream({ start(controller) {
+          Object.assign(window, { emitChronicle: () => controller.enqueue(new TextEncoder().encode(
+            'event: chronicle\ndata: {"position":42,"event_id":"event-42","payload":{}}\n\n',
+          )) });
+        } }), { headers: { "Content-Type": "text/event-stream" } });
+      }
+      return originalFetch(...args);
+    };
+  });
+  await mockOperationalApi(page);
+  let broken = false;
+  await page.route(/\/api\/v1\/system\/state(?:\?.*)?$/, route => {
+    if (broken) return route.abort("failed");
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(state) });
+  });
+  await page.goto("/");
+  await expect(page.locator(".top-status .status")).toHaveText("LIVE");
+  broken = true;
+  await page.evaluate(() => (window as unknown as { emitChronicle: () => void }).emitChronicle());
+  await expect(page.locator(".error-banner")).toContainText("/api/v1/system/state");
+  expect(errors).toEqual([]);
+  broken = false;
+  await page.getByRole("button", { name: "Retry", exact: true }).click();
+  await expect(page.locator(".error-banner")).toHaveCount(0);
+  await expect(page.locator(".top-status .status")).toHaveText("LIVE");
+});

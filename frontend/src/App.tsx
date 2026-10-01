@@ -97,7 +97,13 @@ function App() {
         controller.abort();
         controller = new AbortController();
         void streamChronicle(cursor.current, {
+          onOpen: () => {
+            if (!active) return;
+            setError(null);
+            setConnection("LIVE");
+          },
           onEvent: (event) => {
+            if (!active) return;
             cursor.current = event.position;
             setEvents((current) => [event, ...current].slice(0, 40));
             setChronicle((current) => [{
@@ -124,6 +130,12 @@ function App() {
               setState(next);
               setProjections(nextProjections);
               setInference(nextInference);
+            }).catch((refreshError: unknown) => {
+              if (!active) return;
+              controller.abort();
+              const message = refreshError instanceof Error ? refreshError.message : "LOAD_ERROR";
+              setError(message);
+              setConnection(message === "AUTH_REQUIRED" ? "AUTH_REQUIRED" : "ERROR");
             });
           },
           onResync: () => {
@@ -131,12 +143,14 @@ function App() {
             void hydrate();
           },
           onError: (streamError) => {
+            if (!active) return;
             const message = streamError instanceof Error ? streamError.message : "STREAM_ERROR";
             setError(message);
             setConnection(message === "AUTH_REQUIRED" ? "AUTH_REQUIRED" : "ERROR");
           },
         }, controller.signal);
       } catch (loadError) {
+        if (!active) return;
         const message = loadError instanceof Error ? loadError.message : "LOAD_ERROR";
         setError(message);
         setConnection(message === "AUTH_REQUIRED" ? "AUTH_REQUIRED" : "ERROR");
