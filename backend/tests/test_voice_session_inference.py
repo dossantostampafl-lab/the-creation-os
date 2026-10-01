@@ -73,6 +73,7 @@ async def test_stream_propagates_failure_after_primary_emits_text():
             received.append(chunk)
 
     assert received == [StreamChunk(provider="freellmapi", text="parcial")]
+    assert primary.calls == 1
 
 
 @pytest.mark.asyncio
@@ -82,3 +83,65 @@ async def test_primary_first_token_is_bounded_without_another_provider():
             request(), primary=SlowProvider("freellmapi"), first_token_timeout_seconds=0.01,
         )]
     assert error.value.provider == "freellmapi"
+
+
+@pytest.mark.asyncio
+async def test_transient_first_token_timeout_retries_the_same_free_provider_once():
+    class RecoveringProvider:
+        name = "freellmapi"
+        calls = 0
+
+        async def stream(self, request):
+            self.calls += 1
+            if self.calls == 1:
+                raise InferenceTimeoutError(self.name, "temporary timeout")
+            yield "Quatro."
+
+    primary = RecoveringProvider()
+    chunks = [chunk async for chunk in stream_response(request(), primary=primary)]
+    assert chunks == [StreamChunk(provider="freellmapi", text="Quatro.")]
+    assert primary.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_first_token_deadline_retries_once_and_closes_the_cancelled_stream():
+    class RecoveringProvider:
+        name = "freellmapi"
+        calls = 0
+        closed = False
+
+        async def stream(self, request):
+            self.calls += 1
+            if self.calls == 1:
+                try:
+                    await asyncio.Event().wait()
+                finally:
+                    self.closed = True
+            yield "Quatro."
+
+    primary = RecoveringProvider()
+    chunks = [chunk async for chunk in stream_response(
+        request(), primary=primary, first_token_timeout_seconds=0.01,
+    )]
+    assert chunks == [StreamChunk(provider="freellmapi", text="Quatro.")]
+    assert primary.calls == 2
+    assert primary.closed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error_name", ["InferenceAuthenticationError", "InferenceRateLimitError"])
+async def test_authentication_and_rate_limits_are_not_retried(error_name):
+    from app.inference import contracts
+
+    primary = StubProvider("freellmapi", [getattr(contracts, error_name)("freellmapi", "unavailable")])
+    with pytest.raises(InferenceTimeoutError):
+        _ = [chunk async for chunk in stream_response(request(), primary=primary)]
+    assert primary.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_persistent_first_token_timeout_stops_after_two_attempts():
+    primary = StubProvider("freellmapi", [InferenceTimeoutError("freellmapi", "unavailable")])
+    with pytest.raises(InferenceTimeoutError):
+        _ = [chunk async for chunk in stream_response(request(), primary=primary)]
+    assert primary.calls == 2
