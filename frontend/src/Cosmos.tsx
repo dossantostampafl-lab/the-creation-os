@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { voiceActivity } from "./voice";
+import { voiceActivity } from "./voice-session/player";
 
 export type CosmosMood = "idle" | "listening" | "thinking" | "speaking";
 

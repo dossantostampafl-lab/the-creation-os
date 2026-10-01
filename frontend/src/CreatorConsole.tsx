@@ -15,8 +15,7 @@ import type { ConversationMessage, Inception } from "./api";
 import type { CosmosMood } from "./Cosmos";
 import { TrinityProposal, proposalStage } from "./TrinityProposal";
 import type { Proposal, ProposalAction } from "./TrinityProposal";
-import { spokenDecision, useDeusEars, useDeusVoice, voiceText } from "./voice";
-import type { SpokenDecision } from "./voice";
+import { useDeusVoiceSession } from "./voice-session/useDeusVoiceSession";
 import "./CreatorConsole.css";
 
 type Props = {
@@ -25,7 +24,6 @@ type Props = {
 };
 
 const CONVERSATION_KEY = "creation_conversation_id";
-const ACKNOWLEDGE_AFTER_MS = 800;
 
 type Entry = { kind: "message"; at: string; message: ConversationMessage } | { kind: "proposal"; at: string; proposal: Proposal };
 
@@ -43,14 +41,6 @@ async function loadProposal(inception: Inception): Promise<Proposal> {
   return { inception, mission: missionId ? await fetchMission(missionId) : null };
 }
 
-/** What a spoken answer means for a proposal at its current stage; null lets DEUS hear it instead. */
-function spokenAction(proposal: Proposal, decision: SpokenDecision): ProposalAction | null {
-  const stage = proposalStage(proposal);
-  if (stage === "ready") return decision === "authorize" || decision === "approve" ? "start" : "cancel";
-  if (stage === "blocked" && (decision === "cancel" || decision === "reject")) return "dismiss";
-  return null;
-}
-
 export function CreatorConsole({ enabled, onMoodChange }: Props) {
   const [conversationId, setConversationId] = useState(() => window.localStorage.getItem(CONVERSATION_KEY));
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
@@ -60,62 +50,77 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [deciding, setDeciding] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  // Text the ears put in the box; only that text may be replaced or cleared by them.
-  const voiceDraft = useRef("");
-  // A voice conversation: after each spoken reply DEUS listens again without the wake word,
-  // until the Creator goes quiet, says goodbye, or starts typing.
-  const [inConversation, setInConversation] = useState(false);
-  const conversing = useRef(false);
-  const setConversing = (value: boolean) => {
-    conversing.current = value;
-    setInConversation(value);
-  };
-  const voice = useDeusVoice();
-  const ears = useDeusEars({
-    // Never listen while DEUS cannot answer, is thinking, or is speaking (it would hear itself).
-    paused: !enabled || pending || voice.speaking,
-    conversing: inConversation,
-    onWake: () => {
-      setConversing(true);
-      // Arm capture before acknowledging the wake word. The greeting is non-gating and keeps
-      // DEUS's configured premium voice without closing the ears.
-      ears.summon();
-      voice.acknowledge(voiceText.greeting());
+  const creatingConversation = useRef(false);
+  const voiceSession = useDeusVoiceSession({
+    enabled: enabled && Boolean(conversationId),
+    conversationId,
+    onWake: () => setError(null),
+    onTranscript: (text, turnId, sessionId) => {
+      setInput("");
+      const localId = `local-creator-voice-${sessionId}-${turnId}`;
+      setMessages((current) => {
+        if (current.some((message) => message.id === localId)) return current;
+        return [...current, {
+          id: localId,
+          conversation_id: conversationId ?? "",
+          actor_id: "creator",
+          role: "creator",
+          content: text,
+          route: "deus",
+          metadata_json: { voice: true, optimistic: true },
+          correlation_id: "",
+          created_at: new Date().toISOString(),
+        }];
+      });
     },
-    onCommand: (text) => {
-      setConversing(true);
-      const decision = spokenDecision(text);
-      // A spoken answer is about the proposal DEUS presented last.
-      const latest = proposals
-        .filter((item) => proposalStage(item) !== "settled")
-        .sort((a, b) => Date.parse(a.inception.proposed_at) - Date.parse(b.inception.proposed_at))
-        .at(-1);
-      const action = decision && latest ? spokenAction(latest, decision) : null;
-      if (action && latest) {
-        setInput("");
-        void act(latest, action, true);
-        return;
-      }
-      setInput(text);
-      void send(text);
+    onTextDelta: (delta, turnId, provider, sessionId) => {
+      const localId = `local-deus-voice-${sessionId}-${turnId}`;
+      setMessages((current) => {
+        const existing = current.find((message) => message.id === localId);
+        if (!existing) {
+          return [...current, {
+            id: localId,
+            conversation_id: conversationId ?? "",
+            actor_id: "deus",
+            role: "deus",
+            content: delta,
+            route: "deus",
+            metadata_json: { voice: true, provider, streaming: true },
+            correlation_id: "",
+            created_at: new Date().toISOString(),
+          }];
+        }
+        return current.map((message) => message.id === localId
+          ? { ...message, content: message.content + delta, metadata_json: { ...message.metadata_json, provider } }
+          : message);
+      });
     },
-    onLapse: () => setConversing(false),
-    onFarewell: () => {
-      setConversing(false);
-      voice.speak(voiceText.farewell());
-    },
-    onInterim: (text) => {
-      setInput((typed) => (typed === voiceDraft.current || typed === "" ? text : typed));
-      voiceDraft.current = text;
+    onReply: ({ sessionId, turnId, text, provider }) => {
+      const localId = `local-deus-voice-${sessionId}-${turnId}`;
+      setMessages((current) => current.map((message) => message.id === localId
+        ? { ...message, content: text, metadata_json: { voice: true, provider, streaming: false } }
+        : message));
     },
   });
 
   useEffect(() => {
-    if (pending) onMoodChange?.("thinking");
-    else if (voice.speaking) onMoodChange?.("speaking");
-    else if (ears.state === "attentive") onMoodChange?.("listening");
+    if (pending || ["committing", "thinking"].includes(voiceSession.status)) onMoodChange?.("thinking");
+    else if (voiceSession.status === "speaking") onMoodChange?.("speaking");
+    else if (voiceSession.status === "listening") onMoodChange?.("listening");
     else onMoodChange?.("idle");
-  }, [pending, voice.speaking, ears.state, onMoodChange]);
+  }, [pending, voiceSession.status, onMoodChange]);
+
+  useEffect(() => {
+    if (!enabled || conversationId || creatingConversation.current) return;
+    creatingConversation.current = true;
+    void createConversation()
+      .then((conversation) => {
+        window.localStorage.setItem(CONVERSATION_KEY, conversation.id);
+        setConversationId(conversation.id);
+      })
+      .catch(() => setError("Não foi possível iniciar a conversa com DEUS."))
+      .finally(() => { creatingConversation.current = false; });
+  }, [enabled, conversationId]);
 
   useEffect(() => () => onMoodChange?.("idle"), [onMoodChange]);
 
@@ -150,7 +155,7 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
     setProposals((items) => [...items.filter((item) => item.inception.id !== proposal.inception.id), proposal]);
   }
 
-  async function act(proposal: Proposal, action: ProposalAction, spoken = false) {
+  async function act(proposal: Proposal, action: ProposalAction) {
     const { inception, mission } = proposal;
     setDeciding(inception.id);
     setError(null);
@@ -165,35 +170,18 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
       } else {
         upsertProposal({ inception: await decideInception(inception.id, "reject"), mission });
       }
-      if (spoken) {
-        const confirmation = { start: voiceText.started, cancel: voiceText.cancelled, dismiss: voiceText.dismissed }[action];
-        voice.speak(confirmation(), { onEnd: () => { if (conversing.current) ears.summon(); } });
-      }
     } catch {
       setError(action === "start" ? "The Mission could not start." : "The decision could not be recorded.");
-      // No confirmation will be spoken, so nothing would reopen the ears.
-      if (spoken) setConversing(false);
     } finally {
       setDeciding(null);
     }
   }
 
-  function voiceReply(content: string) {
-    if (!content.trim()) return;
-    // Keep the conversation going: listen for the follow-up once DEUS has finished speaking.
-    voice.speak(content, { onEnd: () => { if (conversing.current) ears.summon(); } });
-  }
-
   async function send(text?: string) {
     const content = (text ?? input).trim();
     if (!content || !enabled || pending) return;
-    voice.stop();
     setPending(true);
     setError(null);
-    // A slow answer in a voice conversation gets a short spoken acknowledgement, so silence is not mistaken for deafness.
-    const acknowledgement = window.setTimeout(() => {
-      if (conversing.current) voice.acknowledge(voiceText.moment());
-    }, ACKNOWLEDGE_AFTER_MS);
     let optimisticId: string | null = null;
     try {
       let id = conversationId;
@@ -221,7 +209,6 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
       setMessages((current) => [...current, optimistic]);
 
       const reply = await converseWithDeus(id, content);
-      window.clearTimeout(acknowledgement);
       if (reply.response) {
         const creatorMessage: ConversationMessage = {
           ...optimistic,
@@ -247,8 +234,6 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
         ]);
         optimisticId = null;
 
-        // Start speech as soon as the model response arrives. Proposal hydration is independent.
-        voiceReply(reply.response);
         if (reply.inception) {
           void fetchInception(reply.inception.id).then(loadProposal).then(upsertProposal).catch(() => undefined);
         }
@@ -257,8 +242,6 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
         const latest = await fetchConversationMessages(id);
         setMessages(latest);
         optimisticId = null;
-        const deus = [...latest].reverse().find((message) => message.role === "deus");
-        if (deus) voiceReply(deus.content);
       }
     } catch (failure) {
       if (optimisticId) {
@@ -266,9 +249,7 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
       }
       const message = failure instanceof Error ? failure.message : "CONVERSATION_FAILED";
       setError(message === "HTTP_503" ? "Inference provider is not configured." : message === "AUTH_REQUIRED" ? "Sessão expirada. Entre novamente para continuar." : "DEUS conversation failed.");
-      setConversing(false);
     } finally {
-      window.clearTimeout(acknowledgement);
       setPending(false);
     }
   }
@@ -304,63 +285,32 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
           className="resize-none"
           aria-label="Message DEUS"
           value={input}
-          onChange={(event) => {
-            // Typing takes over from listening.
-            if (ears.state === "attentive") ears.dismiss();
-            setConversing(false);
-            setInput(event.target.value);
-          }}
+          onChange={(event) => setInput(event.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={ears.state === "attentive" ? voiceText.listening() : enabled ? "Speak to DEUS…" : "Configure an inference provider to speak to DEUS."}
+          placeholder={voiceSession.status === "listening" ? "Ouvindo…" : enabled ? "Fale “Deus” ou digite para conversar…" : "Configure um provedor de inferência para falar com DEUS."}
           disabled={!enabled || pending}
           rows={1}
         />
-        {voice.supported && (
-          <button
-            type="button"
-            className={`icon-button${voice.enabled ? " active" : ""}`}
-            aria-label={voice.enabled ? "Mute DEUS voice" : "Unmute DEUS voice"}
-            aria-pressed={voice.enabled}
-            onClick={voice.toggle}
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M4 9h4l5-4v14l-5-4H4z" />
-              {voice.enabled ? <path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12" /> : <path d="M16 9l5 6M21 9l-5 6" />}
-            </svg>
-          </button>
-        )}
-        {ears.supported && (
-          <>
-            <button
-              type="button"
-              className={`icon-button wake${ears.wakeEnabled ? " active" : ""}`}
-              aria-label={ears.wakeEnabled ? "Turn off “Deus” wake word" : "Turn on “Deus” wake word"}
-              aria-pressed={ears.wakeEnabled}
-              disabled={!enabled}
-              onClick={ears.toggleWake}
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10a5 5 0 0 1 10 0c0 3-2 3.5-2.5 6a3 3 0 0 1-5.5 1.5M9.5 10a2.5 2.5 0 0 1 5 0" /></svg>
-            </button>
-            <button
-              type="button"
-              className={`icon-button mic${ears.state === "attentive" ? " live" : ""}`}
-              aria-label={ears.state === "attentive" ? "Stop listening" : "Talk to DEUS"}
-              aria-pressed={ears.state === "attentive"}
-              disabled={!enabled || pending}
-              onClick={ears.state === "attentive" ? () => { setConversing(false); ears.dismiss(); } : () => { voice.stop(); setConversing(true); ears.summon(); }}
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" /></svg>
-            </button>
-          </>
-        )}
         <button type="submit" aria-label="Send to DEUS" disabled={!enabled || pending || !input.trim()}>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h14M13 6l6 6-6 6" /></svg>
         </button>
       </form>
-      {inConversation
-        ? <div className="wake-hint conversing" aria-live="polite"><i />{voiceText.conversationHint()}</div>
-        : ears.state === "sleeping" && <div className="wake-hint" aria-live="polite"><i />{voiceText.wakeHint()}</div>}
-      {(error ?? ears.error) && <div className="console-error" role="alert">{error ?? ears.error}</div>}
+      <div className={`wake-hint ${voiceSession.status}`} aria-live="polite">
+        <i />
+        {({
+          disabled: "Voz em tempo real desativada",
+          connecting: "Conectando a DEUS…",
+          ready: "Pronto · diga “Deus”",
+          listening: "Ouvindo…",
+          committing: "Entendido…",
+          thinking: "Pensando…",
+          speaking: "DEUS está falando · interrompa naturalmente se quiser",
+          reconnecting: "Reconectando…",
+          error: "A conversa por voz precisa de atenção",
+        } as const)[voiceSession.status]}
+        {voiceSession.provider && <small> · {voiceSession.provider}</small>}
+      </div>
+      {(error ?? voiceSession.error) && <div className="console-error" role="alert">{error ?? voiceSession.error}</div>}
     </section>
   );
 }

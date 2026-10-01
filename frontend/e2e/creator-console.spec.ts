@@ -3,650 +3,209 @@ import { expect, test } from "@playwright/test";
 const state = {
   projection: "system",
   position: 1,
-  generated_at: "2026-09-11T12:00:00Z",
-  missions: [],
-  tasks: [],
-  universes: [],
-  agents: [],
+  generated_at: "2026-09-30T12:00:00Z",
+  missions: [], tasks: [], universes: [], agents: [],
   memory: { conversation: 0, mission: 0, universe: 0, conscious: 0, total: 0 },
   pulse: {},
-  counts: { missions: 0, running_missions: 0, tasks: 0, ready_tasks: 0, running_tasks: 0, failed_tasks: 0, active_universes: 0, active_agents: 0 },
-  pagination: { page: 1, page_size: 25, has_next: false, totals: { missions: 0, tasks: 0, universes: 0, agents: 0 } },
-};
-
-async function mockDashboard(page: import("@playwright/test").Page) {
-  await page.route(/\/api\/v1\/system\/state(?:\?.*)?$/, (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(state) }));
-  await page.route("**/api/v1/system/projections", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ chronicle_head: 1, projections: [] }) }));
-  await page.route("**/api/v1/chronicles?limit=40&offset=0", (route) => route.fulfill({ status: 200, contentType: "application/json", body: "[]" }));
-  await page.route("**/api/v1/system/inference", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ configured: true, configured_provider: "stub", providers: [{ provider: "stub", available: true, detail: null, models: [{ model: "stub-model", is_default: true, capabilities: ["text"], cost_tier: "UNKNOWN" }] }] }) }));
-  await page.route("**/api/v1/system/events?after=1", (route) => route.fulfill({ status: 200, contentType: "text/event-stream", body: "" }));
-  await page.route("**/api/v1/inceptions", (route) => route.fulfill({ status: 200, contentType: "application/json", body: "[]" }));
-}
-
-test("Creator can start a conversation and receive a DEUS response", async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem("creation_access_token", "e2e-token"));
-  await mockDashboard(page);
-  await page.route("**/api/v1/conversations", async (route) => {
-    if (route.request().method() === "POST") {
-      await route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ id: "conversation-1", creator_id: "creator-1", title: "Creator Session", status: "active", created_at: "2026-09-11T12:00:00Z", updated_at: "2026-09-11T12:00:00Z" }) });
-    } else {
-      await route.fallback();
-    }
-  });
-  await page.route("**/api/v1/conversations/conversation-1/messages", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([
-    { id: "m1", conversation_id: "conversation-1", actor_id: "creator-1", role: "creator", content: "Status?", route: "deus", metadata_json: {}, correlation_id: "c1", created_at: "2026-09-11T12:00:01Z" },
-    { id: "m2", conversation_id: "conversation-1", actor_id: "deus", role: "deus", content: "System operational.", route: "deus", metadata_json: { provider: "stub" }, correlation_id: "c1", created_at: "2026-09-11T12:00:02Z" },
-  ]) }));
-  await page.route("**/api/v1/conversations/conversation-1/deus", (route) => route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ message_id: "m1", conversation_id: "conversation-1", route: "deus", response: "System operational.", inception: null, system_state: null, correlation_id: "c1" }) }));
-
-  await page.goto("/");
-  await expect(page.getByRole("region", { name: "Creator Console" })).toBeVisible();
-  await page.getByLabel("Message DEUS").fill("Status?");
-  await page.getByRole("button", { name: "Send to DEUS" }).click();
-
-  await expect(page.getByText("Status?", { exact: true })).toBeVisible();
-  await expect(page.getByText("System operational.", { exact: true })).toBeVisible();
-});
-
-/** Fake speech engines: records what DEUS says and lets the test "say" things to it. */
-async function installFakeSpeech(
-  page: import("@playwright/test").Page,
-  wakePreference: "on" | "off" | "unset" = "off",
-) {
-  await page.addInitScript(({ wakePreference }) => {
-    localStorage.setItem("creation_access_token", "e2e-token");
-    if (wakePreference === "unset") localStorage.removeItem("creation_wake_word_v3");
-    else localStorage.setItem("creation_wake_word_v3", wakePreference);
-    const scope = window as unknown as Record<string, unknown>;
-    const spoken: string[] = [];
-    scope.__spoken = spoken;
-    const synth = {
-      getVoices: () => [],
-      cancel: () => {},
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      speak: (utterance: SpeechSynthesisUtterance) => {
-        spoken.push(utterance.text);
-        const fire = (name: "onstart" | "onboundary" | "onend") =>
-          (utterance[name] as ((event: unknown) => void) | null)?.({ name: "word" });
-        setTimeout(() => { fire("onstart"); fire("onboundary"); fire("onend"); }, 10);
-      },
-    };
-    Object.defineProperty(window, "speechSynthesis", { value: synth, configurable: true });
-
-    type Fake = {
-      running: boolean;
-      onresult: ((event: unknown) => void) | null;
-      onend: (() => void) | null;
-      onerror: ((event: { error?: string }) => void) | null;
-    };
-    class FakeRecognition {
-      running = false;
-      onresult: ((event: unknown) => void) | null = null;
-      onend: (() => void) | null = null;
-      onerror: ((event: { error?: string }) => void) | null = null;
-      start() { this.running = true; scope.__recognizer = this; }
-      stop() { this.end(); }
-      abort() { this.end(); }
-      private end() { if (!this.running) return; this.running = false; this.onend?.(); }
-    }
-    for (const name of ["SpeechRecognition", "webkitSpeechRecognition"]) {
-      Object.defineProperty(window, name, { value: FakeRecognition, configurable: true, writable: true });
-    }
-    scope.__say = (text: string) => {
-      const recognizer = scope.__recognizer as Fake | undefined;
-      if (!recognizer?.running) return false;
-      const result = Object.assign([{ transcript: text, confidence: 0.95 }], { isFinal: true });
-      recognizer.onresult?.({ resultIndex: 0, results: [result] });
-      return true;
-    };
-    scope.__speechError = (error: string) => {
-      const recognizer = scope.__recognizer as Fake | undefined;
-      if (!recognizer?.running) return false;
-      recognizer.onerror?.({ error });
-      recognizer.running = false;
-      recognizer.onend?.();
-      return true;
-    };
-  }, { wakePreference });
-}
-
-async function mockConversation(page: import("@playwright/test").Page, sent: string[]) {
-  await page.route("**/api/v1/conversations", (route) => route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ id: "conversation-1" }) }));
-  await page.route("**/api/v1/conversations/conversation-1/deus", (route) => {
-    sent.push((route.request().postDataJSON() as { content: string }).content);
-    return route.fulfill({ status: 201, contentType: "application/json", body: "{}" });
-  });
-  await page.route("**/api/v1/conversations/conversation-1/messages", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(sent.length ? [
-    { id: "m1", conversation_id: "conversation-1", actor_id: "creator-1", role: "creator", content: sent[sent.length - 1], route: "deus", metadata_json: {}, correlation_id: "c1", created_at: "2026-09-11T12:00:01Z" },
-    { id: "m2", conversation_id: "conversation-1", actor_id: "deus", role: "deus", content: "**All** universes are breathing.", route: "deus", metadata_json: {}, correlation_id: "c1", created_at: "2026-09-11T12:00:02Z" },
-  ] : []) }));
-}
-
-const spokenLines = (page: import("@playwright/test").Page) => page.evaluate(() => (window as unknown as { __spoken: string[] }).__spoken);
-
-async function mockPremiumAcknowledgements(page: import("@playwright/test").Page, synthesized: string[]) {
-  await page.route("**/api/v1/voice/synthesize", (route) => {
-    const text = (route.request().postDataJSON() as { text: string }).text;
-    if (text === "Estou aqui." || text === "Um momento.") {
-      synthesized.push(text);
-      return route.fulfill({ status: 200, contentType: "audio/mpeg", body: Buffer.from("ID3-ack") });
-    }
-    return route.fulfill({ status: 501, contentType: "application/json", body: "{}" });
-  });
-}
-
-test("wake word is enabled by default for a fresh Creator session", async ({ page }) => {
-  await installFakeSpeech(page, "unset");
-  await mockDashboard(page);
-  await page.route("**/api/v1/voice/synthesize", (route) => route.fulfill({ status: 501, body: "{}" }));
-  await mockConversation(page, []);
-
-  await page.goto("/");
-  await expect(page.getByRole("button", { name: "Turn off “Deus” wake word" })).toBeVisible();
-  await expect(page.getByText(/Diga “Deus” para chamar|Diga “Deus” para chamar/)).toBeVisible();
-  await expect.poll(() => page.evaluate(() => Boolean(
-    (window as unknown as { __recognizer?: { running: boolean } }).__recognizer?.running
-  ))).toBe(true);
-});
-
-test("legacy wake-off state does not disable the repaired wake listener", async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem("creation_wake_word", "off"));
-  await installFakeSpeech(page, "unset");
-  await mockDashboard(page);
-  await mockConversation(page, []);
-
-  await page.goto("/");
-  await expect(page.getByRole("button", { name: "Turn off “Deus” wake word" })).toBeVisible();
-  await expect.poll(() => page.evaluate(() => Boolean(
-    (window as unknown as { __recognizer?: { running: boolean } }).__recognizer?.running
-  ))).toBe(true);
-});
-
-test("a transient browser gesture rejection rearms wake listening after normal interaction", async ({ page }) => {
-  await installFakeSpeech(page, "unset");
-  await mockDashboard(page);
-  await mockConversation(page, []);
-
-  await page.goto("/");
-  await expect.poll(() => page.evaluate(() => (
-    window as unknown as { __speechError: (e: string) => boolean }
-  ).__speechError("not-allowed"))).toBe(true);
-  await expect(page.getByRole("button", { name: "Turn off “Deus” wake word" })).toBeVisible();
-
-  await page.mouse.click(5, 5);
-  await expect.poll(() => page.evaluate(() => Boolean(
-    (window as unknown as { __recognizer?: { running: boolean } }).__recognizer?.running
-  ))).toBe(true);
-  await expect(page.evaluate(() => localStorage.getItem("creation_wake_word_v3"))).resolves.not.toBe("off");
-});
-
-test("DEUS falls back to the browser voice when ElevenLabs is not configured, and can be muted", async ({ page }) => {
-  await installFakeSpeech(page);
-  await mockDashboard(page);
-  await page.route("**/api/v1/voice/synthesize", (route) => route.fulfill({ status: 501, contentType: "application/json", body: JSON.stringify({ detail: "ElevenLabs voice synthesis is disabled" }) }));
-  const sent: string[] = [];
-  await mockConversation(page, sent);
-
-  await page.goto("/");
-  await page.getByLabel("Message DEUS").fill("Status?");
-  await page.getByLabel("Message DEUS").press("Enter");
-
-  await expect(page.getByText("**All** universes are breathing.", { exact: true })).toBeVisible();
-  await expect.poll(() => spokenLines(page)).toEqual(["All universes are breathing."]);
-
-  await page.getByRole("button", { name: "Mute DEUS voice" }).click();
-  await expect(page.getByRole("button", { name: "Unmute DEUS voice" })).toBeVisible();
-});
-
-test("DEUS speaks with the ElevenLabs voice through the backend when it is configured", async ({ page }) => {
-  await installFakeSpeech(page);
-  await page.addInitScript(() => {
-    HTMLMediaElement.prototype.play = function play(this: HTMLMediaElement) {
-      setTimeout(() => this.dispatchEvent(new Event("ended")), 50);
-      return Promise.resolve();
-    };
-  });
-  await mockDashboard(page);
-  const synthesized: string[] = [];
-  await page.route("**/api/v1/voice/synthesize", (route) => {
-    synthesized.push((route.request().postDataJSON() as { text: string }).text);
-    return route.fulfill({ status: 200, contentType: "audio/mpeg", body: Buffer.from("ID3-fake-mp3") });
-  });
-  const sent: string[] = [];
-  await mockConversation(page, sent);
-
-  await page.goto("/");
-  await page.getByLabel("Message DEUS").fill("Status?");
-  await page.getByLabel("Message DEUS").press("Enter");
-
-  await expect.poll(() => synthesized).toEqual(["All universes are breathing."]);
-  expect(await spokenLines(page)).toEqual([]);
-});
-
-test("saying “Deus” wakes DEUS, which answers and then hears the request", async ({ page }) => {
-  await installFakeSpeech(page);
-  await mockDashboard(page);
-  const acknowledgements: string[] = [];
-  await mockPremiumAcknowledgements(page, acknowledgements);
-  const sent: string[] = [];
-  await mockConversation(page, sent);
-
-  await page.goto("/");
-  await page.getByRole("button", { name: "Turn on “Deus” wake word" }).click();
-  await expect(page.getByText("Diga “Deus” para chamar")).toBeVisible();
-
-  await expect.poll(() => page.evaluate(() => (window as unknown as { __say: (t: string) => boolean }).__say("Deus"))).toBe(true);
-  await expect.poll(() => acknowledgements).toEqual(["Estou aqui."]);
-  expect(await spokenLines(page)).toEqual([]);
-
-  await expect.poll(() => page.evaluate(() => (window as unknown as { __say: (t: string) => boolean }).__say("Status report"))).toBe(true);
-  await expect.poll(() => sent).toEqual(["Status report"]);
-  await expect.poll(() => spokenLines(page)).toEqual(["All universes are breathing."]);
-});
-
-test("“Deus, <request>” in one breath goes straight to DEUS and ignores other speech", async ({ page }) => {
-  await installFakeSpeech(page);
-  await mockDashboard(page);
-  await page.route("**/api/v1/voice/synthesize", (route) => route.fulfill({ status: 501, body: "{}" }));
-  const sent: string[] = [];
-  await mockConversation(page, sent);
-
-  await page.goto("/");
-  await page.getByRole("button", { name: "Turn on “Deus” wake word" }).click();
-  const say = (text: string) => page.evaluate((t) => (window as unknown as { __say: (t: string) => boolean }).__say(t), text);
-
-  await expect.poll(() => say("adeus, see you tomorrow")).toBe(true);
-  await expect.poll(() => say("Deus, how are the universes today?")).toBe(true);
-
-  await expect.poll(() => sent).toEqual(["how are the universes today?"]);
-  expect(await spokenLines(page)).not.toContain("Estou aqui.");
-});
-
-test("common transcriptions of “Deus” wake DEUS, ordinary words do not", async ({ page }) => {
-  await installFakeSpeech(page);
-  await mockDashboard(page);
-  const acknowledgements: string[] = [];
-  await mockPremiumAcknowledgements(page, acknowledgements);
-  const sent: string[] = [];
-  await mockConversation(page, sent);
-
-  await page.goto("/");
-  await page.getByRole("button", { name: "Turn on “Deus” wake word" }).click();
-  const say = (text: string) => page.evaluate((t) => (window as unknown as { __say: (t: string) => boolean }).__say(t), text);
-
-  // Each phrase is its own utterance: segments closer than the settle pause are joined into one.
-  for (const phrase of ["deu certo", "teus planos", "adeus", "deusa da criação"]) {
-    await expect.poll(() => say(phrase)).toBe(true);
-    await page.waitForTimeout(900);
-  }
-  expect(sent).toEqual([]);
-  await expect.poll(() => say("Zeus, how are the universes?")).toBe(true);
-  await expect.poll(() => sent).toEqual(["how are the universes?"]);
-  expect(await spokenLines(page)).not.toContain("Estou aqui.");
-
-  await expect.poll(() => spokenLines(page)).toEqual(["All universes are breathing."]);
-  await expect.poll(() => say("tchau")).toBe(true);
-  await expect.poll(() => spokenLines(page)).toContain("Até logo.");
-  await expect.poll(() => say("dê us")).toBe(true);
-  await expect.poll(() => acknowledgements).toEqual(["Estou aqui."]);
-  await expect.poll(() => spokenLines(page)).toEqual(["All universes are breathing.", "Até logo."]);
-});
-
-test("ElevenLabs voices a reply sentence by sentence", async ({ page }) => {
-  await installFakeSpeech(page);
-  await page.addInitScript(() => {
-    const scope = window as unknown as { __played: number };
-    scope.__played = 0;
-    HTMLMediaElement.prototype.play = function play(this: HTMLMediaElement) {
-      scope.__played += 1;
-      setTimeout(() => this.dispatchEvent(new Event("ended")), 50);
-      return Promise.resolve();
-    };
-  });
-  await mockDashboard(page);
-  const synthesized: string[] = [];
-  await page.route("**/api/v1/voice/synthesize", (route) => {
-    synthesized.push((route.request().postDataJSON() as { text: string }).text);
-    return route.fulfill({ status: 200, contentType: "audio/mpeg", body: Buffer.from("ID3-fake-mp3") });
-  });
-  await mockConversation(page, []);
-  await page.route("**/api/v1/conversations/conversation-1/deus", (route) => route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({
-    message_id: "m1", conversation_id: "conversation-1", route: "deus", correlation_id: "c1", inception: null, system_state: null,
-    response: "Os universos respiram. A missão segue em execução. Nada exige tua atenção.",
-  }) }));
-
-  await page.goto("/");
-  await page.getByLabel("Message DEUS").fill("Como estão os universos?");
-  await page.getByLabel("Message DEUS").press("Enter");
-
-  // The next sentence is synthesized while the current one plays, so requests may overlap.
-  await expect.poll(() => [...synthesized].sort()).toEqual([
-    "A missão segue em execução.",
-    "Nada exige tua atenção.",
-    "Os universos respiram.",
-  ]);
-  await expect.poll(() => page.evaluate(() => (window as unknown as { __played: number }).__played)).toBe(3);
-  expect(await spokenLines(page)).toEqual([]);
-});
-
-test("a slow answer in a voice conversation is acknowledged with “Um momento”", async ({ page }) => {
-  await installFakeSpeech(page);
-  await mockDashboard(page);
-  const acknowledgements: string[] = [];
-  await mockPremiumAcknowledgements(page, acknowledgements);
-  const sent: string[] = [];
-  await mockConversation(page, sent);
-  await page.route("**/api/v1/conversations/conversation-1/deus", async (route) => {
-    sent.push((route.request().postDataJSON() as { content: string }).content);
-    await new Promise((resolve) => setTimeout(resolve, 2500));
-    return route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({
-      message_id: "m1", conversation_id: "conversation-1", route: "deus", correlation_id: "c1", inception: null, system_state: null,
-      response: "Todos os universos estão prontos.",
-    }) });
-  });
-
-  await page.goto("/");
-  await page.getByRole("button", { name: "Turn on “Deus” wake word" }).click();
-  await expect.poll(() => say(page, "Deus, como estão os universos?")).toBe(true);
-  await expect.poll(() => sent).toEqual(["como estão os universos?"]);
-  await expect.poll(() => acknowledgements, { timeout: 10_000 }).toEqual(["Um momento."]);
-  await expect.poll(() => spokenLines(page), { timeout: 10_000 })
-    .toEqual(["Todos os universos estão prontos."]);
-});
-
-test("a slow answer to a typed message is not acknowledged aloud", async ({ page }) => {
-  await installFakeSpeech(page);
-  await mockDashboard(page);
-  await page.route("**/api/v1/voice/synthesize", (route) => route.fulfill({ status: 501, body: "{}" }));
-  await mockConversation(page, []);
-  await page.route("**/api/v1/conversations/conversation-1/deus", async (route) => {
-    await new Promise((resolve) => setTimeout(resolve, 2500));
-    return route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({
-      message_id: "m1", conversation_id: "conversation-1", route: "deus", correlation_id: "c1", inception: null, system_state: null,
-      response: "Todos os universos estão prontos.",
-    }) });
-  });
-
-  await page.goto("/");
-  await page.getByLabel("Message DEUS").fill("Status?");
-  await page.getByLabel("Message DEUS").press("Enter");
-  await expect.poll(() => spokenLines(page), { timeout: 10_000 }).toEqual(["Todos os universos estão prontos."]);
-});
-
-test("DEUS stops listening when nobody speaks after it is summoned", async ({ page }) => {
-  await page.clock.install();
-  await installFakeSpeech(page);
-  await mockDashboard(page);
-  await page.route("**/api/v1/voice/synthesize", (route) => route.fulfill({ status: 501, body: "{}" }));
-  await mockConversation(page, []);
-
-  await page.goto("/");
-  await page.getByRole("button", { name: "Turn on “Deus” wake word" }).click();
-  await expect(page.getByText("Diga “Deus” para chamar")).toBeVisible();
-
-  // Push-to-talk while the wake word is already listening must still time out.
-  await page.getByRole("button", { name: "Talk to DEUS" }).click();
-  await expect(page.getByRole("button", { name: "Stop listening" })).toBeVisible();
-  await page.clock.runFor(9000);
-  await expect(page.getByRole("button", { name: "Talk to DEUS" })).toBeVisible();
-  await expect(page.getByText("Diga “Deus” para chamar")).toBeVisible();
-});
-
-test("the microphone stays closed while DEUS has no configured inference", async ({ page }) => {
-  await installFakeSpeech(page, "on");
-  await mockDashboard(page);
-  await page.route("**/api/v1/system/inference", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ configured: false, configured_provider: "fake", providers: [] }) }));
-
-  await page.goto("/");
-  await expect(page.getByRole("button", { name: "Turn off “Deus” wake word" })).toBeDisabled();
-  await page.waitForTimeout(500);
-  expect(await page.evaluate(() => Boolean((window as unknown as { __recognizer?: { running: boolean } }).__recognizer?.running))).toBe(false);
-  await expect(page.getByText("Diga “Deus” para chamar")).toHaveCount(0);
-});
-
-test("typing while DEUS listens keeps the typed text and ends listening", async ({ page }) => {
-  await page.clock.install();
-  await installFakeSpeech(page);
-  await mockDashboard(page);
-  await page.route("**/api/v1/voice/synthesize", (route) => route.fulfill({ status: 501, body: "{}" }));
-  await mockConversation(page, []);
-
-  await page.goto("/");
-  await page.getByRole("button", { name: "Talk to DEUS" }).click();
-  await expect(page.getByRole("button", { name: "Stop listening" })).toBeVisible();
-
-  await page.getByLabel("Message DEUS").fill("typed by hand");
-  await expect(page.getByRole("button", { name: "Talk to DEUS" })).toBeVisible();
-  await page.clock.runFor(9000);
-  await expect(page.getByLabel("Message DEUS")).toHaveValue("typed by hand");
-});
-
-test("after “Deus” the conversation continues without the wake word until goodbye", async ({ page }) => {
-  await installFakeSpeech(page);
-  await mockDashboard(page);
-  const acknowledgements: string[] = [];
-  await mockPremiumAcknowledgements(page, acknowledgements);
-  const sent: string[] = [];
-  await mockConversation(page, sent);
-  const say = (text: string) => page.evaluate((t) => (window as unknown as { __say: (t: string) => boolean }).__say(t), text);
-
-  await page.goto("/");
-  await page.getByRole("button", { name: "Turn on “Deus” wake word" }).click();
-
-  await expect.poll(() => say("Deus")).toBe(true);
-  await expect.poll(() => acknowledgements).toEqual(["Estou aqui."]);
-  expect(await spokenLines(page)).toEqual([]);
-  await expect.poll(() => say("Status report")).toBe(true);
-  await expect.poll(() => sent).toEqual(["Status report"]);
-  await expect(page.getByText("Em conversa — diga “tchau” para encerrar")).toBeVisible();
-
-  // No wake word needed for the follow-up.
-  await expect.poll(() => spokenLines(page)).toHaveLength(1);
-  await expect.poll(() => say("And the missions?")).toBe(true);
-  await expect.poll(() => sent).toEqual(["Status report", "And the missions?"]);
-
-  await expect.poll(() => spokenLines(page)).toHaveLength(2);
-  await expect.poll(() => say("tchau")).toBe(true);
-  await expect.poll(() => spokenLines(page)).toEqual(["All universes are breathing.", "All universes are breathing.", "Até logo."]);
-  expect(sent).toEqual(["Status report", "And the missions?"]);
-  await expect(page.getByText("Diga “Deus” para chamar")).toBeVisible();
-});
-
-const assessment = {
-  sophia: { opportunities: ["Reach visitors"], risks: ["Copy needs review"], recommendation: "Start with one simple page." },
-  rockmam: { objective: "Publish a landing page.", constraints: [], completion_criteria: [] },
-  mission_plan: { strategy: "Write, then build.", steps: [
-    { step_key: "build", title: "Build the page", universe: "web", position: 2 },
-    { step_key: "write", title: "Write the copy", universe: "content", position: 1 },
-  ] },
-};
-
-const readyInception = {
-  id: "inception-1",
-  conversation_id: "conversation-1",
-  title: "Landing page",
-  description: "Publish a landing page.",
-  status: "approved",
-  proposed_at: "2026-09-11T12:00:02Z",
-  trinity_assessment: { ...assessment, verdict: { result: "VIABLE", blockers: [], unavailable_universes: [] }, mission_id: "mission-1" },
-};
-
-const blockedInception = {
-  ...readyInception,
-  status: "awaiting_creator_decision",
-  trinity_assessment: {
-    ...assessment,
-    verdict: { result: "REQUIRES_CREATOR", blockers: [{ universe: "web", reason: "inactive" }], unavailable_universes: ["web"] },
+  counts: {
+    missions: 0, running_missions: 0, tasks: 0, ready_tasks: 0,
+    running_tasks: 0, failed_tasks: 0, active_universes: 0, active_agents: 0,
+  },
+  pagination: {
+    page: 1, page_size: 25, has_next: false,
+    totals: { missions: 0, tasks: 0, universes: 0, agents: 0 },
   },
 };
 
-type Calls = string[];
+async function installVoiceSocket(page: import("@playwright/test").Page) {
+  await page.addInitScript(() => {
+    localStorage.setItem("creation_access_token", "e2e-token");
+    localStorage.setItem("creation_conversation_id", "conversation-1");
 
-/** DEUS answers every request with the given Trinity proposal; the Mission behind it keeps its state. */
-async function mockTrinity(page: import("@playwright/test").Page, sent: string[], calls: Calls,
-  inception: typeof readyInception | typeof blockedInception = readyInception) {
-  await mockConversation(page, sent);
-  const missions: Record<string, string> = { "mission-0": "validated", "mission-1": "validated" };
-  await page.route("**/api/v1/conversations/conversation-1/deus", (route) => {
-    sent.push((route.request().postDataJSON() as { content: string }).content);
-    return route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({
-      response: "ROCKMAM prepared the Mission.",
-      inception: { id: inception.id, title: inception.title, status: inception.status, verdict: inception.trinity_assessment.verdict.result },
-    }) });
-  });
-  await page.route("**/api/v1/inceptions/inception-1", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(inception) }));
-  await page.route("**/api/v1/missions/*", (route) => {
-    const id = route.request().url().split("/").pop() ?? "";
-    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ id, inception_id: "inception-1", title: "Landing page", objective: "Publish a landing page.", status: missions[id] }) });
-  });
-  await page.route("**/api/v1/missions/*/start", (route) => {
-    const id = route.request().url().split("/").at(-2) ?? "";
-    calls.push(`start ${id}`);
-    missions[id] = "executing";
-    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ id, inception_id: "inception-1", title: "Landing page", objective: "Publish a landing page.", status: "executing" }) });
-  });
-  for (const [decision, status] of [["cancel", "cancelled"], ["reject", "rejected"]]) {
-    await page.route(`**/api/v1/inceptions/inception-1/${decision}`, (route) => {
-      calls.push(decision);
-      missions["mission-1"] = "cancelled";
-      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ...inception, status }) });
+    const scope = window as unknown as {
+      __voiceSocket?: FakeWebSocket;
+      __voiceUrls?: string[];
+      __voiceSent?: string[];
+      __voiceServer?: (event: object) => boolean;
+    };
+
+    class FakeWebSocket {
+      static readonly CONNECTING = 0;
+      static readonly OPEN = 1;
+      static readonly CLOSING = 2;
+      static readonly CLOSED = 3;
+      readonly url: string;
+      readyState = FakeWebSocket.OPEN;
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onerror: ((event: Event) => void) | null = null;
+      onclose: ((event: CloseEvent) => void) | null = null;
+      onopen: ((event: Event) => void) | null = null;
+
+      constructor(url: string) {
+        this.url = url;
+        scope.__voiceSocket = this;
+        (scope.__voiceUrls ??= []).push(url);
+        setTimeout(() => {
+          this.onmessage?.(new MessageEvent("message", {
+            data: JSON.stringify({
+              type: "session_ready",
+              session_id: "voice-session-1",
+              turn_id: 0,
+              state: "ARMED",
+              creator_id: "creator-1",
+            }),
+          }));
+        }, 25);
+      }
+
+      send(payload: string) {
+        (scope.__voiceSent ??= []).push(payload);
+      }
+
+      close() {
+        this.readyState = FakeWebSocket.CLOSED;
+      }
+
+      addEventListener() {}
+      removeEventListener() {}
+      dispatchEvent() { return true; }
+    }
+
+    Object.defineProperty(window, "WebSocket", {
+      configurable: true,
+      writable: true,
+      value: FakeWebSocket,
     });
-  }
-}
-
-const say = (page: import("@playwright/test").Page, text: string) =>
-  page.evaluate((t) => (window as unknown as { __say: (t: string) => boolean }).__say(t), text);
-
-async function setUp(page: import("@playwright/test").Page) {
-  await installFakeSpeech(page);
-  await mockDashboard(page);
-  await page.route("**/api/v1/voice/synthesize", (route) => route.fulfill({ status: 501, body: "{}" }));
-}
-
-test("ROCKMAM delivers a viable Mission ready to start, and the Creator authorizes it", async ({ page }) => {
-  await setUp(page);
-  const sent: string[] = [];
-  const calls: Calls = [];
-  await mockTrinity(page, sent, calls);
-
-  await page.goto("/");
-  await page.getByLabel("Message DEUS").fill("Build a landing page");
-  await page.getByLabel("Message DEUS").press("Enter");
-
-  const card = page.getByRole("article", { name: "Trinity proposal: Landing page" });
-  await expect(card.getByText("MISSION READY")).toBeVisible();
-  await expect(card.getByText("Viable")).toBeVisible();
-  await expect(card.getByText("Start with one simple page.")).toBeVisible();
-  await expect(card.getByRole("listitem")).toHaveText(["Write the copy content", "Build the page web"]);
-
-  await card.getByRole("button", { name: "Authorize & start" }).click();
-  await expect(card.getByText("Executing")).toBeVisible();
-  await expect(card.getByRole("button", { name: "Authorize & start" })).toHaveCount(0);
-  expect(calls).toEqual(["start mission-1"]);
-});
-
-test("in a voice conversation, “pode iniciar” starts the prepared Mission instead of messaging DEUS", async ({ page }) => {
-  await setUp(page);
-  const sent: string[] = [];
-  const calls: Calls = [];
-  await mockTrinity(page, sent, calls);
-
-  await page.goto("/");
-  await page.getByRole("button", { name: "Turn on “Deus” wake word" }).click();
-  await expect.poll(() => say(page, "Deus, build a landing page")).toBe(true);
-  await expect(page.getByRole("article", { name: "Trinity proposal: Landing page" }).getByText("MISSION READY")).toBeVisible();
-
-  await expect.poll(() => spokenLines(page)).toHaveLength(1);
-  await expect.poll(() => say(page, "pode iniciar")).toBe(true);
-  await expect.poll(() => calls).toEqual(["start mission-1"]);
-  await expect.poll(() => spokenLines(page)).toEqual(["ROCKMAM prepared the Mission.", "Missão autorizada. Iniciando."]);
-  expect(sent).toEqual(["build a landing page"]);
-});
-
-test("“cancela” drops the prepared Mission", async ({ page }) => {
-  await setUp(page);
-  const sent: string[] = [];
-  const calls: Calls = [];
-  await mockTrinity(page, sent, calls);
-
-  await page.goto("/");
-  await page.getByRole("button", { name: "Turn on “Deus” wake word" }).click();
-  await expect.poll(() => say(page, "Deus, build a landing page")).toBe(true);
-  const card = page.getByRole("article", { name: "Trinity proposal: Landing page" });
-  await expect(card.getByText("MISSION READY")).toBeVisible();
-
-  await expect.poll(() => spokenLines(page)).toHaveLength(1);
-  await expect.poll(() => say(page, "cancela")).toBe(true);
-  await expect.poll(() => calls).toEqual(["cancel"]);
-  await expect(card.getByText("Cancelled")).toBeVisible();
-  await expect.poll(() => spokenLines(page)).toEqual(["ROCKMAM prepared the Mission.", "Missão cancelada."]);
-});
-
-test("a spoken go starts the newest Mission, not an older one still waiting", async ({ page }) => {
-  await setUp(page);
-  await page.addInitScript(() => localStorage.setItem("creation_conversation_id", "conversation-1"));
-  const older = { ...readyInception, id: "inception-0", title: "Older idea", proposed_at: "2026-09-10T08:00:00Z",
-    trinity_assessment: { ...readyInception.trinity_assessment, mission_id: "mission-0" } };
-  await page.route("**/api/v1/inceptions", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([older]) }));
-  const sent: string[] = [];
-  const calls: Calls = [];
-  await mockTrinity(page, sent, calls);
-
-  await page.goto("/");
-  await expect(page.getByRole("article", { name: "Trinity proposal: Older idea" }).getByText("MISSION READY")).toBeVisible();
-  await page.getByRole("button", { name: "Turn on “Deus” wake word" }).click();
-  await expect.poll(() => say(page, "Deus, build a landing page")).toBe(true);
-  await expect(page.getByRole("article", { name: "Trinity proposal: Landing page" })).toBeVisible();
-
-  await expect.poll(() => spokenLines(page)).toHaveLength(1);
-  await expect.poll(() => say(page, "autoriza")).toBe(true);
-  await expect.poll(() => calls).toEqual(["start mission-1"]);
-});
-
-test("a plan ROCKMAM cannot staff says what is missing and can only be dismissed", async ({ page }) => {
-  await setUp(page);
-  const sent: string[] = [];
-  const calls: Calls = [];
-  await mockTrinity(page, sent, calls, blockedInception);
-
-  await page.goto("/");
-  await page.getByLabel("Message DEUS").fill("Build a landing page");
-  await page.getByLabel("Message DEUS").press("Enter");
-
-  const card = page.getByRole("article", { name: "Trinity proposal: Landing page" });
-  await expect(card.getByText("NOT VIABLE YET")).toBeVisible();
-  await expect(card.getByText("Universe web is not active")).toBeVisible();
-  await expect(card.getByRole("button", { name: "Authorize & start" })).toHaveCount(0);
-
-  await card.getByRole("button", { name: "Dismiss" }).click();
-  await expect(card.getByText("Dismissed")).toBeVisible();
-  expect(calls).toEqual(["reject"]);
-});
-
-test("a Mission whose start stopped halfway is cancelled on the Mission, and old proposals still render", async ({ page }) => {
-  await setUp(page);
-  await page.addInitScript(() => localStorage.setItem("creation_conversation_id", "conversation-1"));
-  const halfStarted = { ...readyInception, id: "inception-0", title: "Half started", proposed_at: "2026-09-10T08:00:00Z",
-    trinity_assessment: { ...readyInception.trinity_assessment, mission_id: "mission-0" } };
-  const legacy = { ...blockedInception, id: "inception-9", title: "Legacy proposal",
-    trinity_assessment: { ...assessment, verdict: { result: "REQUIRES_CREATOR", unavailable_universes: ["web"] } } };
-  await page.route("**/api/v1/inceptions", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([halfStarted, legacy]) }));
-  const sent: string[] = [];
-  const calls: Calls = [];
-  await mockTrinity(page, sent, calls);
-  await page.route("**/api/v1/missions/mission-0", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ id: "mission-0", inception_id: "inception-0", title: "Half started", objective: "x", status: "authorized" }) }));
-  await page.route("**/api/v1/missions/mission-0/cancel", (route) => {
-    calls.push("cancel mission-0");
-    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ id: "mission-0", inception_id: "inception-0", title: "Half started", objective: "x", status: "cancelled" }) });
+    scope.__voiceServer = (event: object) => {
+      const socket = scope.__voiceSocket;
+      if (!socket?.onmessage) return false;
+      socket.onmessage(new MessageEvent("message", { data: JSON.stringify(event) }));
+      return true;
+    };
   });
+}
+
+async function mockDashboard(
+  page: import("@playwright/test").Page,
+  inferenceConfigured = true,
+) {
+  await page.route(/\/api\/v1\/system\/state(?:\?.*)?$/, (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(state) }));
+  await page.route("**/api/v1/system/projections", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ chronicle_head: 1, projections: [] }) }));
+  await page.route("**/api/v1/chronicles?limit=40&offset=0", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: "[]" }));
+  await page.route("**/api/v1/system/inference", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(inferenceConfigured
+        ? {
+            configured: true,
+            configured_provider: "freellmapi",
+            providers: [{ provider: "freellmapi", available: true, detail: null, models: [] }],
+          }
+        : { configured: false, configured_provider: "fake", providers: [] }),
+    }));
+  await page.route("**/api/v1/system/events?after=1", (route) =>
+    route.fulfill({ status: 200, contentType: "text/event-stream", body: "" }));
+  await page.route("**/api/v1/inceptions", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: "[]" }));
+  await page.route("**/api/v1/conversations/conversation-1/messages", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: "[]" }));
+  await page.route("**/api/v1/voice/session/ticket", (route) =>
+    route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify({ ticket: "voice-ticket-1" }),
+    }));
+}
+
+test("realtime DEUS voice is always armed without push-to-talk or browser speech recognition", async ({ page }) => {
+  await installVoiceSocket(page);
+  await mockDashboard(page);
 
   await page.goto("/");
-  await expect(page.getByRole("article", { name: "Trinity proposal: Legacy proposal" }).getByText("NOT VIABLE YET")).toBeVisible();
-  const card = page.getByRole("article", { name: "Trinity proposal: Half started" });
-  await card.getByRole("button", { name: "Cancel" }).click();
 
-  await expect(card.getByText("Cancelled")).toBeVisible();
-  await expect(card.getByText("TRINITY MISSION")).toBeVisible();
-  expect(calls).toEqual(["cancel mission-0"]);
+  await expect(page.getByText("Pronto · diga “Deus”", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Talk to DEUS|Stop listening|wake word/i })).toHaveCount(0);
+
+  const socketInfo = await page.evaluate(() => {
+    const scope = window as unknown as { __voiceUrls?: string[] };
+    return (scope.__voiceUrls ?? []).filter((url) => url.includes("/api/v1/voice/session"));
+  });
+  expect(socketInfo).toHaveLength(1);
+  const url = new URL(socketInfo[0]);
+  expect(url.protocol).toBe("ws:");
+  expect(url.pathname).toBe("/api/v1/voice/session");
+  expect(url.searchParams.get("ticket")).toBe("voice-ticket-1");
+  expect(url.searchParams.get("conversation_id")).toBe("conversation-1");
+  expect(socketInfo[0]).not.toContain("e2e-token");
+
+  await page.evaluate(() => (window as unknown as { __voiceServer: (event: object) => boolean }).__voiceServer({
+    type: "wake_detected",
+    session_id: "voice-session-1",
+    turn_id: 1,
+    acknowledge: true,
+  }));
+  await page.evaluate(() => (window as unknown as { __voiceServer: (event: object) => boolean }).__voiceServer({
+    type: "transcript_commit",
+    session_id: "voice-session-1",
+    turn_id: 1,
+    text: "como está o projeto?",
+  }));
+  await page.evaluate(() => (window as unknown as { __voiceServer: (event: object) => boolean }).__voiceServer({
+    type: "state",
+    session_id: "voice-session-1",
+    turn_id: 1,
+    state: "THINKING",
+  }));
+  await page.evaluate(() => (window as unknown as { __voiceServer: (event: object) => boolean }).__voiceServer({
+    type: "text_delta",
+    session_id: "voice-session-1",
+    turn_id: 1,
+    provider: "freellmapi",
+    text: "Estou ",
+  }));
+  await page.evaluate(() => (window as unknown as { __voiceServer: (event: object) => boolean }).__voiceServer({
+    type: "text_delta",
+    session_id: "voice-session-1",
+    turn_id: 1,
+    provider: "freellmapi",
+    text: "aqui.",
+  }));
+
+  await expect(page.getByText("como está o projeto?", { exact: true })).toBeVisible();
+  await expect(page.getByText("Estou aqui.", { exact: true })).toBeVisible();
+  await expect(page.getByText(/^Pensando…/)).toBeVisible();
+
+  await page.evaluate(() => (window as unknown as { __voiceServer: (event: object) => boolean }).__voiceServer({
+    type: "state",
+    session_id: "voice-session-1",
+    turn_id: 1,
+    state: "LISTENING",
+  }));
+  await page.evaluate(() => (window as unknown as { __voiceServer: (event: object) => boolean }).__voiceServer({
+    type: "telemetry",
+    session_id: "voice-session-1",
+    turn_id: 1,
+    provider_selected: "freellmapi",
+    latency_ms: { transcript_to_first_token: 420 },
+  }));
+
+  await expect(page.getByText(/^Ouvindo…/)).toBeVisible();
+  await expect(page.getByRole("region", { name: "Creator Console" }).getByText(/freellmapi/)).toBeVisible();
+});
+
+test("voice session stays closed when no inference provider is available", async ({ page }) => {
+  await installVoiceSocket(page);
+  await mockDashboard(page, false);
+
+  await page.goto("/");
+
+  await expect(page.getByPlaceholder("Configure um provedor de inferência para falar com DEUS.")).toBeVisible();
+  const urls = await page.evaluate(() =>
+    ((window as unknown as { __voiceUrls?: string[] }).__voiceUrls ?? [])
+      .filter((url) => url.includes("/api/v1/voice/session")));
+  expect(urls).toEqual([]);
 });

@@ -1,6 +1,6 @@
 import type { ChronicleEvent, ChronicleRecord, InferenceStatusSnapshot, ProjectionStatus, SystemState } from "./types";
 
-const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ?? "http://localhost:8000/api/v1";
+export const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ?? "http://localhost:8000/api/v1";
 
 const ACCESS_TOKEN_KEY = "creation_access_token";
 const REFRESH_TOKEN_KEY = "creation_refresh_token";
@@ -178,6 +178,33 @@ export const converseWithDeus = (conversationId: string, content: string) =>
     body: JSON.stringify({ content, metadata: {} }),
   });
 
+
+export type VoiceSessionTicket = {
+  ticket: string;
+};
+
+export async function issueVoiceSessionTicket(): Promise<VoiceSessionTicket> {
+  const response = await authorizedFetch("/voice/session/ticket", {
+    method: "POST",
+  });
+  if (!response.ok) throw new Error(`HTTP_${response.status}`);
+  return response.json() as Promise<VoiceSessionTicket>;
+}
+
+export async function preloadVoiceAcknowledgement(): Promise<Uint8Array> {
+  const response = await authorizedFetch("/voice/session/acknowledgement");
+  if (!response.ok) throw new Error(`HTTP_${response.status}`);
+  if (response.headers.get("X-DEUS-Audio-Format") !== "pcm_s16le") {
+    throw new Error("VOICE_ACK_INVALID_FORMAT");
+  }
+  if (response.headers.get("X-DEUS-Audio-Sample-Rate") !== "24000") {
+    throw new Error("VOICE_ACK_INVALID_SAMPLE_RATE");
+  }
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (!bytes.byteLength) throw new Error("VOICE_ACK_EMPTY");
+  return bytes;
+}
+
 /** What SOPHIA and ROCKMAM concluded about a Creator request (empty for hand-made Inceptions). */
 export type TrinityAssessment = {
   sophia?: { opportunities: string[]; risks: string[]; recommendation: string };
@@ -216,38 +243,6 @@ export const fetchMission = (id: string) => api<Mission>(`/missions/${id}`);
 export const startMission = (id: string) => api<Mission>(`/missions/${id}/start`, { method: "POST" });
 
 export const cancelMission = (id: string) => api<Mission>(`/missions/${id}/cancel`, { method: "POST" });
-
-/** DEUS voice through the backend's ElevenLabs proxy; the provider key never reaches the browser. */
-export async function synthesizeVoice(text: string, signal?: AbortSignal): Promise<Blob> {
-  const response = await authorizedFetch("/voice/synthesize", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text }),
-    signal,
-  });
-  if (!response.ok) throw new Error(`HTTP_${response.status}`);
-  const audio = await response.blob();
-  if (!audio.size || !audio.type.startsWith("audio/")) throw new Error("VOICE_INVALID_AUDIO");
-  return audio;
-}
-
-export type VoiceTranscript = {
-  text: string;
-  language_code: string | null;
-  language_probability: number | null;
-};
-
-/** High-accuracy STT for attentive turns. Browser recognition remains the instant fail-open path. */
-export async function transcribeVoice(audio: Blob, signal?: AbortSignal): Promise<VoiceTranscript> {
-  const response = await authorizedFetch("/voice/transcribe", {
-    method: "POST",
-    headers: { "Content-Type": audio.type || "audio/webm" },
-    body: audio,
-    signal,
-  });
-  if (!response.ok) throw new Error(`HTTP_${response.status}`);
-  return response.json() as Promise<VoiceTranscript>;
-}
 
 export type StreamHandlers = {
   onEvent: (event: ChronicleEvent) => void;

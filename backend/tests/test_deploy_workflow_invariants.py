@@ -307,7 +307,7 @@ def test_the_smoke_test_checks_what_the_interface_depends_on() -> None:
     """Each check backs a panel or a control; a gap here is a blank screen nobody can explain."""
     script = (REPO_ROOT / "deploy" / "oracle" / "smoke-test.sh").read_text(encoding="utf-8")
     for path in ("/universes", "/agents", "/missions", "/system/state", "/system/inference",
-                 "/opportunities/projection", "/voice/synthesize", "/deus"):
+                 "/opportunities/projection", "/voice/session/ticket", "/voice/session/acknowledgement", "/deus"):
         assert path in script, f"the smoke test never exercises {path}"
     # The console's own enabling expression, so the report says why it is disabled.
     assert "the console stays disabled while this is false" in script
