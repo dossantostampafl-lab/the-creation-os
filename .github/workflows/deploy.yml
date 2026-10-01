@@ -97,11 +97,22 @@ jobs:
         \  console.log(JSON.stringify({mode:mobile?'phone':'desktop',voice:status,globalErrors,failures,errors}));\n\
         \  if(globalErrors.length||errors.length||failures.length||!status.includes('Pronto'))throw\
         \ new Error('Authenticated browser runtime failed');\n  if (!mobile) {\n \
-        \   await page.route('**/api/v1/system/state?**', route=>route.abort('failed'));\n\
-        \    await page.reload({waitUntil:'domcontentloaded'});\n    const banner=page.locator('.error-banner');\n\
-        \    await banner.waitFor({timeout:15000});\n    const detail=await banner.innerText();\n\
-        \    if(!detail.includes('/api/v1/system/state'))throw new Error('Missing\
-        \ failed endpoint diagnostic');\n    console.log('INJECTED_NETWORK_FAILURE',detail);\n\
+        \   for (const [question,expected] of [\n      ['Quanto \xE9 17 mais 25? Responda\
+        \ somente com o n\xFAmero.', '42'],\n      ['E se eu subtrair dois desse resultado?\
+        \ Responda somente com o n\xFAmero.', '40'],\n      ['Qual foi o primeiro\
+        \ resultado, antes da subtra\xE7\xE3o? Responda somente com o n\xFAmero.',\
+        \ '42'],\n    ]) {\n      const previous=await page.locator('.console-message.deus-message').count();\n\
+        \      const started=Date.now();\n      await page.getByRole('textbox',{name:'Message\
+        \ DEUS'}).fill(question);\n      await page.getByRole('button',{name:'Send\
+        \ to DEUS'}).click();\n      await page.waitForFunction(count=>document.querySelectorAll('.console-message.deus-message').length>count,previous,{timeout:90000});\n\
+        \      const reply=await page.locator('.console-message.deus-message').last().locator('p').innerText();\n\
+        \      console.log(JSON.stringify({testQuestion:question,reply,elapsedMs:Date.now()-started}));\n\
+        \      if(!reply.includes(expected))throw new Error('DEUS response did not\
+        \ answer the contextual question');\n    }\n    await page.route('**/api/v1/system/state?**',\
+        \ route=>route.abort('failed'));\n    await page.reload({waitUntil:'domcontentloaded'});\n\
+        \    const banner=page.locator('.error-banner');\n    await banner.waitFor({timeout:15000});\n\
+        \    const detail=await banner.innerText();\n    if(!detail.includes('/api/v1/system/state'))throw\
+        \ new Error('Missing failed endpoint diagnostic');\n    console.log('INJECTED_NETWORK_FAILURE',detail);\n\
         \    await page.unroute('**/api/v1/system/state?**');\n    await page.getByRole('button',{name:'Retry',exact:true}).click();\n\
         \    await page.getByRole('textbox',{name:'Message DEUS'}).waitFor({timeout:30000});\n\
         \    await page.waitForFunction(()=>document.querySelector('.wake-hint')?.textContent?.includes('Pronto'),{timeout:30000});\n\
