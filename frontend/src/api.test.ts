@@ -33,10 +33,10 @@ it("reconnects a terminated event stream from the last received position", async
   controller.abort(); await promise;
 });
 
-it("reports the voice quota returned by acknowledgement preloading", async () => {
+it("reports the local voice configuration returned by acknowledgement preloading", async () => {
   const { preloadVoiceAcknowledgement } = await import("./api");
   vi.stubGlobal("fetch", () => Promise.resolve(new Response(JSON.stringify({
-    detail: { code: "VOICE_TTS_QUOTA_EXCEEDED", message: "A cota de voz foi esgotada." },
+    detail: { code: "VOICE_MODELS_UNAVAILABLE", message: "Os modelos locais de voz não estão disponíveis.", nonretryable: true },
   }), { status: 503, headers: { "Content-Type": "application/json" } })));
-  await expect(preloadVoiceAcknowledgement()).rejects.toThrow("cota de voz");
+  await expect(preloadVoiceAcknowledgement()).rejects.toThrow("modelos locais");
 });

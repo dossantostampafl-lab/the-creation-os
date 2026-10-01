@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-import { API_BASE, issueVoiceSessionTicket, preloadVoiceAcknowledgement, VoiceQuotaError } from "../api";
+import { API_BASE, issueVoiceSessionTicket, preloadVoiceAcknowledgement, VoiceUnavailableError } from "../api";
 import { bytesToBase64, MicrophonePcmCapture } from "./audio-capture";
 import { Pcm16AudioSink, StreamingAudioPlayer } from "./player";
 import type { VoiceServerEvent } from "./protocol";
@@ -113,7 +113,7 @@ export function useDeusVoiceSession(options: UseDeusVoiceSessionOptions): DeusVo
         return audio;
       })
       .catch((failure: unknown) => {
-        if (failure instanceof VoiceQuotaError) stopForTerminalError(failure.message);
+        if (failure instanceof VoiceUnavailableError) stopForTerminalError(failure.message);
         return null;
       });
 

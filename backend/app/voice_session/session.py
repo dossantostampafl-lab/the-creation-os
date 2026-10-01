@@ -10,7 +10,7 @@ from enum import StrEnum
 from typing import Protocol
 
 from app.inference.contracts import InferenceError, InferenceRequest
-from app.voice_session.inference import StreamingProvider, stream_with_fallback
+from app.voice_session.inference import StreamingProvider, stream_response
 from app.voice_session.metrics import VoiceTurnMetrics
 from app.voice_session.stt import STTTranscript
 
@@ -195,7 +195,6 @@ class VoiceSessionGateway:
         session: VoiceSession,
         stt: RealtimeSTT,
         primary: StreamingProvider,
-        fallback: StreamingProvider | None,
         tts_factory: TTSFactory,
         request_builder: RequestBuilder | None = None,
         on_turn_completed: TurnCompleted | None = None,
@@ -208,7 +207,6 @@ class VoiceSessionGateway:
         self.session = session
         self.stt = stt
         self.primary = primary
-        self.fallback = fallback
         self.tts_factory = tts_factory
         self.request_builder = request_builder
         self.on_turn_completed = on_turn_completed
@@ -367,10 +365,9 @@ class VoiceSessionGateway:
 
             try:
                 try:
-                    async for chunk in stream_with_fallback(
+                    async for chunk in stream_response(
                         request,
                         primary=self.primary,
-                        fallback=self.fallback,
                         first_token_timeout_seconds=(
                             self.first_token_timeout_seconds
                         ),
@@ -386,10 +383,6 @@ class VoiceSessionGateway:
                             emitted_model_text = True
                             metrics.mark("first_model_token")
                             metrics.provider_selected = chunk.provider
-                            if chunk.provider != self.primary.name:
-                                metrics.fallback_reason = (
-                                    "primary_failure_or_first_token_timeout"
-                                )
 
                         response_parts.append(chunk.text)
                         metrics.mark("first_tts_text")
@@ -408,7 +401,7 @@ class VoiceSessionGateway:
                     if emitted_model_text:
                         raise
                     metrics.provider_selected = "unavailable"
-                    metrics.fallback_reason = "all_providers_failed"
+                    metrics.fallback_reason = "primary_unavailable"
                     metrics.mark("first_model_token")
                     metrics.mark("first_tts_text")
                     response_parts.append(_SERVICE_UNAVAILABLE)

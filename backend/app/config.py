@@ -82,22 +82,13 @@ class Settings(BaseSettings):
     proto_base_url: str | None = Field(None, env="PROTO_BASE_URL")
     proto_creation_shared_secret: SecretStr | None = Field(None, env="PROTO_CREATION_SHARED_SECRET")
     proto_timeout_seconds: float = Field(10.0, gt=0.0, le=60.0, env="PROTO_TIMEOUT_SECONDS")
-    deus_voice_engine: str = Field("elevenlabs", env="DEUS_VOICE_ENGINE")
     deus_local_voice_models_dir: str = Field("/var/lib/creation/voice", env="DEUS_LOCAL_VOICE_MODELS_DIR")
     deus_local_voice_cpu_threads: int = Field(2, ge=1, le=2, env="DEUS_LOCAL_VOICE_CPU_THREADS")
     deus_local_voice_silence_ms: int = Field(400, ge=200, le=1500, env="DEUS_LOCAL_VOICE_SILENCE_MS")
-    elevenlabs_enabled: bool = Field(False, env="ELEVENLABS_ENABLED")
-    elevenlabs_api_key: SecretStr | None = Field(None, env="ELEVENLABS_API_KEY")
-    elevenlabs_voice_id: str = Field("configured-voice-id", env="ELEVENLABS_VOICE_ID")
-    elevenlabs_model_id: str = Field("eleven_flash_v2_5", env="ELEVENLABS_MODEL_ID")
-    elevenlabs_stt_model_id: str = Field("scribe_v2_realtime", env="ELEVENLABS_STT_MODEL_ID")
-    elevenlabs_timeout_seconds: float = Field(12.0, env="ELEVENLABS_TIMEOUT_SECONDS")
     voice_session_ticket_ttl_seconds: int = Field(20, ge=5, le=120, env="VOICE_SESSION_TICKET_TTL_SECONDS")
-    deus_voice_session_enabled: bool = Field(True, env="DEUS_VOICE_SESSION_ENABLED")
+    deus_voice_session_enabled: bool = Field(False, env="DEUS_VOICE_SESSION_ENABLED")
     deus_voice_primary_provider: str = Field("freellmapi", env="DEUS_VOICE_PRIMARY_PROVIDER")
-    deus_voice_fallback_provider: str = Field("klaus", env="DEUS_VOICE_FALLBACK_PROVIDER")
     deus_voice_first_token_timeout_ms: int = Field(2500, ge=250, le=15000, env="DEUS_VOICE_FIRST_TOKEN_TIMEOUT_MS")
-    klaus_provider: str = Field("anthropic", env="KLAUS_PROVIDER")
 
     class Config:
         env_file = os.path.join(os.path.dirname(__file__), "..", "..", ".env")
@@ -181,32 +172,11 @@ class Settings(BaseSettings):
             raise ValueError("LLM_FALLBACK_PROVIDERS must not repeat LLM_PROVIDER")
         return ",".join(names)
 
-    @validator("deus_voice_engine")
-    def validate_voice_engine(cls, value: str) -> str:
-        value = value.strip().lower()
-        if value not in {"local", "elevenlabs"}:
-            raise ValueError("DEUS_VOICE_ENGINE must be local or elevenlabs")
-        return value
-
     @validator("deus_voice_primary_provider")
     def validate_deus_voice_primary_provider(cls, value: str) -> str:
         normalized = value.strip().lower()
         if normalized != "freellmapi":
             raise ValueError("DEUS_VOICE_PRIMARY_PROVIDER must be freellmapi")
-        return normalized
-
-    @validator("deus_voice_fallback_provider")
-    def validate_deus_voice_fallback_provider(cls, value: str) -> str:
-        normalized = value.strip().lower()
-        if normalized != "klaus":
-            raise ValueError("DEUS_VOICE_FALLBACK_PROVIDER must be klaus")
-        return normalized
-
-    @validator("klaus_provider")
-    def validate_klaus_provider(cls, value: str) -> str:
-        normalized = value.strip().lower()
-        if normalized and normalized not in SUPPORTED_LLM_PROVIDERS:
-            raise ValueError("KLAUS_PROVIDER must name a supported concrete provider")
         return normalized
 
     @validator("semantic_cache_mode")

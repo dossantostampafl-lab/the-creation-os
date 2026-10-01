@@ -43,7 +43,7 @@ def test_operator_guides_do_not_recommend_retired_voice_paths():
 
 
 def test_voice_setup_probes_the_production_streaming_client():
-    script = (ROOT / "deploy" / "oracle" / "set-voice.sh").read_text(encoding="utf-8")
-    assert "VoiceAcknowledgementCache" in script
-    assert "ElevenLabsRealtimeTTS" in script
+    script = (ROOT / "deploy" / "oracle" / "set-local-voice.sh").read_text(encoding="utf-8")
+    assert "app.voice_session.verify_local" in script
+    assert "app.voice_session.prepare" in script
     assert "httpx.post" not in script

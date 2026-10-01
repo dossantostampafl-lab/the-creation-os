@@ -20,7 +20,6 @@ def test_oracle_one_command_bootstrap_contract() -> None:
     assert 'deploy/oracle/install.sh' in content
     assert "LLM_API_KEY=" not in content
     assert "ANTHROPIC_API_KEY=" not in content
-    assert "ELEVENLABS_API_KEY=" not in content
 
 
 def test_oracle_readme_exposes_single_copy_paste_command() -> None:

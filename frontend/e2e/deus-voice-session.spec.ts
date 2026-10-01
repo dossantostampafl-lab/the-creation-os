@@ -247,7 +247,7 @@ test("realtime DEUS carries five continuous pt-BR turns without a microphone but
   expect(ticketCalls.value).toBe(1);
 });
 
-test("Klaus fallback is visible and reconnect uses a fresh single-use ticket", async ({ page }) => {
+test("FreeLLM provider is visible and reconnect uses a fresh single-use ticket", async ({ page }) => {
   const ticketCalls = { value: 0 };
   await installVoiceSockets(page);
   await mockDashboard(page, ticketCalls);
@@ -272,8 +272,8 @@ test("Klaus fallback is visible and reconnect uses a fresh single-use ticket", a
     type: "text_delta",
     session_id: "session-1",
     turn_id: 1,
-    provider: "klaus",
-    text: "Resposta pela reserva.",
+    provider: "freellmapi",
+    text: "Resposta pelo provedor principal.",
   });
   await serverSend(page, 0, {
     type: "state",
@@ -285,12 +285,12 @@ test("Klaus fallback is visible and reconnect uses a fresh single-use ticket", a
     type: "telemetry",
     session_id: "session-1",
     turn_id: 1,
-    provider_selected: "klaus",
-    fallback_reason: "primary_failure_or_first_token_timeout",
+    provider_selected: "freellmapi",
+    fallback_reason: null,
     latency_ms: { transcript_to_first_token: 400 },
   });
 
-  await expect(page.getByText(/klaus/i)).toBeVisible();
+  await expect(page.getByText("· freellmapi", { exact: true })).toBeVisible();
 
   await page.evaluate(() => {
     const sockets = (window as unknown as { __voiceSockets?: Array<{ serverClose: () => void }> }).__voiceSockets ?? [];
@@ -349,7 +349,7 @@ test("reconnecting mid-reply preserves both exchanges when transport turn IDs re
   await expect(page.getByText("Segunda resposta", { exact: true })).toBeVisible();
 });
 
-test("voice quota failure stops the microphone and reconnect loop while typed chat works", async ({ page }) => {
+test("local voice configuration failure stops the microphone and reconnect loop while typed chat works", async ({ page }) => {
   const ticketCalls = { value: 0 };
   await installVoiceSockets(page);
   await mockDashboard(page, ticketCalls);
@@ -371,9 +371,9 @@ test("voice quota failure stops the microphone and reconnect loop while typed ch
   await expect(page.locator(".wake-hint")).toContainText("Pronto");
   await page.getByRole("textbox", { name: "Message DEUS" }).click();
   await expect.poll(async () => (await voiceSockets(page))[0]?.sent.some(raw => JSON.parse(raw).type === "audio")).toBeTruthy();
-  await serverSend(page, 0, { type: "error", code: "VOICE_TTS_QUOTA_EXCEEDED", message: "A cota de voz do ElevenLabs foi esgotada.", nonretryable: true });
+  await serverSend(page, 0, { type: "error", code: "VOICE_MODELS_UNAVAILABLE", message: "Os modelos locais de voz não estão disponíveis.", nonretryable: true });
   await page.evaluate(() => (window as unknown as { __voiceSockets: Array<{ serverClose: () => void }> }).__voiceSockets[0].serverClose());
-  await expect(page.locator(".console-error")).toContainText("cota de voz");
+  await expect(page.locator(".console-error")).toContainText("modelos locais");
   await expect.poll(() => page.evaluate(() => (window as unknown as { stoppedVoiceTracks: number }).stoppedVoiceTracks)).toBeGreaterThan(0);
   await page.waitForTimeout(1100);
   expect(ticketCalls.value).toBe(1);
@@ -382,7 +382,7 @@ test("voice quota failure stops the microphone and reconnect loop while typed ch
   await expect(page.locator(".console-message.deus-message").last()).toContainText("Quatro.");
 });
 
-test("quota reported during microphone startup releases the pending audio stream", async ({ page }) => {
+test("configuration failure reported during microphone startup releases the pending audio stream", async ({ page }) => {
   const ticketCalls = { value: 0 };
   await installVoiceSockets(page);
   await mockDashboard(page, ticketCalls);
@@ -403,23 +403,23 @@ test("quota reported during microphone startup releases the pending audio stream
   });
   await page.goto("/");
   await page.waitForFunction(() => Boolean((window as unknown as { releaseMicrophone?: () => void }).releaseMicrophone));
-  await serverSend(page, 0, { type: "error", code: "VOICE_TTS_QUOTA_EXCEEDED", message: "A cota de voz foi esgotada.", nonretryable: true });
+  await serverSend(page, 0, { type: "error", code: "VOICE_MODELS_UNAVAILABLE", message: "Os modelos locais de voz não estão disponíveis.", nonretryable: true });
   await page.evaluate(() => (window as unknown as { releaseMicrophone: () => void }).releaseMicrophone());
   await expect.poll(() => page.evaluate(() => (window as unknown as { pendingTrack: MediaStreamTrack }).pendingTrack.readyState)).toBe("ended");
-  await expect(page.locator(".console-error")).toContainText("cota de voz");
+  await expect(page.locator(".console-error")).toContainText("modelos locais");
 });
 
-test("quota discovered while preloading acknowledgement remains visible without reconnecting", async ({ page }) => {
+test("configuration failure discovered while preloading acknowledgement remains visible without reconnecting", async ({ page }) => {
   const ticketCalls = { value: 0 };
   await installVoiceSockets(page);
   await mockDashboard(page, ticketCalls);
   await page.route("**/api/v1/voice/session/acknowledgement", route => route.fulfill({
     status: 503, contentType: "application/json", body: JSON.stringify({ detail: {
-      code: "VOICE_TTS_QUOTA_EXCEEDED", message: "A cota de voz do ElevenLabs foi esgotada.", nonretryable: true,
+      code: "VOICE_MODELS_UNAVAILABLE", message: "Os modelos locais de voz não estão disponíveis.", nonretryable: true,
     } }),
   }));
   await page.goto("/");
-  await expect(page.locator(".console-error")).toContainText("cota de voz");
+  await expect(page.locator(".console-error")).toContainText("modelos locais");
   await page.waitForTimeout(1100);
   expect(ticketCalls.value).toBeLessThanOrEqual(1);
   await expect(page.locator(".wake-hint")).toContainText("precisa de atenção");

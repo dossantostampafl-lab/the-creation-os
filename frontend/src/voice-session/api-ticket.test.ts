@@ -37,7 +37,7 @@ describe("voice session bootstrap", () => {
     });
   });
 
-  it("preloads the fixed ElevenLabs wake acknowledgement over authenticated HTTP", async () => {
+  it("preloads the cached local wake acknowledgement over authenticated HTTP", async () => {
     const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response(
       new Uint8Array([1, 2, 3]),
       {

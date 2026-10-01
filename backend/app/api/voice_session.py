@@ -4,12 +4,10 @@ import asyncio
 import base64
 import binascii
 import uuid
-from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, WebSocket, status
 from pydantic import BaseModel, ValidationError
 from starlette.websockets import WebSocketDisconnect
-from websockets.exceptions import WebSocketException
 
 from app.auth.dependencies import get_sovereign_creator
 from app.config import settings
@@ -21,16 +19,15 @@ from app.voice_session.acknowledgement import VoiceAcknowledgementCache
 from app.voice_session.conversation import VoiceConversationBridge
 from app.voice_session.local import KokoroRealtimeTTS, VoskRealtimeSTT, get_local_engine
 from app.voice_session.protocol import ClientEvent
-from app.voice_session.runtime import build_klaus_provider, build_primary_provider
-from app.voice_session.session import TTSFactory, VoiceSession, VoiceSessionGateway
-from app.voice_session.stt import ElevenLabsRealtimeSTT, ElevenLabsSTTConfig
+from app.voice_session.runtime import build_primary_provider
+from app.voice_session.session import VoiceSession, VoiceSessionGateway
 from app.voice_session.tickets import consume_voice_ticket, issue_voice_ticket
-from app.voice_session.tts import ElevenLabsRealtimeTTS, ElevenLabsTTSConfig, VoiceSynthesisError
+from app.voice_session.tts import VoiceSynthesisError
 
 router = APIRouter()
 MAX_AUDIO_FRAME_BYTES = 64 * 1024
 _acknowledgement_cache: VoiceAcknowledgementCache | None = None
-_acknowledgement_profile: tuple[str, ...] | None = None
+_acknowledgement_profile: str | None = None
 
 
 class VoiceTicketResponse(BaseModel):
@@ -60,11 +57,7 @@ async def create_voice_session_ticket(
 
 
 def _voice_configured() -> bool:
-    return settings.deus_voice_session_enabled and (
-        settings.deus_voice_engine == "local" or (
-            settings.elevenlabs_enabled and settings.elevenlabs_api_key is not None
-        )
-    )
+    return settings.deus_voice_session_enabled
 
 
 async def _local_tts_factory():
@@ -75,26 +68,14 @@ def _voice_acknowledgement_cache() -> VoiceAcknowledgementCache:
     global _acknowledgement_cache, _acknowledgement_profile
     if not _voice_configured():
         raise RuntimeError("Realtime voice is not configured")
-    profile = (settings.deus_voice_engine, settings.elevenlabs_voice_id, settings.elevenlabs_model_id)
+    profile = settings.deus_local_voice_models_dir
     if _acknowledgement_cache is None or _acknowledgement_profile != profile:
-        factory: TTSFactory
-        if settings.deus_voice_engine == "local":
-            from contextlib import asynccontextmanager
+        from contextlib import asynccontextmanager
 
-            @asynccontextmanager
-            async def local_tts():
-                async with await _local_tts_factory() as tts:
-                    yield tts
-            factory = local_tts
-        else:
-            assert settings.elevenlabs_api_key is not None
-            config = ElevenLabsTTSConfig(
-                api_key=settings.elevenlabs_api_key.get_secret_value(),
-                voice_id=settings.elevenlabs_voice_id,
-                model_id=settings.elevenlabs_model_id,
-            )
-            def factory():
-                return ElevenLabsRealtimeTTS(config)
+        @asynccontextmanager
+        async def factory():
+            async with await _local_tts_factory() as tts:
+                yield tts
         _acknowledgement_cache = VoiceAcknowledgementCache(factory, timeout_seconds=120.0)
         _acknowledgement_profile = profile
     return _acknowledgement_cache
@@ -104,6 +85,12 @@ def _voice_acknowledgement_cache() -> VoiceAcknowledgementCache:
 async def get_voice_session_acknowledgement(
     _creator: TokenPayload = Depends(get_sovereign_creator),
 ) -> Response:
+    if not _voice_configured():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "VOICE_SESSION_NOT_CONFIGURED",
+                    "message": "A voz local ainda não foi ativada.", "nonretryable": True},
+        )
     try:
         audio = await _voice_acknowledgement_cache().get()
     except VoiceSynthesisError as exc:
@@ -111,7 +98,13 @@ async def get_voice_session_acknowledgement(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={"code": exc.code, "message": str(exc), "nonretryable": exc.nonretryable},
         ) from exc
-    except (RuntimeError, TimeoutError, OSError) as exc:
+    except (ImportError, OSError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "VOICE_MODELS_UNAVAILABLE",
+                    "message": "Os modelos locais de voz não estão disponíveis.", "nonretryable": True},
+        ) from exc
+    except (RuntimeError, TimeoutError) as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Realtime DEUS acknowledgement is unavailable",
@@ -146,6 +139,7 @@ async def voice_session_socket(
                 "type": "error",
                 "code": "VOICE_SESSION_NOT_CONFIGURED",
                 "message": "Realtime DEUS voice is not configured.",
+                "nonretryable": True,
             }
         )
         await websocket.close(code=1013)
@@ -160,7 +154,6 @@ async def voice_session_socket(
 
     try:
         primary = build_primary_provider()
-        fallback = build_klaus_provider() if settings.deus_voice_engine != "local" else None
     except (RuntimeError, ValueError):
         await websocket.accept()
         await websocket.send_json(
@@ -173,20 +166,21 @@ async def voice_session_socket(
         await websocket.close(code=1013)
         return
 
-    stt_client: Any
-    tts_factory: TTSFactory
-    if settings.deus_voice_engine == "local":
+    try:
         engine = await get_local_engine()
-        stt_client = VoskRealtimeSTT(engine.recognizer(), silence_ms=settings.deus_local_voice_silence_ms)
-        def tts_factory():
-            return KokoroRealtimeTTS(engine)
-    else:
-        assert settings.elevenlabs_api_key is not None
-        key = settings.elevenlabs_api_key.get_secret_value()
-        stt_client = ElevenLabsRealtimeSTT(ElevenLabsSTTConfig(api_key=key, model_id=settings.elevenlabs_stt_model_id))
-        tts_config = ElevenLabsTTSConfig(api_key=key, voice_id=settings.elevenlabs_voice_id, model_id=settings.elevenlabs_model_id)
-        def tts_factory():
-            return ElevenLabsRealtimeTTS(tts_config)
+    except (RuntimeError, OSError, ImportError):
+        await websocket.accept()
+        await websocket.send_json({
+            "type": "error", "code": "VOICE_MODELS_UNAVAILABLE",
+            "message": "Os modelos locais de voz não estão disponíveis.",
+            "nonretryable": True,
+        })
+        await websocket.close(code=1013)
+        return
+    stt_client = VoskRealtimeSTT(engine.recognizer(), silence_ms=settings.deus_local_voice_silence_ms)
+
+    def tts_factory():
+        return KokoroRealtimeTTS(engine)
 
     async with AsyncSessionLocal() as db:
         bridge = VoiceConversationBridge(
@@ -215,7 +209,6 @@ async def voice_session_socket(
                     session=session,
                     stt=stt,
                     primary=primary,
-                    fallback=fallback,
                     tts_factory=tts_factory,
                     request_builder=bridge.build_request,
                     on_turn_completed=bridge.complete_turn,
@@ -330,7 +323,7 @@ async def voice_session_socket(
                 await websocket.close(code=1008 if exc.nonretryable else 1013)
             except (RuntimeError, WebSocketDisconnect):
                 pass
-        except (OSError, TimeoutError, WebSocketException, InferenceError):
+        except (RuntimeError, OSError, TimeoutError, InferenceError):
             try:
                 await send_json(
                     {

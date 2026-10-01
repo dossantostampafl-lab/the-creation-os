@@ -13,7 +13,6 @@ COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.cloud.yml)
 "${COMPOSE[@]}" run --rm --no-deps -e DEUS_LOCAL_VOICE_MODELS_DIR=/var/lib/creation/voice api python -m app.voice_session.verify_local
 cp .env .env.before-local-voice
 chmod 600 .env.before-local-voice
-env_set DEUS_VOICE_ENGINE local
 env_set DEUS_VOICE_SESSION_ENABLED true
 env_set DEUS_VOICE_PRIMARY_PROVIDER freellmapi
 # The same chat remains free when a typed turn follows a voice turn.
@@ -21,7 +20,7 @@ env_set LLM_PROVIDER freellmapi
 env_set LLM_FALLBACK_PROVIDERS ""
 env_set DEUS_LOCAL_VOICE_MODELS_DIR /var/lib/creation/voice
 env_set DEUS_LOCAL_VOICE_SILENCE_MS 400
-env_set ELEVENLABS_ENABLED false
+env_set DEUS_LOCAL_VOICE_CPU_THREADS 2
 chmod 600 .env
 "${COMPOSE[@]}" up -d --no-deps --force-recreate api
 for attempt in $(seq 1 60); do

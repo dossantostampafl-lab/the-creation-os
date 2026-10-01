@@ -16,6 +16,7 @@ from typing import Any
 
 from app.config import settings
 from app.voice_session.stt import STTTranscript
+from app.voice_session.tts import VoiceSynthesisError
 
 # Synthesis uses at most two CPU threads; recognition schedules independently.
 # Native inference already running cannot be interrupted; queued obsolete work can.
@@ -113,7 +114,9 @@ class KokoroRealtimeTTS:
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            await self._audio.put(exc)
+            error = VoiceSynthesisError()
+            error.__cause__ = exc
+            await self._audio.put(error)
 
     async def send_text(self, text: str) -> None:
         self._text += text

@@ -203,16 +203,16 @@ export async function issueVoiceSessionTicket(): Promise<VoiceSessionTicket> {
   return response.json() as Promise<VoiceSessionTicket>;
 }
 
-export class VoiceQuotaError extends Error {
-  constructor(message: string) { super(message); this.name = "VoiceQuotaError"; }
+export class VoiceUnavailableError extends Error {
+  constructor(message: string) { super(message); this.name = "VoiceUnavailableError"; }
 }
 
 export async function preloadVoiceAcknowledgement(): Promise<Uint8Array> {
   const response = await authorizedFetch("/voice/session/acknowledgement");
   if (!response.ok) {
-    const payload = await response.json().catch(() => null) as { detail?: { code?: string; message?: string } } | null;
-    if (payload?.detail?.code === "VOICE_TTS_QUOTA_EXCEEDED") {
-      throw new VoiceQuotaError(payload.detail.message ?? "A cota de voz do ElevenLabs foi esgotada.");
+    const payload = await response.json().catch(() => null) as { detail?: { code?: string; message?: string; nonretryable?: boolean } } | null;
+    if (payload?.detail?.nonretryable) {
+      throw new VoiceUnavailableError(payload.detail.message ?? "Os modelos locais de voz não estão disponíveis.");
     }
     throw new Error(`HTTP_${response.status}`);
   }

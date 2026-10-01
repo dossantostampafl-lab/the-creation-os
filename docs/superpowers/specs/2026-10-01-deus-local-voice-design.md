@@ -20,9 +20,8 @@ of “Deus”. Accuracy and real-microphone latency must not be claimed from syn
 tests alone.
 
 Models live in a persistent named volume. An explicit setup task downloads and
-validates them before switching the environment and restarting the API. Existing
-ElevenLabs adapters remain selectable for rollback; duplicated dialogue flows
-are not added. In local mode provider failures produce the existing unavailable
+validates them before switching the environment and restarting the API. The local adapters are the only speech implementation; duplicated dialogue flows
+are not added. Provider failures produce the existing unavailable
 response without paid fallback. Validate adapters, actual model audio, full CI,
 ARM performance and authenticated public browser behavior before reporting the
 production voice as working.
