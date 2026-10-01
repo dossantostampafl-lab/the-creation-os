@@ -9,6 +9,19 @@ from urllib.parse import quote, urlencode
 from websockets.asyncio.client import connect as websocket_connect
 
 
+class VoiceSynthesisError(RuntimeError):
+    def __init__(self, vendor_error: object) -> None:
+        self.nonretryable = vendor_error == "quota_exceeded"
+        self.code = "VOICE_TTS_QUOTA_EXCEEDED" if self.nonretryable else "VOICE_TTS_UNAVAILABLE"
+        message = (
+            "A cota de voz do ElevenLabs foi esgotada. Regularize os créditos ou o limite "
+            "da chave e recarregue a página para retomar a voz."
+            if self.nonretryable else "Não foi possível gerar o áudio no ElevenLabs."
+        )
+        # Vendor payloads can contain account details; only these fixed messages reach the UI.
+        super().__init__(message)
+
+
 @dataclass(frozen=True)
 class ElevenLabsTTSConfig:
     api_key: str
@@ -109,6 +122,8 @@ class ElevenLabsRealtimeTTS:
             payload = json.loads(raw)
             if not isinstance(payload, dict):
                 continue
+            if payload.get("error"):
+                raise VoiceSynthesisError(payload["error"])
             audio = payload.get("audio")
             if isinstance(audio, str) and audio:
                 return base64.b64decode(audio)

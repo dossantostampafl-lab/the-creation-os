@@ -118,3 +118,23 @@ async def test_realtime_tts_returns_none_only_for_final_event():
 
     async with ElevenLabsRealtimeTTS(config, connector=connector) as tts:
         assert await tts.receive_audio() is None
+
+
+@pytest.mark.asyncio
+async def test_tts_quota_error_is_reported_without_waiting_for_socket_close():
+    import asyncio
+
+    class OpenAfterError(FakeConnection):
+        async def recv(self):
+            if self.incoming:
+                return self.incoming.pop(0)
+            await asyncio.Event().wait()
+
+    connection = OpenAfterError(['{"error":"quota_exceeded","message":"PRIVATE_VENDOR_DETAIL"}'])
+    config = ElevenLabsTTSConfig(api_key="secret", voice_id="voice-1")
+    async with ElevenLabsRealtimeTTS(config, connector=FakeConnector(connection)) as tts:
+        with pytest.raises(RuntimeError, match="cota") as caught:
+            await asyncio.wait_for(tts.receive_audio(), timeout=0.05)
+    assert caught.value.code == "VOICE_TTS_QUOTA_EXCEEDED"
+    assert caught.value.nonretryable is True
+    assert "PRIVATE_VENDOR_DETAIL" not in str(caught.value)

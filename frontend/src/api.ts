@@ -203,9 +203,19 @@ export async function issueVoiceSessionTicket(): Promise<VoiceSessionTicket> {
   return response.json() as Promise<VoiceSessionTicket>;
 }
 
+export class VoiceQuotaError extends Error {
+  constructor(message: string) { super(message); this.name = "VoiceQuotaError"; }
+}
+
 export async function preloadVoiceAcknowledgement(): Promise<Uint8Array> {
   const response = await authorizedFetch("/voice/session/acknowledgement");
-  if (!response.ok) throw new Error(`HTTP_${response.status}`);
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null) as { detail?: { code?: string; message?: string } } | null;
+    if (payload?.detail?.code === "VOICE_TTS_QUOTA_EXCEEDED") {
+      throw new VoiceQuotaError(payload.detail.message ?? "A cota de voz do ElevenLabs foi esgotada.");
+    }
+    throw new Error(`HTTP_${response.status}`);
+  }
   if (response.headers.get("X-DEUS-Audio-Format") !== "pcm_s16le") {
     throw new Error("VOICE_ACK_INVALID_FORMAT");
   }

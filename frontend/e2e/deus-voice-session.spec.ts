@@ -348,3 +348,80 @@ test("reconnecting mid-reply preserves both exchanges when transport turn IDs re
   await expect(page.getByText("Segunda pergunta", { exact: true })).toBeVisible();
   await expect(page.getByText("Segunda resposta", { exact: true })).toBeVisible();
 });
+
+test("voice quota failure stops the microphone and reconnect loop while typed chat works", async ({ page }) => {
+  const ticketCalls = { value: 0 };
+  await installVoiceSockets(page);
+  await mockDashboard(page, ticketCalls);
+  await page.addInitScript(() => {
+    const original = MediaStreamTrack.prototype.stop;
+    Object.assign(window, { stoppedVoiceTracks: 0 });
+    MediaStreamTrack.prototype.stop = function () {
+      if (this.kind === "audio") (window as unknown as { stoppedVoiceTracks: number }).stoppedVoiceTracks += 1;
+      return original.call(this);
+    };
+  });
+  await page.route("**/api/v1/conversations/conversation-1/deus", route => route.fulfill({
+    status: 201, contentType: "application/json", body: JSON.stringify({
+      message_id: "creator-typed", conversation_id: "conversation-1", response: "Quatro.",
+      route: "deus", inception: null, correlation_id: "typed-correlation",
+    }),
+  }));
+  await page.goto("/");
+  await expect(page.locator(".wake-hint")).toContainText("Pronto");
+  await page.getByRole("textbox", { name: "Message DEUS" }).click();
+  await expect.poll(async () => (await voiceSockets(page))[0]?.sent.some(raw => JSON.parse(raw).type === "audio")).toBeTruthy();
+  await serverSend(page, 0, { type: "error", code: "VOICE_TTS_QUOTA_EXCEEDED", message: "A cota de voz do ElevenLabs foi esgotada.", nonretryable: true });
+  await page.evaluate(() => (window as unknown as { __voiceSockets: Array<{ serverClose: () => void }> }).__voiceSockets[0].serverClose());
+  await expect(page.locator(".console-error")).toContainText("cota de voz");
+  await expect.poll(() => page.evaluate(() => (window as unknown as { stoppedVoiceTracks: number }).stoppedVoiceTracks)).toBeGreaterThan(0);
+  await page.waitForTimeout(1100);
+  expect(ticketCalls.value).toBe(1);
+  await page.getByRole("textbox", { name: "Message DEUS" }).fill("Quanto é dois mais dois?");
+  await page.getByRole("button", { name: "Send to DEUS" }).click();
+  await expect(page.locator(".console-message.deus-message").last()).toContainText("Quatro.");
+});
+
+test("quota reported during microphone startup releases the pending audio stream", async ({ page }) => {
+  const ticketCalls = { value: 0 };
+  await installVoiceSockets(page);
+  await mockDashboard(page, ticketCalls);
+  await page.addInitScript(() => {
+    const Native = window.AudioContext;
+    window.AudioContext = class extends Native {
+      get state(): AudioContextState { return "suspended"; }
+      resume(): Promise<void> { return new Promise(() => {}); }
+    };
+    const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    const scope = window as unknown as { releaseMicrophone?: () => void; pendingTrack?: MediaStreamTrack };
+    navigator.mediaDevices.getUserMedia = async constraints => {
+      const stream = await original(constraints);
+      scope.pendingTrack = stream.getAudioTracks()[0];
+      await new Promise<void>(resolve => { scope.releaseMicrophone = resolve; });
+      return stream;
+    };
+  });
+  await page.goto("/");
+  await page.waitForFunction(() => Boolean((window as unknown as { releaseMicrophone?: () => void }).releaseMicrophone));
+  await serverSend(page, 0, { type: "error", code: "VOICE_TTS_QUOTA_EXCEEDED", message: "A cota de voz foi esgotada.", nonretryable: true });
+  await page.evaluate(() => (window as unknown as { releaseMicrophone: () => void }).releaseMicrophone());
+  await expect.poll(() => page.evaluate(() => (window as unknown as { pendingTrack: MediaStreamTrack }).pendingTrack.readyState)).toBe("ended");
+  await expect(page.locator(".console-error")).toContainText("cota de voz");
+});
+
+test("quota discovered while preloading acknowledgement remains visible without reconnecting", async ({ page }) => {
+  const ticketCalls = { value: 0 };
+  await installVoiceSockets(page);
+  await mockDashboard(page, ticketCalls);
+  await page.route("**/api/v1/voice/session/acknowledgement", route => route.fulfill({
+    status: 503, contentType: "application/json", body: JSON.stringify({ detail: {
+      code: "VOICE_TTS_QUOTA_EXCEEDED", message: "A cota de voz do ElevenLabs foi esgotada.", nonretryable: true,
+    } }),
+  }));
+  await page.goto("/");
+  await expect(page.locator(".console-error")).toContainText("cota de voz");
+  await page.waitForTimeout(1100);
+  expect(ticketCalls.value).toBeLessThanOrEqual(1);
+  await expect(page.locator(".wake-hint")).toContainText("precisa de atenção");
+  await expect(page.getByRole("textbox", { name: "Message DEUS" })).toBeEnabled();
+});
