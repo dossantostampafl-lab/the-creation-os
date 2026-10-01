@@ -304,3 +304,26 @@ test("Klaus fallback is visible and reconnect uses a fresh single-use ticket", a
   expect(new URL(sockets[1].url).searchParams.get("ticket")).toBe("ticket-2");
   expect(sockets[1].url).not.toContain("e2e-token");
 });
+
+test("real audio enables speaking and canceled output cannot replace a follow-up", async ({ page }) => {
+  const ticketCalls = { value: 0 };
+  await installVoiceSockets(page);
+  await mockDashboard(page, ticketCalls);
+  await page.goto("/");
+  await expect(page.getByText(/Pronto · diga “Deus”/)).toBeVisible();
+  await serverSend(page, 0, { type: "transcript_commit", session_id: "session-1", turn_id: 1, text: "Olá" });
+  await serverSend(page, 0, { type: "state", session_id: "session-1", turn_id: 1, state: "THINKING" });
+  await serverSend(page, 0, { type: "audio_chunk", session_id: "session-1", turn_id: 1, audio_base64: "AAAAAA==" });
+  await expect(page.getByText(/DEUS está falando/)).toBeVisible();
+  await serverSend(page, 0, { type: "barge_in", session_id: "session-1", turn_id: 1, cancelled: true, state: "LISTENING" });
+  await expect(page.getByText(/^Ouvindo/)).toBeVisible();
+  await serverSend(page, 0, { type: "text_delta", session_id: "session-1", turn_id: 1, provider: "freellmapi", text: "Resposta cancelada" });
+  await serverSend(page, 0, { type: "audio_chunk", session_id: "session-1", turn_id: 1, audio_base64: "AAAAAA==" });
+  await expect(page.getByText("Resposta cancelada", { exact: true })).toHaveCount(0);
+  await expect(page.getByText(/^Ouvindo/)).toBeVisible();
+  await serverSend(page, 0, { type: "transcript_commit", session_id: "session-1", turn_id: 2, text: "Continue" });
+  await serverSend(page, 0, { type: "text_delta", session_id: "session-1", turn_id: 2, provider: "freellmapi", text: "Continuamos." });
+  await expect(page.getByText("Continuamos.", { exact: true })).toBeVisible();
+  await serverSend(page, 0, { type: "state", session_id: "old-session", turn_id: 99, state: "SPEAKING" });
+  await expect(page.getByText(/DEUS está falando/)).toHaveCount(0);
+});

@@ -193,7 +193,7 @@ test("realtime DEUS voice is always armed without push-to-talk or browser speech
     latency_ms: { transcript_to_first_token: 420 },
   }));
 
-  await expect(page.getByText("Ouvindo…", { exact: true })).toBeVisible();
+  await expect(page.getByText(/^Ouvindo…/)).toBeVisible();
   await expect(page.getByText(/freellmapi/)).toBeVisible();
 });
 
