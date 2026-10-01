@@ -130,9 +130,10 @@ jobs:
         \ apenas com o resultado: quanto \xE9 seis vezes sete?');\n  const reply=page.waitForResponse(r=>new\
         \ URL(r.url()).pathname.endsWith('/deus')&&r.request().method()==='POST');\n\
         \  await box.press('Enter');const typed=await reply;if(typed.status()!==200)throw\
-        \ new Error('Typed turn failed');\n  const body=await typed.json();console.log(JSON.stringify({mode:mobile?'phone':'desktop',typedStatus:typed.status(),typedAnswer:body.response?.content??body.message?.content??body}));\n\
-        \  await context.close();\n }\n} finally {await browser.close();unlinkSync(fixture);}\n\
-        JSDIAGNOSTIC\nnode frontend/local-voice-diagnostic.mjs"
+        \ new Error('Typed turn failed');\n  const body=await typed.json();console.log(JSON.stringify({mode:mobile?'phone':'desktop',typedStatus:typed.status(),typedAnswer:body.response}));if(!/42/.test(body.response??''))throw\
+        \ new Error('Typed answer was incoherent');\n  await context.close();\n }\n\
+        } finally {await browser.close();unlinkSync(fixture);}\nJSDIAGNOSTIC\nnode\
+        \ frontend/local-voice-diagnostic.mjs"
     - name: Remove private files
       if: always()
       run: rm -f ~/.ssh/id_deploy "$RUNNER_TEMP/creation-session.json" "$RUNNER_TEMP/creation-voice-input.wav"
