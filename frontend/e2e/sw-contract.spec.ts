@@ -5,7 +5,7 @@ import { expect, test } from "@playwright/test";
 type WorkerEvent = Record<string, unknown>;
 type WorkerListeners = Record<string, (event: WorkerEvent) => void>;
 
-function loadWorker() {
+function loadWorker(networkFetch = async (_request: Request, _init?: RequestInit) => new Response("network", { status: 200 })) {
   const path = new URL("../public/sw.js", import.meta.url);
   if (!existsSync(path)) return { listeners: {} as WorkerListeners, skipWaitingCalls: () => 0, resolveCachePuts: () => undefined };
 
@@ -28,7 +28,7 @@ function loadWorker() {
     skipWaiting: async () => { skipWaitingCount += 1; },
     addEventListener: (type: string, listener: WorkerListeners[string]) => { listeners[type] = listener; },
   };
-  const fetch = async () => new Response("network", { status: 200 });
+  const fetch = networkFetch;
   runInNewContext(readFileSync(path, "utf8"), { self, caches, fetch, URL, Request, Response, Promise, console });
   return {
     listeners,
@@ -46,6 +46,21 @@ function dispatchFetch(listener: WorkerListeners[string] | undefined, request: R
 test("service worker registers the complete lifecycle", () => {
   const { listeners } = loadWorker();
   expect(Object.keys(listeners)).toEqual(expect.arrayContaining(["install", "activate", "fetch", "message"]));
+});
+
+test("navigation retrieves the new deployment rather than an old HTTP-cached shell", async () => {
+  const { listeners, resolveCachePuts } = loadWorker(async (_request, init) =>
+    new Response(init?.cache === "no-store" ? "new deployment" : "old deployment"));
+  const navigation = {
+    url: "https://creation.example/",
+    method: "GET",
+    mode: "navigate",
+    headers: new Headers(),
+  } as Request;
+  const response = dispatchFetch(listeners.fetch, navigation);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  resolveCachePuts();
+  expect(await (await response)?.text()).toBe("new deployment");
 });
 
 test("service worker leaves sensitive and external traffic network-only", () => {

@@ -56,6 +56,10 @@ async def test_frontend_proxy_preserves_voice_websocket_upgrade(tmp_path):
                 else:
                     logs = subprocess.run(["docker", "logs", name], capture_output=True, text=True, timeout=10)
                     pytest.fail(f"production nginx did not become healthy: {logs.stdout} {logs.stderr}")
+                shell = await client.get(f"http://127.0.0.1:{port}/")
+                assert shell.status_code == 200
+                assert "no-store" in shell.headers.get("cache-control", "")
+                assert "content-security-policy" in shell.headers
             async with connect(
                 f"ws://127.0.0.1:{port}/api/v1/voice/session?ticket=test-ticket", open_timeout=5,
             ) as websocket:

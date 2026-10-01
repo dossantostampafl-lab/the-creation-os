@@ -1,4 +1,4 @@
-const STATIC_CACHE = "creation-static-v2";
+const STATIC_CACHE = "creation-static-v3";
 const STATIC_SHELL = [
   "/",
   "/manifest.webmanifest",
@@ -37,7 +37,7 @@ self.addEventListener("fetch", (event) => {
 
   if (request.mode === "navigate") {
     event.respondWith(
-      fetch(request)
+      fetch(request, { cache: "no-store" })
         .then(async (response) => {
           if (response.ok) {
             const cache = await caches.open(STATIC_CACHE);
