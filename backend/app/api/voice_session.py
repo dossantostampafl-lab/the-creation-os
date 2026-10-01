@@ -23,7 +23,7 @@ from app.voice_session.runtime import build_klaus_provider, build_primary_provid
 from app.voice_session.session import VoiceSession, VoiceSessionGateway
 from app.voice_session.stt import ElevenLabsRealtimeSTT, ElevenLabsSTTConfig
 from app.voice_session.tickets import consume_voice_ticket, issue_voice_ticket
-from app.voice_session.tts import ElevenLabsRealtimeTTS, ElevenLabsTTSConfig
+from app.voice_session.tts import ElevenLabsRealtimeTTS, ElevenLabsTTSConfig, VoiceSynthesisError
 
 router = APIRouter()
 MAX_AUDIO_FRAME_BYTES = 64 * 1024
@@ -88,6 +88,11 @@ async def get_voice_session_acknowledgement(
 ) -> Response:
     try:
         audio = await _voice_acknowledgement_cache().get()
+    except VoiceSynthesisError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": exc.code, "message": str(exc), "nonretryable": exc.nonretryable},
+        ) from exc
     except (RuntimeError, TimeoutError, OSError) as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -298,6 +303,15 @@ async def voice_session_socket(
                     pump.cancel()
                     receiver.cancel()
                     await asyncio.gather(pump, receiver, return_exceptions=True)
+        except VoiceSynthesisError as exc:
+            try:
+                await send_json({
+                    "type": "error", "code": exc.code, "message": str(exc),
+                    "nonretryable": exc.nonretryable,
+                })
+                await websocket.close(code=1008 if exc.nonretryable else 1013)
+            except (RuntimeError, WebSocketDisconnect):
+                pass
         except (OSError, TimeoutError, WebSocketException, InferenceError):
             try:
                 await send_json(

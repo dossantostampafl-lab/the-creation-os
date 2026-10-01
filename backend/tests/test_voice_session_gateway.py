@@ -628,3 +628,63 @@ def test_websocket_reports_stt_connection_failure(voice_client: TestClient, monk
             websocket.receive_json()
 
     assert closed.value.code == 1013
+
+
+@pytest.mark.asyncio
+async def test_websocket_reports_tts_quota_as_terminal_synthesis_error(voice_client, monkeypatch):
+    from app.voice_session.tts import VoiceSynthesisError
+
+    class QuestionSTT(HangingRealtimeSTT):
+        async def receive_transcript(self):
+            return STTTranscript(text="Deus, quanto é dois mais dois?", committed=True)
+
+    class QuotaTTS(FakeRealtimeTTS):
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def receive_audio(self):
+            raise VoiceSynthesisError("quota_exceeded")
+
+    class QuietSocket:
+        def __init__(self):
+            self.events = []
+            self.close_code = None
+
+        async def accept(self):
+            pass
+
+        async def send_json(self, payload):
+            self.events.append(payload)
+
+        async def receive_json(self):
+            await asyncio.Event().wait()
+
+        async def close(self, code):
+            self.close_code = code
+
+    monkeypatch.setattr(voice_session_api, "ElevenLabsRealtimeSTT", lambda *_a, **_k: QuestionSTT())
+    monkeypatch.setattr(voice_session_api, "ElevenLabsRealtimeTTS", lambda *_a, **_k: QuotaTTS([]))
+    monkeypatch.setattr(voice_session_api, "build_primary_provider", lambda: StubStreamingProvider("freellmapi", ["Quatro."]))
+    socket = QuietSocket()
+    await asyncio.wait_for(voice_session_api.voice_session_socket(socket, ticket="ticket-1", conversation_id="conversation-1"), timeout=1)
+    assert socket.events[-1]["code"] == "VOICE_TTS_QUOTA_EXCEEDED"
+    assert socket.events[-1]["nonretryable"] is True
+    assert "cota" in socket.events[-1]["message"]
+    assert socket.close_code == 1008
+
+
+def test_acknowledgement_endpoint_reports_quota_without_vendor_details(voice_client, monkeypatch):
+    from app.voice_session.tts import VoiceSynthesisError
+
+    class QuotaCache:
+        async def get(self):
+            raise VoiceSynthesisError("quota_exceeded")
+
+    monkeypatch.setattr(voice_session_api, "_voice_acknowledgement_cache", lambda: QuotaCache())
+    response = voice_client.get("/api/v1/voice/session/acknowledgement")
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "VOICE_TTS_QUOTA_EXCEEDED"
+    assert response.json()["detail"]["nonretryable"] is True

@@ -75,6 +75,7 @@ export type ErrorEvent = {
   type: "error";
   code: string;
   message: string;
+  nonretryable?: boolean;
 };
 
 export type StaleSessionEvent = {

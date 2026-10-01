@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-import { API_BASE, issueVoiceSessionTicket, preloadVoiceAcknowledgement } from "../api";
+import { API_BASE, issueVoiceSessionTicket, preloadVoiceAcknowledgement, VoiceQuotaError } from "../api";
 import { bytesToBase64, MicrophonePcmCapture } from "./audio-capture";
 import { Pcm16AudioSink, StreamingAudioPlayer } from "./player";
 import type { VoiceServerEvent } from "./protocol";
@@ -95,6 +95,7 @@ export function useDeusVoiceSession(options: UseDeusVoiceSessionOptions): DeusVo
     }
 
     let disposed = false;
+    let terminalError = false;
     let socket: WebSocket | null = null;
     let reconnectTimer: number | null = null;
     let reconnectAttempt = 0;
@@ -111,13 +112,31 @@ export function useDeusVoiceSession(options: UseDeusVoiceSessionOptions): DeusVo
         acknowledgementAudio = audio;
         return audio;
       })
-      .catch(() => null);
+      .catch((failure: unknown) => {
+        if (failure instanceof VoiceQuotaError) stopForTerminalError(failure.message);
+        return null;
+      });
 
     const model = new VoiceSessionModel();
     const capture = new MicrophonePcmCapture();
     const vad = new VoiceActivityDetector({ threshold: 0.085, releaseFrames: 4 });
     const sink = new Pcm16AudioSink(24_000);
     const player = new StreamingAudioPlayer(sink);
+
+    const stopForTerminalError = (message: string) => {
+      if (disposed || terminalError) return;
+      terminalError = true;
+      completionGeneration += 1;
+      acknowledgementGeneration += 1;
+      if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+      player.stop();
+      void capture.stop();
+      void sink.close();
+      setError(message);
+      setStatus("error");
+      socket?.close();
+    };
 
     const send = (payload: object) => {
       if (!socket || socket.readyState !== WebSocket.OPEN) return false;
@@ -138,6 +157,7 @@ export function useDeusVoiceSession(options: UseDeusVoiceSessionOptions): DeusVo
     };
 
     const handleFrame = ({ float32, pcm16k }: { float32: Float32Array; pcm16k: Uint8Array }) => {
+      if (disposed || terminalError) return;
       const localSpeech = vad.update(float32);
       const beganSpeaking = localSpeech && !vadWasSpeaking;
       vadWasSpeaking = localSpeech;
@@ -163,8 +183,9 @@ export function useDeusVoiceSession(options: UseDeusVoiceSessionOptions): DeusVo
     const ensureCapture = async () => {
       try {
         await capture.start(handleFrame);
+        if (disposed || terminalError) await capture.stop();
       } catch (failure) {
-        if (disposed) return;
+        if (disposed || terminalError) return;
         setError(failure instanceof Error ? failure.message : "MICROPHONE_UNAVAILABLE");
         setStatus("error");
       }
@@ -179,6 +200,7 @@ export function useDeusVoiceSession(options: UseDeusVoiceSessionOptions): DeusVo
     };
 
     const handleEvent = (event: VoiceServerEvent) => {
+      if (disposed || terminalError) return;
       if (event.type === "state" && event.state === "LISTENING"
         && model.state === "speaking" && event.session_id === model.sessionId
         && event.turn_id === model.turnId) {
@@ -277,12 +299,13 @@ export function useDeusVoiceSession(options: UseDeusVoiceSessionOptions): DeusVo
         return;
       }
       if (event.type === "error") {
-        setError(event.code);
+        if (event.nonretryable) stopForTerminalError(event.message);
+        else setError(event.code);
       }
     };
 
     const scheduleReconnect = () => {
-      if (disposed || reconnectTimer !== null) return;
+      if (disposed || terminalError || reconnectTimer !== null) return;
       completionGeneration += 1;
       acknowledgementGeneration += 1;
       player.stop();
@@ -297,11 +320,11 @@ export function useDeusVoiceSession(options: UseDeusVoiceSessionOptions): DeusVo
     };
 
     const connect = async () => {
-      if (disposed) return;
+      if (disposed || terminalError) return;
       setStatus(reconnectAttempt ? "reconnecting" : "connecting");
       try {
         const { ticket } = await issueVoiceSessionTicket();
-        if (disposed) return;
+        if (disposed || terminalError) return;
         const next = new WebSocket(buildVoiceSessionUrl(API_BASE, ticket, conversationId));
         socket = next;
         next.onmessage = (message) => {
@@ -314,20 +337,21 @@ export function useDeusVoiceSession(options: UseDeusVoiceSessionOptions): DeusVo
           }
         };
         next.onerror = () => {
-          if (!disposed) setError("VOICE_SESSION_CONNECTION_ERROR");
+          if (!disposed && !terminalError) setError("VOICE_SESSION_CONNECTION_ERROR");
         };
         next.onclose = () => {
           if (socket === next) socket = null;
-          if (!disposed) scheduleReconnect();
+          if (!disposed && !terminalError) scheduleReconnect();
         };
       } catch (failure) {
-        if (disposed) return;
+        if (disposed || terminalError) return;
         setError(failure instanceof Error ? failure.message : "VOICE_SESSION_CONNECTION_ERROR");
         scheduleReconnect();
       }
     };
 
     const resumeAudio = () => {
+      if (disposed || terminalError) return;
       void capture.resume().catch(() => undefined);
       void sink.resume().catch(() => undefined);
     };

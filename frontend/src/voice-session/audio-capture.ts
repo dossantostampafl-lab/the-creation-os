@@ -62,6 +62,7 @@ export type MicrophoneFrame = {
 export type MicrophoneFrameHandler = (frame: MicrophoneFrame) => void;
 
 export class MicrophonePcmCapture {
+  private startGeneration = 0;
   private stream: MediaStream | null = null;
   private context: AudioContext | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
@@ -71,6 +72,7 @@ export class MicrophonePcmCapture {
 
   async start(onFrame: MicrophoneFrameHandler): Promise<void> {
     if (this.stream) return;
+    const generation = this.startGeneration;
 
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
@@ -80,6 +82,10 @@ export class MicrophonePcmCapture {
         autoGainControl: true,
       },
     });
+    if (generation !== this.startGeneration) {
+      stream.getTracks().forEach((track) => track.stop());
+      return;
+    }
     const context = new AudioContext({ latencyHint: "interactive" });
     const source = context.createMediaStreamSource(stream);
     const silentGain = context.createGain();
@@ -87,7 +93,7 @@ export class MicrophonePcmCapture {
     silentGain.connect(context.destination);
 
     const deliver = (samples: Float32Array) => {
-      if (!samples.length) return;
+      if (generation !== this.startGeneration || !samples.length) return;
       const pcm16k = float32ToPcm16(
         new Float32Array(downsampleTo16k(samples, context.sampleRate)),
       );
@@ -99,6 +105,11 @@ export class MicrophonePcmCapture {
         await context.audioWorklet.addModule(
           `${import.meta.env.BASE_URL}voice/pcm-capture.worklet.js`,
         );
+        if (generation !== this.startGeneration) {
+          stream.getTracks().forEach((track) => track.stop());
+          await context.close().catch(() => undefined);
+          return;
+        }
         const worklet = new AudioWorkletNode(context, "deus-pcm-capture", {
           numberOfInputs: 1,
           numberOfOutputs: 1,
@@ -139,6 +150,7 @@ export class MicrophonePcmCapture {
   }
 
   async stop(): Promise<void> {
+    this.startGeneration += 1;
     this.worklet?.disconnect();
     this.processor?.disconnect();
     this.source?.disconnect();
