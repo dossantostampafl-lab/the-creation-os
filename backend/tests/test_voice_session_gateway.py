@@ -21,6 +21,35 @@ from app.voice_session.session import SessionState, VoiceSession, VoiceSessionGa
 from app.voice_session.stt import STTTranscript
 
 
+@pytest.mark.asyncio
+async def test_websocket_supervises_stt_failure_without_client_audio(voice_client, monkeypatch):
+    class FailedSTT(HangingRealtimeSTT):
+        async def receive_transcript(self) -> STTTranscript:
+            raise OSError("provider disconnected")
+
+    class QuietSocket:
+        events: list[dict[str, Any]] = []
+        close_code: int | None = None
+
+        async def accept(self):
+            return None
+
+        async def send_json(self, payload):
+            self.events.append(payload)
+
+        async def receive_json(self):
+            await asyncio.Event().wait()
+
+        async def close(self, code):
+            self.close_code = code
+
+    monkeypatch.setattr(voice_session_api, "ElevenLabsRealtimeSTT", lambda *_args, **_kwargs: FailedSTT())
+    socket = QuietSocket()
+    await asyncio.wait_for(voice_session_api.voice_session_socket(socket, ticket="ticket-1", conversation_id="conversation-1"), timeout=1)
+    assert socket.events[-1]["type"] == "error"
+    assert socket.close_code == 1013
+
+
 class FakeRealtimeSTT:
     def __init__(self, transcripts: list[STTTranscript]) -> None:
         self.transcripts = list(transcripts)
