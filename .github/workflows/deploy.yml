@@ -2,12 +2,12 @@ name: Deploy
 permissions:
   contents: read
 concurrency:
-  group: deploy-oracle
+  group: local-voice-readonly-inspection
   cancel-in-progress: false
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     steps:
     - name: Get the repository
       uses: actions/checkout@v5
@@ -60,29 +60,32 @@ jobs:
         \ key, so this run trusted whatever answered.\"\n  echo \"Record the lines\
         \ below in deploy/oracle/known_hosts:\"\n  cat ~/.ssh/known_hosts\nfi\nchmod\
         \ 600 ~/.ssh/known_hosts\n"
-    - name: Prepare and verify local speech on actual ARM host without switching production
+    - name: Inspect only the speech validation container and public model cache
       env:
         HOST: ${{ secrets.DEPLOY_HOST }}
         USERNAME: ${{ secrets.DEPLOY_USER }}
-      run: "set -euo pipefail\nssh -i ~/.ssh/id_deploy -o BatchMode=yes -o ConnectTimeout=20\
-        \ \"${USERNAME:-ubuntu}@$HOST\" 'bash -s' <<'REMOTE'\nset -euo pipefail\n\
-        api=\"$(sudo docker ps --filter 'label=com.docker.compose.service=api' --format\
-        \ '{{.ID}}' | head -1)\"\nlive_dir=\"$(sudo docker inspect -f '{{index .Config.Labels\
-        \ \"com.docker.compose.project.working_dir\"}}' \"$api\")\"\nproject=\"$(sudo\
-        \ docker inspect -f '{{index .Config.Labels \"com.docker.compose.project\"\
-        }}' \"$api\")\"\ncd \"$live_dir\"\nsudo git fetch origin feat/local-deus-voice:refs/remotes/origin/feat/local-deus-voice\n\
-        probe_dir=\"$(mktemp -d /tmp/creation-local-voice-candidate.XXXXXX)\"\ntrap\
-        \ 'sudo rm -rf \"$probe_dir\"' EXIT\nsudo git archive origin/feat/local-deus-voice\
-        \ backend | tar -x -C \"$probe_dir\"\nsudo docker build -t creation-local-voice-candidate\
-        \ \"$probe_dir/backend\"\n# Persist only public model files for the eventual\
-        \ production voice_models volume.\n# No production credentials, DB connectivity\
-        \ or service ports in this container.\nsudo docker run --rm --name creation-local-voice-validation\
-        \ --cpus=1.5 --memory=6g \\\n -e APP_ENV=test -e APP_SECRET_KEY=local-speech-validation-secret-32-characters\
-        \ \\\n -e CREATOR_BOOTSTRAP_USERNAME=localprobe -e CREATOR_BOOTSTRAP_PASSWORD=localprobe\
-        \ \\\n -e DATABASE_URL=postgresql+asyncpg://unused:unused@127.0.0.1/unused\
-        \ \\\n -e REDIS_URL=redis://127.0.0.1:6379/0 \\\n -v \"${project}_voice_models:/var/lib/creation/voice\"\
-        \ \\\n creation-local-voice-candidate sh -c 'python -m app.voice_session.prepare\
-        \ && python -m app.voice_session.verify_local'\nREMOTE\n"
+      run: 'set -euo pipefail
+
+        ssh -i ~/.ssh/id_deploy -o BatchMode=yes -o ConnectTimeout=20 "${USERNAME:-ubuntu}@$HOST"
+        ''bash -s'' <<''REMOTE''
+
+        set -euo pipefail
+
+        sudo docker ps --filter name=creation-local-voice-validation --format ''{{.Names}}
+        {{.Status}}''
+
+        sudo docker stats --no-stream --format ''{{.Name}} CPU={{.CPUPerc}} RAM={{.MemUsage}}''
+        creation-local-voice-validation || true
+
+        sudo docker logs --tail 25 creation-local-voice-validation || true
+
+        sudo docker exec creation-local-voice-validation python -c ''from pathlib
+        import Path;print([(p.name,p.stat().st_size) for p in Path("/var/lib/creation/voice").iterdir()])''
+        || true
+
+        REMOTE
+
+        '
     - name: Remove private SSH file
       if: always()
       run: rm -f ~/.ssh/id_deploy
