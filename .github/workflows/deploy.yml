@@ -69,7 +69,7 @@ jobs:
         api=\"$(sudo docker ps --filter 'label=com.docker.compose.service=api' --format\
         \ '{{.ID}}' | head -1)\"\nimage=\"$(sudo docker inspect --format '{{.Image}}'\
         \ \"$api\")\"\n# Disposable evaluation: no production volumes, credentials,\
-        \ env files or service ports.\nsudo docker run --rm -i --name creation-free-voice-evaluation\
+        \ env files or service ports.\nsudo docker run --rm -i --user 0 --name creation-free-voice-evaluation\
         \ --cpus=1.5 --memory=3g --entrypoint /bin/sh -e HF_HUB_DISABLE_XET=1 \"$image\"\
         \ -s <<'CONTAINER'\nset -eu\napt-get update -qq -o Acquire::Retries=0 -o Acquire::http::Timeout=20\n\
         apt-get install -y -qq --no-install-recommends libatomic1 libgomp1\npython\
