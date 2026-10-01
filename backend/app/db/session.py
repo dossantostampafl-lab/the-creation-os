@@ -7,7 +7,14 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from app.config import settings
 from app.db.url import normalize_database_url
 
-engine: AsyncEngine = create_async_engine(normalize_database_url(settings.database_url), future=True, echo=False)
+
+def create_session_engine(database_url: str) -> AsyncEngine:
+    # Validate pooled connections before checkout: an idle PostgreSQL connection may
+    # have closed while the dashboard was away. Do not retry in-flight transactions.
+    return create_async_engine(normalize_database_url(database_url), future=True, echo=False, pool_pre_ping=True)
+
+
+engine = create_session_engine(settings.database_url)
 AsyncSessionLocal = async_sessionmaker(bind=engine, expire_on_commit=False, autoflush=False)
 
 
