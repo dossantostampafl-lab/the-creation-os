@@ -2,12 +2,12 @@ name: Deploy
 permissions:
   contents: read
 concurrency:
-  group: local-speech-candidate-validation
+  group: local-speech-performance
   cancel-in-progress: false
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     steps:
     - name: Get the repository
       uses: actions/checkout@v5
@@ -60,30 +60,29 @@ jobs:
         \ key, so this run trusted whatever answered.\"\n  echo \"Record the lines\
         \ below in deploy/oracle/known_hosts:\"\n  cat ~/.ssh/known_hosts\nfi\nchmod\
         \ 600 ~/.ssh/known_hosts\n"
-    - name: Prepare and verify local speech on actual ARM host without switching production
+    - name: Compare Kokoro CPU settings without changing production voice
       env:
         HOST: ${{ secrets.DEPLOY_HOST }}
         USERNAME: ${{ secrets.DEPLOY_USER }}
       run: "set -euo pipefail\nssh -i ~/.ssh/id_deploy -o BatchMode=yes -o ConnectTimeout=20\
         \ \"${USERNAME:-ubuntu}@$HOST\" 'bash -s' <<'REMOTE'\nset -euo pipefail\n\
         api=\"$(sudo docker ps --filter 'label=com.docker.compose.service=api' --format\
-        \ '{{.ID}}' | head -1)\"\nlive_dir=\"$(sudo docker inspect -f '{{index .Config.Labels\
-        \ \"com.docker.compose.project.working_dir\"}}' \"$api\")\"\nproject=\"$(sudo\
-        \ docker inspect -f '{{index .Config.Labels \"com.docker.compose.project\"\
-        }}' \"$api\")\"\ncd \"$live_dir\"\nsudo git fetch origin fix/local-voice-runtime:refs/remotes/origin/fix/local-voice-runtime\n\
-        probe_dir=\"$(mktemp -d /tmp/creation-local-voice-candidate.XXXXXX)\"\ntrap\
-        \ 'sudo rm -rf \"$probe_dir\"' EXIT\nsudo git archive origin/fix/local-voice-runtime\
-        \ backend | tar -x -C \"$probe_dir\"\nsudo docker build -t creation-local-voice-candidate\
-        \ \"$probe_dir/backend\"\n# Persist only public model files for the eventual\
-        \ production voice_models volume.\n# No production credentials, DB connectivity\
-        \ or service ports in this container.\nsudo docker run --rm --name creation-local-voice-validation\
-        \ --cpus=1.5 --memory=6g --read-only --tmpfs /tmp --tmpfs /var/lib/creation/speech-runtime:rw,exec,nosuid,nodev,size=64m,mode=1777\
-        \ \\\n -e TMPDIR=/var/lib/creation/speech-runtime -e APP_ENV=test -e APP_SECRET_KEY=local-speech-validation-secret-32-characters\
-        \ \\\n -e CREATOR_BOOTSTRAP_USERNAME=localprobe -e CREATOR_BOOTSTRAP_PASSWORD=localprobe\
-        \ \\\n -e DATABASE_URL=postgresql+asyncpg://unused:unused@127.0.0.1/unused\
-        \ \\\n -e REDIS_URL=redis://127.0.0.1:6379/0 \\\n -v \"${project}_voice_models:/var/lib/creation/voice\"\
-        \ \\\n creation-local-voice-candidate sh -c 'python -m app.voice_session.prepare\
-        \ && python -m app.voice_session.verify_local'\nREMOTE\n"
+        \ '{{.ID}}' | head -1)\"\nproject=\"$(sudo docker inspect -f '{{index .Config.Labels\
+        \ \"com.docker.compose.project\"}}' \"$api\")\"\nsudo docker run --rm -i --name\
+        \ creation-kokoro-performance --cpus=2 --memory=3g --read-only \\\n --tmpfs\
+        \ /tmp --tmpfs /var/lib/creation/speech-runtime:rw,exec,nosuid,nodev,size=64m,mode=1777\
+        \ \\\n -e TMPDIR=/var/lib/creation/speech-runtime -v \"${project}_voice_models:/var/lib/creation/voice\"\
+        \ \\\n creation-local-voice-candidate python - <<'BENCHMARKPY'\nimport json,time,urllib.request,shutil\n\
+        from pathlib import Path\nimport onnxruntime as rt\nfrom kokoro_onnx import\
+        \ Kokoro\nroot=Path('/var/lib/creation/voice')\nint8=root/'kokoro-v1.0.int8.onnx'\n\
+        if not int8.exists():\n with urllib.request.urlopen('https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.int8.onnx',timeout=60)\
+        \ as r,int8.open('wb') as f:shutil.copyfileobj(r,f)\nfor model in ['kokoro-v1.0.onnx','kokoro-v1.0.int8.onnx']:\n\
+        \ for threads in [1,2]:\n  options=rt.SessionOptions();options.intra_op_num_threads=threads;options.inter_op_num_threads=1\n\
+        \  session=rt.InferenceSession(str(root/model),sess_options=options,providers=['CPUExecutionProvider'])\n\
+        \  voice=Kokoro.from_session(session,str(root/'voices-v1.0.bin'))\n  for text\
+        \ in ['Estou aqui.','Dois mais dois \xE9 quatro.']:\n   started=time.monotonic();audio,rate=voice.create(text,voice='pm_santa',speed=1.0,lang='pt-br')\n\
+        \   print(json.dumps({'model':model,'threads':threads,'text':text,'synthesis_ms':round((time.monotonic()-started)*1000),'audio_seconds':round(len(audio)/rate,2)}),flush=True)\n\
+        \  del voice,session\nBENCHMARKPY\nREMOTE\n"
     - name: Remove private SSH file
       if: always()
       run: rm -f ~/.ssh/id_deploy
