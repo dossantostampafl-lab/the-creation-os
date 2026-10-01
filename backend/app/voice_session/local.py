@@ -10,17 +10,34 @@ import json
 import re
 import threading
 from array import array
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from app.config import settings
 from app.voice_session.stt import STTTranscript
 
-# Serialize CPU inference on the two-core deployment, including cancelled turns:
-# cancelling asyncio.to_thread does not stop its underlying native computation.
-_CPU_LOCK = threading.Lock()
+# One synthesis thread and one recognition thread fit the two-core host.
+# Native inference already running cannot be interrupted; queued obsolete work can.
+_TTS_LOCK = threading.Lock()
 _models: LocalSpeechEngine | None = None
 _model_lock = threading.Lock()
+
+
+async def _run_synthesis(work: Callable[[], bytes]) -> bytes:
+    cancelled = threading.Event()
+
+    def run() -> bytes:
+        with _TTS_LOCK:
+            if cancelled.is_set():
+                return b""
+            return work()
+
+    try:
+        return await asyncio.to_thread(run)
+    except asyncio.CancelledError:
+        cancelled.set()
+        raise
 
 
 class LocalSpeechEngine:
@@ -31,7 +48,7 @@ class LocalSpeechEngine:
 
         root = Path(directory)
         options = rt.SessionOptions()
-        options.intra_op_num_threads = 2
+        options.intra_op_num_threads = 1
         options.inter_op_num_threads = 1
         session = rt.InferenceSession(str(root / 'kokoro-v1.0.onnx'), sess_options=options,
                                       providers=['CPUExecutionProvider'])
@@ -42,12 +59,11 @@ class LocalSpeechEngine:
     async def synthesize(self, text: str) -> bytes:
         def run() -> bytes:
             import numpy as np
-            with _CPU_LOCK:
-                audio, rate = self.kokoro.create(text, voice='pm_santa', speed=1.0, lang='pt-br')
+            audio, rate = self.kokoro.create(text, voice='pm_santa', speed=1.0, lang='pt-br')
             if rate != 24000:
                 raise RuntimeError('Local voice must produce 24000 Hz PCM')
             return np.clip(audio * 32767, -32768, 32767).astype('<i2').tobytes()
-        return await asyncio.to_thread(run)
+        return await _run_synthesis(run)
 
     def recognizer(self) -> Any:
         from vosk import KaldiRecognizer
@@ -71,7 +87,7 @@ class KokoroRealtimeTTS:
     def __init__(self, engine: Any) -> None:
         self.engine = engine
         self._text = ''
-        self._phrases: asyncio.Queue[str | None] = asyncio.Queue(maxsize=64)
+        self._phrases: asyncio.Queue[str | None] = asyncio.Queue()
         self._audio: asyncio.Queue[bytes | BaseException | None] = asyncio.Queue(maxsize=32)
         self._worker: asyncio.Task[None] | None = None
 
@@ -131,6 +147,7 @@ class KokoroRealtimeTTS:
 class VoskRealtimeSTT:
     def __init__(self, recognizer: Any, *, silence_ms: int = 400) -> None:
         self._recognizer = recognizer
+        self._recognition_lock = threading.Lock()
         self._silence_ms = silence_ms
         self._silence_samples = 0
         self._utterance_samples = 0
@@ -153,7 +170,7 @@ class VoskRealtimeSTT:
         self._has_speech = self._has_speech or voiced
         self._utterance_samples += len(samples)
         self._silence_samples = 0 if voiced else self._silence_samples + len(samples)
-        with _CPU_LOCK:
+        with self._recognition_lock:
             endpoint = self._recognizer.AcceptWaveform(audio) if audio else False
             if endpoint:
                 result = json.loads(self._recognizer.Result())

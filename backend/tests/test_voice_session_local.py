@@ -143,3 +143,48 @@ async def test_local_stt_rejects_incomplete_pcm_sample():
     async with local_module().VoskRealtimeSTT(recognizer=Recognizer()) as stt:
         with pytest.raises(ValueError, match='PCM16'):
             await stt.send_audio(b'\x01')
+
+
+@pytest.mark.asyncio
+async def test_long_local_response_does_not_abort_on_phrase_queue_capacity():
+    engine = Synthesizer()
+    async with local_module().KokoroRealtimeTTS(engine) as tts:
+        for _ in range(70):
+            await tts.send_text('Uma frase completa. ')
+        await tts.finish()
+        chunks = []
+        while (chunk := await asyncio.wait_for(tts.receive_audio(), timeout=1)) is not None:
+            chunks.append(chunk)
+    assert len(engine.calls) == 70
+    assert b''.join(chunks) == b'\x00\x01' * 240 * 70
+
+
+@pytest.mark.asyncio
+async def test_cancelled_native_synthesis_waiter_is_discarded_before_inference():
+    module = local_module()
+    lock = getattr(module, '_TTS_LOCK', None)
+    run = getattr(module, '_run_synthesis', None)
+    assert lock is not None and run is not None, 'Separate cancellable TTS scheduling is required'
+    calls = []
+    lock.acquire()
+    try:
+        task = asyncio.create_task(run(lambda: calls.append('obsolete') or b'audio'))
+        await asyncio.sleep(0.02)
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+    finally:
+        lock.release()
+    await run(lambda: b'current')
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_recognition_does_not_wait_for_obsolete_synthesis():
+    module = local_module()
+    lock = getattr(module, '_TTS_LOCK', getattr(module, '_CPU_LOCK', None))
+    lock.acquire()
+    try:
+        async with module.VoskRealtimeSTT(recognizer=Recognizer()) as stt:
+            await asyncio.wait_for(stt.send_audio(b'\x00\x20' * 1600), timeout=0.5)
+    finally:
+        lock.release()
