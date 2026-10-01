@@ -60,7 +60,7 @@ jobs:
         \ key, so this run trusted whatever answered.\"\n  echo \"Record the lines\
         \ below in deploy/oracle/known_hosts:\"\n  cat ~/.ssh/known_hosts\nfi\nchmod\
         \ 600 ~/.ssh/known_hosts\n"
-    - name: Probe actual voice inference providers without logging credentials
+    - name: Read voice quota and verify current synthesis without logging credentials
       env:
         HOST: ${{ secrets.DEPLOY_HOST }}
         USERNAME: ${{ secrets.DEPLOY_USER }}
@@ -68,29 +68,30 @@ jobs:
         \ \"${USERNAME:-ubuntu}@$HOST\" 'bash -s' <<'REMOTEPROBE'\nset -euo pipefail\n\
         api=\"$(sudo docker ps --filter 'label=com.docker.compose.service=api' --format\
         \ '{{.ID}}' | head -1)\"\nsudo docker exec -i \"$api\" python - <<'PROVIDERPY'\n\
-        import asyncio,json,time\nfrom app.config import settings\nfrom app.voice_session.runtime\
-        \ import build_primary_provider,build_klaus_provider\nfrom app.voice_session.inference\
-        \ import stream_with_fallback\nfrom app.voice_session.tts import ElevenLabsTTSConfig,ElevenLabsRealtimeTTS\n\
-        from app.inference.contracts import InferenceRequest\nfrom app.services.conversation_context\
-        \ import SYSTEM_PROMPT\nasync def main():\n config=ElevenLabsTTSConfig(api_key=settings.elevenlabs_api_key.get_secret_value(),voice_id=settings.elevenlabs_voice_id,model_id=settings.elevenlabs_model_id)\n\
-        \ for mode in ['streamed-chunks','whole-sentence']:\n  started=time.monotonic();audio_count=0\n\
-        \  try:\n   async with asyncio.timeout(25):\n    async with ElevenLabsRealtimeTTS(config)\
-        \ as tts:\n     connection=tts._require_connection(); original_recv=connection.recv\n\
-        \     async def traced_recv(*args,**kwargs):\n      raw=await original_recv(*args,**kwargs)\n\
-        \      data=json.loads(raw)\n      error=data.get('error')\n      print(json.dumps({'probe':mode,'wire_keys':list(data),'error_code':error\
-        \ if isinstance(error,str) and len(error)<80 else None,'audio_chars':len(data.get('audio')\
-        \ or ''),'is_final':data.get('isFinal',data.get('is_final'))}),flush=True)\n\
-        \      return raw\n     connection.recv=traced_recv\n     async def receive():\n\
-        \      nonlocal audio_count\n      while True:\n       audio=await tts.receive_audio()\n\
-        \       if audio is None:return\n       audio_count+=1\n     reader=asyncio.create_task(receive())\n\
-        \     try:\n      if mode=='streamed-chunks':\n       request=InferenceRequest(messages=[{'role':'system','content':SYSTEM_PROMPT},{'role':'user','content':'Quanto\
-        \ \xE9 dois mais dois'}])\n       async for chunk in stream_with_fallback(request,primary=build_primary_provider(),fallback=build_klaus_provider()):\n\
-        \        print(json.dumps({'probe':mode,'model_chunk':chunk.text,'provider':chunk.provider}),flush=True)\n\
-        \        await tts.send_text(chunk.text)\n      else:await tts.send_text('Dois\
-        \ mais dois \xE9 quatro.')\n      await tts.finish();await reader\n     finally:\n\
-        \      reader.cancel();await asyncio.gather(reader,return_exceptions=True)\n\
-        \   print(json.dumps({'probe':mode,'audio_count':audio_count,'elapsed_ms':round((time.monotonic()-started)*1000)}),flush=True)\n\
-        \  except Exception as error:print(json.dumps({'probe':mode,'error_type':type(error).__name__,'code':getattr(error,'code',None),'audio_count':audio_count,'elapsed_ms':round((time.monotonic()-started)*1000)}),flush=True)\n\
+        import asyncio,json,time,re\nimport httpx\nfrom app.config import settings\n\
+        from app.voice_session.tts import ElevenLabsTTSConfig,ElevenLabsRealtimeTTS\n\
+        async def main():\n key=settings.elevenlabs_api_key.get_secret_value()\n print(json.dumps({'voice_key_configured':bool(key),'voice_id_configured':bool(settings.elevenlabs_voice_id),'model':settings.elevenlabs_model_id}),flush=True)\n\
+        \ async with httpx.AsyncClient(timeout=20,headers={'xi-api-key':key}) as client:\n\
+        \  for path in ['/v1/user/subscription','/v1/user']:\n   response=await client.get('https://api.elevenlabs.io'+path)\n\
+        \   output={'probe':path,'status':response.status_code}\n   if response.status_code==200:\n\
+        \    data=response.json();sub=data if path.endswith('subscription') else data.get('subscription',{})\n\
+        \    for name in ['tier','status','character_count','character_limit','next_character_count_reset_unix','can_extend_character_limit','has_open_invoices']:\n\
+        \     if name in sub and isinstance(sub[name],(str,int,float,bool,type(None))):output[name]=sub[name]\n\
+        \    if isinstance(sub.get('character_count'),int) and isinstance(sub.get('character_limit'),int):output['remaining']=sub['character_limit']-sub['character_count']\n\
+        \   else:\n    detail=response.json().get('detail',{})\n    if isinstance(detail,dict):output['vendor_status']=detail.get('status')\n\
+        \   print(json.dumps(output),flush=True)\n config=ElevenLabsTTSConfig(api_key=key,voice_id=settings.elevenlabs_voice_id,model_id=settings.elevenlabs_model_id)\n\
+        \ started=time.monotonic();audio_count=0\n try:\n  async with asyncio.timeout(20):\n\
+        \   async with ElevenLabsRealtimeTTS(config) as tts:\n    conn=tts._require_connection();original_recv=conn.recv\n\
+        \    async def traced_recv(*args,**kwargs):\n     raw=await original_recv(*args,**kwargs);data=json.loads(raw)\n\
+        \     out={'probe':'tts-current','vendor_error':data.get('error') if isinstance(data.get('error'),str)\
+        \ else None}\n     message=data.get('message','')\n     if isinstance(message,str):\n\
+        \      for label,pattern in [('remaining_credits',r'(\\d+) credits? remaining'),('required_credits',r'(\\\
+        d+) credits? (?:are )?required')]:\n       match=re.search(pattern,message,re.I)\n\
+        \       if match:out[label]=int(match.group(1))\n     if data.get('error'):print(json.dumps(out),flush=True)\n\
+        \     return raw\n    conn.recv=traced_recv\n    await tts.send_text('Estou\
+        \ aqui.');await tts.finish()\n    while True:\n     audio=await tts.receive_audio()\n\
+        \     if audio is None:break\n     audio_count+=1\n  print(json.dumps({'probe':'tts-current','audio_count':audio_count,'elapsed_ms':round((time.monotonic()-started)*1000)}),flush=True)\n\
+        \ except Exception as error:print(json.dumps({'probe':'tts-current','error_type':type(error).__name__,'code':getattr(error,'code',None),'audio_count':audio_count,'elapsed_ms':round((time.monotonic()-started)*1000)}),flush=True)\n\
         asyncio.run(main())\nPROVIDERPY\nREMOTEPROBE\n"
     - name: Remove the key
       if: always()
