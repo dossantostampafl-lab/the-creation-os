@@ -60,8 +60,7 @@ jobs:
         \ key, so this run trusted whatever answered.\"\n  echo \"Record the lines\
         \ below in deploy/oracle/known_hosts:\"\n  cat ~/.ssh/known_hosts\nfi\nchmod\
         \ 600 ~/.ssh/known_hosts\n"
-    - name: Measure warm speech recognition without timestamps and repeated decoder
-        attempts
+    - name: Compare actual streaming Portuguese recognition without paid APIs
       env:
         HOST: ${{ secrets.DEPLOY_HOST }}
         USERNAME: ${{ secrets.DEPLOY_USER }}
@@ -73,11 +72,11 @@ jobs:
         \ env files or service ports.\nsudo docker run --rm -i --name creation-free-voice-evaluation\
         \ --cpus=1.5 --memory=3g --entrypoint /bin/sh -e HF_HUB_DISABLE_XET=1 \"$image\"\
         \ -s <<'CONTAINER'\nset -eu\npython -m venv /tmp/probe-venv\n/tmp/probe-venv/bin/pip\
-        \ install --quiet 'piper-tts==1.8.0' 'faster-whisper==1.2.1' 'av==16.1.0'\n\
-        mkdir -p /tmp/models\ncd /tmp/models\n/tmp/probe-venv/bin/python -m piper.download_voices\
-        \ pt_BR-faber-medium\n/tmp/probe-venv/bin/python - <<'BENCHMARKPY'\nimport\
-        \ json,time,wave,resource\nfrom piper import PiperVoice\nfrom faster_whisper\
-        \ import WhisperModel\nimport ctranslate2\nprint(json.dumps({'supported_cpu_types':sorted(ctranslate2.get_supported_compute_types('cpu'))}),flush=True)\n\
+        \ install --quiet 'piper-tts==1.8.0' 'faster-whisper==1.2.1' 'av==16.1.0'\
+        \ 'vosk==0.3.45'\nmkdir -p /tmp/models\ncd /tmp/models\n/tmp/probe-venv/bin/python\
+        \ -m piper.download_voices pt_BR-faber-medium\n/tmp/probe-venv/bin/python\
+        \ - <<'BENCHMARKPY'\nimport json,time,wave,resource\nfrom piper import PiperVoice\n\
+        from faster_whisper import WhisperModel\nimport ctranslate2\nprint(json.dumps({'supported_cpu_types':sorted(ctranslate2.get_supported_compute_types('cpu'))}),flush=True)\n\
         started=time.monotonic();voice=PiperVoice.load('/tmp/models/pt_BR-faber-medium.onnx')\n\
         print(json.dumps({'tts_load_ms':round((time.monotonic()-started)*1000)}),flush=True)\n\
         phrases=['Deus, quanto \xE9 dois mais dois?','Quanto \xE9 dez mais cinco,\
@@ -86,13 +85,21 @@ jobs:
         \  if first is None:first=round((time.monotonic()-started)*1000)\n  chunks.append(chunk.audio_int16_bytes);rate=chunk.sample_rate\n\
         \ with wave.open('/tmp/sample'+str(i)+'.wav','wb') as out:\n  out.setnchannels(1);out.setsampwidth(2);out.setframerate(rate);out.writeframes(b''.join(chunks))\n\
         \ print(json.dumps({'tts_text':text,'first_audio_ms':first,'total_ms':round((time.monotonic()-started)*1000),'audio_seconds':round(sum(map(len,chunks))/2/rate,2)}),flush=True)\n\
-        for name,threads in [('tiny',1),('tiny',2),('base',2)]:\n model=WhisperModel(name,device='cpu',compute_type='int8',cpu_threads=threads,num_workers=1,download_root='/tmp/models')\n\
-        \ options=dict(language='pt',beam_size=1,condition_on_previous_text=False,vad_filter=False,without_timestamps=True,temperature=0.0)\n\
-        \ # Warm only on a different sample, then measure all three input phrases\
-        \ twice.\n list(model.transcribe('/tmp/sample2.wav',**options)[0])\n for repeat\
-        \ in range(2):\n  for i,text in enumerate(phrases):\n   started=time.monotonic();segments,info=model.transcribe('/tmp/sample'+str(i)+'.wav',**options)\n\
-        \   result=' '.join(segment.text.strip() for segment in segments)\n   print(json.dumps({'stt_model':name,'threads':threads,'repeat':repeat,'expected':text,'transcript':result,'elapsed_ms':round((time.monotonic()-started)*1000)}),flush=True)\n\
-        \ del model\n\nBENCHMARKPY\nCONTAINER\nREMOTE\n"
+        import urllib.request,zipfile,io\nfrom vosk import Model,KaldiRecognizer,SetLogLevel\n\
+        from faster_whisper.audio import decode_audio\nimport numpy as np\nSetLogLevel(-1)\n\
+        url='https://alphacephei.com/vosk/models/vosk-model-small-pt-0.3.zip'\nwith\
+        \ urllib.request.urlopen(url,timeout=40) as response:\n zipfile.ZipFile(io.BytesIO(response.read())).extractall('/tmp/models')\n\
+        model=Model('/tmp/models/vosk-model-small-pt-0.3')\nfor repeat in range(2):\n\
+        \ for i,text in enumerate(phrases):\n  pcm=(decode_audio('/tmp/sample'+str(i)+'.wav',sampling_rate=16000)*32767).astype(np.int16).tobytes()\n\
+        \  recognizer=KaldiRecognizer(model,16000);results=[];cpu_ms=0;start=time.monotonic()\n\
+        \  for offset in range(0,len(pcm),3200):\n   chunk=pcm[offset:offset+3200]\n\
+        \   # Deliver frames at their actual audio rate, as a live microphone would.\n\
+        \   delay=start+offset/32000-time.monotonic()\n   if delay>0:time.sleep(delay)\n\
+        \   tick=time.monotonic()\n   if recognizer.AcceptWaveform(chunk):results.append(json.loads(recognizer.Result()).get('text',''))\n\
+        \   cpu_ms+=(time.monotonic()-tick)*1000\n  tick=time.monotonic();results.append(json.loads(recognizer.FinalResult()).get('text',''))\n\
+        \  final_ms=round((time.monotonic()-tick)*1000)\n  print(json.dumps({'stt_model':'vosk-small-pt','repeat':repeat,'expected':text,'transcript':'\
+        \ '.join(r for r in results if r),'audio_seconds':round(len(pcm)/32000,2),'processing_ms':round(cpu_ms),'finalization_ms':final_ms,'peak_memory_MiB':round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/1024)}),flush=True)\n\
+        \nBENCHMARKPY\nCONTAINER\nREMOTE\n"
     - name: Remove private SSH file
       if: always()
       run: rm -f ~/.ssh/id_deploy
