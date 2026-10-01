@@ -60,24 +60,18 @@ jobs:
         \ key, so this run trusted whatever answered.\"\n  echo \"Record the lines\
         \ below in deploy/oracle/known_hosts:\"\n  cat ~/.ssh/known_hosts\nfi\nchmod\
         \ 600 ~/.ssh/known_hosts\n"
-    - name: Check Speech Engine API access read-only
+    - name: Evaluate host capacity for local speech without reading credentials
       env:
         HOST: ${{ secrets.DEPLOY_HOST }}
         USERNAME: ${{ secrets.DEPLOY_USER }}
       run: "set -euo pipefail\nssh -i ~/.ssh/id_deploy -o BatchMode=yes -o ConnectTimeout=20\
-        \ \"${USERNAME:-ubuntu}@$HOST\" 'bash -s' <<'REMOTEPROBE'\nset -euo pipefail\n\
-        api=\"$(sudo docker ps --filter 'label=com.docker.compose.service=api' --format\
-        \ '{{.ID}}' | head -1)\"\nsudo docker exec -i \"$api\" python - <<'PROVIDERPY'\n\
-        import asyncio,json\nimport httpx\nfrom app.config import settings\nasync\
-        \ def main():\n async with httpx.AsyncClient(timeout=20,headers={'xi-api-key':settings.elevenlabs_api_key.get_secret_value()})\
-        \ as client:\n  r=await client.get('https://api.elevenlabs.io/v1/speech-engine')\n\
-        \  data=r.json();out={'speech_engine_list_status':r.status_code}\n  if r.status_code==200:\n\
-        \   out['existing_engines_count']=len(data.get('speech_engines',data.get('engines',[])))\
-        \ if isinstance(data,dict) else len(data)\n  else:\n   detail=data.get('detail',{})\
-        \ if isinstance(data,dict) else {}\n   out['vendor_status']=detail.get('status')\
-        \ if isinstance(detail,dict) else None\n  print(json.dumps(out),flush=True)\n\
-        asyncio.run(main())\nPROVIDERPY\nREMOTEPROBE\n"
-    - name: Remove the key
+        \ \"${USERNAME:-ubuntu}@$HOST\" 'bash -s' <<'REMOTE'\nset -euo pipefail\n\
+        python3 - <<'HARDWARE'\nimport json,os,platform,shutil\nmemory={}\nfor line\
+        \ in open('/proc/meminfo'):\n name,value=line.split(':',1)\n if name in ['MemTotal','MemAvailable','SwapTotal','SwapFree']:memory[name+'_MiB']=int(value.strip().split()[0])//1024\n\
+        space=shutil.disk_usage('/')\nprint(json.dumps({'architecture':platform.machine(),'logical_cpus':os.cpu_count(),'load_average':os.getloadavg(),'memory':memory,'disk_free_GiB':round(space.free/1024**3,1),'gpu_device_present':os.path.exists('/dev/nvidia0')},sort_keys=True))\n\
+        HARDWARE\nsudo docker stats --no-stream --format '{{.Name}} CPU={{.CPUPerc}}\
+        \ memory={{.MemUsage}}'\nREMOTE\n"
+    - name: Remove private SSH file
       if: always()
       run: rm -f ~/.ssh/id_deploy
 'on':
