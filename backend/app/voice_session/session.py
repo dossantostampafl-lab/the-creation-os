@@ -195,7 +195,7 @@ class VoiceSessionGateway:
         session: VoiceSession,
         stt: RealtimeSTT,
         primary: StreamingProvider,
-        fallback: StreamingProvider,
+        fallback: StreamingProvider | None,
         tts_factory: TTSFactory,
         request_builder: RequestBuilder | None = None,
         on_turn_completed: TurnCompleted | None = None,

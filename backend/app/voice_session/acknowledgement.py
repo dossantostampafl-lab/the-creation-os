@@ -55,6 +55,6 @@ class VoiceAcknowledgementCache:
 
             audio = b"".join(chunks)
             if not audio:
-                raise RuntimeError("ElevenLabs acknowledgement returned empty audio")
+                raise RuntimeError("Voice acknowledgement returned empty audio")
             self._audio = audio
             return audio

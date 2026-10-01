@@ -52,7 +52,7 @@ async def stream_with_fallback(
     request: InferenceRequest,
     *,
     primary: StreamingProvider,
-    fallback: StreamingProvider,
+    fallback: StreamingProvider | None,
     first_token_timeout_seconds: float = 2.5,
 ) -> AsyncIterator[StreamChunk]:
     if first_token_timeout_seconds <= 0:
@@ -64,7 +64,9 @@ async def stream_with_fallback(
             primary_stream.__anext__(),
             timeout=first_token_timeout_seconds,
         )
-    except (TimeoutError, InferenceError, StopAsyncIteration):
+    except (TimeoutError, InferenceError, StopAsyncIteration) as exc:
+        if fallback is None:
+            raise InferenceTimeoutError(primary.name, "FreeLLM voice response unavailable") from exc
         async for chunk in _stream_with_first_token_deadline(
             request,
             fallback,

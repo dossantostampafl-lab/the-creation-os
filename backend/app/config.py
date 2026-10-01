@@ -82,6 +82,9 @@ class Settings(BaseSettings):
     proto_base_url: str | None = Field(None, env="PROTO_BASE_URL")
     proto_creation_shared_secret: SecretStr | None = Field(None, env="PROTO_CREATION_SHARED_SECRET")
     proto_timeout_seconds: float = Field(10.0, gt=0.0, le=60.0, env="PROTO_TIMEOUT_SECONDS")
+    deus_voice_engine: str = Field("elevenlabs", env="DEUS_VOICE_ENGINE")
+    deus_local_voice_models_dir: str = Field("/var/lib/creation/voice", env="DEUS_LOCAL_VOICE_MODELS_DIR")
+    deus_local_voice_silence_ms: int = Field(400, ge=200, le=1500, env="DEUS_LOCAL_VOICE_SILENCE_MS")
     elevenlabs_enabled: bool = Field(False, env="ELEVENLABS_ENABLED")
     elevenlabs_api_key: SecretStr | None = Field(None, env="ELEVENLABS_API_KEY")
     elevenlabs_voice_id: str = Field("configured-voice-id", env="ELEVENLABS_VOICE_ID")
@@ -176,6 +179,13 @@ class Settings(BaseSettings):
         if primary in names:
             raise ValueError("LLM_FALLBACK_PROVIDERS must not repeat LLM_PROVIDER")
         return ",".join(names)
+
+    @validator("deus_voice_engine")
+    def validate_voice_engine(cls, value: str) -> str:
+        value = value.strip().lower()
+        if value not in {"local", "elevenlabs"}:
+            raise ValueError("DEUS_VOICE_ENGINE must be local or elevenlabs")
+        return value
 
     @validator("deus_voice_primary_provider")
     def validate_deus_voice_primary_provider(cls, value: str) -> str:
