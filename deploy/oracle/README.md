@@ -119,3 +119,22 @@ curl -fsSL https://raw.githubusercontent.com/dossantostampafl-lab/the-creation-o
 - O `.env` guarda todas as chaves e fica legível só pelo administrador. Não o envie para o GitHub.
 - Na internet, só as portas 80 e 443 ficam abertas. API, Postgres, Redis e FreeLLMAPI ficam fechados dentro da máquina.
 - A Oracle pode recuperar máquinas gratuitas que ficam **ociosas** por muito tempo. Se isso acontecer, recrie a máquina e restaure o backup.
+
+### Voice without speech API credits
+
+Run the Deploy workflow task `set-local-voice` after updating to a revision that
+includes local voice support. It downloads public models into the `voice_models`
+volume, validates PCM synthesis and speech recognition, then switches DEUS to
+Kokoro `pm_santa` in Brazilian Portuguese and Vosk FalaBrasil. Existing chat
+history and the wake word “Deus” stay in the same voice-session gateway. Voice
+inference uses FreeLLMAPI; no paid fallback is called in local mode. Activation
+also keeps typed chat on FreeLLMAPI and clears its paid fallback list. Recognition
+can still make mistakes, and end-to-end latency includes silence detection,
+server CPU, the FreeLLM response and network latency.
+
+The initial download needs approximately 1.6 GB compressed for Vosk plus
+350 MB for Kokoro, with additional space for extraction. Download happens only
+at preparation time, never during a conversation. Models remain cached across
+API updates. The previous environment is stored with mode 0600 in
+`.env.before-local-voice`; readiness failure restores it automatically. Model
+licenses: Kokoro weights Apache 2.0, Vosk engine Apache 2.0, FalaBrasil model GPL 3.

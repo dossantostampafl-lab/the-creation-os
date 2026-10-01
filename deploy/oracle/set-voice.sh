@@ -4,7 +4,7 @@
 #   sudo ELEVENLABS_API_KEY=... ELEVENLABS_VOICE_ID=... ./deploy/oracle/set-voice.sh
 #   sudo ./deploy/oracle/set-voice.sh                    # asks for both
 #
-# This configures the only production voice path: backend-managed realtime ElevenLabs STT/TTS.
+# This selects the paid voice path: backend-managed realtime ElevenLabs STT/TTS.
 # Browser-native speech recognition/synthesis is not used by the realtime DEUS session.
 set -euo pipefail
 
@@ -59,6 +59,7 @@ model_id="${model_id:-eleven_flash_v2_5}"
 
 cp .env .env.bak
 chmod 600 .env.bak
+env_set DEUS_VOICE_ENGINE elevenlabs
 env_set ELEVENLABS_ENABLED true
 env_set ELEVENLABS_API_KEY "$api_key"
 env_set ELEVENLABS_VOICE_ID "$voice_id"

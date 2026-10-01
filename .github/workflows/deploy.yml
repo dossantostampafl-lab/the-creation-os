@@ -21,6 +21,7 @@ on:
           - tidy
           - logs
           - set-voice
+          - set-local-voice
           - smoke-test
           - stf-host-check
           - seed
@@ -223,6 +224,11 @@ jobs:
               ;;
             logs)
               sudo ./deploy/oracle/show-logs.sh 150
+              ;;
+            set-local-voice)
+              sudo git merge --ff-only "origin/$target"
+              sudo ./deploy/oracle/set-local-voice.sh
+              sudo ./deploy/oracle/smoke-test.sh --deus
               ;;
             set-voice)
               # "Klaus" is the logical reserve in the voice protocol. On this deployment it is

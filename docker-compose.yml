@@ -30,6 +30,7 @@ services:
       # Compiled Task Force contracts, grants and kill switch: shared with stf-worker so a revoke
       # or a cancel made through the API is seen by the worker.
       - stf_state:/var/lib/creation/stf
+      - voice_models:/var/lib/creation/voice
     ports:
       - "127.0.0.1:${CREATION_API_PORT:-8000}:8000"
     depends_on:
@@ -209,6 +210,7 @@ services:
     restart: unless-stopped
 
 volumes:
+  voice_models:
   postgres_data:
   redis_data:
   workspace_data:

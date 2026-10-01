@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,7 +15,17 @@ from app.config import settings
 from app.core.domain import AuthorizationDenied, DomainError
 from app.services.domain import NotFoundError
 
-app = FastAPI(title="The Creation OS", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    if settings.deus_voice_session_enabled and settings.deus_voice_engine == "local":
+        from app.api.voice_session import _voice_acknowledgement_cache
+        # Load once and warm the approved voice before advertising readiness.
+        await _voice_acknowledgement_cache().get()
+    yield
+
+
+app = FastAPI(title="The Creation OS", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

@@ -2,8 +2,10 @@ FROM python:3.12-slim
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1
 # Dependencies first, so a source change does not re-resolve them.
+RUN apt-get update && apt-get install -y --no-install-recommends espeak-ng libatomic1 libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
 COPY pyproject.toml .
-RUN pip install --no-cache-dir "pip>=23.0" && pip install --no-cache-dir .
+RUN pip install --no-cache-dir "pip>=23.0" && pip install --no-cache-dir ".[speech]"
 COPY . .
 # The install above ran before the source existed, so it brought the dependencies and the
 # console scripts but not the package itself. uvicorn does not notice — it puts the working
@@ -14,6 +16,6 @@ RUN pip install --no-cache-dir --no-deps .
 # The workspace capability keeps each Mission's files here. Creating it in the image with the
 # right owner means a fresh named volume inherits that ownership and the non-root user can write.
 RUN useradd --create-home --uid 10001 appuser \
-    && mkdir -p /var/lib/creation/workspaces /var/lib/creation/stf \
+    && mkdir -p /var/lib/creation/workspaces /var/lib/creation/stf /var/lib/creation/voice \
     && chown -R appuser:appuser /app /var/lib/creation
 USER appuser
