@@ -70,7 +70,7 @@ jobs:
         \ '{{.ID}}' | head -1)\"\nimage=\"$(sudo docker inspect --format '{{.Image}}'\
         \ \"$api\")\"\n# Disposable evaluation: no production volumes, credentials,\
         \ env files or service ports.\nsudo docker run --rm -i --user 0 --name creation-free-voice-evaluation\
-        \ --cpus=1.5 --memory=3g --entrypoint /bin/sh -e HF_HUB_DISABLE_XET=1 \"$image\"\
+        \ --cpus=1.5 --memory=6g --entrypoint /bin/sh -e HF_HUB_DISABLE_XET=1 \"$image\"\
         \ -s <<'CONTAINER'\nset -eu\napt-get update -qq -o Acquire::Retries=0 -o Acquire::http::Timeout=20\n\
         apt-get install -y -qq --no-install-recommends libatomic1 libgomp1\npython\
         \ -m venv /tmp/probe-venv\n/tmp/probe-venv/bin/pip install --quiet 'piper-tts==1.8.0'\
@@ -89,18 +89,18 @@ jobs:
         \ print(json.dumps({'tts_text':text,'first_audio_ms':first,'total_ms':round((time.monotonic()-started)*1000),'audio_seconds':round(sum(map(len,chunks))/2/rate,2)}),flush=True)\n\
         import urllib.request,zipfile,io\nfrom vosk import Model,KaldiRecognizer,SetLogLevel\n\
         from faster_whisper.audio import decode_audio\nimport numpy as np\nSetLogLevel(-1)\n\
-        url='https://alphacephei.com/vosk/models/vosk-model-small-pt-0.3.zip'\nwith\
-        \ urllib.request.urlopen(url,timeout=40) as response:\n zipfile.ZipFile(io.BytesIO(response.read())).extractall('/tmp/models')\n\
-        model=Model('/tmp/models/vosk-model-small-pt-0.3')\nfor repeat in range(2):\n\
-        \ for i,text in enumerate(phrases):\n  pcm=(decode_audio('/tmp/sample'+str(i)+'.wav',sampling_rate=16000)*32767).astype(np.int16).tobytes()\n\
+        url='https://alphacephei.com/vosk/models/vosk-model-pt-fb-v0.1.1-20220516_2113.zip'\n\
+        with urllib.request.urlopen(url,timeout=120) as response:\n zipfile.ZipFile(io.BytesIO(response.read())).extractall('/tmp/models')\n\
+        model=Model('/tmp/models/vosk-model-pt-fb-v0.1.1-20220516_2113')\nfor repeat\
+        \ in range(2):\n for i,text in enumerate(phrases):\n  pcm=(decode_audio('/tmp/sample'+str(i)+'.wav',sampling_rate=16000)*32767).astype(np.int16).tobytes()\n\
         \  recognizer=KaldiRecognizer(model,16000);results=[];cpu_ms=0;start=time.monotonic()\n\
         \  for offset in range(0,len(pcm),3200):\n   chunk=pcm[offset:offset+3200]\n\
         \   # Deliver frames at their actual audio rate, as a live microphone would.\n\
-        \   delay=start+offset/32000-time.monotonic()\n   if delay>0:time.sleep(delay)\n\
+        \   delay=start+(offset+len(chunk))/32000-time.monotonic()\n   if delay>0:time.sleep(delay)\n\
         \   tick=time.monotonic()\n   if recognizer.AcceptWaveform(chunk):results.append(json.loads(recognizer.Result()).get('text',''))\n\
         \   cpu_ms+=(time.monotonic()-tick)*1000\n  tick=time.monotonic();results.append(json.loads(recognizer.FinalResult()).get('text',''))\n\
-        \  final_ms=round((time.monotonic()-tick)*1000)\n  print(json.dumps({'stt_model':'vosk-small-pt','repeat':repeat,'expected':text,'transcript':'\
-        \ '.join(r for r in results if r),'audio_seconds':round(len(pcm)/32000,2),'processing_ms':round(cpu_ms),'finalization_ms':final_ms,'peak_memory_MiB':round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/1024)}),flush=True)\n\
+        \  final_ms=round((time.monotonic()-tick)*1000)\n  print(json.dumps({'stt_model':'vosk-full-pt','repeat':repeat,'expected':text,'transcript':'\
+        \ '.join(r for r in results if r),'audio_seconds':round(len(pcm)/32000,2),'processing_ms':round(cpu_ms),'finalization_ms':final_ms,'post_audio_completion_ms':max(0,round((time.monotonic()-start-len(pcm)/32000)*1000)),'peak_memory_MiB':round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/1024)}),flush=True)\n\
         \nBENCHMARKPY\nCONTAINER\nREMOTE\n"
     - name: Remove private SSH file
       if: always()
