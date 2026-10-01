@@ -85,7 +85,7 @@ jobs:
         \  if first is None:first=round((time.monotonic()-started)*1000)\n  chunks.append(chunk.audio_int16_bytes);rate=chunk.sample_rate\n\
         \ with wave.open('/tmp/sample'+str(i)+'.wav','wb') as out:\n  out.setnchannels(1);out.setsampwidth(2);out.setframerate(rate);out.writeframes(b''.join(chunks))\n\
         \ print(json.dumps({'tts_text':text,'first_audio_ms':first,'total_ms':round((time.monotonic()-started)*1000),'audio_seconds':round(sum(map(len,chunks))/2/rate,2)}),flush=True)\n\
-        for name in ['tiny','base']:\n started=time.monotonic();model=WhisperModel(name,device='cpu',compute_type='int8',cpu_threads=2,num_workers=1,download_root='/tmp/models')\n\
+        for name in ['small']:\n started=time.monotonic();model=WhisperModel(name,device='cpu',compute_type='int8',cpu_threads=2,num_workers=1,download_root='/tmp/models')\n\
         \ print(json.dumps({'stt_model':name,'download_and_load_ms':round((time.monotonic()-started)*1000)}),flush=True)\n\
         \ for i,text in enumerate(phrases):\n  started=time.monotonic()\n  segments,info=model.transcribe('/tmp/sample'+str(i)+'.wav',language='pt',beam_size=1,condition_on_previous_text=False,vad_filter=False)\n\
         \  result=' '.join(s.text.strip() for s in segments)\n  print(json.dumps({'stt_model':name,'expected':text,'transcript':result,'elapsed_ms':round((time.monotonic()-started)*1000),'peak_memory_MiB':round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/1024)}),flush=True)\n\
