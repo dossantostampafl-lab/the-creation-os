@@ -138,3 +138,24 @@ def test_reset_preserves_snapshots(tmp_path, monkeypatch) -> None:
     snapshots = client.get("/snapshots")
     assert snapshots.status_code == 200
     assert snapshot_id in {item["snapshot_id"] for item in snapshots.json()["snapshots"]}
+
+
+@pytest.mark.parametrize("invalid_state", [[{"scenario_id": "juice-shop-baseline"}, {"scenario_id": "unknown"}], [None], {}, "invalid"])
+def test_invalid_snapshot_restore_preserves_existing_state(tmp_path, monkeypatch, invalid_state) -> None:
+    module, evidence, state = load_controller(tmp_path, monkeypatch)
+    client = TestClient(module.app)
+    assert client.post("/scenarios/webgoat-baseline/start").status_code == 200
+    before = {path.name: path.read_bytes() for path in state.iterdir()}
+    saved = client.post("/snapshots").json()
+    snapshot_id = saved["snapshot_id"]
+    snapshot = module.SNAPSHOT_DIR / f"{snapshot_id}.json"
+    record = json.loads(snapshot.read_text())
+    record["state"] = invalid_state
+    snapshot.write_text(json.dumps(record))
+    audit_before = {path.name for path in evidence.iterdir()}
+
+    response = client.post(f"/snapshots/{snapshot_id}/restore")
+
+    assert response.status_code == 409
+    assert {path.name: path.read_bytes() for path in state.iterdir()} == before
+    assert {path.name for path in evidence.iterdir()} == audit_before

@@ -191,22 +191,41 @@ def restore_range(snapshot_id: str) -> dict[str, Any]:
     if not SNAPSHOT_ID.fullmatch(snapshot_id):
         raise HTTPException(status_code=404, detail="snapshot not found")
     source = _snapshot_path(snapshot_id)
-    record = json.loads(source.read_text(encoding="utf-8"))
-    if record.get("environment") != "CYBER_RANGE" or record.get("snapshot_id") != snapshot_id:
+    try:
+        record = json.loads(source.read_text(encoding="utf-8"))
+    except (ValueError, UnicodeError) as exc:
+        raise HTTPException(status_code=409, detail="invalid cyber range snapshot") from exc
+    if (
+        not isinstance(record, dict)
+        or record.get("schema_version") != 1
+        or record.get("environment") != "CYBER_RANGE"
+        or record.get("snapshot_id") != snapshot_id
+        or not isinstance(record.get("state"), list)
+    ):
         raise HTTPException(status_code=409, detail="invalid cyber range snapshot")
 
+    # Validate the complete snapshot before removing any current scenario state.
+    declared = {item["id"] for item in _load_catalog()}
+    prepared: list[tuple[Path, str]] = []
     restored_ids: list[str] = []
+    for state_record in record["state"]:
+        if not isinstance(state_record, dict):
+            raise HTTPException(status_code=409, detail="invalid snapshot state")
+        scenario_id = state_record.get("scenario_id")
+        if (
+            not isinstance(scenario_id, str)
+            or scenario_id not in declared
+            or scenario_id in restored_ids
+        ):
+            raise HTTPException(status_code=409, detail="invalid snapshot state")
+        destination = _safe_child(STATE_DIR, f"{scenario_id}.json")
+        prepared.append((destination, json.dumps(state_record, sort_keys=True)))
+        restored_ids.append(scenario_id)
+
     for path in STATE_DIR.glob("*.json"):
         path.unlink()
-    for state_record in record.get("state", []):
-        scenario_id = state_record.get("scenario_id")
-        if not isinstance(scenario_id, str):
-            raise HTTPException(status_code=409, detail="invalid snapshot state")
-        scenario = _scenario(scenario_id)
-        _safe_child(STATE_DIR, f"{_declared_id(scenario)}.json").write_text(
-            json.dumps(state_record, sort_keys=True), encoding="utf-8"
-        )
-        restored_ids.append(scenario_id)
+    for destination, content in prepared:
+        destination.write_text(content, encoding="utf-8")
 
     evidence_id = _write_audit_record(
         "range_snapshot_restored",
