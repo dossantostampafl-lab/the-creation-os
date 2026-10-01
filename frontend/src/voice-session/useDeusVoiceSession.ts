@@ -21,6 +21,7 @@ export type RealtimeVoiceStatus =
   | "error";
 
 export type VoiceReply = {
+  sessionId: string;
   turnId: number;
   text: string;
   provider: string | null;
@@ -29,8 +30,8 @@ export type VoiceReply = {
 export type UseDeusVoiceSessionOptions = {
   enabled: boolean;
   conversationId: string | null;
-  onTranscript?: (text: string, turnId: number) => void;
-  onTextDelta?: (text: string, turnId: number, provider: string) => void;
+  onTranscript?: (text: string, turnId: number, sessionId: string) => void;
+  onTextDelta?: (text: string, turnId: number, provider: string, sessionId: string) => void;
   onReply?: (reply: VoiceReply) => void;
   onWake?: () => void;
 };
@@ -171,7 +172,7 @@ export function useDeusVoiceSession(options: UseDeusVoiceSessionOptions): DeusVo
 
     const finishReply = (turnId: number) => {
       if (!replyText || replyTurn !== turnId) return;
-      callbacks.current.onReply?.({ turnId, text: replyText, provider: replyProvider });
+      callbacks.current.onReply?.({ sessionId: model.sessionId ?? "", turnId, text: replyText, provider: replyProvider });
       replyText = "";
       replyProvider = null;
       replyTurn = 0;
@@ -200,6 +201,9 @@ export function useDeusVoiceSession(options: UseDeusVoiceSessionOptions): DeusVo
       if (nextStatus) setStatus(nextStatus);
 
       if (event.type === "session_ready") {
+        replyTurn = 0;
+        replyText = "";
+        replyProvider = null;
         reconnectAttempt = 0;
         bargeOpen = false;
         setError(null);
@@ -231,7 +235,7 @@ export function useDeusVoiceSession(options: UseDeusVoiceSessionOptions): DeusVo
         replyTurn = event.turn_id;
         replyText = "";
         replyProvider = null;
-        callbacks.current.onTranscript?.(event.text, event.turn_id);
+        callbacks.current.onTranscript?.(event.text, event.turn_id, event.session_id);
         return;
       }
       if (event.type === "text_delta") {
@@ -242,7 +246,7 @@ export function useDeusVoiceSession(options: UseDeusVoiceSessionOptions): DeusVo
         replyText += event.text;
         replyProvider = event.provider;
         setProvider(event.provider);
-        callbacks.current.onTextDelta?.(event.text, event.turn_id, event.provider);
+        callbacks.current.onTextDelta?.(event.text, event.turn_id, event.provider, event.session_id);
         return;
       }
       if (event.type === "audio_chunk") {

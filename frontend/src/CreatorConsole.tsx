@@ -55,9 +55,9 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
     enabled: enabled && Boolean(conversationId),
     conversationId,
     onWake: () => setError(null),
-    onTranscript: (text, turnId) => {
+    onTranscript: (text, turnId, sessionId) => {
       setInput("");
-      const localId = `local-creator-voice-${turnId}`;
+      const localId = `local-creator-voice-${sessionId}-${turnId}`;
       setMessages((current) => {
         if (current.some((message) => message.id === localId)) return current;
         return [...current, {
@@ -73,8 +73,8 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
         }];
       });
     },
-    onTextDelta: (delta, turnId, provider) => {
-      const localId = `local-deus-voice-${turnId}`;
+    onTextDelta: (delta, turnId, provider, sessionId) => {
+      const localId = `local-deus-voice-${sessionId}-${turnId}`;
       setMessages((current) => {
         const existing = current.find((message) => message.id === localId);
         if (!existing) {
@@ -95,14 +95,11 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
           : message);
       });
     },
-    onReply: ({ turnId, text, provider }) => {
-      const localId = `local-deus-voice-${turnId}`;
+    onReply: ({ sessionId, turnId, text, provider }) => {
+      const localId = `local-deus-voice-${sessionId}-${turnId}`;
       setMessages((current) => current.map((message) => message.id === localId
         ? { ...message, content: text, metadata_json: { voice: true, provider, streaming: false } }
         : message));
-      if (conversationId) {
-        void fetchConversationMessages(conversationId).then(setMessages).catch(() => undefined);
-      }
     },
   });
 

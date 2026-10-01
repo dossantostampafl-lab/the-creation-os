@@ -327,3 +327,24 @@ test("real audio enables speaking and canceled output cannot replace a follow-up
   await serverSend(page, 0, { type: "state", session_id: "old-session", turn_id: 99, state: "SPEAKING" });
   await expect(page.getByText(/DEUS está falando/)).toHaveCount(0);
 });
+
+test("reconnecting mid-reply preserves both exchanges when transport turn IDs restart", async ({ page }) => {
+  const ticketCalls = { value: 0 };
+  await installVoiceSockets(page);
+  await mockDashboard(page, ticketCalls);
+  await page.goto("/");
+  await expect(page.getByText(/Pronto · diga “Deus”/)).toBeVisible();
+  await serverSend(page, 0, { type: "transcript_commit", session_id: "session-1", turn_id: 1, text: "Primeira pergunta" });
+  await serverSend(page, 0, { type: "text_delta", session_id: "session-1", turn_id: 1, provider: "freellmapi", text: "Primeira resposta" });
+  await page.evaluate(() => {
+    (window as unknown as { __voiceSockets: Array<{ serverClose: () => void }> }).__voiceSockets[0].serverClose();
+  });
+  await expect.poll(async () => (await voiceSockets(page)).length).toBe(2);
+  await expect(page.getByText(/Pronto · diga “Deus”/)).toBeVisible();
+  await serverSend(page, 1, { type: "transcript_commit", session_id: "session-2", turn_id: 1, text: "Segunda pergunta" });
+  await serverSend(page, 1, { type: "text_delta", session_id: "session-2", turn_id: 1, provider: "freellmapi", text: "Segunda resposta" });
+  await expect(page.getByText("Primeira pergunta", { exact: true })).toBeVisible();
+  await expect(page.getByText("Primeira resposta", { exact: true })).toBeVisible();
+  await expect(page.getByText("Segunda pergunta", { exact: true })).toBeVisible();
+  await expect(page.getByText("Segunda resposta", { exact: true })).toBeVisible();
+});
