@@ -17,7 +17,7 @@ from typing import Any
 from app.config import settings
 from app.voice_session.stt import STTTranscript
 
-# One synthesis thread and one recognition thread fit the two-core host.
+# Synthesis uses at most two CPU threads; recognition schedules independently.
 # Native inference already running cannot be interrupted; queued obsolete work can.
 _TTS_LOCK = threading.Lock()
 _models: LocalSpeechEngine | None = None
@@ -48,7 +48,7 @@ class LocalSpeechEngine:
 
         root = Path(directory)
         options = rt.SessionOptions()
-        options.intra_op_num_threads = 1
+        options.intra_op_num_threads = settings.deus_local_voice_cpu_threads
         options.inter_op_num_threads = 1
         session = rt.InferenceSession(str(root / 'kokoro-v1.0.onnx'), sess_options=options,
                                       providers=['CPUExecutionProvider'])

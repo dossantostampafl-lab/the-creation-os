@@ -84,6 +84,7 @@ class Settings(BaseSettings):
     proto_timeout_seconds: float = Field(10.0, gt=0.0, le=60.0, env="PROTO_TIMEOUT_SECONDS")
     deus_voice_engine: str = Field("elevenlabs", env="DEUS_VOICE_ENGINE")
     deus_local_voice_models_dir: str = Field("/var/lib/creation/voice", env="DEUS_LOCAL_VOICE_MODELS_DIR")
+    deus_local_voice_cpu_threads: int = Field(2, ge=1, le=2, env="DEUS_LOCAL_VOICE_CPU_THREADS")
     deus_local_voice_silence_ms: int = Field(400, ge=200, le=1500, env="DEUS_LOCAL_VOICE_SILENCE_MS")
     elevenlabs_enabled: bool = Field(False, env="ELEVENLABS_ENABLED")
     elevenlabs_api_key: SecretStr | None = Field(None, env="ELEVENLABS_API_KEY")
