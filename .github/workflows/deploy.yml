@@ -65,7 +65,7 @@ jobs:
 
         npm ci
 
-        npx playwright install --with-deps chromium'
+        npx playwright install chromium'
     - name: Read ephemeral diagnostic session privately
       env:
         HOST: ${{ secrets.DEPLOY_HOST }}
