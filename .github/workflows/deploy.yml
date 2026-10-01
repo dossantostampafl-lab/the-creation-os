@@ -82,6 +82,22 @@ jobs:
 
         free -m
 
+        ps -eo comm,pid,etime,wchan | awk ''$1 ~ /docker|build|sudo|ssh|tar|python/
+        {print}''
+
+        api="$(sudo docker ps --filter ''label=com.docker.compose.service=api'' --format
+        ''{{.ID}}'' | head -1)"
+
+        project="$(sudo docker inspect -f ''{{index .Config.Labels "com.docker.compose.project"}}''
+        "$api")"
+
+        mount="$(sudo docker volume inspect --format ''{{.Mountpoint}}'' "${project}_voice_models"
+        2>/dev/null || true)"
+
+        if [ -n "$mount" ]; then sudo find "$mount" -maxdepth 2 -printf ''%f %s
+
+        '' | head -16; fi
+
         sudo docker stats --no-stream --format ''{{.Name}} CPU={{.CPUPerc}} RAM={{.MemUsage}}''
         creation-local-voice-validation || true
 
