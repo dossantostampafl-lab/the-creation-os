@@ -289,7 +289,7 @@ def test_the_voice_id_is_checked_before_it_reaches_a_url() -> None:
     assert "^[A-Za-z0-9]{20}$" in script
     # The proof is the call the application makes, not a name lookup: a key can be valid for
     # speaking and still lack the permission to read voice names, which is this account's case.
-    assert "text-to-speech" in script, "the probe does not exercise what the app calls"
+    assert "ElevenLabsRealtimeTTS" in script, "the probe does not exercise the production streaming client"
     assert "not needed to speak" in script, "a missing name permission must not read as failure"
 
 

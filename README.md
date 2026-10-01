@@ -62,17 +62,17 @@ Todos os providers da cadeia precisam estar completamente configurados: se falta
 
 Enquanto o provider selecionado for `fake`, o status de inferência é reportado como `UNCONFIGURED` e o Creator Console permanece desabilitado — o sistema recusa fabricar respostas do DEUS.
 
-### Voz do DEUS (como uma Alexa)
+### Voz do DEUS em tempo real
 
-Na barra de conversa, o botão de orelha liga a palavra de ativação: diga **"Deus"** e ele responde "Estou aqui" e ouve o seu pedido. Também dá para falar tudo de uma vez: "Deus, como estão os universos?". Depois da primeira fala a conversa continua: quando o DEUS termina de responder ele volta a ouvir sozinho, sem precisar dizer "Deus" de novo. A conversa termina depois de alguns segundos de silêncio ou quando você diz "tchau", "obrigado", "pode parar" ou "é só isso". O botão de microfone faz a mesma coisa sem a palavra de ativação, e o de alto-falante liga ou desliga a voz.
+A sessão captura o microfone e aguarda a palavra **“Deus”**. Ele responde “Estou aqui” e ouve o pedido; também aceita “Deus, como estão os universos?” na mesma fala. Após responder, volta a ouvir sem nova ativação. Você pode interromper a resposta falando, e digitar no mesmo chat.
 
-- **Voz ElevenLabs (recomendada):** no `.env`, defina `ELEVENLABS_ENABLED=true`, `ELEVENLABS_API_KEY=<sua chave>` e, se quiser, outro `ELEVENLABS_VOICE_ID`. A chave fica só no backend (`POST /api/v1/voice/synthesize`).
-- **Sem ElevenLabs:** o DEUS usa a voz do próprio navegador, automaticamente.
-- **Microfone:** use Chrome ou Edge. Os navegadores só liberam o microfone em `https://` ou em `http://localhost`, então abra `http://localhost:8080` no próprio computador (pelo IP da rede local, o microfone fica bloqueado).
+- **Configuração:** defina `ELEVENLABS_ENABLED=true`, `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID` e `ELEVENLABS_STT_MODEL_ID=scribe_v2_realtime`. A chave permanece no backend. A sessão usa `/api/v1/voice/session` por WebSocket para reconhecimento e áudio em streaming, com FreeLLMAPI principal e `KLAUS_PROVIDER=anthropic` como reserva.
+- **Sem ElevenLabs:** a conversa por texto continua disponível; a voz informa que precisa de configuração, sem substituição pela voz do navegador.
+- **Microfone:** use Chrome ou Edge em `https://` ou `http://localhost`. É necessário permitir o microfone; o navegador pode exigir uma interação para liberar a reprodução de áudio.
 
 ### Trinity: SOPHIA e ROCKMAM
 
-Cada mensagem ao DEUS passa antes pela **SOPHIA**, que entende a intenção: conversa, pergunta, pedido de missão, decisão ou comando. Quando você pede para algo ser criado ou realizado ("Deus, cria uma landing page para o produto"), a Trinity delibera:
+Conversas comuns seguem direto para o DEUS. Pedidos substanciais ou sensíveis à governança passam pela **SOPHIA**, que entende a intenção. Quando você pede para algo ser criado ou realizado ("Deus, cria uma landing page para o produto"), a Trinity delibera:
 
 1. **SOPHIA** avalia oportunidades, riscos e recomenda o que fazer.
 2. **ROCKMAM** transforma isso em objetivo, restrições e um plano de missão em etapas, cada uma num Universo.

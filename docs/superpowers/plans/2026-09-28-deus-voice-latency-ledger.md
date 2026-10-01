@@ -1,5 +1,7 @@
 # Execution ledger — docs/superpowers/plans/2026-09-28-deus-voice-latency.md
 
+> Historical document, superseded by the 2026-09-30 realtime reconstruction. Its browser speech and short-clip voice paths have been removed; use README.md and docs/OPERACAO.md for current operation.
+
 - Approved execution method: native / inline execution in the current session.
 - Base branch: `main`.
 - Working branch: `feat/deus-voice-latency`.

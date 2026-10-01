@@ -20,7 +20,8 @@ async function mockStaticDashboard(page: import("@playwright/test").Page) {
   await page.route("**/api/v1/voice/session/ticket", (route) => route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ ticket: "voice-ticket" }) }));
 }
 
-test("an expired access token is refreshed once and typed DEUS chat keeps working", async ({ page }) => {
+for (const validReply of [true, false]) {
+test(`typed DEUS chat refreshes authentication and ${validReply ? "renders the current reply" : "rejects a retired API reply without replacing history"}`, async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem("creation_access_token", "expired-access");
     localStorage.setItem("creation_conversation_id", "conversation-1");
@@ -40,17 +41,31 @@ test("an expired access token is refreshed once and typed DEUS chat keeps workin
       : { status: 401, contentType: "application/json", body: "{}" });
   });
   await mockStaticDashboard(page);
-  await page.route("**/api/v1/conversations/conversation-1/messages", (route) => route.fulfill({ status: 200, contentType: "application/json", body: "[]" }));
+  let historyReads = 0;
+  await page.route("**/api/v1/conversations/conversation-1/messages", (route) => {
+    historyReads += 1;
+    return route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+  });
   await page.route("**/api/v1/conversations/conversation-1/deus", (route) => {
     expect(route.request().headers().authorization).toBe("Bearer fresh-access");
-    return route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ message_id: "m1", conversation_id: "conversation-1", route: "deus", response: "Estou aqui.", inception: null, correlation_id: "c1" }) });
+    return route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ message_id: "m1", conversation_id: "conversation-1", route: "deus", response: validReply ? "Estou aqui." : undefined, inception: null, correlation_id: "c1" }) });
   });
 
   await page.goto("/");
   await expect(page.getByText("LIVE", { exact: true })).toBeVisible();
   await page.getByLabel("Message DEUS").fill("Deus, está me ouvindo?");
+  const initialHistoryReads = historyReads;
+  expect(initialHistoryReads).toBeGreaterThan(0);
   await page.getByRole("button", { name: "Send to DEUS" }).click();
-  await expect(page.getByText("Estou aqui.", { exact: true })).toBeVisible();
+  if (validReply) {
+    await expect(page.getByText("Estou aqui.", { exact: true })).toBeVisible();
+  } else {
+    await expect(page.getByRole("alert")).toHaveText("DEUS conversation failed.");
+    await expect(page.getByText("Deus, está me ouvindo?", { exact: true })).toHaveCount(0);
+  }
+  expect(historyReads).toBe(initialHistoryReads);
   expect(refreshes).toBe(1);
   await expect(page.evaluate(() => sessionStorage.getItem("creation_refresh_token"))).resolves.toBe("refresh-2");
 });
+
+}

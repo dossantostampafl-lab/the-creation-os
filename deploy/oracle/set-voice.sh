@@ -113,9 +113,13 @@ if [ -z "$container" ]; then
   exit 1
 fi
 docker exec -i "$container" python -c '
+import asyncio
 import os
 
 import httpx
+
+from app.voice_session.acknowledgement import VoiceAcknowledgementCache
+from app.voice_session.tts import ElevenLabsRealtimeTTS, ElevenLabsTTSConfig
 
 key = os.getenv("ELEVENLABS_API_KEY", "")
 voice = os.getenv("ELEVENLABS_VOICE_ID", "")
@@ -135,22 +139,15 @@ try:
 except Exception as exc:
     print(f"   (could not read the voice name: {type(exc).__name__})")
 
-# This is the call the application makes, so this is the one that has to work. Two words keep
-# it to a few credits.
-try:
-    spoken = httpx.post(
-        f"https://api.elevenlabs.io/v1/text-to-speech/{voice}",
-        headers=headers,
-        json={"text": "Estou aqui.", "model_id": model},
-        timeout=40,
-    )
-except Exception as exc:
-    raise SystemExit(f"   The request never arrived: {type(exc).__name__}: {exc}")
+# Exercise the production streaming client instead of a retired HTTP TTS path.
+async def verify_streaming_voice():
+    config = ElevenLabsTTSConfig(api_key=key, voice_id=voice, model_id=model)
+    cache = VoiceAcknowledgementCache(lambda: ElevenLabsRealtimeTTS(config))
+    audio = await cache.get()
+    print("   Realtime speaking:", len(audio), "bytes of pcm_s16le at 24000 Hz")
 
-print(f"   Speaking: HTTP {spoken.status_code}")
-if spoken.status_code == 200:
-    print("  ", len(spoken.content), "bytes of", spoken.headers.get("content-type", "audio"))
-else:
-    print("   " + spoken.text[:300])
-    raise SystemExit(1)
+try:
+    asyncio.run(verify_streaming_voice())
+except Exception as exc:
+    raise SystemExit(f"   Realtime voice failed: {type(exc).__name__}")
 '
