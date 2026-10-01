@@ -29,14 +29,22 @@ async def stream_response(
     if first_token_timeout_seconds <= 0:
         raise ValueError("first_token_timeout_seconds must be greater than zero")
 
-    primary_stream = primary.stream(request).__aiter__()
-    try:
-        first_text = await asyncio.wait_for(
-            primary_stream.__anext__(),
-            timeout=first_token_timeout_seconds,
-        )
-    except (TimeoutError, InferenceError, StopAsyncIteration) as exc:
-        raise InferenceTimeoutError(primary.name, "FreeLLM voice response unavailable") from exc
+    # The free upstream can miss a deadline transiently. Retry only before any
+    # response text exists, and never retry authentication or rate-limit errors.
+    for attempt in range(2):
+        primary_stream = primary.stream(request).__aiter__()
+        try:
+            first_text = await asyncio.wait_for(
+                primary_stream.__anext__(),
+                timeout=first_token_timeout_seconds,
+            )
+            break
+        except (TimeoutError, InferenceTimeoutError) as exc:
+            if attempt == 0:
+                continue
+            raise InferenceTimeoutError(primary.name, "FreeLLM voice response unavailable") from exc
+        except (InferenceError, StopAsyncIteration) as exc:
+            raise InferenceTimeoutError(primary.name, "FreeLLM voice response unavailable") from exc
 
     if first_text:
         yield StreamChunk(provider=primary.name, text=first_text)

@@ -8,7 +8,7 @@ history, wake word “Deus”, ticket authentication, interruption handling and
 PCM protocol. Do not purchase credits or invoke paid model fallbacks.
 
 Use process-shared CPU models in the existing API, lazy imported for installations
-that use another voice engine. Warm recognition and acknowledgement before local
+that have not enabled speech yet. Warm recognition and acknowledgement before local
 API readiness. Keep CPU inference off the event loop and use up to two synthesis CPU threads and independent recognition on the two-core host. Discard
 cancelled synthesis jobs before native computation; an already running native call
 finishes without delivering obsolete audio.
@@ -22,6 +22,8 @@ tests alone.
 Models live in a persistent named volume. An explicit setup task downloads and
 validates them before switching the environment and restarting the API. The local adapters are the only speech implementation; duplicated dialogue flows
 are not added. Provider failures produce the existing unavailable
-response without paid fallback. Validate adapters, actual model audio, full CI,
+response without paid fallback. One first-token timeout may retry the same free
+provider before any text is emitted; authentication, rate limits and partial
+responses never retry. Validate adapters, actual model audio, full CI,
 ARM performance and authenticated public browser behavior before reporting the
 production voice as working.
