@@ -227,7 +227,7 @@ não pode alcançar o servidor.
 | `set-creator-password` | Dá ao Criador a senha guardada no segredo `CREATOR_PASSWORD` e encerra as sessões abertas. |
 | `tidy` | Relata todas as cópias do projeto no servidor. Não move nada; só informa. |
 | `logs` | Últimas linhas dos logs do `api` e do `worker`, com segredos mascarados. |
-| `set-voice` | Liga a voz do DEUS no ElevenLabs e confirma com a própria ElevenLabs. |
+| `set-local-voice` | Prepara e valida Kokoro/Vosk e ativa a voz local do DEUS. |
 | `smoke-test` | Exercita o app inteiro por dentro e diz o que passou e o que falhou. |
 | `seed` | Semeia os 12 Universos canônicos e seus Agents, e mostra o resultado. |
 
@@ -246,8 +246,6 @@ Em **Settings → Secrets and variables → Actions → New repository secret**:
 | `ANTHROPIC_MODEL` | não | Sem ele, `claude-sonnet-5`. |
 | `ANTHROPIC_WORKSPACE_ID` | depende | Obrigatório se a chave for da organização, não presa a um Workspace. |
 | `CREATOR_PASSWORD` | só para `set-creator-password` | A senha que você quer para entrar na interface. |
-| `ELEVENLABS_API_KEY` | só para `set-voice` | A chave da ElevenLabs. |
-| `ELEVENLABS_VOICE_ID` | só para `set-voice` | O ID da voz, 20 letras e dígitos. |
 
 ### O que isso significa em segurança
 
@@ -284,20 +282,19 @@ systemd ou por um cron não é movida.
 
 ## A voz do DEUS
 
-A voz usa apenas a sessão de tempo real em `/api/v1/voice/session`, com STT
-`scribe_v2_realtime` e TTS ElevenLabs em streaming. Sem configuração, a sessão informa o erro;
-a entrada por texto continua disponível. Não há reconhecimento ou síntese de voz do navegador.
+A voz usa a sessão autenticada `/api/v1/voice/session`, com reconhecimento Vosk
+português e síntese Kokoro `pm_santa` no próprio servidor. As respostas usam FreeLLMAPI
+sem reserva paga. A palavra de ativação é “Deus”; texto, voz e histórico compartilham
+uma conversa. Não é necessária chave ou crédito de um serviço de voz.
 
-O `.env.example` vem com `ELEVENLABS_ENABLED=false`. Para ligar a voz, guarde
-`ELEVENLABS_API_KEY` e `ELEVENLABS_VOICE_ID` nos segredos do repositório e rode a tarefa
-`set-voice`. O workflow configura `KLAUS_PROVIDER=anthropic`, a reserva Claude confirmada.
+O `.env.example` vem com `DEUS_VOICE_SESSION_ENABLED=false`, para permitir a primeira
+inicialização sem os modelos. Rode a tarefa `set-local-voice`: ela prepara os modelos
+no volume persistente, testa síntese e reconhecimento e só então ativa a voz. A API
+carrega os modelos e o áudio de confirmação antes de anunciar prontidão.
 
-O script verifica o nome da voz quando a chave permite consultá-lo e testa o mesmo cliente
-WebSocket TTS usado pela aplicação. O sucesso imprime bytes PCM em tempo real; a consulta do
-nome sozinha não comprova que a síntese funciona. Rode `smoke-test` para verificar também o
-áudio de confirmação, o ticket, a abertura da sessão e a conversa com o DEUS.
-
-O ID da voz sai em `elevenlabs.io` → Voices → a voz → o identificador de 20 caracteres.
+Rode `smoke-test` para verificar áudio de confirmação, ticket, abertura da sessão e
+conversa com o DEUS. O reconhecimento pode errar; os tempos dependem do servidor,
+da rede e da resposta. Valide também o microfone e a interrupção no seu aparelho.
 
 ## Testar o app inteiro
 
@@ -322,7 +319,7 @@ Duas linhas do relatório valem mais que as outras quando algo parece quebrado n
 - **`a provider is available`** é exatamente a expressão que a interface usa para habilitar o
   console do DEUS. Falhando ela, o campo de mensagem fica inerte e o microfone não responde — sem
   erro nenhum aparecer, porque o envio simplesmente retorna.
-- **`ElevenLabs wake acknowledgement`** verifica o áudio PCM de confirmação; **`realtime DEUS
+- **`DEUS wake acknowledgement`** verifica o áudio PCM de confirmação; **`realtime DEUS
   voice session`** verifica a conexão autenticada e o estado `ARMED`. Falhas precisam ser
   corrigidas na configuração ou nos provedores. O smoke não mede eco ou latência num aparelho
   físico; valide também no Android falando “Deus”, conversando e interrompendo a resposta.

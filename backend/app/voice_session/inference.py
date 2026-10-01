@@ -20,39 +20,10 @@ class StreamChunk:
     text: str
 
 
-async def _stream_with_first_token_deadline(
-    request: InferenceRequest,
-    provider: StreamingProvider,
-    *,
-    timeout_seconds: float,
-) -> AsyncIterator[StreamChunk]:
-    stream = provider.stream(request).__aiter__()
-    try:
-        first_text = await asyncio.wait_for(
-            stream.__anext__(),
-            timeout=timeout_seconds,
-        )
-    except TimeoutError as exc:
-        raise InferenceTimeoutError(
-            provider.name,
-            f"{provider.name} first-token timeout",
-        ) from exc
-    except StopAsyncIteration:
-        return
-
-    if first_text:
-        yield StreamChunk(provider=provider.name, text=first_text)
-
-    async for text in stream:
-        if text:
-            yield StreamChunk(provider=provider.name, text=text)
-
-
-async def stream_with_fallback(
+async def stream_response(
     request: InferenceRequest,
     *,
     primary: StreamingProvider,
-    fallback: StreamingProvider | None,
     first_token_timeout_seconds: float = 2.5,
 ) -> AsyncIterator[StreamChunk]:
     if first_token_timeout_seconds <= 0:
@@ -65,15 +36,7 @@ async def stream_with_fallback(
             timeout=first_token_timeout_seconds,
         )
     except (TimeoutError, InferenceError, StopAsyncIteration) as exc:
-        if fallback is None:
-            raise InferenceTimeoutError(primary.name, "FreeLLM voice response unavailable") from exc
-        async for chunk in _stream_with_first_token_deadline(
-            request,
-            fallback,
-            timeout_seconds=first_token_timeout_seconds,
-        ):
-            yield chunk
-        return
+        raise InferenceTimeoutError(primary.name, "FreeLLM voice response unavailable") from exc
 
     if first_text:
         yield StreamChunk(provider=primary.name, text=first_text)

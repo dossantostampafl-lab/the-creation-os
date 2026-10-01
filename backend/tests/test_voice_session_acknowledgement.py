@@ -24,7 +24,7 @@ class FakeTTS:
 
 
 @pytest.mark.asyncio
-async def test_acknowledgement_is_elevenlabs_pcm_and_cached():
+async def test_acknowledgement_is_local_pcm_and_cached():
     instances: list[FakeTTS] = []
 
     @asynccontextmanager

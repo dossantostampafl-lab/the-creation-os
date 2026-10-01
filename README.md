@@ -66,8 +66,8 @@ Enquanto o provider selecionado for `fake`, o status de inferência é reportado
 
 A sessão captura o microfone e aguarda a palavra **“Deus”**. Ele responde “Estou aqui” e ouve o pedido; também aceita “Deus, como estão os universos?” na mesma fala. Após responder, volta a ouvir sem nova ativação. Você pode interromper a resposta falando, e digitar no mesmo chat.
 
-- **Configuração:** defina `ELEVENLABS_ENABLED=true`, `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID` e `ELEVENLABS_STT_MODEL_ID=scribe_v2_realtime`. A chave permanece no backend. A sessão usa `/api/v1/voice/session` por WebSocket para reconhecimento e áudio em streaming, com FreeLLMAPI principal e `KLAUS_PROVIDER=anthropic` como reserva.
-- **Sem ElevenLabs:** a conversa por texto continua disponível; a voz informa que precisa de configuração, sem substituição pela voz do navegador.
+- **Configuração:** rode a tarefa `set-local-voice` do workflow Deploy para preparar e validar os modelos. A voz usa Kokoro `pm_santa`, reconhecimento Vosk português e o mesmo WebSocket `/api/v1/voice/session`. As respostas usam FreeLLMAPI sem reserva paga.
+- **Instalação nova:** a voz começa desativada até a preparação dos modelos; o chat digitado permanece disponível.
 - **Microfone:** use Chrome ou Edge em `https://` ou `http://localhost`. É necessário permitir o microfone; o navegador pode exigir uma interação para liberar a reprodução de áudio.
 
 ### Trinity: SOPHIA e ROCKMAM
@@ -221,7 +221,7 @@ Ao abrir, `.devcontainer/prepare-env.sh` deixa o `.env` pronto, e pode ser rodad
 
 Ele nunca sobrescreve um valor já preenchido e nunca imprime um segredo.
 
-Para usar Codespace secrets, cadastre em **github.com/settings/codespaces** os nomes que quiser (`ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `FREELLMAPI_API_KEY`, `ELEVENLABS_API_KEY`, entre outros), dando acesso a este repositório, e recrie o Codespace.
+Para usar Codespace secrets, cadastre em **github.com/settings/codespaces** os nomes que quiser (`ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `FREELLMAPI_API_KEY`, entre outros), dando acesso a este repositório, e recrie o Codespace.
 
 Em host Windows, crie o `.env` antes de abrir o dev container (`.\scripts\local-start.ps1` já faz isso, ou copie `.env.example` manualmente): a criação automática do `.env` depende de um shell POSIX no host.
 

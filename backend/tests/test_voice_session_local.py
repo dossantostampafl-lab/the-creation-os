@@ -46,7 +46,8 @@ async def test_local_tts_propagates_synthesis_failure_instead_of_hanging():
     async with local_module().KokoroRealtimeTTS(Broken()) as tts:
         await tts.send_text('Olá.')
         await tts.finish()
-        with pytest.raises(OSError, match='model unavailable'):
+        from app.voice_session.tts import VoiceSynthesisError
+        with pytest.raises(VoiceSynthesisError, match='áudio local'):
             await asyncio.wait_for(tts.receive_audio(), timeout=1)
 
 
@@ -91,12 +92,10 @@ async def test_explicit_commit_does_not_duplicate_final_when_silent():
     assert rec.finals == 1
 
 
-def test_local_voice_does_not_require_elevenlabs_credentials(monkeypatch):
+def test_local_voice_does_not_require_speech_credentials(monkeypatch):
     from app.config import settings
     api = importlib.import_module('app.api.voice_session')
-    monkeypatch.setattr(settings, 'elevenlabs_enabled', False)
-    monkeypatch.setattr(settings, 'elevenlabs_api_key', None)
-    monkeypatch.setitem(settings.__dict__, 'deus_voice_engine', 'local')
+    monkeypatch.setattr(settings, 'deus_voice_session_enabled', True)
     configured = getattr(api, '_voice_configured', lambda: False)
     assert configured()
 
@@ -104,7 +103,7 @@ def test_local_voice_does_not_require_elevenlabs_credentials(monkeypatch):
 @pytest.mark.asyncio
 async def test_local_voice_never_calls_paid_fallback_when_primary_fails():
     from app.inference.contracts import InferenceRequest, InferenceTimeoutError
-    from app.voice_session.inference import stream_with_fallback
+    from app.voice_session.inference import stream_response
 
     class Unavailable:
         name = 'freellmapi'
@@ -113,9 +112,9 @@ async def test_local_voice_never_calls_paid_fallback_when_primary_fails():
                 yield ''
 
     with pytest.raises(InferenceTimeoutError):
-        _ = [chunk async for chunk in stream_with_fallback(
+        _ = [chunk async for chunk in stream_response(
             InferenceRequest(messages=[{'role': 'user', 'content': 'Olá'}]),
-            primary=Unavailable(), fallback=None,
+            primary=Unavailable(),
         )]
 
 

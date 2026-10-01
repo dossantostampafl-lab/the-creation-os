@@ -273,24 +273,17 @@ def test_the_log_task_redacts_secrets() -> None:
 def test_every_secret_reaches_the_server_on_stdin() -> None:
     """An argument is visible in the server's process list; each secret gets its own line."""
     text = WORKFLOW.read_text(encoding="utf-8")
-    for name in ("ANTHROPIC_API_KEY", "CREATOR_PASSWORD", "ELEVENLABS_API_KEY"):
+    for name in ("ANTHROPIC_API_KEY", "CREATOR_PASSWORD", "FREELLMAPI_API_KEY"):
         assert f"IFS= read -r {name}" in text, f"{name} does not arrive on stdin"
         assert f"{name}='" not in text, f"{name} is passed as an argument"
     # Written and read in the same order, or two secrets swap places and each lands in the
     # other's variable -- which no test of their presence alone would notice.
-    names = ["ANTHROPIC_API_KEY", "CREATOR_PASSWORD", "ELEVENLABS_API_KEY"]
+    names = ["ANTHROPIC_API_KEY", "CREATOR_PASSWORD", "FREELLMAPI_API_KEY"]
     written = sorted(names, key=lambda n: text.index(f"printf '%s\\n' \"${{{n}:-}}\""))
     read = sorted(names, key=lambda n: text.index(f"IFS= read -r {n}"))
     assert written == read, (written, read)
 
 
-def test_the_voice_id_is_checked_before_it_reaches_a_url() -> None:
-    script = (REPO_ROOT / "deploy" / "oracle" / "set-voice.sh").read_text(encoding="utf-8")
-    assert "^[A-Za-z0-9]{20}$" in script
-    # The proof is the call the application makes, not a name lookup: a key can be valid for
-    # speaking and still lack the permission to read voice names, which is this account's case.
-    assert "ElevenLabsRealtimeTTS" in script, "the probe does not exercise the production streaming client"
-    assert "not needed to speak" in script, "a missing name permission must not read as failure"
 
 
 def test_the_smoke_test_passes_no_credential_on_a_command_line() -> None:

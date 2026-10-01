@@ -7,7 +7,6 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from pydantic.v1 import SecretStr
 from starlette.websockets import WebSocketDisconnect
 
 from app.api import voice_session as voice_session_api
@@ -43,7 +42,7 @@ async def test_websocket_supervises_stt_failure_without_client_audio(voice_clien
         async def close(self, code):
             self.close_code = code
 
-    monkeypatch.setattr(voice_session_api, "ElevenLabsRealtimeSTT", lambda *_args, **_kwargs: FailedSTT())
+    monkeypatch.setattr(voice_session_api, "VoskRealtimeSTT", lambda *_args, **_kwargs: FailedSTT())
     socket = QuietSocket()
     await asyncio.wait_for(voice_session_api.voice_session_socket(socket, ticket="ticket-1", conversation_id="conversation-1"), timeout=1)
     assert socket.events[-1]["type"] == "error"
@@ -166,8 +165,8 @@ async def test_barge_in_cancels_stalled_turn_and_processes_followup(voice_client
         tts_count += 1
         return TTS(first=tts_count == 1)
 
-    monkeypatch.setattr(voice_session_api, "ElevenLabsRealtimeSTT", lambda *_args, **_kwargs: TranscriptSTT())
-    monkeypatch.setattr(voice_session_api, "ElevenLabsRealtimeTTS", make_tts)
+    monkeypatch.setattr(voice_session_api, "VoskRealtimeSTT", lambda *_args, **_kwargs: TranscriptSTT())
+    monkeypatch.setattr(voice_session_api, "KokoroRealtimeTTS", make_tts)
     monkeypatch.setattr(voice_session_api, "build_primary_provider", lambda: provider)
     await asyncio.wait_for(voice_session_api.voice_session_socket(Socket(), ticket="ticket-1", conversation_id="conversation-1"), timeout=1)
     assert completed.is_set()
@@ -276,23 +275,27 @@ def voice_client(monkeypatch):
         "build_primary_provider",
         lambda: StubStreamingProvider("freellmapi", []),
     )
+    class FakeEngine:
+        def recognizer(self):
+            return object()
+
+    async def fake_engine():
+        return FakeEngine()
+
+    async def fake_warm_ack():
+        return b"\0\0"
+
+    class WarmCache:
+        get = staticmethod(fake_warm_ack)
+
+    monkeypatch.setattr(voice_session_api, "get_local_engine", fake_engine)
+    monkeypatch.setattr(voice_session_api, "_voice_acknowledgement_cache", lambda: WarmCache())
     monkeypatch.setattr(
         voice_session_api,
-        "build_klaus_provider",
-        lambda: StubStreamingProvider("klaus", []),
-    )
-    monkeypatch.setattr(
-        voice_session_api,
-        "ElevenLabsRealtimeSTT",
+        "VoskRealtimeSTT",
         lambda *_args, **_kwargs: HangingRealtimeSTT(),
     )
     monkeypatch.setattr(voice_session_api.settings, "deus_voice_session_enabled", True)
-    monkeypatch.setattr(voice_session_api.settings, "elevenlabs_enabled", True)
-    monkeypatch.setattr(
-        voice_session_api.settings,
-        "elevenlabs_api_key",
-        SecretStr("test-secret"),
-    )
 
     with TestClient(app) as client:
         yield client
@@ -423,7 +426,6 @@ async def test_gateway_forwards_pcm_to_realtime_stt():
         session=VoiceSession(session_id="session-1"),
         stt=stt,
         primary=StubStreamingProvider("freellmapi", []),
-        fallback=StubStreamingProvider("klaus", []),
         tts_factory=tts_factory(tts),
     )
 
@@ -438,13 +440,11 @@ async def test_gateway_streams_committed_command_through_inference_and_tts_with_
         STTTranscript(text="Deus, verifique o projeto", committed=True),
     ])
     primary = StubStreamingProvider("freellmapi", ["Verificando", "."])
-    fallback = StubStreamingProvider("klaus", ["não deve ser usado"])
     tts = FakeRealtimeTTS([b"audio-1", b"audio-2", None])
     gateway = VoiceSessionGateway(
         session=VoiceSession(session_id="session-1"),
         stt=stt,
         primary=primary,
-        fallback=fallback,
         tts_factory=tts_factory(tts),
         first_token_timeout_seconds=0.2,
     )
@@ -456,7 +456,6 @@ async def test_gateway_streams_committed_command_through_inference_and_tts_with_
     assert primary.requests[0].messages == [
         {"role": "user", "content": "verifique o projeto"},
     ]
-    assert fallback.requests == []
     assert tts.text == ["Verificando", "."]
     assert tts.finished is True
     assert {event["turn_id"] for event in events if "turn_id" in event} == {1}
@@ -477,7 +476,7 @@ async def test_gateway_streams_committed_command_through_inference_and_tts_with_
 
 
 @pytest.mark.asyncio
-async def test_gateway_speaks_deterministic_service_message_when_both_providers_fail():
+async def test_gateway_speaks_deterministic_service_message_when_primary_fails():
     stt = FakeRealtimeSTT([
         STTTranscript(text="Deus, responda", committed=True),
     ])
@@ -485,16 +484,11 @@ async def test_gateway_speaks_deterministic_service_message_when_both_providers_
         "freellmapi",
         [InferenceTimeoutError("freellmapi", "timeout")],
     )
-    fallback = StubStreamingProvider(
-        "klaus",
-        [InferenceTimeoutError("klaus", "timeout")],
-    )
     tts = FakeRealtimeTTS([b"service-audio", None])
     gateway = VoiceSessionGateway(
         session=VoiceSession(session_id="session-1"),
         stt=stt,
         primary=primary,
-        fallback=fallback,
         tts_factory=tts_factory(tts),
         first_token_timeout_seconds=0.2,
     )
@@ -514,7 +508,6 @@ async def test_gateway_uses_request_builder_and_completion_callback():
         STTTranscript(text="Deus, continue", committed=True),
     ])
     primary = StubStreamingProvider("freellmapi", ["Resposta"])
-    fallback = StubStreamingProvider("klaus", [])
     tts = FakeRealtimeTTS([b"audio", None])
     built: list[tuple[str, int]] = []
     completed: list[tuple[int, str, str]] = []
@@ -533,7 +526,6 @@ async def test_gateway_uses_request_builder_and_completion_callback():
         session=VoiceSession(session_id="session-1"),
         stt=stt,
         primary=primary,
-        fallback=fallback,
         tts_factory=tts_factory(tts),
         request_builder=build_request,
         on_turn_completed=on_complete,
@@ -578,13 +570,11 @@ async def test_gateway_does_not_block_when_tts_buffers_until_finish():
         STTTranscript(text="Deus, diga olá", committed=True),
     ])
     primary = StubStreamingProvider("freellmapi", ["Olá", " mundo."])
-    fallback = StubStreamingProvider("klaus", [])
     tts = BufferedRealtimeTTS()
     gateway = VoiceSessionGateway(
         session=VoiceSession(session_id="session-1"),
         stt=stt,
         primary=primary,
-        fallback=fallback,
         tts_factory=tts_factory(tts),
         first_token_timeout_seconds=0.2,
     )
@@ -614,7 +604,7 @@ def test_websocket_reports_stt_connection_failure(voice_client: TestClient, monk
 
     monkeypatch.setattr(
         voice_session_api,
-        "ElevenLabsRealtimeSTT",
+        "VoskRealtimeSTT",
         lambda *_args, **_kwargs: FailingSTT(),
     )
 
@@ -631,14 +621,14 @@ def test_websocket_reports_stt_connection_failure(voice_client: TestClient, monk
 
 
 @pytest.mark.asyncio
-async def test_websocket_reports_tts_quota_as_terminal_synthesis_error(voice_client, monkeypatch):
+async def test_websocket_reports_local_synthesis_failure(voice_client, monkeypatch):
     from app.voice_session.tts import VoiceSynthesisError
 
     class QuestionSTT(HangingRealtimeSTT):
         async def receive_transcript(self):
             return STTTranscript(text="Deus, quanto é dois mais dois?", committed=True)
 
-    class QuotaTTS(FakeRealtimeTTS):
+    class FailingTTS(FakeRealtimeTTS):
         async def __aenter__(self):
             return self
 
@@ -646,7 +636,7 @@ async def test_websocket_reports_tts_quota_as_terminal_synthesis_error(voice_cli
             return None
 
         async def receive_audio(self):
-            raise VoiceSynthesisError("quota_exceeded")
+            raise VoiceSynthesisError()
 
     class QuietSocket:
         def __init__(self):
@@ -665,26 +655,67 @@ async def test_websocket_reports_tts_quota_as_terminal_synthesis_error(voice_cli
         async def close(self, code):
             self.close_code = code
 
-    monkeypatch.setattr(voice_session_api, "ElevenLabsRealtimeSTT", lambda *_a, **_k: QuestionSTT())
-    monkeypatch.setattr(voice_session_api, "ElevenLabsRealtimeTTS", lambda *_a, **_k: QuotaTTS([]))
+    monkeypatch.setattr(voice_session_api, "VoskRealtimeSTT", lambda *_a, **_k: QuestionSTT())
+    monkeypatch.setattr(voice_session_api, "KokoroRealtimeTTS", lambda *_a, **_k: FailingTTS([]))
     monkeypatch.setattr(voice_session_api, "build_primary_provider", lambda: StubStreamingProvider("freellmapi", ["Quatro."]))
     socket = QuietSocket()
     await asyncio.wait_for(voice_session_api.voice_session_socket(socket, ticket="ticket-1", conversation_id="conversation-1"), timeout=1)
-    assert socket.events[-1]["code"] == "VOICE_TTS_QUOTA_EXCEEDED"
-    assert socket.events[-1]["nonretryable"] is True
-    assert "cota" in socket.events[-1]["message"]
-    assert socket.close_code == 1008
+    assert socket.events[-1]["code"] == "VOICE_TTS_UNAVAILABLE"
+    assert socket.events[-1]["nonretryable"] is False
+    assert "áudio local" in socket.events[-1]["message"]
+    assert socket.close_code == 1013
 
 
-def test_acknowledgement_endpoint_reports_quota_without_vendor_details(voice_client, monkeypatch):
+def test_acknowledgement_endpoint_reports_local_synthesis_failure(voice_client, monkeypatch):
     from app.voice_session.tts import VoiceSynthesisError
 
-    class QuotaCache:
+    class FailingCache:
         async def get(self):
-            raise VoiceSynthesisError("quota_exceeded")
+            raise VoiceSynthesisError()
 
-    monkeypatch.setattr(voice_session_api, "_voice_acknowledgement_cache", lambda: QuotaCache())
+    monkeypatch.setattr(voice_session_api, "_voice_acknowledgement_cache", lambda: FailingCache())
     response = voice_client.get("/api/v1/voice/session/acknowledgement")
     assert response.status_code == 503
-    assert response.json()["detail"]["code"] == "VOICE_TTS_QUOTA_EXCEEDED"
+    assert response.json()["detail"]["code"] == "VOICE_TTS_UNAVAILABLE"
+    assert response.json()["detail"]["nonretryable"] is False
+
+
+@pytest.mark.parametrize("failure", [OSError, ImportError, RuntimeError])
+def test_missing_local_models_returns_safe_terminal_error(voice_client, monkeypatch, failure):
+    async def missing_engine():
+        raise failure("private model path and diagnostic details")
+
+    monkeypatch.setattr(voice_session_api, "get_local_engine", missing_engine)
+    with voice_client.websocket_connect(
+        "/api/v1/voice/session?ticket=ticket-1&conversation_id=conversation-1"
+    ) as websocket:
+        event = websocket.receive_json()
+        assert event["code"] == "VOICE_MODELS_UNAVAILABLE"
+        assert event["nonretryable"] is True
+        assert "private" not in event["message"]
+        with pytest.raises(WebSocketDisconnect) as closed:
+            websocket.receive_json()
+    assert closed.value.code == 1013
+
+
+def test_disabled_voice_acknowledgement_is_a_terminal_configuration_error(voice_client, monkeypatch):
+    monkeypatch.setattr(voice_session_api.settings, "deus_voice_session_enabled", False)
+    response = voice_client.get("/api/v1/voice/session/acknowledgement")
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "VOICE_SESSION_NOT_CONFIGURED"
     assert response.json()["detail"]["nonretryable"] is True
+
+
+@pytest.mark.parametrize("failure", [ImportError, OSError])
+def test_acknowledgement_reports_missing_models_without_private_details(voice_client, monkeypatch, failure):
+    class MissingCache:
+        async def get(self):
+            raise failure("private model path")
+
+    monkeypatch.setattr(voice_session_api, "_voice_acknowledgement_cache", lambda: MissingCache())
+    response = voice_client.get("/api/v1/voice/session/acknowledgement")
+    assert response.status_code == 503
+    detail = response.json()["detail"]
+    assert detail["code"] == "VOICE_MODELS_UNAVAILABLE"
+    assert detail["nonretryable"] is True
+    assert "private" not in detail["message"]

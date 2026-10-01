@@ -18,7 +18,7 @@ from app.services.domain import NotFoundError
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    if settings.deus_voice_session_enabled and settings.deus_voice_engine == "local":
+    if settings.deus_voice_session_enabled:
         from app.api.voice_session import _voice_acknowledgement_cache
         # Load once and warm the approved voice before advertising readiness.
         await _voice_acknowledgement_cache().get()

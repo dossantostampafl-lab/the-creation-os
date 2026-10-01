@@ -82,7 +82,7 @@ Para voltar a só Claude: task `set-inference`, que também limpa a reserva.
      ```
      ssh -i C:\caminho\da\chave.key -L 3001:localhost:3001 ubuntu@SEU_IP
      ```
-- **Voz (opcional):** `ELEVENLABS_ENABLED=true` e `ELEVENLABS_API_KEY=...`.
+- **Voz local (opcional):** rode a tarefa `set-local-voice`; não requer chave de serviço de voz.
 
 Até a IA estar configurada, o site abre normalmente, mas o DEUS fica desativado e o worker reinicia em ciclo. Isso é esperado.
 
