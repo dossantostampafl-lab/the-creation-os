@@ -2,7 +2,7 @@ name: Deploy
 permissions:
   contents: read
 concurrency:
-  group: deploy-oracle
+  group: voice-evaluation-inspection
   cancel-in-progress: false
 jobs:
   deploy:
@@ -60,48 +60,24 @@ jobs:
         \ key, so this run trusted whatever answered.\"\n  echo \"Record the lines\
         \ below in deploy/oracle/known_hosts:\"\n  cat ~/.ssh/known_hosts\nfi\nchmod\
         \ 600 ~/.ssh/known_hosts\n"
-    - name: Compare actual streaming Portuguese recognition without paid APIs
+    - name: Inspect only disposable voice benchmark progress
       env:
         HOST: ${{ secrets.DEPLOY_HOST }}
         USERNAME: ${{ secrets.DEPLOY_USER }}
-      run: "set -euo pipefail\nssh -i ~/.ssh/id_deploy -o BatchMode=yes -o ConnectTimeout=20\
-        \ \"${USERNAME:-ubuntu}@$HOST\" 'bash -s' <<'REMOTE'\nset -euo pipefail\n\
-        api=\"$(sudo docker ps --filter 'label=com.docker.compose.service=api' --format\
-        \ '{{.ID}}' | head -1)\"\nimage=\"$(sudo docker inspect --format '{{.Image}}'\
-        \ \"$api\")\"\n# Disposable evaluation: no production volumes, credentials,\
-        \ env files or service ports.\nsudo docker run --rm -i --user 0 --name creation-free-voice-evaluation\
-        \ --cpus=1.5 --memory=6g --entrypoint /bin/sh -e HF_HUB_DISABLE_XET=1 \"$image\"\
-        \ -s <<'CONTAINER'\nset -eu\napt-get update -qq -o Acquire::Retries=0 -o Acquire::http::Timeout=20\n\
-        apt-get install -y -qq --no-install-recommends libatomic1 libgomp1\npython\
-        \ -m venv /tmp/probe-venv\n/tmp/probe-venv/bin/pip install --quiet 'piper-tts==1.8.0'\
-        \ 'faster-whisper==1.2.1' 'av==16.1.0' 'vosk==0.3.45'\nmkdir -p /tmp/models\n\
-        cd /tmp/models\n/tmp/probe-venv/bin/python -m piper.download_voices pt_BR-faber-medium\n\
-        /tmp/probe-venv/bin/python - <<'BENCHMARKPY'\nimport json,time,wave,resource\n\
-        from piper import PiperVoice\nfrom faster_whisper import WhisperModel\nimport\
-        \ ctranslate2\nprint(json.dumps({'supported_cpu_types':sorted(ctranslate2.get_supported_compute_types('cpu'))}),flush=True)\n\
-        started=time.monotonic();voice=PiperVoice.load('/tmp/models/pt_BR-faber-medium.onnx')\n\
-        print(json.dumps({'tts_load_ms':round((time.monotonic()-started)*1000)}),flush=True)\n\
-        phrases=['Deus, quanto \xE9 dois mais dois?','Quanto \xE9 dez mais cinco,\
-        \ Deus?','Deus, explique o que \xE9 uma estrela.']\nfor i,text in enumerate(phrases):\n\
-        \ started=time.monotonic();first=None;chunks=[]\n for chunk in voice.synthesize(text):\n\
-        \  if first is None:first=round((time.monotonic()-started)*1000)\n  chunks.append(chunk.audio_int16_bytes);rate=chunk.sample_rate\n\
-        \ with wave.open('/tmp/sample'+str(i)+'.wav','wb') as out:\n  out.setnchannels(1);out.setsampwidth(2);out.setframerate(rate);out.writeframes(b''.join(chunks))\n\
-        \ print(json.dumps({'tts_text':text,'first_audio_ms':first,'total_ms':round((time.monotonic()-started)*1000),'audio_seconds':round(sum(map(len,chunks))/2/rate,2)}),flush=True)\n\
-        import urllib.request,zipfile,io\nfrom vosk import Model,KaldiRecognizer,SetLogLevel\n\
-        from faster_whisper.audio import decode_audio\nimport numpy as np\nSetLogLevel(-1)\n\
-        url='https://alphacephei.com/vosk/models/vosk-model-pt-fb-v0.1.1-20220516_2113.zip'\n\
-        with urllib.request.urlopen(url,timeout=120) as response:\n zipfile.ZipFile(io.BytesIO(response.read())).extractall('/tmp/models')\n\
-        model=Model('/tmp/models/vosk-model-pt-fb-v0.1.1-20220516_2113')\nfor repeat\
-        \ in range(2):\n for i,text in enumerate(phrases):\n  pcm=(decode_audio('/tmp/sample'+str(i)+'.wav',sampling_rate=16000)*32767).astype(np.int16).tobytes()\n\
-        \  recognizer=KaldiRecognizer(model,16000);results=[];cpu_ms=0;start=time.monotonic()\n\
-        \  for offset in range(0,len(pcm),3200):\n   chunk=pcm[offset:offset+3200]\n\
-        \   # Deliver frames at their actual audio rate, as a live microphone would.\n\
-        \   delay=start+(offset+len(chunk))/32000-time.monotonic()\n   if delay>0:time.sleep(delay)\n\
-        \   tick=time.monotonic()\n   if recognizer.AcceptWaveform(chunk):results.append(json.loads(recognizer.Result()).get('text',''))\n\
-        \   cpu_ms+=(time.monotonic()-tick)*1000\n  tick=time.monotonic();results.append(json.loads(recognizer.FinalResult()).get('text',''))\n\
-        \  final_ms=round((time.monotonic()-tick)*1000)\n  print(json.dumps({'stt_model':'vosk-full-pt','repeat':repeat,'expected':text,'transcript':'\
-        \ '.join(r for r in results if r),'audio_seconds':round(len(pcm)/32000,2),'processing_ms':round(cpu_ms),'finalization_ms':final_ms,'post_audio_completion_ms':max(0,round((time.monotonic()-start-len(pcm)/32000)*1000)),'peak_memory_MiB':round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/1024)}),flush=True)\n\
-        \nBENCHMARKPY\nCONTAINER\nREMOTE\n"
+      run: 'set -euo pipefail
+
+        ssh -i ~/.ssh/id_deploy -o BatchMode=yes -o ConnectTimeout=20 "${USERNAME:-ubuntu}@$HOST"
+        ''bash -s'' <<''REMOTE''
+
+        sudo docker stats --no-stream --format ''CPU={{.CPUPerc}} memory={{.MemUsage}}''
+        creation-free-voice-evaluation
+
+        sudo docker exec creation-free-voice-evaluation sh -c ''du -sh /tmp/models;
+        cat /proc/1/status | head -6''
+
+        REMOTE
+
+        '
     - name: Remove private SSH file
       if: always()
       run: rm -f ~/.ssh/id_deploy
