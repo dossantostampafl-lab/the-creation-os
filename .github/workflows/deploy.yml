@@ -2,7 +2,7 @@ name: Deploy
 permissions:
   contents: read
 concurrency:
-  group: local-speech-performance
+  group: free-primary-latency
   cancel-in-progress: false
 jobs:
   deploy:
@@ -60,28 +60,24 @@ jobs:
         \ key, so this run trusted whatever answered.\"\n  echo \"Record the lines\
         \ below in deploy/oracle/known_hosts:\"\n  cat ~/.ssh/known_hosts\nfi\nchmod\
         \ 600 ~/.ssh/known_hosts\n"
-    - name: Compare Kokoro CPU settings without changing production voice
+    - name: Measure free primary first-token jitter without changing voice settings
       env:
         HOST: ${{ secrets.DEPLOY_HOST }}
         USERNAME: ${{ secrets.DEPLOY_USER }}
       run: "set -euo pipefail\nssh -i ~/.ssh/id_deploy -o BatchMode=yes -o ConnectTimeout=20\
         \ \"${USERNAME:-ubuntu}@$HOST\" 'bash -s' <<'REMOTE'\nset -euo pipefail\n\
         api=\"$(sudo docker ps --filter 'label=com.docker.compose.service=api' --format\
-        \ '{{.ID}}' | head -1)\"\nproject=\"$(sudo docker inspect -f '{{index .Config.Labels\
-        \ \"com.docker.compose.project\"}}' \"$api\")\"\nsudo docker run --rm -i --name\
-        \ creation-kokoro-performance --cpus=2 --memory=3g --read-only \\\n --tmpfs\
-        \ /tmp --tmpfs /var/lib/creation/speech-runtime:rw,exec,nosuid,nodev,size=64m,mode=1777\
-        \ \\\n -e TMPDIR=/var/lib/creation/speech-runtime -v \"${project}_voice_models:/var/lib/creation/voice\"\
-        \ \\\n creation-local-voice-candidate python - <<'BENCHMARKPY'\nimport json,time\n\
-        from pathlib import Path\nimport onnxruntime as rt\nfrom kokoro_onnx import\
-        \ Kokoro\nroot=Path('/var/lib/creation/voice')\noptions=rt.SessionOptions();options.intra_op_num_threads=2;options.inter_op_num_threads=1\n\
-        session=rt.InferenceSession(str(root/'kokoro-v1.0.onnx'),sess_options=options,providers=['CPUExecutionProvider'])\n\
-        voice=Kokoro.from_session(session,str(root/'voices-v1.0.bin'))\nfor text in\
-        \ ['Estou aqui.','Dois mais dois s\xE3o quatro.','Dois mais dois','s\xE3o\
-        \ quatro.','Para explicar isso,','vamos come\xE7ar pelo princ\xEDpio.']:\n\
-        \ started=time.monotonic();audio,rate=voice.create(text,voice='pm_santa',speed=1.0,lang='pt-br')\n\
-        \ print(json.dumps({'text':text,'synthesis_ms':round((time.monotonic()-started)*1000),'audio_seconds':round(len(audio)/rate,2)}),flush=True)\n\
-        BENCHMARKPY\nREMOTE\n"
+        \ '{{.ID}}' | head -1)\"\nsudo docker exec -i \"$api\" python - <<'LATENCYPY'\n\
+        import asyncio,json,time\nfrom app.voice_session.runtime import build_primary_provider\n\
+        from app.inference.contracts import InferenceRequest\nfrom app.services.conversation_context\
+        \ import SYSTEM_PROMPT\nasync def main():\n primary=build_primary_provider()\n\
+        \ for index in range(5):\n  request=InferenceRequest(messages=[{'role':'system','content':SYSTEM_PROMPT},{'role':'user','content':f'Quanto\
+        \ \xE9 {index+2} mais dois? Responda somente o resultado.'}])\n  started=time.monotonic();iterator=primary.stream(request).__aiter__()\n\
+        \  try:\n   first=await asyncio.wait_for(iterator.__anext__(),timeout=12)\n\
+        \   print(json.dumps({'probe':index+1,'first_ms':round((time.monotonic()-started)*1000),'first_text':first}),flush=True)\n\
+        \  except Exception as error:\n   print(json.dumps({'probe':index+1,'elapsed_ms':round((time.monotonic()-started)*1000),'error_type':type(error).__name__}),flush=True)\n\
+        \  finally:\n   try:await asyncio.wait_for(iterator.aclose(),timeout=2)\n\
+        \   except Exception:pass\nasyncio.run(main())\nLATENCYPY\nREMOTE\n"
     - name: Remove private SSH file
       if: always()
       run: rm -f ~/.ssh/id_deploy
@@ -102,7 +98,6 @@ jobs:
         - set-creator-password
         - tidy
         - logs
-        - set-voice
         - set-local-voice
         - smoke-test
         - stf-host-check
