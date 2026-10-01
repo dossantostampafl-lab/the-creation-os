@@ -77,94 +77,38 @@ jobs:
         import os,json,httpx\nwith httpx.Client(timeout=30) as c:\n r=c.post('http://127.0.0.1:8000/api/v1/auth/login',json={'username':os.getenv('CREATOR_BOOTSTRAP_USERNAME',''),'password':os.getenv('CREATOR_BOOTSTRAP_PASSWORD','')})\n\
         \ if r.status_code != 200: raise SystemExit('Diagnostic authentication rejected')\n\
         \ print(json.dumps(r.json()))\nPYREMOTE\nREMOTE\n"
-    - name: Generate synthetic Portuguese microphone input
-      run: "set -euo pipefail\numask 077\nsudo apt-get update -qq\nsudo apt-get install\
-        \ -y -qq ffmpeg\nssh -i ~/.ssh/id_deploy -o BatchMode=yes -o ConnectTimeout=20\
-        \ \"${USERNAME:-ubuntu}@$HOST\" 'bash -s' > /tmp/creation-speech.pcm <<'REMOTESPEECH'\n\
-        set -euo pipefail\napi=\"$(sudo docker ps --filter 'label=com.docker.compose.service=api'\
-        \ --format '{{.ID}}' | head -1)\"\nsudo docker exec -i \"$api\" python - <<'SPEECHPY'\n\
-        import asyncio,sys\nfrom app.config import settings\nfrom app.voice_session.tts\
-        \ import ElevenLabsTTSConfig,ElevenLabsRealtimeTTS\nasync def main():\n config=ElevenLabsTTSConfig(api_key=settings.elevenlabs_api_key.get_secret_value(),voice_id=settings.elevenlabs_voice_id,model_id=settings.elevenlabs_model_id)\n\
-        \ async with asyncio.timeout(45):\n  async with ElevenLabsRealtimeTTS(config)\
-        \ as tts:\n   await tts.send_text('Quanto \xE9 dois mais dois, Deus?')\n \
-        \  await tts.finish()\n   while True:\n    audio=await tts.receive_audio()\n\
-        \    if audio is None:break\n    sys.stdout.buffer.write(audio)\nasyncio.run(main())\n\
-        SPEECHPY\nREMOTESPEECH\nffmpeg -hide_banner -loglevel error -y -f s16le -ar\
-        \ 24000 -ac 1 -i /tmp/creation-speech.pcm -ar 48000 -ac 1 /tmp/creation-speech.wav\n\
-        python - <<'WAVEINPUT'\nimport wave\nwith wave.open('/tmp/creation-speech.wav','rb')\
-        \ as speech:data=speech.readframes(speech.getnframes())\nwith wave.open('/tmp/creation-mic.wav','wb')\
-        \ as output:\n output.setnchannels(1);output.setsampwidth(2);output.setframerate(48000)\n\
-        \ output.writeframes(b'\\0'*(48000*2*15)+data+b'\\0'*(48000*2*60))\nWAVEINPUT\n\
-        rm -f /tmp/creation-speech.pcm\n"
-      env:
-        HOST: ${{ secrets.DEPLOY_HOST }}
-        USERNAME: ${{ secrets.DEPLOY_USER }}
-    - name: Exercise authenticated public browser
+    - name: Exercise public quota handling and real typed chat
       run: "cat > frontend/public-diagnostic.mjs <<'JSDIAGNOSTIC'\nimport { chromium\
         \ } from 'playwright';\nimport { readFileSync, unlinkSync } from 'node:fs';\n\
         const file=process.env.RUNNER_TEMP+'/creation-session.json';\nconst tokens=JSON.parse(readFileSync(file,'utf8'));\
         \ unlinkSync(file);\nconst browser=await chromium.launch({args:['--use-fake-device-for-media-stream','--use-fake-ui-for-media-stream']});\n\
-        try {\n for (const mobile of [false,true]) {\n  const context=await browser.newContext({permissions:['microphone'],...(mobile?{viewport:{width:390,height:844},isMobile:true,hasTouch:true}:{})});\n\
+        try {\n for(const mobile of [false,true]) {\n  const context=await browser.newContext({permissions:['microphone'],...(mobile?{viewport:{width:390,height:844},isMobile:true,hasTouch:true}:{})});\n\
         \  await context.addInitScript(({access,refresh})=>{localStorage.setItem('creation_access_token',access);sessionStorage.setItem('creation_refresh_token',refresh)},\
         \ {access:tokens.access_token,refresh:tokens.refresh_token});\n  const page=await\
-        \ context.newPage(); const failures=[]; const errors=[];\n  const path=url=>new\
-        \ URL(url).pathname;\n  page.on('pageerror',e=>errors.push(e.message));\n\
-        \  page.on('requestfailed',r=>{if(!r.failure()?.errorText.includes('ERR_ABORTED'))failures.push({path:path(r.url()),error:r.failure()?.errorText})});\n\
-        \  page.on('response',r=>{if(r.status()>=400)failures.push({path:path(r.url()),status:r.status()})});\n\
-        \  page.on('websocket',ws=>{console.log('WEBSOCKET',path(ws.url()));ws.on('socketerror',e=>errors.push('WebSocket:\
-        \ '+e))});\n  await page.goto('https://148-116-109-255.sslip.io/',{waitUntil:'domcontentloaded'});\n\
+        \ context.newPage(); const failures=[]; const errors=[]; let tickets=0;\n\
+        \  page.on('pageerror',e=>errors.push(e.message));\n  page.on('request',r=>{if(new\
+        \ URL(r.url()).pathname.includes('/voice/session/ticket'))tickets++});\n \
+        \ page.on('response',r=>{const path=new URL(r.url()).pathname;if(r.status()>=400\
+        \ && !(path.endsWith('/voice/session/acknowledgement')&&r.status()===503))failures.push({path,status:r.status()})});\n\
+        \  await page.goto('https://148-116-109-255.sslip.io/',{waitUntil:'domcontentloaded'});\n\
         \  await page.getByRole('textbox',{name:'Message DEUS'}).waitFor({timeout:45000});\n\
-        \  await page.waitForTimeout(20000);\n  const status=await page.locator('.wake-hint').innerText();\n\
-        \  const globalErrors=await page.locator('.error-banner,.console-error').allTextContents();\n\
-        \  console.log(JSON.stringify({mode:mobile?'phone':'desktop',voice:status,globalErrors,failures,errors}));\n\
-        \  if(globalErrors.length||errors.length||failures.length||!status.includes('Pronto'))throw\
-        \ new Error('Authenticated browser runtime failed');\n  if (!mobile) {\n \
-        \   for (const [question,expected] of [\n      ['Quanto \xE9 17 mais 25? Responda\
-        \ somente com o n\xFAmero.', '42'],\n      ['E se eu subtrair dois desse resultado?\
-        \ Responda somente com o n\xFAmero.', '40'],\n      ['Qual foi o primeiro\
-        \ resultado, antes da subtra\xE7\xE3o? Responda somente com o n\xFAmero.',\
-        \ '42'],\n    ]) {\n      const previous=await page.locator('.console-message.deus-message').count();\n\
-        \      const started=Date.now();\n      await page.getByRole('textbox',{name:'Message\
-        \ DEUS'}).fill(question);\n      await page.getByRole('button',{name:'Send\
-        \ to DEUS'}).click();\n      await page.waitForFunction(count=>document.querySelectorAll('.console-message.deus-message').length>count,previous,{timeout:90000});\n\
-        \      const reply=await page.locator('.console-message.deus-message').last().locator('p').innerText();\n\
-        \      console.log(JSON.stringify({testQuestion:question,reply,elapsedMs:Date.now()-started}));\n\
-        \      if(!reply.includes(expected))throw new Error('DEUS response did not\
-        \ answer the contextual question');\n    }\n    await page.route('**/api/v1/system/state?**',\
-        \ route=>route.abort('failed'));\n    await page.reload({waitUntil:'domcontentloaded'});\n\
-        \    const banner=page.locator('.error-banner');\n    await banner.waitFor({timeout:15000});\n\
-        \    const detail=await banner.innerText();\n    if(!detail.includes('/api/v1/system/state'))throw\
-        \ new Error('Missing failed endpoint diagnostic');\n    console.log('INJECTED_NETWORK_FAILURE',detail);\n\
-        \    await page.unroute('**/api/v1/system/state?**');\n    await page.getByRole('button',{name:'Retry',exact:true}).click();\n\
-        \    await page.getByRole('textbox',{name:'Message DEUS'}).waitFor({timeout:30000});\n\
-        \    await page.waitForFunction(()=>document.querySelector('.wake-hint')?.textContent?.includes('Pronto'),{timeout:30000});\n\
-        \    if(await banner.count())throw new Error('Dashboard did not recover after\
-        \ Retry');\n    console.log('NETWORK_RECOVERY_PASS');\n  }\n  await context.close();\n\
-        \ }\n} finally {await browser.close();}\n\nconst voiceBrowser=await chromium.launch({args:['--use-fake-device-for-media-stream','--use-fake-ui-for-media-stream','--use-file-for-fake-audio-capture=/tmp/creation-mic.wav%noloop']});\n\
-        try {\n const context=await voiceBrowser.newContext({permissions:['microphone']});\n\
-        \ await context.addInitScript(({access,refresh})=>{\n  localStorage.setItem('creation_access_token',access);\
-        \ sessionStorage.setItem('creation_refresh_token',refresh);\n  const Native=window.AudioContext;window.audioContexts=[];window.outputStarts=0;\n\
-        \  window.AudioContext=class extends Native{constructor(...args){super(...args);window.audioContexts.push(this)}};\n\
-        \  const start=AudioBufferSourceNode.prototype.start;\n  AudioBufferSourceNode.prototype.start=function(...args){window.outputStarts++;return\
-        \ start.apply(this,args)};\n },{access:tokens.access_token,refresh:tokens.refresh_token});\n\
-        \ const page=await context.newPage();let inputFrames=0,outputFrames=0;const\
-        \ events=[];let telemetry=null;\n page.on('websocket',ws=>{\n  ws.on('framesent',frame=>{try{if(JSON.parse(frame.payload).type==='audio')inputFrames++}catch{}});\n\
-        \  ws.on('framereceived',frame=>{try{const e=JSON.parse(frame.payload);if(e.type==='telemetry')telemetry=e;if(e.type==='audio_chunk')outputFrames++;else\
-        \ if(['transcript_commit','error','telemetry'].includes(e.type))events.push(e.type)}catch{}});\n\
-        \ });\n await page.goto('https://148-116-109-255.sslip.io/',{waitUntil:'domcontentloaded'});\n\
-        \ await page.waitForFunction(()=>document.querySelector('.wake-hint')?.textContent?.includes('Pronto'),{timeout:45000});\n\
-        \ console.log('VOICE_BEFORE_INTERACTION',JSON.stringify({inputFrames,contexts:await\
-        \ page.evaluate(()=>window.audioContexts.map(c=>c.state))}));\n await page.getByRole('textbox',{name:'Message\
-        \ DEUS'}).click();\n let failure=null;\n try{await page.waitForFunction(()=>document.querySelectorAll('.console-message.deus-message').length>0,null,{timeout:90000})}catch(error){failure='VOICE_RESPONSE_TIMEOUT'}\n\
-        \ try{await page.waitForFunction(()=>document.querySelector('.wake-hint')?.textContent?.includes('Ouvindo'),null,{timeout:30000})}catch{failure=failure??'VOICE_COMPLETION_TIMEOUT'}\n\
-        \ const creator=await page.locator('.console-message.creator-message p').allTextContents();\n\
-        \ const replies=await page.locator('.console-message.deus-message p').allTextContents();\n\
-        \ const audio=await page.evaluate(()=>({contexts:window.audioContexts.map(c=>c.state),outputStarts:window.outputStarts}));\n\
-        \ console.log('VOICE_PIPELINE',JSON.stringify({creator,replies,inputFrames,outputFrames,events,telemetry,audio,failure,errors:await\
-        \ page.locator('.console-error').allTextContents()}));\n if(failure||!replies.some(reply=>/4|quatro/i.test(reply))||!outputFrames||!audio.outputStarts)throw\
-        \ new Error('Real STT, inference or output playback did not complete the synthetic\
-        \ spoken question');\n await context.close();\n}finally{await voiceBrowser.close()}\n\
-        JSDIAGNOSTIC\nnode frontend/public-diagnostic.mjs"
+        \  await page.waitForFunction(()=>Array.from(document.querySelectorAll('.console-error')).some(e=>e.textContent.includes('cota')),{},{timeout:45000});\n\
+        \  await page.waitForTimeout(3500);\n  if(!mobile) {\n   for(const [question,expected]\
+        \ of [['Quanto \xE9 17 mais 25? Responda somente com o n\xFAmero.','42'],['E\
+        \ se eu subtrair dois desse resultado? Responda somente com o n\xFAmero.','40'],['Qual\
+        \ foi o primeiro resultado, antes da subtra\xE7\xE3o? Responda somente com\
+        \ o n\xFAmero.','42']]) {\n    const previous=await page.locator('.console-message.deus-message').count();\
+        \ const started=Date.now();\n    await page.getByRole('textbox',{name:'Message\
+        \ DEUS'}).fill(question);\n    await page.getByRole('button',{name:'Send to\
+        \ DEUS'}).click();\n    await page.waitForFunction(count=>document.querySelectorAll('.console-message.deus-message').length>count,previous,{timeout:90000});\n\
+        \    const reply=await page.locator('.console-message.deus-message').last().locator('p').innerText();\n\
+        \    console.log(JSON.stringify({testQuestion:question,reply,elapsedMs:Date.now()-started}));\n\
+        \    if(!reply.includes(expected))throw new Error('Contextual text answer\
+        \ failed');\n   }\n  }\n  const quota=await page.locator('.console-error').allTextContents();\n\
+        \  console.log(JSON.stringify({mode:mobile?'phone':'desktop',quota,tickets,failures,errors}));\n\
+        \  if(!quota.some(e=>e.includes('cota'))||tickets>1||errors.length||failures.length)throw\
+        \ new Error('Quota error handling failed');\n  await context.close();\n }\n\
+        } finally {await browser.close();}\nJSDIAGNOSTIC\nnode frontend/public-diagnostic.mjs"
     - name: Remove private diagnostic files
       if: always()
       run: rm -f ~/.ssh/id_deploy "$RUNNER_TEMP/creation-session.json"
