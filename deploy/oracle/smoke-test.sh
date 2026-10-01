@@ -135,6 +135,13 @@ with httpx.Client(base_url=BASE, timeout=45) as client:
 
     print()
     print("== Voice ==")
+    acknowledgement = client.get("/voice/session/acknowledgement")
+    report(
+        "ElevenLabs wake acknowledgement",
+        acknowledgement.status_code == 200 and len(acknowledgement.content) > 0
+        and acknowledgement.headers.get("X-DEUS-Audio-Format") == "pcm_s16le",
+        f"HTTP {acknowledgement.status_code}",
+    )
     ticket_probe = client.post("/voice/session/ticket")
     report(
         "realtime voice ticket",

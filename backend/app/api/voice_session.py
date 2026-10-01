@@ -13,6 +13,7 @@ from websockets.exceptions import WebSocketException
 from app.auth.dependencies import get_sovereign_creator
 from app.config import settings
 from app.db.session import AsyncSessionLocal
+from app.inference.contracts import InferenceError
 from app.repositories.domain import DomainRepository
 from app.schemas.auth import TokenPayload
 from app.voice_session.acknowledgement import VoiceAcknowledgementCache
@@ -217,9 +218,18 @@ async def voice_session_socket(
                             await send_json(outbound)
 
                 pump = asyncio.create_task(transcript_pump())
+                receiver = asyncio.create_task(websocket.receive_json())
                 try:
                     while True:
-                        payload = await websocket.receive_json()
+                        done, _pending = await asyncio.wait(
+                            (pump, receiver),
+                            return_when=asyncio.FIRST_COMPLETED,
+                        )
+                        if pump in done:
+                            await pump
+                            return
+                        payload = receiver.result()
+                        receiver = asyncio.create_task(websocket.receive_json())
                         try:
                             event = ClientEvent.model_validate(payload)
                         except ValidationError:
@@ -263,6 +273,10 @@ async def voice_session_socket(
 
                         if event.type == "barge_in":
                             cancelled = session.barge_in(event.turn_id)
+                            if cancelled:
+                                pump.cancel()
+                                await asyncio.gather(pump, return_exceptions=True)
+                                pump = asyncio.create_task(transcript_pump())
                             await send_json(
                                 {
                                     "type": "barge_in",
@@ -282,8 +296,9 @@ async def voice_session_socket(
                     session.close()
                 finally:
                     pump.cancel()
-                    await asyncio.gather(pump, return_exceptions=True)
-        except (OSError, TimeoutError, WebSocketException):
+                    receiver.cancel()
+                    await asyncio.gather(pump, receiver, return_exceptions=True)
+        except (OSError, TimeoutError, WebSocketException, InferenceError):
             try:
                 await send_json(
                     {

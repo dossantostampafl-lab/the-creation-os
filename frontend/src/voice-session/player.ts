@@ -10,6 +10,7 @@ export class Pcm16AudioSink implements AudioSink {
   private readonly sampleRate: number;
   private nextStart = 0;
   private readonly sources = new Set<AudioBufferSourceNode>();
+  private readonly drainWaiters = new Set<() => void>();
 
   constructor(sampleRate = 24_000) {
     this.context = new AudioContext({ latencyHint: "interactive", sampleRate });
@@ -44,8 +45,24 @@ export class Pcm16AudioSink implements AudioSink {
     const start = Math.max(this.context.currentTime + 0.01, this.nextStart);
     this.nextStart = start + audioBuffer.duration;
     this.sources.add(source);
-    source.onended = () => this.sources.delete(source);
+    source.onended = () => {
+      this.sources.delete(source);
+      if (!this.sources.size) {
+        voiceActivity.level = 0;
+        this.resolveDrain();
+      }
+    };
     source.start(start);
+  }
+
+  whenDrained(): Promise<void> {
+    if (!this.sources.size) return Promise.resolve();
+    return new Promise((resolve) => this.drainWaiters.add(resolve));
+  }
+
+  private resolveDrain(): void {
+    for (const resolve of this.drainWaiters) resolve();
+    this.drainWaiters.clear();
   }
 
   stop(): void {
@@ -55,6 +72,7 @@ export class Pcm16AudioSink implements AudioSink {
     this.sources.clear();
     this.nextStart = this.context.currentTime;
     voiceActivity.level = 0;
+    this.resolveDrain();
   }
 
   async close(): Promise<void> {

@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { StreamingAudioPlayer } from "./player";
+import { Pcm16AudioSink, StreamingAudioPlayer } from "./player";
 
 class FakeSink {
   readonly chunks: Uint8Array[] = [];
@@ -16,6 +16,38 @@ class FakeSink {
 }
 
 describe("StreamingAudioPlayer", () => {
+  it("waits for the last scheduled audio source before listening can resume", async () => {
+    const sources: Array<{ onended: (() => void) | null; connect: () => void; start: () => void; stop: () => void }> = [];
+    class Context {
+      state = "running";
+      currentTime = 0;
+      destination = {};
+      createBuffer(_channels: number, count: number, rate: number) {
+        return { duration: count / rate, getChannelData: () => new Float32Array(count) };
+      }
+      createBufferSource() {
+        const source = { onended: null as (() => void) | null, connect() {}, start() {}, stop() {} };
+        sources.push(source);
+        return source;
+      }
+    }
+    vi.stubGlobal("AudioContext", Context);
+    try {
+      const sink = new Pcm16AudioSink();
+      sink.push(new Uint8Array([0, 0]));
+      sink.push(new Uint8Array([0, 0]));
+      let drained = false;
+      const completion = sink.whenDrained().then(() => { drained = true; });
+      sources[0].onended?.();
+      await Promise.resolve();
+      expect(drained).toBe(false);
+      sources[1].onended?.();
+      await completion;
+      expect(drained).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
   it("plays audio only for the active turn and ignores stale chunks", () => {
     const sink = new FakeSink();
     const player = new StreamingAudioPlayer(sink);

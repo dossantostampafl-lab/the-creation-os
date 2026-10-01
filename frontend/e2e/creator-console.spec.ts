@@ -177,7 +177,7 @@ test("realtime DEUS voice is always armed without push-to-talk or browser speech
 
   await expect(page.getByText("como está o projeto?", { exact: true })).toBeVisible();
   await expect(page.getByText("Estou aqui.", { exact: true })).toBeVisible();
-  await expect(page.getByText("Pensando…", { exact: true })).toBeVisible();
+  await expect(page.getByText(/^Pensando…/)).toBeVisible();
 
   await page.evaluate(() => (window as unknown as { __voiceServer: (event: object) => boolean }).__voiceServer({
     type: "state",

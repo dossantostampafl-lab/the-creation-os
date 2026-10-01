@@ -77,6 +77,104 @@ class HangingRealtimeSTT:
         raise AssertionError("unreachable")
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stalled", ["model", "tts"])
+async def test_barge_in_cancels_stalled_turn_and_processes_followup(voice_client, monkeypatch, stalled):
+    playing = asyncio.Event()
+    completed = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    class TranscriptSTT(HangingRealtimeSTT):
+        index = 0
+
+        async def receive_transcript(self) -> STTTranscript:
+            self.index += 1
+            if self.index == 1:
+                return STTTranscript("Deus, olá", committed=True)
+            if self.index == 2:
+                return STTTranscript("Continue", committed=True)
+            await asyncio.Event().wait()
+            raise AssertionError("unreachable")
+
+    class Provider:
+        name = "freellmapi"
+        calls = 0
+
+        async def stream(self, request):
+            self.calls += 1
+            if self.calls == 1:
+                try:
+                    yield "Olá."
+                    if stalled == "model":
+                        await asyncio.Event().wait()
+                finally:
+                    cancelled.set()
+            else:
+                yield "Seguimos."
+
+    class TTS(HangingRealtimeSTT):
+        sent_audio = False
+
+        def __init__(self, first):
+            self.first = first
+
+        async def send_text(self, text):
+            return None
+
+        async def finish(self):
+            return None
+
+        async def receive_audio(self):
+            if not self.sent_audio:
+                self.sent_audio = True
+                return b"\0\0"
+            if self.first and stalled == "tts":
+                await asyncio.Event().wait()
+            return None
+
+    class Socket:
+        session_id = ""
+        reads = 0
+
+        async def accept(self):
+            return None
+
+        async def close(self, code):
+            return None
+
+        async def send_json(self, payload):
+            if payload["type"] == "session_ready":
+                self.session_id = payload["session_id"]
+            if payload["type"] == "audio_chunk" and payload["turn_id"] == 1:
+                playing.set()
+            if payload["type"] == "state" and payload["turn_id"] == 2 and payload["state"] == "LISTENING":
+                completed.set()
+
+        async def receive_json(self):
+            self.reads += 1
+            if self.reads == 1:
+                await playing.wait()
+                return {"type": "barge_in", "session_id": self.session_id, "turn_id": 1}
+            await completed.wait()
+            return {"type": "stop", "session_id": self.session_id, "turn_id": 2}
+
+    provider = Provider()
+    tts_count = 0
+
+    def make_tts(*_args, **_kwargs):
+        nonlocal tts_count
+        tts_count += 1
+        return TTS(first=tts_count == 1)
+
+    monkeypatch.setattr(voice_session_api, "ElevenLabsRealtimeSTT", lambda *_args, **_kwargs: TranscriptSTT())
+    monkeypatch.setattr(voice_session_api, "ElevenLabsRealtimeTTS", make_tts)
+    monkeypatch.setattr(voice_session_api, "build_primary_provider", lambda: provider)
+    await asyncio.wait_for(voice_session_api.voice_session_socket(Socket(), ticket="ticket-1", conversation_id="conversation-1"), timeout=1)
+    assert completed.is_set()
+    assert cancelled.is_set()
+    assert provider.calls == 2
+
+
 class StubStreamingProvider:
     def __init__(self, name: str, events: list[str | Exception]) -> None:
         self.name = name
@@ -362,17 +460,17 @@ async def test_gateway_streams_committed_command_through_inference_and_tts_with_
     assert tts.text == ["Verificando", "."]
     assert tts.finished is True
     assert {event["turn_id"] for event in events if "turn_id" in event} == {1}
-    assert [event["type"] for event in events] == [
+    assert [event["type"] for event in events[:3]] == [
         "wake_detected",
         "transcript_commit",
         "state",
-        "text_delta",
-        "audio_chunk",
-        "text_delta",
-        "audio_chunk",
-        "state",
-        "telemetry",
     ]
+    assert [event["type"] for event in events[-2:]] == ["state", "telemetry"]
+    assert [event["text"] for event in events if event["type"] == "text_delta"] == ["Verificando", "."]
+    assert [event["audio_base64"] for event in events if event["type"] == "audio_chunk"] == [
+        "YXVkaW8tMQ==", "YXVkaW8tMg==",
+    ]
+    assert len(events) == 9
     assert events[2]["state"] == "THINKING"
     assert events[-2]["state"] == "LISTENING"
     assert events[-1]["provider_selected"] == "freellmapi"

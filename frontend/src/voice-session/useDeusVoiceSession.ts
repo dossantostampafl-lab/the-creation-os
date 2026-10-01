@@ -104,6 +104,7 @@ export function useDeusVoiceSession(options: UseDeusVoiceSessionOptions): DeusVo
     let replyProvider: string | null = null;
     let acknowledgementAudio: Uint8Array | null = null;
     let acknowledgementGeneration = 0;
+    let completionGeneration = 0;
     const acknowledgementPromise = preloadVoiceAcknowledgement()
       .then((audio) => {
         acknowledgementAudio = audio;
@@ -144,6 +145,7 @@ export function useDeusVoiceSession(options: UseDeusVoiceSessionOptions): DeusVo
         if (!bargeOpen && beganSpeaking) {
           const event = model.bargeIn();
           if (event && send(event)) {
+            completionGeneration += 1;
             bargeOpen = true;
             player.cancel(event.turn_id);
             setStatus("listening");
@@ -176,7 +178,24 @@ export function useDeusVoiceSession(options: UseDeusVoiceSessionOptions): DeusVo
     };
 
     const handleEvent = (event: VoiceServerEvent) => {
-      model.onServerEvent(event);
+      if (event.type === "state" && event.state === "LISTENING"
+        && model.state === "speaking" && event.session_id === model.sessionId
+        && event.turn_id === model.turnId) {
+        const generation = ++completionGeneration;
+        void sink.whenDrained().then(() => {
+          if (disposed || generation !== completionGeneration
+            || model.sessionId !== event.session_id || model.turnId !== event.turn_id) return;
+          if (!model.onServerEvent(event)) return;
+          setStatus("listening");
+          player.finish(event.turn_id);
+          bargeOpen = false;
+          vad.reset();
+          vadWasSpeaking = false;
+          finishReply(event.turn_id);
+        });
+        return;
+      }
+      if (!model.onServerEvent(event)) return;
       const nextStatus = statusFromEvent(event);
       if (nextStatus) setStatus(nextStatus);
 
@@ -206,6 +225,7 @@ export function useDeusVoiceSession(options: UseDeusVoiceSessionOptions): DeusVo
         return;
       }
       if (event.type === "transcript_commit") {
+        completionGeneration += 1;
         acknowledgementGeneration += 1;
         player.stop();
         replyTurn = event.turn_id;
@@ -226,12 +246,14 @@ export function useDeusVoiceSession(options: UseDeusVoiceSessionOptions): DeusVo
         return;
       }
       if (event.type === "audio_chunk") {
+        setStatus("speaking");
         player.startTurn(event.turn_id);
         void sink.resume().catch(() => undefined);
         player.push(event.turn_id, decodeBase64(event.audio_base64));
         return;
       }
       if (event.type === "barge_in" && event.cancelled) {
+        completionGeneration += 1;
         player.cancel(event.turn_id);
         bargeOpen = true;
         return;
@@ -257,6 +279,9 @@ export function useDeusVoiceSession(options: UseDeusVoiceSessionOptions): DeusVo
 
     const scheduleReconnect = () => {
       if (disposed || reconnectTimer !== null) return;
+      completionGeneration += 1;
+      acknowledgementGeneration += 1;
+      player.stop();
       model.onSocketClosed();
       setStatus("reconnecting");
       const delay = Math.min(3000, 300 * 2 ** reconnectAttempt);
@@ -276,6 +301,7 @@ export function useDeusVoiceSession(options: UseDeusVoiceSessionOptions): DeusVo
         const next = new WebSocket(buildVoiceSessionUrl(API_BASE, ticket, conversationId));
         socket = next;
         next.onmessage = (message) => {
+          if (disposed || socket !== next) return;
           try {
             handleEvent(parseVoiceServerEvent(String(message.data)));
           } catch {
