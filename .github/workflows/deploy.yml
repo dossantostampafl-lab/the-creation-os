@@ -71,8 +71,16 @@ jobs:
 
         set -euo pipefail
 
-        sudo docker ps --filter name=creation-local-voice-validation --format ''{{.Names}}
-        {{.Status}}''
+        sudo docker ps --format ''{{.Names}} {{.Status}}''
+
+        sudo docker images creation-local-voice-candidate --format ''{{.Repository}}
+        {{.CreatedSince}} {{.Size}}''
+
+        sudo docker stats --no-stream --format ''{{.Name}} CPU={{.CPUPerc}} RAM={{.MemUsage}}''
+
+        ps -eo comm,etime,pcpu --sort=-pcpu | head -12
+
+        free -m
 
         sudo docker stats --no-stream --format ''{{.Name}} CPU={{.CPUPerc}} RAM={{.MemUsage}}''
         creation-local-voice-validation || true
