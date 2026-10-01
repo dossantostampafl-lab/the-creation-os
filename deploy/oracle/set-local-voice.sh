@@ -9,8 +9,8 @@ source "$REPO_DIR/deploy/oracle/env-file.sh"
 COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.cloud.yml)
 # Keep the live API serving while downloading the reusable public model files.
 "${COMPOSE[@]}" build api
-"${COMPOSE[@]}" run --rm --no-deps api python -m app.voice_session.prepare
-"${COMPOSE[@]}" run --rm --no-deps api python -m app.voice_session.verify_local
+"${COMPOSE[@]}" run --rm --no-deps -e DEUS_LOCAL_VOICE_MODELS_DIR=/var/lib/creation/voice api python -m app.voice_session.prepare
+"${COMPOSE[@]}" run --rm --no-deps -e DEUS_LOCAL_VOICE_MODELS_DIR=/var/lib/creation/voice api python -m app.voice_session.verify_local
 cp .env .env.before-local-voice
 chmod 600 .env.before-local-voice
 env_set DEUS_VOICE_ENGINE local
