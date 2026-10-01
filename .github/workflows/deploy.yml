@@ -77,6 +77,14 @@ jobs:
         import os,json,httpx\nwith httpx.Client(timeout=30) as c:\n r=c.post('http://127.0.0.1:8000/api/v1/auth/login',json={'username':os.getenv('CREATOR_BOOTSTRAP_USERNAME',''),'password':os.getenv('CREATOR_BOOTSTRAP_PASSWORD','')})\n\
         \ if r.status_code != 200: raise SystemExit('Diagnostic authentication rejected')\n\
         \ print(json.dumps(r.json()))\nPYREMOTE\nREMOTE\n"
+    - name: Generate synthetic Portuguese microphone input
+      run: "sudo apt-get update -qq\nsudo apt-get install -y -qq espeak-ng ffmpeg\n\
+        espeak-ng -v pt-br -s 145 -w /tmp/creation-question.wav 'Deus, quanto \xE9\
+        \ dez mais cinco?'\nffmpeg -hide_banner -loglevel error -y -i /tmp/creation-question.wav\
+        \ -ar 48000 -ac 1 /tmp/creation-speech.wav\npython - <<'WAVEINPUT'\nimport\
+        \ wave\nwith wave.open('/tmp/creation-speech.wav','rb') as speech:\n data=speech.readframes(speech.getnframes())\n\
+        with wave.open('/tmp/creation-mic.wav','wb') as output:\n output.setnchannels(1);output.setsampwidth(2);output.setframerate(48000)\n\
+        \ output.writeframes(b'\\0'*(48000*2*15)+data+b'\\0'*(48000*2*45))\nWAVEINPUT\n"
     - name: Exercise authenticated public browser
       run: "cat > frontend/public-diagnostic.mjs <<'JSDIAGNOSTIC'\nimport { chromium\
         \ } from 'playwright';\nimport { readFileSync, unlinkSync } from 'node:fs';\n\
@@ -118,7 +126,30 @@ jobs:
         \    await page.waitForFunction(()=>document.querySelector('.wake-hint')?.textContent?.includes('Pronto'),{timeout:30000});\n\
         \    if(await banner.count())throw new Error('Dashboard did not recover after\
         \ Retry');\n    console.log('NETWORK_RECOVERY_PASS');\n  }\n  await context.close();\n\
-        \ }\n} finally {await browser.close();}\nJSDIAGNOSTIC\nnode frontend/public-diagnostic.mjs"
+        \ }\n} finally {await browser.close();}\n\nconst voiceBrowser=await chromium.launch({args:['--use-fake-device-for-media-stream','--use-fake-ui-for-media-stream','--use-file-for-fake-audio-capture=/tmp/creation-mic.wav%noloop']});\n\
+        try {\n const context=await voiceBrowser.newContext({permissions:['microphone']});\n\
+        \ await context.addInitScript(({access,refresh})=>{\n  localStorage.setItem('creation_access_token',access);\
+        \ sessionStorage.setItem('creation_refresh_token',refresh);\n  const Native=window.AudioContext;window.audioContexts=[];window.outputStarts=0;\n\
+        \  window.AudioContext=class extends Native{constructor(...args){super(...args);window.audioContexts.push(this)}};\n\
+        \  const start=AudioBufferSourceNode.prototype.start;\n  AudioBufferSourceNode.prototype.start=function(...args){window.outputStarts++;return\
+        \ start.apply(this,args)};\n },{access:tokens.access_token,refresh:tokens.refresh_token});\n\
+        \ const page=await context.newPage();let inputFrames=0,outputFrames=0;const\
+        \ events=[];\n page.on('websocket',ws=>{\n  ws.on('framesent',frame=>{try{if(JSON.parse(frame.payload).type==='audio')inputFrames++}catch{}});\n\
+        \  ws.on('framereceived',frame=>{try{const e=JSON.parse(frame.payload);if(e.type==='audio_chunk')outputFrames++;else\
+        \ if(['transcript_commit','text_done','error','latency'].includes(e.type))events.push(e.type)}catch{}});\n\
+        \ });\n await page.goto('https://148-116-109-255.sslip.io/',{waitUntil:'domcontentloaded'});\n\
+        \ await page.waitForFunction(()=>document.querySelector('.wake-hint')?.textContent?.includes('Pronto'),{timeout:45000});\n\
+        \ console.log('VOICE_BEFORE_INTERACTION',JSON.stringify({inputFrames,contexts:await\
+        \ page.evaluate(()=>window.audioContexts.map(c=>c.state))}));\n await page.getByRole('textbox',{name:'Message\
+        \ DEUS'}).click();\n let failure=null;\n try{await page.waitForFunction(()=>document.querySelectorAll('.console-message.deus-message').length>0,null,{timeout:90000})}catch(error){failure='VOICE_RESPONSE_TIMEOUT'}\n\
+        \ const creator=await page.locator('.console-message.creator-message p').allTextContents();\n\
+        \ const replies=await page.locator('.console-message.deus-message p').allTextContents();\n\
+        \ const audio=await page.evaluate(()=>({contexts:window.audioContexts.map(c=>c.state),outputStarts:window.outputStarts}));\n\
+        \ console.log('VOICE_PIPELINE',JSON.stringify({creator,replies,inputFrames,outputFrames,events,audio,failure,errors:await\
+        \ page.locator('.console-error').allTextContents()}));\n if(failure||!replies.some(reply=>/15|quinze/i.test(reply))||!outputFrames||!audio.outputStarts)throw\
+        \ new Error('Real STT, inference or output playback did not complete the synthetic\
+        \ spoken question');\n await context.close();\n}finally{await voiceBrowser.close()}\n\
+        JSDIAGNOSTIC\nnode frontend/public-diagnostic.mjs"
     - name: Remove private diagnostic files
       if: always()
       run: rm -f ~/.ssh/id_deploy "$RUNNER_TEMP/creation-session.json"
