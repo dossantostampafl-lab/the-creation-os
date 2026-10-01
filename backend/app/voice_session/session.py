@@ -427,14 +427,14 @@ class VoiceSessionGateway:
                     if item is None:
                         audio_done = True
                         break
-                    audio_event, speaking = self._audio_event(
+                    final_audio_event, speaking = self._audio_event(
                         item,
                         turn_id=turn_id,
                         metrics=metrics,
                         speaking=speaking,
                     )
-                    if audio_event is not None:
-                        yield audio_event
+                    if final_audio_event is not None:
+                        yield final_audio_event
                 await audio_reader
             finally:
                 if not audio_reader.done():

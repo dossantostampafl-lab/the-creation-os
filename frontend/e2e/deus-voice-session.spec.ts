@@ -98,6 +98,20 @@ async function installVoiceSockets(page: Page) {
 }
 
 async function mockDashboard(page: Page, ticketCalls: { value: number }) {
+  const messages: Array<Record<string, unknown>> = [];
+  await page.exposeFunction("recordVoiceMessage", (text: string, role: string, turnId: number) => {
+    messages.push({
+      id: `${role}-${turnId}`,
+      conversation_id: "conversation-1",
+      actor_id: role,
+      role,
+      content: text,
+      route: "deus",
+      metadata_json: { voice: true, voice_turn_id: turnId },
+      correlation_id: `turn-${turnId}`,
+      created_at: new Date().toISOString(),
+    });
+  });
   await page.route(/\/api\/v1\/system\/state(?:\?.*)?$/, (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(state) }));
   await page.route("**/api/v1/system/projections", (route) =>
@@ -119,7 +133,7 @@ async function mockDashboard(page: Page, ticketCalls: { value: number }) {
   await page.route("**/api/v1/inceptions", (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: "[]" }));
   await page.route("**/api/v1/conversations/conversation-1/messages", (route) =>
-    route.fulfill({ status: 200, contentType: "application/json", body: "[]" }));
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(messages) }));
   await page.route("**/api/v1/voice/session/acknowledgement", (route) =>
     route.fulfill({
       status: 200,
@@ -148,6 +162,15 @@ async function voiceSockets(page: Page) {
 }
 
 async function serverSend(page: Page, index: number, event: object) {
+  const message = event as { type: string; text?: string; turn_id?: number };
+  if (message.type === "transcript_commit" || message.type === "text_delta") {
+    await page.evaluate(async ({ text, role, turnId }) => {
+      const record = (window as unknown as {
+        recordVoiceMessage: (text: string, role: string, turnId: number) => Promise<void>;
+      }).recordVoiceMessage;
+      await record(text, role, turnId);
+    }, { text: message.text ?? "", role: message.type === "transcript_commit" ? "creator" : "deus", turnId: message.turn_id ?? 0 });
+  }
   await page.evaluate(({ index, event }) => {
     const sockets = (window as unknown as { __voiceSockets?: Array<{ serverSend: (event: object) => void }> }).__voiceSockets ?? [];
     sockets[index]?.serverSend(event);
@@ -162,6 +185,7 @@ test("realtime DEUS carries five continuous pt-BR turns without a microphone but
   await page.goto("/");
   await expect.poll(async () => (await voiceSockets(page)).length).toBe(1);
   await expect(page.getByText(/Pronto · diga “Deus”/)).toBeVisible();
+  await expect.poll(async () => (await voiceSockets(page))[0].sent.some((raw) => JSON.parse(raw).type === "audio")).toBe(true);
   await expect(page.getByRole("button", { name: /Talk to DEUS|wake word|microphone/i })).toHaveCount(0);
 
   await serverSend(page, 0, {

@@ -70,7 +70,7 @@ const WORKLET_SOURCE = [
   "  }",
   "}",
   "registerProcessor(\"deus-pcm-capture\", DeusPcmCaptureProcessor);",
-].join("\\n");
+].join("\n");
 
 export class MicrophonePcmCapture {
   private stream: MediaStream | null = null;

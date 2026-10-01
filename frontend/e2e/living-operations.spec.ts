@@ -355,7 +355,7 @@ test("executes the Creator Console send action and renders the DEUS response", a
   await page.route("**/api/v1/conversations/conversation-1/deus", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ response: "Acknowledged" }) }));
   await page.route("**/api/v1/conversations/conversation-1/messages", (route) => {
     messageReads += 1;
-    const body = messageReads > 0 ? [{ id:"message-1", conversation_id:"conversation-1", actor_id:"deus", role:"deus", content:"Acknowledged", route:"deus", metadata_json:{}, correlation_id:"corr", created_at:"2026-09-18T21:00:01Z" }] : [];
+    const body = messageReads > 1 ? [{ id:"message-1", conversation_id:"conversation-1", actor_id:"deus", role:"deus", content:"Acknowledged", route:"deus", metadata_json:{}, correlation_id:"corr", created_at:"2026-09-18T21:00:01Z" }] : [];
     return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
   });
   await page.goto("/");
