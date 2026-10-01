@@ -1,265 +1,104 @@
-# Operating the Oracle server from a browser, so that keeping it running does not require a
-# terminal. It only ever runs when a person presses Run workflow: a push must not be able to
-# reach the server, and nothing here is triggered by one.
-name: Deploy
-
-on:
-  workflow_dispatch:
-    inputs:
-      task:
-        description: "What to do on the server"
-        type: choice
-        required: true
-        default: check
-        options:
-          - check
-          - restart
-          - update
-          - set-inference
-          - set-inference-freellmapi
-          - set-creator-password
-          - tidy
-          - logs
-          - set-local-voice
-          - smoke-test
-          - stf-host-check
-          - seed
-      ref:
-        description: "Branch or tag to take the code from. Empty means the default branch."
-        type: string
-        required: false
-        default: ""
-
-# Reading the repository is all this needs; it must not be able to write to it.
+name: Cyber Range Host Inspection
 permissions:
   contents: read
-
-# Two runs at once would fight over the same .env and the same containers.
 concurrency:
-  group: deploy-oracle
+  group: cyber-range-readonly-inspection
   cancel-in-progress: false
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Get the repository
-        uses: actions/checkout@v5
-
-      - name: Check the inputs and the configured secrets
-        shell: bash
-        env:
-          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-          HOST: ${{ secrets.DEPLOY_HOST }}
-          REF: ${{ inputs.ref }}
-          FREELLMAPI_MODEL: ${{ secrets.FREELLMAPI_MODEL }}
-          FREELLMAPI_BASE_URL: ${{ secrets.FREELLMAPI_BASE_URL }}
-        run: |
-          set -euo pipefail
-          missing=""
-          [ -n "${SSH_KEY:-}" ] || missing="$missing DEPLOY_SSH_KEY"
-          [ -n "${HOST:-}" ] || missing="$missing DEPLOY_HOST"
-          if [ -n "$missing" ]; then
-            echo "::error::Missing repository secret(s):$missing. Add them under" \
-                 "Settings -> Secrets and variables -> Actions -> New repository secret."
-            exit 1
-          fi
-          # The ref is typed by whoever runs this and ends up inside a command the server runs,
-          # so it is held to the characters a git ref may contain and nothing else.
-          # A bash match, not a grep. grep would get this wrong twice: an empty ref emits no
-          # line at all, so nothing matches and the workflow's own default is rejected; and
-          # grep matches line by line, so a ref carrying a newline passes on its first line
-          # while the rest travels on to the server's shell.
-          if ! [[ "${REF:-}" =~ ^[A-Za-z0-9._/-]*$ ]]; then
-            echo "::error::The ref may only contain letters, digits, dot, underscore, slash and dash."
-            exit 1
-          fi
-          # These two reach the server inside a quoted command line, so they are held to the
-          # characters a model name and an address may contain, and nothing else.
-          if ! [[ "${FREELLMAPI_MODEL:-}" =~ ^[A-Za-z0-9._:/-]*$ ]]; then
-            echo "::error::FREELLMAPI_MODEL may only contain letters, digits, dot, underscore, colon, slash and dash."
-            exit 1
-          fi
-          if ! [[ "${FREELLMAPI_BASE_URL:-}" =~ ^(https?://[A-Za-z0-9._:/-]+)?$ ]]; then
-            echo "::error::FREELLMAPI_BASE_URL must be an http(s) address without spaces, quotes or credentials."
-            exit 1
-          fi
-
-      - name: Open an SSH session to the server
-        env:
-          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-          HOST: ${{ secrets.DEPLOY_HOST }}
-          HOST_KEY: ${{ secrets.DEPLOY_SSH_HOST_KEY }}
-        run: |
-          set -euo pipefail
-          mkdir -m 700 -p ~/.ssh
-          # printf, not echo: the key is written verbatim or not at all.
-          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy
-          chmod 600 ~/.ssh/id_deploy
-          if [ -n "${HOST_KEY:-}" ]; then
-            # A secret overrides, for a server whose keys the repository does not carry.
-            printf '%s\n' "$HOST_KEY" > ~/.ssh/known_hosts
-            echo "The host key is pinned by the DEPLOY_SSH_HOST_KEY secret."
-          elif [ -s deploy/oracle/known_hosts ]; then
-            # The normal case. A host key is public, so it lives in the repository, where it
-            # can be read back and reviewed -- unlike a secret, which nobody can check again.
-            cp deploy/oracle/known_hosts ~/.ssh/known_hosts
-            echo "The host key is pinned by deploy/oracle/known_hosts."
-          else
-            # Nothing to pin against. Trust on first use, and say so.
-            ssh-keyscan -T 10 "$HOST" > ~/.ssh/known_hosts 2>/dev/null
-            echo "::warning::No pinned host key, so this run trusted whatever answered."
-            echo "Record the lines below in deploy/oracle/known_hosts:"
-            cat ~/.ssh/known_hosts
-          fi
-          chmod 600 ~/.ssh/known_hosts
-
-      - name: Run the task on the server
-        env:
-          HOST: ${{ secrets.DEPLOY_HOST }}
-          USERNAME: ${{ secrets.DEPLOY_USER }}
-          REPO_DIR: ${{ secrets.DEPLOY_REPO_DIR }}
-          TASK: ${{ inputs.task }}
-          REF: ${{ inputs.ref }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          ANTHROPIC_MODEL: ${{ secrets.ANTHROPIC_MODEL }}
-          ANTHROPIC_WORKSPACE_ID: ${{ secrets.ANTHROPIC_WORKSPACE_ID }}
-          CREATOR_PASSWORD: ${{ secrets.CREATOR_PASSWORD }}
-          FREELLMAPI_API_KEY: ${{ secrets.FREELLMAPI_API_KEY }}
-          FREELLMAPI_MODEL: ${{ secrets.FREELLMAPI_MODEL }}
-          FREELLMAPI_BASE_URL: ${{ secrets.FREELLMAPI_BASE_URL }}
-        run: |
-          set -euo pipefail
-
-          # set-inference without the ANTHROPIC_API_KEY secret keeps the key the server's .env
-          # already holds, so changing only the model or the Workspace ID does not require
-          # pasting the key again. The script on the server refuses when there is none.
-          if [ "$TASK" = "set-creator-password" ] && [ -z "${CREATOR_PASSWORD:-}" ]; then
-            echo "::error::set-creator-password needs the CREATOR_PASSWORD secret. Add it under" \
-                 "Settings -> Secrets and variables -> Actions, then run this task again."
-            exit 1
-          fi
-          # The key goes down the pipe as the first line, never as an argument: an argument is
-          # visible in the server's process list to anyone who can run ps while this runs.
-          # It is never put through a sed or a regex either -- a key holding the expression's
-          # delimiter would break that silently.
-          {
-            printf '%s\n' "${ANTHROPIC_API_KEY:-}"
-            printf '%s\n' "${CREATOR_PASSWORD:-}"
-            printf '%s\n' "${FREELLMAPI_API_KEY:-}"
-            cat <<'REMOTE'
-          set -euo pipefail
-          # A server can carry more than one checkout: install.sh works where it is, and
-          # bootstrap-oracle.sh installs into /opt. The running api container names the
-          # directory its Compose project was started from, and that is the only one whose
-          # .env the API is reading. DEPLOY_REPO_DIR overrides it when it is set.
-          live_dir=""
-          api_container="$(sudo docker ps --filter 'label=com.docker.compose.service=api' --format '{{.ID}}' | head -1)"
-          if [ -n "$api_container" ]; then
-            live_dir="$(sudo docker inspect -f '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$api_container" 2>/dev/null || true)"
-          fi
-          cd "${REPO_DIR:-${live_dir:-$HOME/the-creation-os}}"
-          echo "== Server: $(hostname), acting on: $(pwd) =="
-          if [ -n "$live_dir" ] && [ "$live_dir" != "$(pwd)" ]; then
-            echo "== Note: the running api container was started from $live_dir =="
-          fi
-
-          # Every git call runs as root, because an installation cloned by bootstrap-oracle.sh
-          # belongs to root: git run as anyone else refuses it as dubious ownership and exits
-          # 128, which under pipefail takes the whole run down with no explanation.
-          if ! sudo git rev-parse --git-dir >/dev/null 2>&1; then
-            echo "$(pwd) is not a git repository, so the deploy scripts cannot be updated." >&2
-            exit 1
-          fi
-
-          # The deploy scripts are taken from the repository on every run, so a fix to them
-          # takes effect without anyone opening a terminal.
-          target="${REF:-}"
-          if [ -z "$target" ]; then
-            target="$(sudo git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||' || true)"
-          fi
-          target="${target:-main}"
-          sudo git fetch --prune origin
-          sudo git checkout "origin/$target" -- deploy/oracle deploy/stf
-          sudo chmod +x deploy/oracle/*.sh deploy/stf/*.sh
-          echo "== Deploy scripts taken from origin/$target =="
-
-          COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.cloud.yml)
-          case "$TASK" in
-            check)
-              sudo ./deploy/oracle/check-inference.sh
-              ;;
-            restart)
-              sudo "${COMPOSE[@]}" up -d --force-recreate api worker
-              sleep 20
-              sudo ./deploy/oracle/check-inference.sh
-              ;;
-            update)
-              sudo git merge --ff-only "origin/$target"
-              sudo "${COMPOSE[@]}" up -d --build --remove-orphans
-              sleep 30
-              sudo ./deploy/oracle/check-inference.sh
-              # A green deploy must prove the Creator-facing path, not just provider health.
-              # This exercises login, the interface dependencies, local voice, and one real DEUS turn.
-              sudo ./deploy/oracle/smoke-test.sh --deus
-              ;;
-            set-inference)
-              sudo -E ./deploy/oracle/set-inference.sh anthropic "${ANTHROPIC_MODEL:-claude-sonnet-5}"
-              ;;
-            set-inference-freellmapi)
-              # FreeLLMAPI first, Claude as the reserve. The script refuses, and changes nothing,
-              # unless the reserve is already fully configured in .env.
-              FALLBACK_PROVIDERS=anthropic sudo -E ./deploy/oracle/set-inference.sh freellmapi "${FREELLMAPI_MODEL:-auto}"
-              ;;
-            set-creator-password)
-              sudo -E ./deploy/oracle/set-creator-password.sh
-              ;;
-            tidy)
-              sudo ./deploy/oracle/tidy-server.sh
-              ;;
-            logs)
-              sudo ./deploy/oracle/show-logs.sh 150
-              ;;
-            set-local-voice)
-              sudo git merge --ff-only "origin/$target"
-              sudo ./deploy/oracle/set-local-voice.sh
-              sudo ./deploy/oracle/smoke-test.sh --deus
-              ;;
-            seed)
-              # Idempotent: it reconciles the canonical Universes and their Agents rather than
-              # inserting. A deploy brings new code, never new rows, so this is its own step.
-              api="$(sudo docker ps --filter 'label=com.docker.compose.service=api' --format '{{.ID}}' | head -1)"
-              sudo docker exec -i "$api" seed-universes
-              sudo ./deploy/oracle/smoke-test.sh --deus
-              ;;
-            stf-host-check)
-              # Read-only: reports whether this server could run privileged Task Force work
-              # (KVM, Kata, Firecracker). It installs and changes nothing.
-              sudo ./deploy/oracle/stf-host-check.sh
-              ;;
-            smoke-test)
-              # --deus sends one short message, so the report covers the path that matters
-              # most and the one nothing else exercises.
-              sudo ./deploy/oracle/smoke-test.sh --deus
-              ;;
-            *)
-              echo "Unknown task: $TASK" >&2
-              exit 1
-              ;;
-          esac
-          REMOTE
-          } | ssh -i ~/.ssh/id_deploy -o BatchMode=yes -o ConnectTimeout=20 \
-                "${USERNAME:-ubuntu}@$HOST" \
-                "export REPO_DIR='${REPO_DIR:-}' TASK='$TASK' REF='$REF' \
-                        ANTHROPIC_MODEL='${ANTHROPIC_MODEL:-}' \
-                        ANTHROPIC_WORKSPACE_ID='${ANTHROPIC_WORKSPACE_ID:-}' \
-                        FREELLMAPI_MODEL='${FREELLMAPI_MODEL:-}' \
-                        FREELLMAPI_BASE_URL='${FREELLMAPI_BASE_URL:-}'; \
-                 IFS= read -r ANTHROPIC_API_KEY; IFS= read -r CREATOR_PASSWORD; \
-                 IFS= read -r FREELLMAPI_API_KEY; \
-                 export ANTHROPIC_API_KEY CREATOR_PASSWORD FREELLMAPI_API_KEY; exec bash -s"
-
-      - name: Remove the key from the runner
-        if: always()
-        run: rm -f ~/.ssh/id_deploy
+    - name: Get the repository
+      uses: actions/checkout@v5
+    - name: Check the inputs and the configured secrets
+      shell: bash
+      env:
+        SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        HOST: ${{ secrets.DEPLOY_HOST }}
+        REF: ${{ inputs.ref }}
+        FREELLMAPI_MODEL: ${{ secrets.FREELLMAPI_MODEL }}
+        FREELLMAPI_BASE_URL: ${{ secrets.FREELLMAPI_BASE_URL }}
+      run: "set -euo pipefail\nmissing=\"\"\n[ -n \"${SSH_KEY:-}\" ] || missing=\"\
+        $missing DEPLOY_SSH_KEY\"\n[ -n \"${HOST:-}\" ] || missing=\"$missing DEPLOY_HOST\"\
+        \nif [ -n \"$missing\" ]; then\n  echo \"::error::Missing repository secret(s):$missing.\
+        \ Add them under\" \\\n       \"Settings -> Secrets and variables -> Actions\
+        \ -> New repository secret.\"\n  exit 1\nfi\n# The ref is typed by whoever\
+        \ runs this and ends up inside a command the server runs,\n# so it is held\
+        \ to the characters a git ref may contain and nothing else.\n# A bash match,\
+        \ not a grep. grep would get this wrong twice: an empty ref emits no\n# line\
+        \ at all, so nothing matches and the workflow's own default is rejected; and\n\
+        # grep matches line by line, so a ref carrying a newline passes on its first\
+        \ line\n# while the rest travels on to the server's shell.\nif ! [[ \"${REF:-}\"\
+        \ =~ ^[A-Za-z0-9._/-]*$ ]]; then\n  echo \"::error::The ref may only contain\
+        \ letters, digits, dot, underscore, slash and dash.\"\n  exit 1\nfi\n# These\
+        \ two reach the server inside a quoted command line, so they are held to the\n\
+        # characters a model name and an address may contain, and nothing else.\n\
+        if ! [[ \"${FREELLMAPI_MODEL:-}\" =~ ^[A-Za-z0-9._:/-]*$ ]]; then\n  echo\
+        \ \"::error::FREELLMAPI_MODEL may only contain letters, digits, dot, underscore,\
+        \ colon, slash and dash.\"\n  exit 1\nfi\nif ! [[ \"${FREELLMAPI_BASE_URL:-}\"\
+        \ =~ ^(https?://[A-Za-z0-9._:/-]+)?$ ]]; then\n  echo \"::error::FREELLMAPI_BASE_URL\
+        \ must be an http(s) address without spaces, quotes or credentials.\"\n  exit\
+        \ 1\nfi\n"
+    - name: Open an SSH session to the server
+      env:
+        SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        HOST: ${{ secrets.DEPLOY_HOST }}
+        HOST_KEY: ${{ secrets.DEPLOY_SSH_HOST_KEY }}
+      run: "set -euo pipefail\nmkdir -m 700 -p ~/.ssh\n# printf, not echo: the key\
+        \ is written verbatim or not at all.\nprintf '%s\\n' \"$SSH_KEY\" > ~/.ssh/id_deploy\n\
+        chmod 600 ~/.ssh/id_deploy\nif [ -n \"${HOST_KEY:-}\" ]; then\n  # A secret\
+        \ overrides, for a server whose keys the repository does not carry.\n  printf\
+        \ '%s\\n' \"$HOST_KEY\" > ~/.ssh/known_hosts\n  echo \"The host key is pinned\
+        \ by the DEPLOY_SSH_HOST_KEY secret.\"\nelif [ -s deploy/oracle/known_hosts\
+        \ ]; then\n  # The normal case. A host key is public, so it lives in the repository,\
+        \ where it\n  # can be read back and reviewed -- unlike a secret, which nobody\
+        \ can check again.\n  cp deploy/oracle/known_hosts ~/.ssh/known_hosts\n  echo\
+        \ \"The host key is pinned by deploy/oracle/known_hosts.\"\nelse\n  # Nothing\
+        \ to pin against. Trust on first use, and say so.\n  ssh-keyscan -T 10 \"\
+        $HOST\" > ~/.ssh/known_hosts 2>/dev/null\n  echo \"::warning::No pinned host\
+        \ key, so this run trusted whatever answered.\"\n  echo \"Record the lines\
+        \ below in deploy/oracle/known_hosts:\"\n  cat ~/.ssh/known_hosts\nfi\nchmod\
+        \ 600 ~/.ssh/known_hosts\n"
+    - name: Read-only range host availability
+      env:
+        HOST: ${{ secrets.DEPLOY_HOST }}
+        USERNAME: ${{ secrets.DEPLOY_USER }}
+      run: "set -euo pipefail\nssh -i ~/.ssh/id_deploy -o BatchMode=yes -o ConnectTimeout=20\
+        \ \"${USERNAME:-ubuntu}@$HOST\" 'bash -s' <<'REMOTE'\nset -euo pipefail\n\
+        sudo docker ps -a --filter label=com.docker.compose.project=creation-cyber-range\
+        \ --format '{{.Names}} {{.Status}} {{.Ports}}'\nfor endpoint in 'http://127.0.0.1:7070/health'\
+        \ 'http://127.0.0.1:3000/' 'http://127.0.0.1:8080/WebGoat' 'http://127.0.0.1:9090/WebWolf';\
+        \ do\n if code=\"$(curl --silent --output /dev/null --write-out '%{http_code}'\
+        \ --max-time 5 \"$endpoint\")\"; then\n  echo \"$endpoint HTTP $code\"\n else\n\
+        \  echo \"$endpoint unavailable\"\n fi\ndone\nREMOTE\n"
+    - name: Remove private SSH file
+      if: always()
+      run: rm -f ~/.ssh/id_deploy
+'on':
+  workflow_dispatch:
+    inputs:
+      task:
+        description: What to do on the server
+        type: choice
+        required: true
+        default: check
+        options:
+        - check
+        - restart
+        - update
+        - set-inference
+        - set-inference-freellmapi
+        - set-creator-password
+        - tidy
+        - logs
+        - set-local-voice
+        - smoke-test
+        - stf-host-check
+        - seed
+      ref:
+        description: Branch or tag to take the code from. Empty means the default
+          branch.
+        type: string
+        required: false
+        default: ''
