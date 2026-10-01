@@ -15,7 +15,7 @@ def test_fresh_install_boots_without_downloading_optional_speech_assets(monkeypa
 
 def test_project_has_no_retired_speech_provider():
     retired = 'eleven' + 'labs'
-    paths = [ROOT / 'backend' / 'app', ROOT / 'frontend' / 'src', ROOT / 'deploy', ROOT / '.github', ROOT / 'docs']
+    paths = [ROOT / 'backend' / 'app', ROOT / 'frontend' / 'src', ROOT / 'deploy', ROOT / '.github', ROOT / 'docs', ROOT / '.devcontainer', ROOT / 'scripts']
     files = [ROOT / '.env.example', ROOT / 'README.md']
     for directory in paths:
         files.extend(p for p in directory.rglob('*') if p.is_file() and p.suffix in {'.py', '.ts', '.tsx', '.sh', '.md', '.yml'})
