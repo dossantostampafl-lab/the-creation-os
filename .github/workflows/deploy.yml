@@ -84,7 +84,7 @@ jobs:
         \ return await engine.synthesize('Deus, quanto \xE9 dois mais dois?')\npcm=np.frombuffer(asyncio.run(make_audio()),dtype='<i2')\n\
         upsampled=np.interp(np.arange(len(pcm)*2)/2,np.arange(len(pcm)),pcm).astype('<i2')\n\
         # Quiet padding gives startup time and avoids repeating the question during\
-        \ playback.\nfixture=np.concatenate([np.zeros(48000,dtype='<i2'),upsampled,np.zeros(48000*10,dtype='<i2')])\n\
+        \ playback.\nfixture=np.concatenate([np.zeros(48000,dtype='<i2'),upsampled,np.zeros(48000*30,dtype='<i2')])\n\
         buf=io.BytesIO()\nwith wave.open(buf,'wb') as wav:\n wav.setnchannels(1);wav.setsampwidth(2);wav.setframerate(48000);wav.writeframes(fixture.tobytes())\n\
         tokens['wav_base64']=base64.b64encode(buf.getvalue()).decode()\nprint(json.dumps(tokens))\n\
         PYREMOTE\nREMOTE\n"
