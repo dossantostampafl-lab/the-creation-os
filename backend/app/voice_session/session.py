@@ -120,7 +120,11 @@ class VoiceSession:
                 )
 
             self._awake = True
-            command = text[match.end():].lstrip(_WAKE_SEPARATORS)
+            before = text[:match.start()].strip(_WAKE_SEPARATORS)
+            after = text[match.end():].lstrip(_WAKE_SEPARATORS)
+            # A vocative can follow the question: "Quanto é dez mais cinco, Deus?".
+            # Remove the wake word without discarding either side of the Creator's speech.
+            command = " ".join(part for part in (before, after) if part)
             if command:
                 return self._start_turn(
                     command,
