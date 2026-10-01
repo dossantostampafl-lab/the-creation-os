@@ -75,10 +75,10 @@ jobs:
         \ <<'REMOTE'\nset -euo pipefail\napi=\"$(sudo docker ps --filter 'label=com.docker.compose.service=api'\
         \ --format '{{.ID}}' | head -1)\"\nsudo docker exec -i \"$api\" python - <<'PYREMOTE'\n\
         import os,json,httpx,asyncio,base64,io,wave\nimport numpy as np\nfrom app.voice_session.local\
-        \ import get_local_engine\nfrom app.config import settings\nassert settings.deus_voice_engine=='local'\
-        \ and not settings.elevenlabs_enabled\nassert settings.llm_provider=='freellmapi'\
-        \ and not settings.llm_fallback_providers\nwith httpx.Client(timeout=30) as\
-        \ c:\n r=c.post('http://127.0.0.1:8000/api/v1/auth/login',json={'username':os.getenv('CREATOR_BOOTSTRAP_USERNAME',''),'password':os.getenv('CREATOR_BOOTSTRAP_PASSWORD','')})\n\
+        \ import get_local_engine\nfrom app.config import settings\nassert settings.deus_voice_session_enabled\
+        \ and settings.deus_local_voice_cpu_threads==2\nassert not hasattr(settings,'deus_voice_engine')\n\
+        assert settings.llm_provider=='freellmapi' and not settings.llm_fallback_providers\n\
+        with httpx.Client(timeout=30) as c:\n r=c.post('http://127.0.0.1:8000/api/v1/auth/login',json={'username':os.getenv('CREATOR_BOOTSTRAP_USERNAME',''),'password':os.getenv('CREATOR_BOOTSTRAP_PASSWORD','')})\n\
         \ if r.status_code != 200: raise SystemExit('Diagnostic authentication rejected')\n\
         \ tokens=r.json()\nasync def make_audio():\n engine=await get_local_engine()\n\
         \ return await engine.synthesize('Deus, quanto \xE9 dois mais dois?')\npcm=np.frombuffer(asyncio.run(make_audio()),dtype='<i2')\n\
@@ -160,7 +160,6 @@ jobs:
         - set-creator-password
         - tidy
         - logs
-        - set-voice
         - set-local-voice
         - smoke-test
         - stf-host-check
