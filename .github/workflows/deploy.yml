@@ -2,7 +2,7 @@ name: Deploy
 permissions:
   contents: read
 concurrency:
-  group: deploy-oracle
+  group: public-voice-verification
   cancel-in-progress: false
 jobs:
   deploy:
@@ -66,7 +66,7 @@ jobs:
         npm ci
 
         npx playwright install chromium'
-    - name: Read ephemeral diagnostic session privately
+    - name: Read ephemeral session and synthetic microphone privately
       env:
         HOST: ${{ secrets.DEPLOY_HOST }}
         USERNAME: ${{ secrets.DEPLOY_USER }}
@@ -74,44 +74,68 @@ jobs:
         \ -o ConnectTimeout=20 \"${USERNAME:-ubuntu}@$HOST\" 'bash -s' > \"$RUNNER_TEMP/creation-session.json\"\
         \ <<'REMOTE'\nset -euo pipefail\napi=\"$(sudo docker ps --filter 'label=com.docker.compose.service=api'\
         \ --format '{{.ID}}' | head -1)\"\nsudo docker exec -i \"$api\" python - <<'PYREMOTE'\n\
-        import os,json,httpx\nwith httpx.Client(timeout=30) as c:\n r=c.post('http://127.0.0.1:8000/api/v1/auth/login',json={'username':os.getenv('CREATOR_BOOTSTRAP_USERNAME',''),'password':os.getenv('CREATOR_BOOTSTRAP_PASSWORD','')})\n\
+        import os,json,httpx,asyncio,base64,io,wave\nimport numpy as np\nfrom app.voice_session.local\
+        \ import get_local_engine\nfrom app.config import settings\nassert settings.deus_voice_engine=='local'\
+        \ and not settings.elevenlabs_enabled\nwith httpx.Client(timeout=30) as c:\n\
+        \ r=c.post('http://127.0.0.1:8000/api/v1/auth/login',json={'username':os.getenv('CREATOR_BOOTSTRAP_USERNAME',''),'password':os.getenv('CREATOR_BOOTSTRAP_PASSWORD','')})\n\
         \ if r.status_code != 200: raise SystemExit('Diagnostic authentication rejected')\n\
-        \ print(json.dumps(r.json()))\nPYREMOTE\nREMOTE\n"
-    - name: Exercise public quota handling and real typed chat
-      run: "cat > frontend/public-diagnostic.mjs <<'JSDIAGNOSTIC'\nimport { chromium\
-        \ } from 'playwright';\nimport { readFileSync, unlinkSync } from 'node:fs';\n\
-        const file=process.env.RUNNER_TEMP+'/creation-session.json';\nconst tokens=JSON.parse(readFileSync(file,'utf8'));\
-        \ unlinkSync(file);\nconst browser=await chromium.launch({args:['--use-fake-device-for-media-stream','--use-fake-ui-for-media-stream']});\n\
-        try {\n for(const mobile of [false,true]) {\n  const context=await browser.newContext({permissions:['microphone'],...(mobile?{viewport:{width:390,height:844},isMobile:true,hasTouch:true}:{})});\n\
-        \  await context.addInitScript(({access,refresh})=>{localStorage.setItem('creation_access_token',access);sessionStorage.setItem('creation_refresh_token',refresh)},\
-        \ {access:tokens.access_token,refresh:tokens.refresh_token});\n  const page=await\
-        \ context.newPage(); const failures=[]; const errors=[]; let tickets=0;\n\
-        \  page.on('pageerror',e=>errors.push(e.message));\n  page.on('request',r=>{if(new\
-        \ URL(r.url()).pathname.includes('/voice/session/ticket'))tickets++});\n \
-        \ page.on('response',r=>{const path=new URL(r.url()).pathname;if(r.status()>=400\
-        \ && !(path.endsWith('/voice/session/acknowledgement')&&r.status()===503))failures.push({path,status:r.status()})});\n\
-        \  await page.goto('https://148-116-109-255.sslip.io/',{waitUntil:'domcontentloaded'});\n\
-        \  await page.getByRole('textbox',{name:'Message DEUS'}).waitFor({timeout:45000});\n\
-        \  await page.waitForFunction(()=>Array.from(document.querySelectorAll('.console-error')).some(e=>e.textContent.includes('cota')),{},{timeout:45000});\n\
-        \  await page.waitForTimeout(3500);\n  if(!mobile) {\n   for(const [question,expected]\
-        \ of [['Quanto \xE9 17 mais 25? Responda somente com o n\xFAmero.','42'],['E\
-        \ se eu subtrair dois desse resultado? Responda somente com o n\xFAmero.','40'],['Qual\
-        \ foi o primeiro resultado, antes da subtra\xE7\xE3o? Responda somente com\
-        \ o n\xFAmero.','42']]) {\n    const previous=await page.locator('.console-message.deus-message').count();\
-        \ const started=Date.now();\n    await page.getByRole('textbox',{name:'Message\
-        \ DEUS'}).fill(question);\n    await page.getByRole('button',{name:'Send to\
-        \ DEUS'}).click();\n    await page.waitForFunction(count=>document.querySelectorAll('.console-message.deus-message').length>count,previous,{timeout:90000});\n\
-        \    const reply=await page.locator('.console-message.deus-message').last().locator('p').innerText();\n\
-        \    console.log(JSON.stringify({testQuestion:question,reply,elapsedMs:Date.now()-started}));\n\
-        \    if(!reply.includes(expected))throw new Error('Contextual text answer\
-        \ failed');\n   }\n  }\n  const quota=await page.locator('.console-error').allTextContents();\n\
-        \  console.log(JSON.stringify({mode:mobile?'phone':'desktop',quota,tickets,failures,errors}));\n\
-        \  if(!quota.some(e=>e.includes('cota'))||tickets>1||errors.length||failures.length)throw\
-        \ new Error('Quota error handling failed');\n  await context.close();\n }\n\
-        } finally {await browser.close();}\nJSDIAGNOSTIC\nnode frontend/public-diagnostic.mjs"
-    - name: Remove private diagnostic files
+        \ tokens=r.json()\nasync def make_audio():\n engine=await get_local_engine()\n\
+        \ return await engine.synthesize('Deus, quanto \xE9 dois mais dois?')\npcm=np.frombuffer(asyncio.run(make_audio()),dtype='<i2')\n\
+        upsampled=np.interp(np.arange(len(pcm)*2)/2,np.arange(len(pcm)),pcm).astype('<i2')\n\
+        # Quiet padding gives startup time and avoids repeating the question during\
+        \ playback.\nfixture=np.concatenate([np.zeros(48000,dtype='<i2'),upsampled,np.zeros(48000*10,dtype='<i2')])\n\
+        buf=io.BytesIO()\nwith wave.open(buf,'wb') as wav:\n wav.setnchannels(1);wav.setsampwidth(2);wav.setframerate(48000);wav.writeframes(fixture.tobytes())\n\
+        tokens['wav_base64']=base64.b64encode(buf.getvalue()).decode()\nprint(json.dumps(tokens))\n\
+        PYREMOTE\nREMOTE\n"
+    - name: Verify actual public voice and typed chat on desktop and phone
+      run: "cat > frontend/local-voice-diagnostic.mjs <<'JSDIAGNOSTIC'\nimport { chromium\
+        \ } from 'playwright';\nimport { readFileSync, writeFileSync, unlinkSync }\
+        \ from 'node:fs';\nconst folder=process.env.RUNNER_TEMP;\nconst tokens=JSON.parse(readFileSync(folder+'/creation-session.json','utf8'));\n\
+        unlinkSync(folder+'/creation-session.json');\nconst fixture=folder+'/creation-voice-input.wav';\n\
+        writeFileSync(fixture,Buffer.from(tokens.wav_base64,'base64'),{mode:0o600});delete\
+        \ tokens.wav_base64;\nconst origin='https://148-116-109-255.sslip.io';\nconst\
+        \ browser=await chromium.launch({args:['--use-fake-device-for-media-stream','--use-fake-ui-for-media-stream','--use-file-for-fake-audio-capture='+fixture]});\n\
+        try {\n for (const mobile of [false,true]) {\n  const context=await browser.newContext({permissions:['microphone'],...(mobile?{viewport:{width:390,height:844},isMobile:true,hasTouch:true}:{})});\n\
+        \  const auth={Authorization:'Bearer '+tokens.access_token};\n  const created=await\
+        \ context.request.post(origin+'/api/v1/conversations',{headers:auth,data:{title:'Local\
+        \ voice verification '+(mobile?'phone':'desktop')}});\n  if(created.status()!==201)throw\
+        \ new Error('Test conversation creation failed: '+created.status());\n  const\
+        \ conversation=await created.json();\n  await context.addInitScript(({access,refresh,conversationId})=>{\n\
+        \   localStorage.setItem('creation_access_token',access);sessionStorage.setItem('creation_refresh_token',refresh);localStorage.setItem('creation_conversation_id',conversationId);\n\
+        \   window.__voicePlayback={starts:0,nonSilent:0,running:0};\n   const original=AudioBufferSourceNode.prototype.start;\n\
+        \   AudioBufferSourceNode.prototype.start=function(...args){\n    window.__voicePlayback.starts++;\n\
+        \    if(this.context.state==='running')window.__voicePlayback.running++;\n\
+        \    if(this.buffer&&this.buffer.getChannelData(0).some(v=>Math.abs(v)>.001))window.__voicePlayback.nonSilent++;\n\
+        \    return original.apply(this,args);\n   };\n  },{access:tokens.access_token,refresh:tokens.refresh_token,conversationId:conversation.id});\n\
+        \  const page=await context.newPage();const failures=[];const errors=[];const\
+        \ events=[];\n  page.on('pageerror',e=>errors.push(e.message));\n  page.on('requestfailed',r=>{if(!r.failure()?.errorText.includes('ERR_ABORTED'))failures.push({path:new\
+        \ URL(r.url()).pathname,error:r.failure()?.errorText})});\n  page.on('response',r=>{if(r.status()>=400)failures.push({path:new\
+        \ URL(r.url()).pathname,status:r.status()})});\n  page.on('websocket',ws=>{\n\
+        \   ws.on('framereceived',frame=>{\n    try {const event=JSON.parse(frame.payload.toString());\n\
+        \     if(event.type==='audio_chunk'){const pcm=Buffer.from(event.audio_base64,'base64');events.push({type:event.type,turn:event.turn_id,bytes:pcm.length,nonSilent:pcm.some(v=>v!==0),at:Date.now()});}\n\
+        \     else events.push({...event,at:Date.now()});\n    }catch{}\n   });ws.on('socketerror',e=>errors.push('WebSocket\
+        \ error'));\n  });\n  await page.goto(origin,{waitUntil:'domcontentloaded'});\n\
+        \  const box=page.getByRole('textbox',{name:'Message DEUS'});await box.waitFor({timeout:45000});await\
+        \ box.click();\n  const deadline=Date.now()+60000;\n  while(!events.some(e=>e.type==='telemetry')&&Date.now()<deadline)await\
+        \ page.waitForTimeout(250);\n  const telemetry=events.find(e=>e.type==='telemetry');\n\
+        \  const transcript=events.find(e=>e.type==='transcript_commit');\n  const\
+        \ answer=events.filter(e=>e.type==='text_delta').map(e=>e.text).join('');\n\
+        \  const audio=events.filter(e=>e.type==='audio_chunk');\n  const playback=await\
+        \ page.evaluate(()=>window.__voicePlayback);\n  const persisted=await context.request.get(origin+'/api/v1/conversations/'+conversation.id+'/messages',{headers:auth});\n\
+        \  const messages=await persisted.json();\n  const globals=await page.locator('.error-banner,.console-error').allTextContents();\n\
+        \  console.log(JSON.stringify({mode:mobile?'phone':'desktop',transcript:transcript?.text,answer,telemetry,audioChunks:audio.length,audioBytes:audio.reduce((n,e)=>n+e.bytes,0),playback,voiceMessages:messages.filter(m=>m.metadata_json?.voice).length,failures,errors,globals}));\n\
+        \  if(!telemetry||!transcript||!answer.match(/quatro|\\b4\\b/i)||!audio.some(e=>e.nonSilent)||!playback.nonSilent||!playback.running||telemetry.provider_selected!=='freellmapi'||!messages.some(m=>m.role==='deus'&&m.metadata_json?.voice)||failures.length||errors.length||globals.length)throw\
+        \ new Error('Actual public synthetic speech test failed');\n  // A typed turn\
+        \ must still answer coherently after the completed voice turn.\n  await box.fill('Responda\
+        \ apenas com o resultado: quanto \xE9 seis vezes sete?');\n  const reply=page.waitForResponse(r=>new\
+        \ URL(r.url()).pathname.endsWith('/deus')&&r.request().method()==='POST');\n\
+        \  await box.press('Enter');const typed=await reply;if(typed.status()!==200)throw\
+        \ new Error('Typed turn failed');\n  const body=await typed.json();console.log(JSON.stringify({mode:mobile?'phone':'desktop',typedStatus:typed.status(),typedAnswer:body.response?.content??body.message?.content??body}));\n\
+        \  await context.close();\n }\n} finally {await browser.close();unlinkSync(fixture);}\n\
+        JSDIAGNOSTIC\nnode frontend/local-voice-diagnostic.mjs"
+    - name: Remove private files
       if: always()
-      run: rm -f ~/.ssh/id_deploy "$RUNNER_TEMP/creation-session.json"
+      run: rm -f ~/.ssh/id_deploy "$RUNNER_TEMP/creation-session.json" "$RUNNER_TEMP/creation-voice-input.wav"
 'on':
   workflow_dispatch:
     inputs:
@@ -130,6 +154,7 @@ jobs:
         - tidy
         - logs
         - set-voice
+        - set-local-voice
         - smoke-test
         - stf-host-check
         - seed
