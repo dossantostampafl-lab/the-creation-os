@@ -79,19 +79,19 @@ jobs:
         \     if name in sub and isinstance(sub[name],(str,int,float,bool,type(None))):output[name]=sub[name]\n\
         \    if isinstance(sub.get('character_count'),int) and isinstance(sub.get('character_limit'),int):output['remaining']=sub['character_limit']-sub['character_count']\n\
         \   else:\n    detail=response.json().get('detail',{})\n    if isinstance(detail,dict):output['vendor_status']=detail.get('status')\n\
-        \   print(json.dumps(output),flush=True)\n config=ElevenLabsTTSConfig(api_key=key,voice_id=settings.elevenlabs_voice_id,model_id=settings.elevenlabs_model_id)\n\
+        \   print(json.dumps(output),flush=True)\n config=ElevenLabsTTSConfig(api_key=key,voice_id=settings.elevenlabs_voice_id,model_id='eleven_flash_v2_5')\n\
         \ started=time.monotonic();audio_count=0\n try:\n  async with asyncio.timeout(20):\n\
         \   async with ElevenLabsRealtimeTTS(config) as tts:\n    conn=tts._require_connection();original_recv=conn.recv\n\
         \    async def traced_recv(*args,**kwargs):\n     raw=await original_recv(*args,**kwargs);data=json.loads(raw)\n\
-        \     out={'probe':'tts-current','vendor_error':data.get('error') if isinstance(data.get('error'),str)\
+        \     out={'probe':'tts-flash','vendor_error':data.get('error') if isinstance(data.get('error'),str)\
         \ else None}\n     message=data.get('message','')\n     if isinstance(message,str):\n\
         \      for label,pattern in [('remaining_credits',r'(\\d+) credits? remaining'),('required_credits',r'(\\\
         d+) credits? (?:are )?required')]:\n       match=re.search(pattern,message,re.I)\n\
         \       if match:out[label]=int(match.group(1))\n     if data.get('error'):print(json.dumps(out),flush=True)\n\
         \     return raw\n    conn.recv=traced_recv\n    await tts.send_text('Estou\
         \ aqui.');await tts.finish()\n    while True:\n     audio=await tts.receive_audio()\n\
-        \     if audio is None:break\n     audio_count+=1\n  print(json.dumps({'probe':'tts-current','audio_count':audio_count,'elapsed_ms':round((time.monotonic()-started)*1000)}),flush=True)\n\
-        \ except Exception as error:print(json.dumps({'probe':'tts-current','error_type':type(error).__name__,'code':getattr(error,'code',None),'audio_count':audio_count,'elapsed_ms':round((time.monotonic()-started)*1000)}),flush=True)\n\
+        \     if audio is None:break\n     audio_count+=1\n  print(json.dumps({'probe':'tts-flash','audio_count':audio_count,'elapsed_ms':round((time.monotonic()-started)*1000)}),flush=True)\n\
+        \ except Exception as error:print(json.dumps({'probe':'tts-flash','error_type':type(error).__name__,'code':getattr(error,'code',None),'audio_count':audio_count,'elapsed_ms':round((time.monotonic()-started)*1000)}),flush=True)\n\
         asyncio.run(main())\nPROVIDERPY\nREMOTEPROBE\n"
     - name: Remove the key
       if: always()
