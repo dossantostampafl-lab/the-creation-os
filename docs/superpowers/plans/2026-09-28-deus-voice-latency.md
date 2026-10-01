@@ -1,5 +1,7 @@
 # DEUS Voice Low-Latency Implementation Plan
 
+> Historical document, superseded by the 2026-09-30 realtime reconstruction. Its browser speech and short-clip voice paths have been removed; use README.md and docs/OPERACAO.md for current operation.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make foreground DEUS voice conversation immediate and continuous: no dead window after `Deus`, server STT authoritative for active turns, and simple commands avoiding unnecessary Trinity inference.

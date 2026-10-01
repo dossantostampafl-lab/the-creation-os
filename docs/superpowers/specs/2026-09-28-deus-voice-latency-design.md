@@ -1,5 +1,7 @@
 # DEUS Voice: Low-Latency Conversation Design
 
+> Historical document, superseded by the 2026-09-30 realtime reconstruction. Its browser speech and short-clip voice paths have been removed; use README.md and docs/OPERACAO.md for current operation.
+
 Date: 2026-09-28
 Branch: `feat/deus-voice-latency`
 

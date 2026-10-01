@@ -9,8 +9,8 @@ from app.cognition.trinity import TrinityEngine, UniverseReadiness
 from app.core.domain import Actor
 from app.inference.contracts import InferenceRequest, InferenceResponse
 from app.models.entities import Agent, Conversation, Message, Mission, Universe
+from app.services.conversation_context import SYSTEM_PROMPT
 from app.services.deus import (
-    SYSTEM_PROMPT,
     DeusConversationService,
     SystemSnapshot,
     live_context_note,

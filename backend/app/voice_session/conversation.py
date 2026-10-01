@@ -7,7 +7,7 @@ from app.core.domain import ConversationStatus
 from app.inference.contracts import InferenceRequest
 from app.models.entities import Conversation, Message
 from app.repositories.domain import DomainRepository
-from app.services.deus import SYSTEM_PROMPT
+from app.services.conversation_context import conversation_messages
 
 
 @dataclass(frozen=True)
@@ -69,18 +69,8 @@ class VoiceConversationBridge:
         await self.repo.commit()
 
         history = await self.repo.list_messages(self.conversation_id, limit=20)
-        messages: list[dict[str, str]] = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-        ]
-        messages.extend(
-            {
-                "role": "assistant" if item.role == "deus" else "user",
-                "content": item.content,
-            }
-            for item in history
-        )
         return InferenceRequest(
-            messages=messages,
+            messages=conversation_messages(history),
             metadata={
                 "conversation_id": self.conversation_id,
                 "creator_id": self.creator_id,

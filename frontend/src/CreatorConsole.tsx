@@ -209,39 +209,33 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
       setMessages((current) => [...current, optimistic]);
 
       const reply = await converseWithDeus(id, content);
-      if (reply.response) {
-        const creatorMessage: ConversationMessage = {
-          ...optimistic,
-          id: reply.message_id || optimistic.id,
-          metadata_json: {},
-          correlation_id: reply.correlation_id || "",
-        };
-        const deusMessage: ConversationMessage = {
-          id: `local-deus-${reply.correlation_id || crypto.randomUUID()}`,
-          conversation_id: id,
-          actor_id: "deus",
-          role: "deus",
-          content: reply.response,
-          route: "deus",
-          metadata_json: {},
-          correlation_id: reply.correlation_id || "",
-          created_at: new Date().toISOString(),
-        };
-        setMessages((current) => [
-          ...current.filter((message) => message.id !== optimistic.id),
-          creatorMessage,
-          deusMessage,
-        ]);
-        optimisticId = null;
+      if (!reply.response?.trim()) throw new Error("EMPTY_DEUS_RESPONSE");
+      const creatorMessage: ConversationMessage = {
+        ...optimistic,
+        id: reply.message_id || optimistic.id,
+        metadata_json: {},
+        correlation_id: reply.correlation_id || "",
+      };
+      const deusMessage: ConversationMessage = {
+        id: `local-deus-${reply.correlation_id || crypto.randomUUID()}`,
+        conversation_id: id,
+        actor_id: "deus",
+        role: "deus",
+        content: reply.response,
+        route: "deus",
+        metadata_json: {},
+        correlation_id: reply.correlation_id || "",
+        created_at: new Date().toISOString(),
+      };
+      setMessages((current) => [
+        ...current.filter((message) => message.id !== optimistic.id),
+        creatorMessage,
+        deusMessage,
+      ]);
+      optimisticId = null;
 
-        if (reply.inception) {
-          void fetchInception(reply.inception.id).then(loadProposal).then(upsertProposal).catch(() => undefined);
-        }
-      } else {
-        // Compatibility with an older API/mocked response: fall back to one authoritative refresh.
-        const latest = await fetchConversationMessages(id);
-        setMessages(latest);
-        optimisticId = null;
+      if (reply.inception) {
+        void fetchInception(reply.inception.id).then(loadProposal).then(upsertProposal).catch(() => undefined);
       }
     } catch (failure) {
       if (optimisticId) {

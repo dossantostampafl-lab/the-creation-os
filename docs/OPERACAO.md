@@ -284,17 +284,18 @@ systemd ou por um cron não é movida.
 
 ## A voz do DEUS
 
-Sem o ElevenLabs configurado, a API responde **501** em `/voice/synthesize` e a interface passa a
-usar a síntese de voz do próprio navegador pelo resto da sessão. Ela funciona, mas soa mal — e é
-esse o sintoma de "a voz está errada", não uma voz trocada.
+A voz usa apenas a sessão de tempo real em `/api/v1/voice/session`, com STT
+`scribe_v2_realtime` e TTS ElevenLabs em streaming. Sem configuração, a sessão informa o erro;
+a entrada por texto continua disponível. Não há reconhecimento ou síntese de voz do navegador.
 
-O `.env.example` vem com `ELEVENLABS_ENABLED=false` e um `ELEVENLABS_VOICE_ID` de exemplo que
-provavelmente não existe na sua conta. Para ligar de verdade, guarde `ELEVENLABS_API_KEY` e
-`ELEVENLABS_VOICE_ID` nos segredos do repositório e rode a tarefa `set-voice`.
+O `.env.example` vem com `ELEVENLABS_ENABLED=false`. Para ligar a voz, guarde
+`ELEVENLABS_API_KEY` e `ELEVENLABS_VOICE_ID` nos segredos do repositório e rode a tarefa
+`set-voice`. O workflow configura `KLAUS_PROVIDER=anthropic`, a reserva Claude confirmada.
 
-Ela termina perguntando à própria ElevenLabs e imprimindo o **nome** da voz. É essa linha que
-prova que a chave é válida *e* que alcança aquela voz — um `HTTP 200` sozinho não provaria que o
-ID é o que você queria.
+O script verifica o nome da voz quando a chave permite consultá-lo e testa o mesmo cliente
+WebSocket TTS usado pela aplicação. O sucesso imprime bytes PCM em tempo real; a consulta do
+nome sozinha não comprova que a síntese funciona. Rode `smoke-test` para verificar também o
+áudio de confirmação, o ticket, a abertura da sessão e a conversa com o DEUS.
 
 O ID da voz sai em `elevenlabs.io` → Voices → a voz → o identificador de 20 caracteres.
 
@@ -308,7 +309,7 @@ Ou a tarefa `smoke-test` no workflow Deploy.
 
 Ele entra como Criador e percorre o que cada parte da interface depende: universos, agentes,
 missões, inceptions, conversas, Chronicle e sua integridade, pulse, estado do sistema, projeções,
-cache, a projeção de oportunidades, a inferência, a síntese de voz e uma conversa real com o DEUS.
+cache, a projeção de oportunidades, a inferência, o áudio de confirmação, a sessão de voz em tempo real e uma conversa com o DEUS.
 No fim, quantos passaram e quantos falharam.
 
 Ele roda **dentro do contêiner da API**, então as credenciais que usa são as que já estão no
@@ -320,8 +321,10 @@ Duas linhas do relatório valem mais que as outras quando algo parece quebrado n
 - **`a provider is available`** é exatamente a expressão que a interface usa para habilitar o
   console do DEUS. Falhando ela, o campo de mensagem fica inerte e o microfone não responde — sem
   erro nenhum aparecer, porque o envio simplesmente retorna.
-- **`ElevenLabs synthesis`** com 501 significa que a voz do navegador está sendo usada no lugar
-  da sua.
+- **`ElevenLabs wake acknowledgement`** verifica o áudio PCM de confirmação; **`realtime DEUS
+  voice session`** verifica a conexão autenticada e o estado `ARMED`. Falhas precisam ser
+  corrigidas na configuração ou nos provedores. O smoke não mede eco ou latência num aparelho
+  físico; valide também no Android falando “Deus”, conversando e interrompendo a resposta.
 
 ## Os Universos não vêm com o deploy
 

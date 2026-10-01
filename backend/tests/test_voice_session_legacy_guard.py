@@ -10,6 +10,7 @@ BACKEND = ROOT / "backend" / "app"
 def test_legacy_voice_subsystem_is_gone():
     obsolete = [
         FRONTEND / "voice.ts",
+        FRONTEND / "voice.test.ts",
         ROOT / "frontend" / "e2e" / "deus-voice-latency.spec.ts",
         BACKEND / "api" / "voice.py",
         BACKEND / "services" / "voice.py",
@@ -30,3 +31,19 @@ def test_production_frontend_has_no_browser_speech_recognition_or_legacy_voice_e
     assert "webkitSpeechRecognition" not in source
     assert "/voice/synthesize" not in source
     assert "/voice/transcribe" not in source
+
+
+def test_operator_guides_do_not_recommend_retired_voice_paths():
+    source = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in [ROOT / "README.md", ROOT / "docs" / "OPERACAO.md"]
+    )
+    for retired in ("/voice/synthesize", "/voice/transcribe", "SpeechRecognition"):
+        assert retired not in source
+
+
+def test_voice_setup_probes_the_production_streaming_client():
+    script = (ROOT / "deploy" / "oracle" / "set-voice.sh").read_text(encoding="utf-8")
+    assert "VoiceAcknowledgementCache" in script
+    assert "ElevenLabsRealtimeTTS" in script
+    assert "httpx.post" not in script

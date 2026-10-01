@@ -51,3 +51,45 @@ def test_embedded_python_compiles(name: str, index: int, code: str) -> None:
         py_compile.compile(path, doraise=True)
     except py_compile.PyCompileError as error:
         raise AssertionError(f"{name} block {index} does not compile:\n{error}") from error
+
+
+@pytest.mark.parametrize("audio", [b"\x00\x01", b""])
+def test_voice_setup_requires_audio_from_the_realtime_client(monkeypatch, capsys, audio):
+    import httpx
+
+    from app.voice_session import tts
+
+    calls = []
+
+    class FakeRealtimeTTS:
+        def __init__(self, config):
+            self.remaining = [audio, None]
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def send_text(self, text):
+            calls.append(text)
+
+        async def finish(self):
+            calls.append("finish")
+
+        async def receive_audio(self):
+            return self.remaining.pop(0)
+
+    monkeypatch.setattr(tts, "ElevenLabsRealtimeTTS", FakeRealtimeTTS)
+    # Voice-name permission is optional; synthesis must still be exercised.
+    monkeypatch.setattr(httpx, "get", lambda *args, **kwargs: httpx.Response(401))
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "test-key")
+    monkeypatch.setenv("ELEVENLABS_VOICE_ID", "test-voice")
+    code = next(code for name, _, code in _blocks() if name == "set-voice.sh")
+    if audio:
+        exec(compile(code, "set-voice.sh", "exec"), {})
+        assert "Realtime speaking: 2 bytes" in capsys.readouterr().out
+    else:
+        with pytest.raises(SystemExit, match="Realtime voice failed"):
+            exec(compile(code, "set-voice.sh", "exec"), {})
+    assert calls == ["Estou aqui.", "finish"]
