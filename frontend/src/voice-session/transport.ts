@@ -17,8 +17,9 @@ export function buildVoiceSessionUrl(
   apiBase: string,
   ticket: string,
   conversationId?: string,
+  pageUrl: string | undefined = globalThis.location?.href,
 ): string {
-  const base = new URL(apiBase);
+  const base = new URL(apiBase, pageUrl);
   if (base.protocol !== "http:" && base.protocol !== "https:") {
     throw new Error("VOICE_SESSION_INVALID_API_BASE");
   }
