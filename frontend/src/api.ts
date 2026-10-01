@@ -2,6 +2,18 @@ import type { ChronicleEvent, ChronicleRecord, InferenceStatusSnapshot, Projecti
 
 export const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ?? "http://localhost:8000/api/v1";
 
+async function requestApi(path: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(`${API_BASE}${path}`, init);
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") throw error;
+    const url = new URL(`${API_BASE}${path}`, window.location.href);
+    const detail = error instanceof Error ? error.message : "NETWORK_ERROR";
+    // No query, body or authorization header belongs in a diagnostic shown to the Creator.
+    throw new Error(`${detail} [${init?.method ?? "GET"} ${url.origin}${url.pathname}]`, { cause: error });
+  }
+}
+
 const ACCESS_TOKEN_KEY = "creation_access_token";
 const REFRESH_TOKEN_KEY = "creation_refresh_token";
 
@@ -43,7 +55,7 @@ let refreshInFlight: Promise<string> | null = null;
 async function refreshAccessToken(): Promise<string> {
   if (refreshInFlight) return refreshInFlight;
   refreshInFlight = (async () => {
-    const response = await fetch(`${API_BASE}/auth/refresh`, {
+    const response = await requestApi("/auth/refresh", {
       method: "POST",
       headers: { Authorization: `Bearer ${refreshToken()}` },
     });
@@ -61,7 +73,7 @@ async function refreshAccessToken(): Promise<string> {
 }
 
 async function authorizedFetch(path: string, init?: RequestInit): Promise<Response> {
-  const request = (accessToken: string) => fetch(`${API_BASE}${path}`, {
+  const request = (accessToken: string) => requestApi(path, {
     ...init,
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -109,7 +121,7 @@ export type ConversationMessage = {
 };
 
 export async function loginCreator(username: string, password: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/auth/login`, {
+  const response = await requestApi("/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username, password }),
@@ -248,44 +260,77 @@ export type StreamHandlers = {
   onEvent: (event: ChronicleEvent) => void;
   onResync: () => void;
   onError: (error: unknown) => void;
+  onOpen?: () => void;
 };
 
+function reconnectDelay(signal: AbortSignal, delay: number): Promise<void> {
+  return new Promise((resolve) => {
+    const finish = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", finish);
+      resolve();
+    };
+    const timer = setTimeout(finish, delay);
+    signal.addEventListener("abort", finish, { once: true });
+    if (signal.aborted) finish();
+  });
+}
+
 export async function streamChronicle(after: number, handlers: StreamHandlers, signal: AbortSignal): Promise<void> {
-  try {
-    const response = await authorizedFetch(`/system/events?after=${after}`, {
-      headers: { Accept: "text/event-stream" },
-      signal,
-    });
-    if (!response.ok || !response.body) throw new Error(`HTTP_${response.status}`);
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-
-    while (!signal.aborted) {
-      const { value, done } = await reader.read();
-      if (done) return;
-      buffer += decoder.decode(value, { stream: true });
-      const frames = buffer.split("\n\n");
-      buffer = frames.pop() ?? "";
-
-      for (const frame of frames) {
-        if (!frame || frame.startsWith(":")) continue;
-        let eventType = "message";
-        let data = "";
-        for (const line of frame.split("\n")) {
-          if (line.startsWith("event:")) eventType = line.slice(6).trim();
-          if (line.startsWith("data:")) data += line.slice(5).trim();
+  let position = after;
+  let retryDelay = 1000;
+  while (!signal.aborted) {
+    try {
+      const response = await authorizedFetch(`/system/events?after=${position}`, {
+        headers: { Accept: "text/event-stream" }, signal,
+      });
+      if (!response.ok || !response.body) throw new Error(`HTTP_${response.status}`);
+      if (signal.aborted) { await response.body.cancel(); return; }
+      handlers.onOpen?.();
+      const reader = response.body.getReader();
+      const cancel = () => { void reader.cancel().catch(() => {}); };
+      signal.addEventListener("abort", cancel, { once: true });
+      const decoder = new TextDecoder();
+      let buffer = "";
+      try {
+        while (!signal.aborted) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          retryDelay = 1000;
+          buffer += decoder.decode(value, { stream: true });
+          const frames = buffer.split("\n\n");
+          buffer = frames.pop() ?? "";
+          for (const frame of frames) {
+            if (!frame || frame.startsWith(":")) continue;
+            let eventType = "message";
+            let data = "";
+            for (const line of frame.split("\n")) {
+              if (line.startsWith("event:")) eventType = line.slice(6).trim();
+              if (line.startsWith("data:")) data += line.slice(5).trim();
+            }
+            if (!data) continue;
+            if (eventType === "resync_required") { handlers.onResync(); return; }
+            if (eventType === "chronicle") {
+              const event = JSON.parse(data) as ChronicleEvent;
+              position = event.position;
+              handlers.onEvent(event);
+            }
+          }
         }
-        if (!data) continue;
-        if (eventType === "resync_required") {
-          handlers.onResync();
-          return;
-        }
-        if (eventType === "chronicle") handlers.onEvent(JSON.parse(data) as ChronicleEvent);
+      } finally {
+        signal.removeEventListener("abort", cancel);
+        await reader.cancel().catch(() => {});
+        reader.releaseLock();
       }
+    } catch (error) {
+      if (signal.aborted) return;
+      const terminal = error instanceof Error && (error.message === "AUTH_REQUIRED" || error.message.startsWith("HTTP_4"));
+      if (terminal) { handlers.onError(error); return; }
+      const url = new URL(`${API_BASE}/system/events`, window.location.href);
+      const detail = error instanceof Error ? error.message : "STREAM_ERROR";
+      handlers.onError(new Error(`${detail} [SSE ${url.origin}${url.pathname}]`, { cause: error }));
     }
-  } catch (error) {
-    if (!signal.aborted) handlers.onError(error);
+    await reconnectDelay(signal, retryDelay);
+    retryDelay = Math.min(retryDelay * 2, 10000);
   }
 }
