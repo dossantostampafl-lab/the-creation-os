@@ -60,17 +60,36 @@ jobs:
         \ key, so this run trusted whatever answered.\"\n  echo \"Record the lines\
         \ below in deploy/oracle/known_hosts:\"\n  cat ~/.ssh/known_hosts\nfi\nchmod\
         \ 600 ~/.ssh/known_hosts\n"
-    - name: Evaluate host capacity for local speech without reading credentials
+    - name: Benchmark disposable local speech on the actual ARM server
       env:
         HOST: ${{ secrets.DEPLOY_HOST }}
         USERNAME: ${{ secrets.DEPLOY_USER }}
       run: "set -euo pipefail\nssh -i ~/.ssh/id_deploy -o BatchMode=yes -o ConnectTimeout=20\
         \ \"${USERNAME:-ubuntu}@$HOST\" 'bash -s' <<'REMOTE'\nset -euo pipefail\n\
-        python3 - <<'HARDWARE'\nimport json,os,platform,shutil\nmemory={}\nfor line\
-        \ in open('/proc/meminfo'):\n name,value=line.split(':',1)\n if name in ['MemTotal','MemAvailable','SwapTotal','SwapFree']:memory[name+'_MiB']=int(value.strip().split()[0])//1024\n\
-        space=shutil.disk_usage('/')\nprint(json.dumps({'architecture':platform.machine(),'logical_cpus':os.cpu_count(),'load_average':os.getloadavg(),'memory':memory,'disk_free_GiB':round(space.free/1024**3,1),'gpu_device_present':os.path.exists('/dev/nvidia0')},sort_keys=True))\n\
-        HARDWARE\nsudo docker stats --no-stream --format '{{.Name}} CPU={{.CPUPerc}}\
-        \ memory={{.MemUsage}}'\nREMOTE\n"
+        api=\"$(sudo docker ps --filter 'label=com.docker.compose.service=api' --format\
+        \ '{{.ID}}' | head -1)\"\nimage=\"$(sudo docker inspect --format '{{.Image}}'\
+        \ \"$api\")\"\n# Disposable evaluation: no production volumes, credentials,\
+        \ env files or service ports.\nsudo docker run --rm -i --name creation-free-voice-evaluation\
+        \ --cpus=1.5 --memory=3g --entrypoint /bin/sh -e HF_HUB_DISABLE_XET=1 \"$image\"\
+        \ -s <<'CONTAINER'\nset -eu\npython -m venv /tmp/probe-venv\n/tmp/probe-venv/bin/pip\
+        \ install --quiet 'piper-tts==1.8.0' 'faster-whisper==1.2.1'\nmkdir -p /tmp/models\n\
+        cd /tmp/models\n/tmp/probe-venv/bin/python -m piper.download_voices pt_BR-faber-medium\n\
+        /tmp/probe-venv/bin/python - <<'BENCHMARKPY'\nimport json,time,wave,resource\n\
+        from piper import PiperVoice\nfrom faster_whisper import WhisperModel\nimport\
+        \ ctranslate2\nprint(json.dumps({'supported_cpu_types':sorted(ctranslate2.get_supported_compute_types('cpu'))}),flush=True)\n\
+        started=time.monotonic();voice=PiperVoice.load('/tmp/models/pt_BR-faber-medium.onnx')\n\
+        print(json.dumps({'tts_load_ms':round((time.monotonic()-started)*1000)}),flush=True)\n\
+        phrases=['Deus, quanto \xE9 dois mais dois?','Quanto \xE9 dez mais cinco,\
+        \ Deus?','Deus, explique o que \xE9 uma estrela.']\nfor i,text in enumerate(phrases):\n\
+        \ started=time.monotonic();first=None;chunks=[]\n for chunk in voice.synthesize(text):\n\
+        \  if first is None:first=round((time.monotonic()-started)*1000)\n  chunks.append(chunk.audio_int16_bytes);rate=chunk.sample_rate\n\
+        \ with wave.open('/tmp/sample'+str(i)+'.wav','wb') as out:\n  out.setnchannels(1);out.setsampwidth(2);out.setframerate(rate);out.writeframes(b''.join(chunks))\n\
+        \ print(json.dumps({'tts_text':text,'first_audio_ms':first,'total_ms':round((time.monotonic()-started)*1000),'audio_seconds':round(sum(map(len,chunks))/2/rate,2)}),flush=True)\n\
+        for name in ['tiny','base']:\n started=time.monotonic();model=WhisperModel(name,device='cpu',compute_type='int8',cpu_threads=2,num_workers=1,download_root='/tmp/models')\n\
+        \ print(json.dumps({'stt_model':name,'download_and_load_ms':round((time.monotonic()-started)*1000)}),flush=True)\n\
+        \ for i,text in enumerate(phrases):\n  started=time.monotonic()\n  segments,info=model.transcribe('/tmp/sample'+str(i)+'.wav',language='pt',beam_size=1,condition_on_previous_text=False,vad_filter=False)\n\
+        \  result=' '.join(s.text.strip() for s in segments)\n  print(json.dumps({'stt_model':name,'expected':text,'transcript':result,'elapsed_ms':round((time.monotonic()-started)*1000),'peak_memory_MiB':round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/1024)}),flush=True)\n\
+        \ del model\nBENCHMARKPY\nCONTAINER\nREMOTE\n"
     - name: Remove private SSH file
       if: always()
       run: rm -f ~/.ssh/id_deploy
