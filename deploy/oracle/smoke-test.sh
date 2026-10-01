@@ -33,7 +33,7 @@ import httpx
 from websockets.asyncio.client import connect as websocket_connect
 
 # Use the dashboard proxy, not API loopback: voice must work through nginx too.
-FRONTEND = "http://frontend:8080"
+FRONTEND = "https://148-116-109-255.sslip.io"
 BASE = f"{FRONTEND}/api/v1"
 passed = failed = 0
 
@@ -136,6 +136,17 @@ with httpx.Client(base_url=BASE, timeout=45) as client:
            "" if available else "the console stays disabled while this is false")
 
     print()
+    print("== Public live updates ==")
+    try:
+        with client.stream("GET", "/system/events?after=0", headers={"Accept": "text/event-stream"}) as stream:
+            first = next(stream.iter_bytes(), b"")
+            report("public live event stream", stream.status_code == 200 and bool(first)
+                   and "text/event-stream" in stream.headers.get("content-type", ""),
+                   f"HTTP {stream.status_code}; first frame received")
+    except Exception as exc:
+        report("public live event stream", False, type(exc).__name__)
+
+    print()
     print("== Voice ==")
     worklet = client.get(f"{FRONTEND}/voice/pcm-capture.worklet.js")
     report(
@@ -178,7 +189,7 @@ with httpx.Client(base_url=BASE, timeout=45) as client:
                     })
                     try:
                         async with websocket_connect(
-                            f"ws://frontend:8080/api/v1/voice/session?{query}",
+                            f"wss://148-116-109-255.sslip.io/api/v1/voice/session?{query}",
                             open_timeout=20,
                         ) as websocket:
                             raw = await asyncio.wait_for(websocket.recv(), timeout=20)
