@@ -32,7 +32,9 @@ from urllib.parse import urlencode
 import httpx
 from websockets.asyncio.client import connect as websocket_connect
 
-BASE = "http://127.0.0.1:8000/api/v1"
+# Use the dashboard proxy, not API loopback: voice must work through nginx too.
+FRONTEND = "http://frontend:8080"
+BASE = f"{FRONTEND}/api/v1"
 passed = failed = 0
 
 
@@ -135,6 +137,14 @@ with httpx.Client(base_url=BASE, timeout=45) as client:
 
     print()
     print("== Voice ==")
+    worklet = client.get(f"{FRONTEND}/voice/pcm-capture.worklet.js")
+    report(
+        "microphone worklet served by dashboard",
+        worklet.status_code == 200
+        and "javascript" in worklet.headers.get("content-type", "")
+        and "registerProcessor" in worklet.text,
+        f"HTTP {worklet.status_code}",
+    )
     acknowledgement = client.get("/voice/session/acknowledgement")
     report(
         "ElevenLabs wake acknowledgement",
@@ -168,7 +178,7 @@ with httpx.Client(base_url=BASE, timeout=45) as client:
                     })
                     try:
                         async with websocket_connect(
-                            f"ws://127.0.0.1:8000/api/v1/voice/session?{query}",
+                            f"ws://frontend:8080/api/v1/voice/session?{query}",
                             open_timeout=20,
                         ) as websocket:
                             raw = await asyncio.wait_for(websocket.recv(), timeout=20)

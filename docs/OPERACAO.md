@@ -312,9 +312,10 @@ missões, inceptions, conversas, Chronicle e sua integridade, pulse, estado do s
 cache, a projeção de oportunidades, a inferência, o áudio de confirmação, a sessão de voz em tempo real e uma conversa com o DEUS.
 No fim, quantos passaram e quantos falharam.
 
-Ele roda **dentro do contêiner da API**, então as credenciais que usa são as que já estão no
-ambiente daquele processo: nada viaja por linha de comando, onde a lista de processos do servidor
-mostraria.
+Ele roda **dentro do contêiner da API**, usando as credenciais daquele processo, mas as
+requisições HTTP e WebSocket passam por `frontend:8080`, o proxy nginx do dashboard. Assim o
+teste verifica também o upgrade de WebSocket e a entrega do módulo de captura do microfone.
+As credenciais não viajam por linha de comando.
 
 Duas linhas do relatório valem mais que as outras quando algo parece quebrado na tela:
 

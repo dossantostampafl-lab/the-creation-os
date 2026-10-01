@@ -61,17 +61,6 @@ export type MicrophoneFrame = {
 
 export type MicrophoneFrameHandler = (frame: MicrophoneFrame) => void;
 
-const WORKLET_SOURCE = [
-  "class DeusPcmCaptureProcessor extends AudioWorkletProcessor {",
-  "  process(inputs) {",
-  "    const input = inputs[0] && inputs[0][0];",
-  "    if (input && input.length) this.port.postMessage(new Float32Array(input));",
-  "    return true;",
-  "  }",
-  "}",
-  "registerProcessor(\"deus-pcm-capture\", DeusPcmCaptureProcessor);",
-].join("\n");
-
 export class MicrophonePcmCapture {
   private stream: MediaStream | null = null;
   private context: AudioContext | null = null;
@@ -107,14 +96,9 @@ export class MicrophonePcmCapture {
 
     try {
       if (context.audioWorklet) {
-        const url = URL.createObjectURL(
-          new Blob([WORKLET_SOURCE], { type: "application/javascript" }),
+        await context.audioWorklet.addModule(
+          `${import.meta.env.BASE_URL}voice/pcm-capture.worklet.js`,
         );
-        try {
-          await context.audioWorklet.addModule(url);
-        } finally {
-          URL.revokeObjectURL(url);
-        }
         const worklet = new AudioWorkletNode(context, "deus-pcm-capture", {
           numberOfInputs: 1,
           numberOfOutputs: 1,
