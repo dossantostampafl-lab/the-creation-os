@@ -109,14 +109,19 @@ jobs:
         \    if(this.buffer&&this.buffer.getChannelData(0).some(v=>Math.abs(v)>.001))window.__voicePlayback.nonSilent++;\n\
         \    return original.apply(this,args);\n   };\n  },{access:tokens.access_token,refresh:tokens.refresh_token,conversationId:conversation.id});\n\
         \  const page=await context.newPage();const failures=[];const errors=[];const\
-        \ events=[];\n  page.on('pageerror',e=>errors.push(e.message));\n  page.on('requestfailed',r=>{if(!r.failure()?.errorText.includes('ERR_ABORTED'))failures.push({path:new\
+        \ events=[];let lastVoicedAt=0;\n  page.on('pageerror',e=>errors.push(e.message));\n\
+        \  page.on('requestfailed',r=>{if(!r.failure()?.errorText.includes('ERR_ABORTED'))failures.push({path:new\
         \ URL(r.url()).pathname,error:r.failure()?.errorText})});\n  page.on('response',r=>{if(r.status()>=400)failures.push({path:new\
         \ URL(r.url()).pathname,status:r.status()})});\n  page.on('websocket',ws=>{\n\
-        \   ws.on('framereceived',frame=>{\n    try {const event=JSON.parse(frame.payload.toString());\n\
+        \   ws.on('framesent',frame=>{try{\n    const event=JSON.parse(frame.payload.toString());\n\
+        \    if(event.type==='audio'){const pcm=Buffer.from(event.audio_base64,'base64');let\
+        \ energy=0;for(let i=0;i+1<pcm.length;i+=2){const v=pcm.readInt16LE(i);energy+=v*v;}if(energy/Math.max(1,pcm.length/2)>350*350)lastVoicedAt=Date.now();}\n\
+        \   }catch{}});\n   ws.on('framereceived',frame=>{\n    try {const event=JSON.parse(frame.payload.toString());\n\
         \     if(event.type==='audio_chunk'){const pcm=Buffer.from(event.audio_base64,'base64');events.push({type:event.type,turn:event.turn_id,bytes:pcm.length,nonSilent:pcm.some(v=>v!==0),at:Date.now()});}\n\
-        \     else events.push({...event,at:Date.now()});\n    }catch{}\n   });ws.on('socketerror',e=>errors.push('WebSocket\
-        \ error'));\n  });\n  await page.goto(origin,{waitUntil:'domcontentloaded'});\n\
-        \  const box=page.getByRole('textbox',{name:'Message DEUS'});await box.waitFor({timeout:45000});await\
+        \     else events.push({...event,at:Date.now(),...(event.type==='transcript_commit'&&lastVoicedAt?{synthetic_post_speech_commit_ms:Date.now()-lastVoicedAt}:{})});\n\
+        \    }catch{}\n   });ws.on('socketerror',e=>errors.push('WebSocket error'));\n\
+        \  });\n  await page.goto(origin,{waitUntil:'domcontentloaded'});\n  const\
+        \ box=page.getByRole('textbox',{name:'Message DEUS'});await box.waitFor({timeout:45000});await\
         \ box.click();\n  const deadline=Date.now()+60000;\n  while(!events.some(e=>e.type==='telemetry')&&Date.now()<deadline)await\
         \ page.waitForTimeout(250);\n  const telemetry=events.find(e=>e.type==='telemetry');\n\
         \  const transcript=events.find(e=>e.type==='transcript_commit');\n  const\
@@ -124,17 +129,17 @@ jobs:
         \  const audio=events.filter(e=>e.type==='audio_chunk');\n  const playback=await\
         \ page.evaluate(()=>window.__voicePlayback);\n  const persisted=await context.request.get(origin+'/api/v1/conversations/'+conversation.id+'/messages',{headers:auth});\n\
         \  const messages=await persisted.json();\n  const globals=await page.locator('.error-banner,.console-error').allTextContents();\n\
-        \  console.log(JSON.stringify({mode:mobile?'phone':'desktop',transcript:transcript?.text,answer,telemetry,audioChunks:audio.length,audioBytes:audio.reduce((n,e)=>n+e.bytes,0),playback,voiceMessages:messages.filter(m=>m.metadata_json?.voice).length,failures,errors,globals}));\n\
+        \  console.log(JSON.stringify({mode:mobile?'phone':'desktop',transcript:transcript?.text,synthetic_post_speech_commit_ms:transcript?.synthetic_post_speech_commit_ms,answer,telemetry,audioChunks:audio.length,audioBytes:audio.reduce((n,e)=>n+e.bytes,0),playback,voiceMessages:messages.filter(m=>m.metadata_json?.voice).length,failures,errors,globals}));\n\
         \  if(!telemetry||!transcript||!answer.match(/quatro|\\b4\\b/i)||!audio.some(e=>e.nonSilent)||!playback.nonSilent||!playback.running||telemetry.provider_selected!=='freellmapi'||!messages.some(m=>m.role==='deus'&&m.metadata_json?.voice)||failures.length||errors.length||globals.length)throw\
         \ new Error('Actual public synthetic speech test failed');\n  // A typed turn\
         \ must still answer coherently after the completed voice turn.\n  await box.fill('Responda\
         \ apenas com o resultado: quanto \xE9 seis vezes sete?');\n  const reply=page.waitForResponse(r=>new\
         \ URL(r.url()).pathname.endsWith('/deus')&&r.request().method()==='POST');\n\
         \  await box.press('Enter');const typed=await reply;if(!typed.ok())throw new\
-        \ Error('Typed turn failed: '+typed.status());\n  const body=await typed.json();console.log(JSON.stringify({mode:mobile?'phone':'desktop',typedStatus:typed.status(),typedAnswer:body.response}));if(!/42/.test(body.response??''))throw\
-        \ new Error('Typed answer was incoherent');\n  await context.close();\n }\n\
-        } finally {await browser.close();unlinkSync(fixture);}\nJSDIAGNOSTIC\nnode\
-        \ frontend/local-voice-diagnostic.mjs"
+        \ Error('Typed turn failed: '+typed.status());\n  const body=await typed.json();console.log(JSON.stringify({mode:mobile?'phone':'desktop',typedStatus:typed.status(),typedAnswer:body.response}));if(!/^(42|quarenta\
+        \ e dois)[.!]?$/i.test((body.response??'').trim()))throw new Error('Typed\
+        \ answer was incoherent');\n  await context.close();\n }\n} finally {await\
+        \ browser.close();unlinkSync(fixture);}\nJSDIAGNOSTIC\nnode frontend/local-voice-diagnostic.mjs"
     - name: Remove private files
       if: always()
       run: rm -f ~/.ssh/id_deploy "$RUNNER_TEMP/creation-session.json" "$RUNNER_TEMP/creation-voice-input.wav"
