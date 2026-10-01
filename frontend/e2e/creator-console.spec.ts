@@ -194,7 +194,7 @@ test("realtime DEUS voice is always armed without push-to-talk or browser speech
   }));
 
   await expect(page.getByText(/^Ouvindo…/)).toBeVisible();
-  await expect(page.getByText(/freellmapi/)).toBeVisible();
+  await expect(page.getByRole("region", { name: "Creator Console" }).getByText(/freellmapi/)).toBeVisible();
 });
 
 test("voice session stays closed when no inference provider is available", async ({ page }) => {
