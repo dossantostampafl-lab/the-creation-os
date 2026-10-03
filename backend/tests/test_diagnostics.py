@@ -363,3 +363,21 @@ async def test_open_incident_accumulates_observation_evidence(knowledge_db, monk
         assert incident.state == 'open'
         assert len(incident.observation_ids) == 2
         assert incident.last_seen > incident.first_seen
+
+
+def test_journal_sequence_and_drop_health_are_explicit(tmp_path):
+    from app.diagnostics.journal import DiagnosticJournal, JournalFull
+
+    journal = DiagnosticJournal(tmp_path, max_bytes=220)
+    journal.append({'id':'first', 'data':'a'})
+    journal.append({'id':'second', 'data':'b'})
+    assert [row['id'] for row in journal.pending()] == ['first', 'second']
+
+    with pytest.raises(JournalFull):
+        journal.append({'id':'too-big', 'data':'x'*400})
+
+    health = journal.health()
+    assert health['spool_full'] is True
+    assert health['dropped_observations'] >= 1
+    assert health['pending_observations'] == 2
+    assert health['used_bytes'] > 0
