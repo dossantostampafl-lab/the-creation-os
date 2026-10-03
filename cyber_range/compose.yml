@@ -139,15 +139,11 @@ networks:
     driver: bridge
     internal: true
     driver_opts:
-      com.docker.network.bridge.name: "tco_rng_ctl"
-    driver_opts:
       com.docker.network.bridge.name: tco_rng_ctl
   # Vulnerable targets have no routable interface; only fixed proxies can reach them.
   range_targets:
     driver: bridge
     internal: true
-    driver_opts:
-      com.docker.network.bridge.name: "tco_rng_tgt"
     driver_opts:
       com.docker.network.bridge.name: tco_rng_tgt
   # Host publication exists only on unprivileged fixed-destination proxies.
