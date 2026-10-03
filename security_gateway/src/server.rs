@@ -1,6 +1,7 @@
 use serde_json::{json, Value};
 
 use crate::contracts::{ExecutionEnvelope, RequestedAction};
+use crate::range_control::{RangeControlClient, RangeControlError};
 use crate::sandbox::firecracker::FirecrackerSandbox;
 use crate::sandbox::kata::KataSandbox;
 use crate::sandbox::{Sandbox, SandboxBackend, SandboxError};
@@ -10,6 +11,7 @@ pub struct Gateway {
     pub state: GatewayState,
     pub backend: SandboxBackend,
     pub key: Vec<u8>,
+    pub range_control: Option<RangeControlClient>,
 }
 
 fn reply(decision: &str, reasons: Vec<String>) -> String {
@@ -84,6 +86,49 @@ impl Gateway {
             evaluate(&mut self.state, &envelope, &requested, &self.key, now_unix)
         {
             return reply_execute("deny", "denied", vec![format!("{reason:?}")], None);
+        }
+        if requested.tool_id == "range.health.verify" {
+            if requested.capability != "range.health.verify"
+                || !requested.environment.starts_with("cyber_range:")
+                || requested.args_json.trim() != "{}"
+            {
+                return reply_execute(
+                    "deny",
+                    "denied",
+                    vec!["RangeControlRequestInvalid".into()],
+                    None,
+                );
+            }
+            let Some(client) = self.range_control.as_ref() else {
+                return reply_execute(
+                    "deny",
+                    "denied",
+                    vec!["RangeControlUnavailable".into()],
+                    None,
+                );
+            };
+            return match client.verify_health() {
+                Ok(()) => reply_execute(
+                    "permit",
+                    "executed",
+                    vec![],
+                    Some(format!("range-health:{}:{}", envelope.action_id, envelope.nonce)),
+                ),
+                Err(RangeControlError::Unavailable) => reply_execute(
+                    "deny",
+                    "denied",
+                    vec!["RangeControlUnavailable".into()],
+                    None,
+                ),
+                Err(RangeControlError::InvalidConfiguration | RangeControlError::InvalidResponse) => {
+                    reply_execute(
+                        "deny",
+                        "denied",
+                        vec!["RangeControlInvalidResponse".into()],
+                        None,
+                    )
+                }
+            };
         }
         let outcome = match self.backend {
             SandboxBackend::Kata => KataSandbox { available: true }
