@@ -151,7 +151,6 @@ fn range_health_rejects_unbound_arguments_before_any_control_connection() {
     assert_eq!(reply["reasons"][0], "RangeControlRequestInvalid");
 }
 
-
 fn post_server(path: &'static str, body: &'static str) -> (String, thread::JoinHandle<String>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap().to_string();
