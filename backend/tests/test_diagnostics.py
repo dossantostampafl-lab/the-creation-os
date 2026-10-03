@@ -290,6 +290,7 @@ async def test_incident_history_is_canonical_and_creator_scoped(knowledge_db, mo
         assert incident.state == 'recovered'
         assert incident.recovered_at is not None
         assert len(incident.observation_ids) == 2
+        assert incident.observation_count == 2
         assert incident.first_seen <= incident.last_seen
 
         hypothesis = await record_cause_hypothesis(
@@ -362,6 +363,7 @@ async def test_open_incident_accumulates_observation_evidence(knowledge_db, monk
         assert incident is not None
         assert incident.state == 'open'
         assert len(incident.observation_ids) == 2
+        assert incident.observation_count == 2
         assert incident.last_seen > incident.first_seen
 
 
@@ -421,3 +423,14 @@ async def test_publish_failure_keeps_journal_pending(monkeypatch, tmp_path):
     with pytest.raises(RuntimeError):
         await worker.publish(journal, str(uuid.uuid4()))
     assert [row['id'] for row in journal.pending()] == [observation_id]
+
+
+def test_incident_evidence_ids_are_bounded():
+    from app.diagnostics.incidents import MAX_INCIDENT_EVIDENCE_IDS, _append_observation
+
+    ids: list[str] = []
+    for index in range(MAX_INCIDENT_EVIDENCE_IDS + 10):
+        ids = _append_observation(ids, f'observation-{index}')
+    assert len(ids) == MAX_INCIDENT_EVIDENCE_IDS
+    assert ids[0] == 'observation-10'
+    assert ids[-1] == f'observation-{MAX_INCIDENT_EVIDENCE_IDS + 9}'
