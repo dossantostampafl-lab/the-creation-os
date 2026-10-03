@@ -48,6 +48,9 @@ class DiagnosticJournal:
                 raise JournalFull('diagnostic journal capacity reached')
             try:
                 db.execute('INSERT INTO observations(id,data,bytes,created_at) VALUES(?,?,?,?)', (observation['id'],serialized,len(serialized.encode()),time.time()))
+                marker = self.root/'spool-full.json'
+                if marker.exists() and not marker.is_symlink():
+                    marker.unlink()
             except sqlite3.OperationalError as exc:
                 if 'full' in str(exc).lower():
                     self._full()
