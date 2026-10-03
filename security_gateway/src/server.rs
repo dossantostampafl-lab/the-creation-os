@@ -73,9 +73,10 @@ impl Gateway {
                     Err(RangeControlError::Unavailable) => {
                         reply("deny", vec!["RangeControlUnavailable".into()])
                     }
-                    Err(RangeControlError::InvalidConfiguration | RangeControlError::InvalidResponse) => {
-                        reply("deny", vec!["RangeControlInvalidResponse".into()])
-                    }
+                    Err(
+                        RangeControlError::InvalidConfiguration
+                        | RangeControlError::InvalidResponse,
+                    ) => reply("deny", vec!["RangeControlInvalidResponse".into()]),
                 }
             }
             Some("kill") => {
@@ -106,7 +107,10 @@ impl Gateway {
         }
         if matches!(
             requested.tool_id.as_str(),
-            "range.health.verify" | "range.scenario.start" | "range.scenario.verify" | "range.reset"
+            "range.health.verify"
+                | "range.scenario.start"
+                | "range.scenario.verify"
+                | "range.reset"
         ) {
             if requested.capability != requested.tool_id
                 || !requested.environment.starts_with("cyber_range:")
@@ -157,14 +161,14 @@ impl Gateway {
                     vec!["RangeControlUnavailable".into()],
                     None,
                 ),
-                Err(RangeControlError::InvalidConfiguration | RangeControlError::InvalidResponse) => {
-                    reply_execute(
-                        "deny",
-                        "denied",
-                        vec!["RangeControlInvalidResponse".into()],
-                        None,
-                    )
-                }
+                Err(
+                    RangeControlError::InvalidConfiguration | RangeControlError::InvalidResponse,
+                ) => reply_execute(
+                    "deny",
+                    "denied",
+                    vec!["RangeControlInvalidResponse".into()],
+                    None,
+                ),
             };
         }
         let outcome = match self.backend {
