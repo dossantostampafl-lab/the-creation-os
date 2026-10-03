@@ -111,11 +111,13 @@ async def test_context_reads_only_recent_diagnostics_and_tracks_dependencies(kno
         conversation = Conversation(id=str(uuid.uuid4()),creator_id=a,title='Diagnóstico',status='active')
         session.add(conversation)
         service = KnowledgeService(session)
-        current = await service.write(Scope(creator_id=a), Candidate(title='Redis', kind='diagnostic', valid_until=now+timedelta(seconds=45),content=json.dumps({'type':'observation','resource':'Redis','status':'healthy','observed_at':now.isoformat(),'valid_until':(now+timedelta(seconds=45)).isoformat()})), 'current')
+        current = await service.write(Scope(creator_id=a), Candidate(title='Redis', kind='diagnostic', valid_until=now+timedelta(seconds=45),content=json.dumps({'type':'observation','resource':'Redis','status':'healthy','observed_at':now.isoformat(),'valid_until':(now+timedelta(seconds=45)).isoformat(),'latency_ms':12,'safe_evidence':{'probe':'internal'}})), 'current')
         await service.write(Scope(creator_id=a), Candidate(title='DB antiga', kind='diagnostic',valid_until=now-timedelta(seconds=1),content=json.dumps({'type':'observation','resource':'DB antiga','status':'healthy'})), 'old')
         await session.commit()
         observed = await current_diagnostics(session,a)
         assert [row['resource'] for row in observed]==['Redis']
+        assert observed[0]['latency_ms'] == 12
+        assert observed[0]['safe_evidence'] == {'probe':'internal'}
     packet = await DeusContextBuilder(factory).build(a,conversation.id,'Como está o sistema?', 'voice')
     assert current.revision_id in packet.trace['dependency_revision_ids']
     assert any('Redis' in row['content'] for row in packet.messages)
