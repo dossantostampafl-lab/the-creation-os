@@ -201,6 +201,7 @@ fn server_denies_when_no_sandbox_and_tightens_on_control_messages() {
         state: state(),
         backend: SandboxBackend::Unavailable,
         key: KEY.to_vec(),
+        range_control: None,
     };
     let line =
         serde_json::json!({"op": "execute", "envelope": envelope(), "requested": requested()})
@@ -224,6 +225,7 @@ fn server_permits_through_an_isolated_backend() {
         state: state(),
         backend: SandboxBackend::Kata,
         key: KEY.to_vec(),
+        range_control: None,
     };
     let mut r = requested();
     r.tool_id = "range.health.verify".into();
@@ -240,6 +242,7 @@ fn a_permit_is_authorization_not_execution() {
         state: state(),
         backend: SandboxBackend::Kata,
         key: KEY.to_vec(),
+        range_control: None,
     };
     let mut r = requested();
     r.tool_id = "range.health.verify".into();
@@ -262,6 +265,7 @@ fn every_reply_to_an_execute_carries_a_status() {
         state: state(),
         backend: SandboxBackend::Unavailable,
         key: KEY.to_vec(),
+        range_control: None,
     };
     let line =
         serde_json::json!({"op": "execute", "envelope": envelope(), "requested": requested()})
