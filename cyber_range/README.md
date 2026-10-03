@@ -6,7 +6,7 @@ Isolated local environment for training, experimentation, replay and verificatio
 
 - Range Controller API on `127.0.0.1:7070`
 - OWASP Juice Shop on `127.0.0.1:3000`
-- OWASP WebGoat on `127.0.0.1:8080`
+- OWASP WebGoat on `127.0.0.1:18080`
 - OWASP WebWolf on `127.0.0.1:9090`
 - declared scenario catalog
 - append-style evidence files in the `range_evidence` Docker volume, read with

@@ -324,3 +324,7 @@ curl --fail http://localhost:8080/api/v1/health/ready
 A produção ativa roda em `/opt/the-creation-os` e combina `docker-compose.yml` com `docker-compose.cloud.yml`. O workflow manual `Deploy` executa `check`, `restart`, `update`, `set-inference`, `set-creator-password` e `tidy` na VM sem definir um nome de projeto Compose. A instalação e a operação estão documentadas em [`deploy/oracle/README.md`](deploy/oracle/README.md) e [`docs/OPERACAO.md`](docs/OPERACAO.md).
 
 Nenhuma topologia é publicada automaticamente por merge em `main`. O deploy Oracle ocorre somente por acionamento manual do workflow `Deploy`; o GitHub também é usado para versionamento, Pull Requests, CI, CodeQL e auditoria de dependências.
+
+## Connected DEUS and mobile distribution
+
+See [connected OS operation](docs/connected-os.md) for shared text/voice memory, project focus, observer diagnostics, the12Universe evidence-discovery loop and isolated CyberRange dashboard. See [store packaging](docs/distribution/store-release.md) for Android/iOS builds, signing and release validation. These optional workers are enabled with the `connected-deus` Compose profile; existing deployments retain disabled flags until activated with backup.

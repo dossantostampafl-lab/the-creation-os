@@ -32,3 +32,9 @@ dump.rdb
 # IDEs
 .vscode/
 .idea/
+
+.superpowers/
+frontend/.creation-brand-assets/
+.connected-backups/
+frontend/ios-build/
+frontend/ios-device/

@@ -23,6 +23,7 @@ on:
           - set-local-voice
           - smoke-test
           - stf-host-check
+          - enable-connected-deus
           - seed
       ref:
         description: "Branch or tag to take the code from. Empty means the default branch."
@@ -202,6 +203,11 @@ jobs:
               sudo ./deploy/oracle/check-inference.sh
               # A green deploy must prove the Creator-facing path, not just provider health.
               # This exercises login, the interface dependencies, local voice, and one real DEUS turn.
+              sudo ./deploy/oracle/smoke-test.sh --deus
+              ;;
+            enable-connected-deus)
+              sudo git merge --ff-only "origin/$target"
+              sudo ./deploy/oracle/enable-connected-deus.sh
               sudo ./deploy/oracle/smoke-test.sh --deus
               ;;
             set-inference)

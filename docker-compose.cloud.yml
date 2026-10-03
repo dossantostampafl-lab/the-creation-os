@@ -45,6 +45,21 @@ services:
       - tco_net
       - tco_internal
 
+  knowledge-worker:
+    read_only: true
+    tmpfs: [/tmp]
+    networks: [tco_net, tco_internal]
+
+  diagnostics-worker:
+    read_only: true
+    tmpfs: [/tmp]
+    networks: [tco_net, tco_internal]
+
+  discovery-worker:
+    read_only: true
+    tmpfs: [/tmp]
+    networks: [tco_net, tco_internal]
+
   postgres:
     security_opt:
       - no-new-privileges:true

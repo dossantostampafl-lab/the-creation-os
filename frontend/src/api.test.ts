@@ -40,3 +40,21 @@ it("reports the local voice configuration returned by acknowledgement preloading
   }), { status: 503, headers: { "Content-Type": "application/json" } })));
   await expect(preloadVoiceAcknowledgement()).rejects.toThrow("modelos locais");
 });
+
+it("preserves a stable request identifier when sending a DEUS turn", async () => {
+  const { converseWithDeus } = await import("./api");
+  const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ response: "Olá" }), { status: 201, headers: { "Content-Type": "application/json" } }));
+  vi.stubGlobal("fetch", fetchMock);
+  await converseWithDeus("conversation", "Oi", "11111111-1111-4111-8111-111111111111");
+  expect(JSON.parse(fetchMock.mock.calls[0][1].body).request_id).toBe("11111111-1111-4111-8111-111111111111");
+});
+
+it('filters knowledge searches by the selected project and reuses write identifiers', async () => {
+  const { searchKnowledge, saveKnowledge } = await import('./api');
+  const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({status:'empty',evidences:[]}),{status:200})));
+  vi.stubGlobal('fetch',fetchMock);
+  await searchKnowledge('Kokoro','project');
+  expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({query:'Kokoro',project_id:'project'});
+  await saveKnowledge('Voz','Kokoro','stable-id','project');
+  expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({request_id:'stable-id',candidate:{title:'Voz',content:'Kokoro',project_id:'project'}});
+});

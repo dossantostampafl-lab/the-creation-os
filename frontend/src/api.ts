@@ -1,3 +1,4 @@
+import { newRequestId } from './requestId';
 import type { ChronicleEvent, ChronicleRecord, InferenceStatusSnapshot, ProjectionStatus, SystemState } from "./types";
 
 export const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ?? "http://localhost:8000/api/v1";
@@ -184,10 +185,10 @@ export type DeusConversationReply = {
   correlation_id: string;
 };
 
-export const converseWithDeus = (conversationId: string, content: string) =>
+export const converseWithDeus = (conversationId: string, content: string, requestId: string = newRequestId()) =>
   api<DeusConversationReply>(`/conversations/${conversationId}/deus`, {
     method: "POST",
-    body: JSON.stringify({ content, metadata: {} }),
+    body: JSON.stringify({ content, metadata: {}, request_id: requestId }),
   });
 
 
@@ -344,3 +345,37 @@ export async function streamChronicle(after: number, handlers: StreamHandlers, s
     retryDelay = Math.min(retryDelay * 2, 10000);
   }
 }
+
+export type KnowledgeEvidence = { item_id: string; revision_id: string; title: string; content: string; kind: string; epistemic_state: string };
+export type KnowledgeSearch = { status: string; evidences: KnowledgeEvidence[] };
+export type CyberRangeState = { status: string; message?: string; scenarios: {scenario_id: string; status: string}[]; catalog?: {id: string; description: string}[] };
+
+export async function searchKnowledge(query: string, projectId?: string): Promise<KnowledgeSearch> {
+  const response = await authorizedFetch('/knowledge/search', {method:'POST', body:JSON.stringify({query,...(projectId ? {project_id:projectId} : {})})});
+  if (!response.ok) throw new Error(`HTTP_${response.status}`);
+  return response.json();
+}
+export async function saveKnowledge(title: string, content: string, requestId: string, projectId?: string): Promise<void> {
+  const response = await authorizedFetch('/knowledge/items', {method:'POST', body:JSON.stringify({request_id:requestId,candidate:{title,content,...(projectId ? {project_id:projectId} : {})}})});
+  if (!response.ok) throw new Error(`HTTP_${response.status}`);
+}
+export async function revokeKnowledge(item: KnowledgeEvidence): Promise<void> {
+  const response = await authorizedFetch(`/knowledge/items/${item.item_id}?expected_revision_id=${item.revision_id}`, {method:'DELETE'});
+  if (!response.ok) throw new Error(`HTTP_${response.status}`);
+}
+export async function fetchCyberRange(): Promise<CyberRangeState> {
+  const response = await authorizedFetch('/cyber-range/status');
+  if (!response.ok) throw new Error(`HTTP_${response.status}`);
+  return response.json();
+}
+export async function changeCyberRange(action: 'start' | 'reset' | 'snapshots', scenarioId?: string): Promise<void> {
+  const response = await authorizedFetch(`/cyber-range/${action}`, {method:'POST', ...(action==='start' ? {body:JSON.stringify({scenario_id:scenarioId})}: {})});
+  if (!response.ok) throw new Error(`HTTP_${response.status}`);
+}
+
+export const CREATOR_CONVERSATION_KEY = 'creation_conversation_id';
+export const fetchKnowledgeProjects = () => api<{id:string;title:string}[]>('/knowledge/projects');
+export const createKnowledgeProject = (title: string) => api<{id:string;title:string}>('/knowledge/projects',{method:'POST',body:JSON.stringify({title})});
+export const setKnowledgeFocus = (conversationId: string, projectId: string | null) => api(`/knowledge/conversations/${conversationId}/focus`,{method:'PUT',body:JSON.stringify({project_id:projectId})});
+
+export const fetchDiagnostics = () => api<{observations:{resource:string;status:string;observed_at:string}[]}>('/knowledge/diagnostics/current');

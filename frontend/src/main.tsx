@@ -1,6 +1,8 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import { Capacitor } from "@capacitor/core";
+import { installNativeRuntime } from "./native";
 import { PWA_CONTROLLER_EVENT, PWA_UPDATE_EVENT, registerPwa } from "./pwa";
 import "./styles.css";
 
@@ -37,7 +39,9 @@ class RootErrorBoundary extends React.Component<
   }
 }
 
-if (import.meta.env.PROD) {
+void installNativeRuntime().catch(() => undefined);
+
+if (import.meta.env.PROD && !Capacitor.isNativePlatform()) {
   void registerPwa({
     onUpdateAvailable: (registration) => {
       window.dispatchEvent(new CustomEvent(PWA_UPDATE_EVENT, { detail: registration }));

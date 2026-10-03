@@ -1,3 +1,5 @@
+import { newRequestId } from '../requestId';
+import { NATIVE_BACKGROUND_EVENT } from '../native';
 import { useEffect, useRef, useState } from "react";
 
 import { API_BASE, issueVoiceSessionTicket, preloadVoiceAcknowledgement, VoiceUnavailableError } from "../api";
@@ -152,7 +154,7 @@ export function useDeusVoiceSession(options: UseDeusVoiceSessionOptions): DeusVo
         turn_id: model.turnId,
         audio_base64: bytesToBase64(pcm16k),
         commit: false,
-        utterance_id: crypto.randomUUID(),
+        utterance_id: newRequestId(),
       });
     };
 
@@ -355,6 +357,8 @@ export function useDeusVoiceSession(options: UseDeusVoiceSessionOptions): DeusVo
       void capture.resume().catch(() => undefined);
       void sink.resume().catch(() => undefined);
     };
+    const pauseForBackground = () => stopForTerminalError("A voz foi pausada ao sair do aplicativo. Ative-a novamente para continuar.");
+    window.addEventListener(NATIVE_BACKGROUND_EVENT, pauseForBackground);
     document.addEventListener("pointerdown", resumeAudio);
     document.addEventListener("keydown", resumeAudio);
     void connect();
@@ -364,6 +368,7 @@ export function useDeusVoiceSession(options: UseDeusVoiceSessionOptions): DeusVo
       acknowledgementGeneration += 1;
       player.stop();
       if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
+      window.removeEventListener(NATIVE_BACKGROUND_EVENT, pauseForBackground);
       document.removeEventListener("pointerdown", resumeAudio);
       document.removeEventListener("keydown", resumeAudio);
       const current = socket;

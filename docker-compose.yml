@@ -31,6 +31,8 @@ services:
       # or a cancel made through the API is seen by the worker.
       - stf_state:/var/lib/creation/stf
       - voice_models:/var/lib/creation/voice
+      - deus_diagnostics:/var/lib/creation/diagnostics
+      - deus_obsidian:/var/lib/creation/obsidian
     ports:
       - "127.0.0.1:${CREATION_API_PORT:-8000}:8000"
     depends_on:
@@ -209,7 +211,86 @@ services:
     networks: [obs-backend, obs-frontend]
     restart: unless-stopped
 
+  knowledge-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    profiles:
+    - connected-deus
+    environment: &observer_environment
+      APP_ENV: ${APP_ENV:-production}
+      APP_SECRET_KEY: observer-no-auth-server-unused-key-32chars
+      CREATOR_BOOTSTRAP_USERNAME: observer-not-a-login
+      CREATOR_BOOTSTRAP_PASSWORD: observer-no-bootstrap-unused-password
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      SOVEREIGN_CREATOR_ID: ${SOVEREIGN_CREATOR_ID:-}
+      DEUS_DIAGNOSTICS_ENABLED: ${DEUS_DIAGNOSTICS_ENABLED:-false}
+      DEUS_AUTONOMY_DISCOVERY_ENABLED: ${DEUS_AUTONOMY_DISCOVERY_ENABLED:-false}
+      DEUS_OBSIDIAN_EXPORT_ENABLED: ${DEUS_OBSIDIAN_EXPORT_ENABLED:-false}
+    command:
+    - python
+    - -m
+    - app.knowledge.worker
+    depends_on:
+      api:
+        condition: service_healthy
+    volumes:
+    - deus_diagnostics:/var/lib/creation/diagnostics
+    - deus_obsidian:/var/lib/creation/obsidian
+    restart: unless-stopped
+    networks:
+    - tco_net
+    security_opt:
+    - no-new-privileges:true
+  diagnostics-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    profiles:
+    - connected-deus
+    environment: *observer_environment
+    command:
+    - python
+    - -m
+    - app.diagnostics.worker
+    depends_on:
+      api:
+        condition: service_healthy
+    volumes:
+    - deus_diagnostics:/var/lib/creation/diagnostics
+    - deus_obsidian:/var/lib/creation/obsidian
+    restart: unless-stopped
+    networks:
+    - tco_net
+    security_opt:
+    - no-new-privileges:true
+  discovery-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    profiles:
+    - connected-deus
+    environment: *observer_environment
+    command:
+    - python
+    - -m
+    - app.autonomy.discovery
+    depends_on:
+      api:
+        condition: service_healthy
+    volumes:
+    - deus_diagnostics:/var/lib/creation/diagnostics
+    - deus_obsidian:/var/lib/creation/obsidian
+    restart: unless-stopped
+    networks:
+    - tco_net
+    security_opt:
+    - no-new-privileges:true
+
 volumes:
+  deus_diagnostics:
+  deus_obsidian:
   voice_models:
   postgres_data:
   redis_data:
