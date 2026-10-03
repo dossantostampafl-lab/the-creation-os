@@ -20,7 +20,15 @@ def load_controller(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     campaign_state = tmp_path / "campaign-state"
     snapshots = tmp_path / "snapshots"
 
-    def scenario(scenario_id: str, target: str, family: str, prerequisites=None, purple=False):
+    def scenario(
+        scenario_id: str,
+        target: str,
+        family: str,
+        prerequisites=None,
+        purple=False,
+        blind=False,
+        variants=None,
+    ):
         return {
             "id": scenario_id,
             "version": 1,
@@ -34,7 +42,8 @@ def load_controller(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
             "failure_criteria": ["containment_failure"],
             "reset_policy": "deterministic",
             "purple_required": purple,
-            "blind": False,
+            "blind": blind,
+            "variants": variants or [],
         }
 
     scenarios.write_text(
@@ -46,6 +55,18 @@ def load_controller(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
                 scenario("webgoat-baseline", "webgoat", "authorization"),
                 scenario("blue-detection-baseline", "juice-shop", "detection",
                          prerequisites=["juice-shop-baseline"], purple=True),
+                scenario(
+                    "purple-blind-baseline",
+                    "juice-shop",
+                    "detection",
+                    prerequisites=["juice-shop-baseline"],
+                    purple=True,
+                    blind=True,
+                    variants=[
+                        {"id": "signal-correlation", "focus": "correlation"},
+                        {"id": "evidence-gap", "focus": "evidence_completeness"},
+                    ],
+                ),
             ],
         }),
         encoding="utf-8",
@@ -91,6 +112,7 @@ def test_controller_lists_only_declared_scenarios(tmp_path, monkeypatch) -> None
         "juice-shop-baseline",
         "webgoat-baseline",
         "blue-detection-baseline",
+        "purple-blind-baseline",
     }
 
 
@@ -243,3 +265,34 @@ def test_snapshot_round_trip_preserves_campaign_progress(tmp_path, monkeypatch) 
     current = client.get("/campaigns/stf-foundation-v1/state").json()
     assert current["current_scenario_id"] == "webgoat-baseline"
     assert current["completed_scenarios"] == ["juice-shop-baseline"]
+
+
+def test_blind_scenario_commits_variant_without_disclosing_it_and_snapshot_preserves_it(tmp_path, monkeypatch) -> None:
+    module, _, state = load_controller(tmp_path, monkeypatch)
+    client = TestClient(module.app)
+
+    catalog = client.get("/scenarios").json()["scenarios"]
+    blind = next(item for item in catalog if item["id"] == "purple-blind-baseline")
+    assert blind["blind"] is True
+    assert blind["variant_count"] == 2
+    assert "variants" not in blind
+
+    started = client.post("/scenarios/purple-blind-baseline/start")
+    assert started.status_code == 200
+    public = started.json()
+    assert "variant_id" not in public and "variant_nonce" not in public
+    assert len(public["variant_commitment"]) == 64
+
+    raw = json.loads((state / "purple-blind-baseline.json").read_text(encoding="utf-8"))
+    assert raw["variant_id"] in {"signal-correlation", "evidence-gap"}
+    assert raw["variant_nonce"]
+    assert raw["variant_commitment"] == public["variant_commitment"]
+
+    snapshot_id = client.post("/snapshots").json()["snapshot_id"]
+    assert client.post("/reset").status_code == 200
+    assert client.post(f"/snapshots/{snapshot_id}/restore").status_code == 200
+    restored_raw = json.loads((state / "purple-blind-baseline.json").read_text(encoding="utf-8"))
+    assert restored_raw["variant_id"] == raw["variant_id"]
+    assert restored_raw["variant_nonce"] == raw["variant_nonce"]
+    visible = client.get("/state").json()["scenarios"][0]
+    assert "variant_id" not in visible and visible["variant_commitment"] == raw["variant_commitment"]
