@@ -135,6 +135,39 @@ with httpx.Client(base_url=BASE, timeout=45) as client:
     report("a provider is available", available,
            "" if available else "the console stays disabled while this is false")
 
+    if os.getenv("DEUS_CONTEXT_RETRIEVAL_ENABLED", "").lower() == "true":
+        print("== Connected DEUS ==")
+        for name, path in [("knowledge projects", "/knowledge/projects"),
+                           ("current diagnostics", "/knowledge/diagnostics/current"),
+                           ("Cyber Range configuration", "/cyber-range/status")]:
+            response = client.get(path)
+            detail = f"HTTP {response.status_code}"
+            if name == "Cyber Range configuration" and response.status_code == 200:
+                detail = response.json().get("status", "unknown")
+            report(name, response.status_code == 200, detail)
+            if name == "current diagnostics" and response.status_code == 200:
+                observations = response.json().get("observations", [])
+                report("diagnostic observer recent observations", bool(observations), f"{len(observations)} observation(s)")
+        if os.getenv("DEUS_DIAGNOSTICS_ENABLED", "").lower() == "true":
+            async def check_worker_heartbeats():
+                from datetime import datetime, timezone
+                from sqlalchemy import select
+                from app.db.session import AsyncSessionLocal
+                from app.diagnostics.heartbeat import ServiceHeartbeat
+                expected = {"task-worker", "knowledge-worker"}
+                if os.getenv("DEUS_AUTONOMY_DISCOVERY_ENABLED", "").lower() == "true":
+                    expected.add("discovery-worker")
+                async with AsyncSessionLocal() as session:
+                    services = set(await session.scalars(select(ServiceHeartbeat.service).where(
+                        ServiceHeartbeat.valid_until > datetime.now(timezone.utc))))
+                missing = sorted(expected - services)
+                return not missing, "fresh" if not missing else "missing: " + ", ".join(missing)
+            try:
+                heartbeat_ok, heartbeat_detail = asyncio.run(check_worker_heartbeats())
+                report("connected worker heartbeats", heartbeat_ok, heartbeat_detail)
+            except Exception as exc:
+                report("connected worker heartbeats", False, type(exc).__name__)
+
     print()
     print("== Voice ==")
     worklet = client.get(f"{FRONTEND}/voice/pcm-capture.worklet.js")
