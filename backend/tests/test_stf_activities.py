@@ -148,3 +148,59 @@ async def test_timeout_after_send_is_unknown(tmp_path):
     # An unknown outcome is never sent a second time on its own.
     again = await activities.dispatch_action(action(), decision)
     assert again["status"] == "unknown" and len(gateway.calls) == 1
+
+
+# --- Gauntlet Task 1: PostgreSQL is canonical authority for persisted runs ----------------------------
+
+async def test_persisted_run_reserves_database_authority_before_gateway(stf_db, tmp_path):
+    import uuid
+
+    from app.models.entities import Creator
+    from app.security_task_force.activities import StfActivities
+    from app.security_task_force.contracts import CapabilityGrant
+    from app.security_task_force.repository import StfRepository
+
+    _, factory = stf_db
+    creator_id, run_id, grant_id = str(uuid.uuid4()), str(uuid.uuid4()), f"grant:{uuid.uuid4()}"
+    request = ActionRequest(**action())
+
+    async with factory() as session:
+        session.add(Creator(id=creator_id, username=f"c-{creator_id[:8]}", password_hash="x", is_active=True))
+        await session.flush()
+        repository = StfRepository(session)
+        await repository.create_run(
+            creator_id=creator_id, run_id=run_id, mission_id=request.mission_id,
+            mission_version=request.mission_version, request_key="gauntlet-1",
+            request_hash="h" * 64, plan_hash="p" * 64, plan=[request.model_dump(mode="json")],
+        )
+        await repository.issue_grant(
+            run_id,
+            CapabilityGrant(
+                grant_id=grant_id, mission_id=request.mission_id, mission_version=request.mission_version,
+                actor=request.actor, capability=request.capability, target_id=request.target_id,
+                environment_id=request.environment_id, action_class=request.action_class,
+                expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+            ),
+        )
+        await session.commit()
+
+    activities, deps = make(tmp_path)
+    deps.session_factory = factory
+    decision = {"decision": "permit", "decision_id": "d-db", "grant_id": grant_id}
+
+    result = await activities.dispatch_action(action(), decision, run_id)
+
+    assert result["status"] == "executed"
+    assert len(deps.gateway.calls) == 1
+    # A persisted run must not spend or reserve authority in the legacy file-backed stores.
+    assert deps.grants.get(grant_id) is None
+    assert deps.ledger.result(request.idempotency_key) is None
+
+    async with factory() as session:
+        row = (await session.execute(
+            __import__("sqlalchemy").text(
+                "SELECT status, grant_id FROM stf_dispatches WHERE run_id = :run_id AND action_id = :action_id"
+            ),
+            {"run_id": run_id, "action_id": request.action_id},
+        )).one()
+    assert tuple(row) == ("executed", grant_id)
