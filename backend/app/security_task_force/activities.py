@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any
+from uuid import uuid4
 
 from temporalio import activity
 
@@ -10,6 +12,7 @@ from .authorization import authorize_and_grant, authorize_decision
 from .contract_store import ContractStore
 from .contracts import ActionRequest, AuthorizationDecision, MissionContract
 from .envelope import build_envelope, parameters_hash
+from .evidence import EvidenceRecord
 from .gateway_client import GatewayClient, GatewayOutcomeUnknown, GatewayUnavailable
 from .grants import GrantStore, build_grant
 from .kill_switch import KillSwitch
@@ -145,7 +148,14 @@ class StfActivities:
             return await StfRepository(session).approval_matches(approval_id, run_id, action)
 
     @activity.defn(name="stf_verify_mission")
-    async def verify_mission(self, mission_id: str) -> bool:
+    async def verify_mission(self, mission_id: str, run_id: str | None = None) -> bool:
+        if run_id is not None:
+            if self._d.session_factory is None:
+                return False
+            from .repository import StfRepository
+
+            async with self._d.session_factory() as session:
+                return await StfRepository(session).verify_run_evidence(run_id)
         if self._d.verify is None:
             return False  # nothing can prove the run, so nothing completes
         return bool(self._d.verify(mission_id))
@@ -254,13 +264,40 @@ class StfActivities:
         assert receipt.execution_id is not None
         outcome_status = str(result["status"])
         outcome_reasons = [str(item) for item in result.get("reasons", [])]
+        evidence: EvidenceRecord | None = None
+        if outcome_status == "executed":
+            evidence = EvidenceRecord.build(
+                evidence_id=f"evidence:{uuid4()}",
+                run_id=run_id,
+                execution_id=receipt.execution_id,
+                mission_id=request.mission_id,
+                action_id=request.action_id,
+                task_id=request.task_id,
+                environment_id=request.environment_id,
+                source="stf-gateway",
+                kind="execution",
+                acquired_at=datetime.now(timezone.utc).isoformat(),
+                payload={
+                    "status": "executed",
+                    "gateway_execution_id": result.get("execution_id"),
+                    "capability": request.capability,
+                    "target_id": request.target_id,
+                },
+            )
         async with self._d.session_factory() as session:
-            await StfRepository(session).record_outcome(
-                receipt.execution_id, outcome_status, outcome_reasons
+            repository = StfRepository(session)
+            if evidence is not None:
+                await repository.record_evidence(run_id, receipt.execution_id, evidence)
+            await repository.record_outcome(
+                receipt.execution_id,
+                outcome_status,
+                outcome_reasons,
+                evidence_id=evidence.evidence_id if evidence is not None else None,
             )
             await session.commit()
         emit("action.dispatched", mission_id=request.mission_id, action_id=request.action_id,
-             environment_id=request.environment_id, status=result["status"])
+             environment_id=request.environment_id, status=result["status"],
+             evidence_id=evidence.evidence_id if evidence is not None else None)
         return result
 
     async def _execute_gateway(
