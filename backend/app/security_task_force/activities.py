@@ -208,7 +208,7 @@ class StfActivities:
             pass  # the gateway also refuses on its own revocation state; this only tightens it sooner
         if cleanup_range:
             try:
-                answer = await self._d.gateway.control({"op": "range_reset"})
+                answer = await self._d.gateway.control({"op": "range_reset", "mission_id": mission_id})
                 if answer.get("decision") != "ok":
                     emit("range.cleanup_failed", mission_id=mission_id, reasons=answer.get("reasons", []))
             except (GatewayUnavailable, GatewayOutcomeUnknown):
