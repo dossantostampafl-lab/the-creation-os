@@ -68,6 +68,23 @@ CANONICAL_UNIVERSES = frozenset(
 )
 Probe = Callable[[], Awaitable[bool | None | ProbeOutcome]]
 
+PROBE_RULES = {
+    "PostgreSQL": "availability",
+    "Redis": "availability",
+    "API": "readiness",
+    "Fila da memória": "backlog",
+    "Disco diagnóstico": "capacity",
+    "Projeções do Chronicle": "projection_lag",
+    "Tarefas em execução": "task_stall",
+    "Universos canônicos": "canonical_universes",
+    "Journal diagnóstico": "spool_capacity",
+    "Voz local": "local_voice_assets",
+    "Inferência": "execution_telemetry",
+    "task-worker": "heartbeat",
+    "knowledge-worker": "heartbeat",
+    "discovery-worker": "heartbeat",
+}
+
 
 def projection_health(head: int, positions: dict[str, int], max_lag: int) -> bool:
     for name in EXPECTED_PROJECTIONS:
@@ -144,7 +161,7 @@ async def collect() -> dict[str, ProbeResult]:
             )
         return found is not None
 
-    async def queue_probe() -> bool:
+    async def queue_probe() -> ProbeOutcome:
         async with AsyncSessionLocal() as session:
             done = exists(
                 select(KnowledgeReceipt.sequence).where(
@@ -152,26 +169,48 @@ async def collect() -> dict[str, ProbeResult]:
                     KnowledgeReceipt.consumer == "knowledge",
                 )
             )
-            pending = await session.scalar(
-                select(func.count()).select_from(KnowledgeOutbox).where(~done)
+            pending = int(
+                await session.scalar(
+                    select(func.count()).select_from(KnowledgeOutbox).where(~done)
+                )
+                or 0
             )
-        return (pending or 0) <= 1000
+        return ProbeOutcome(
+            value=pending <= 1000,
+            safe_evidence={"pending": pending, "threshold": 1000},
+        )
 
-    async def disk_probe() -> bool:
+    async def disk_probe() -> ProbeOutcome:
         stats = os.statvfs(settings.deus_diagnostics_root)
-        return stats.f_bavail * stats.f_frsize >= 64 * 1024 * 1024
+        free_bytes = int(stats.f_bavail * stats.f_frsize)
+        minimum = 64 * 1024 * 1024
+        return ProbeOutcome(
+            value=free_bytes >= minimum,
+            safe_evidence={"free_bytes": free_bytes, "minimum_free_bytes": minimum},
+        )
 
-    async def projection_probe() -> bool:
+    async def projection_probe() -> ProbeOutcome:
         async with AsyncSessionLocal() as session:
             head = int(await session.scalar(select(func.max(Chronicle.position))) or 0)
             rows = list((await session.scalars(select(ProjectionCheckpoint))).all())
-        return projection_health(
+        positions = {row.projection_name: row.position for row in rows}
+        healthy = projection_health(
             head,
-            {row.projection_name: row.position for row in rows},
+            positions,
             settings.deus_diagnostics_projection_max_lag,
         )
+        missing = [name for name in EXPECTED_PROJECTIONS if name not in positions]
+        return ProbeOutcome(
+            value=healthy,
+            safe_evidence={
+                "chronicle_head": head,
+                "checkpoint_count": len(positions),
+                "missing": ",".join(missing),
+                "max_lag": settings.deus_diagnostics_projection_max_lag,
+            },
+        )
 
-    async def task_probe() -> bool:
+    async def task_probe() -> ProbeOutcome:
         async with AsyncSessionLocal() as session:
             starts = list(
                 (
@@ -180,13 +219,27 @@ async def collect() -> dict[str, ProbeResult]:
                     )
                 ).all()
             )
-        return task_stall_health(
+        now = datetime.now(timezone.utc)
+        healthy = task_stall_health(
             starts,
-            datetime.now(timezone.utc),
+            now,
             settings.deus_diagnostics_task_stall_seconds,
         )
+        ages = [
+            max(0, int((now - started).total_seconds()))
+            for started in starts
+            if started is not None
+        ]
+        return ProbeOutcome(
+            value=healthy,
+            safe_evidence={
+                "running_tasks": len(starts),
+                "oldest_running_seconds": max(ages, default=0),
+                "stall_threshold_seconds": settings.deus_diagnostics_task_stall_seconds,
+            },
+        )
 
-    async def universe_probe() -> bool:
+    async def universe_probe() -> ProbeOutcome:
         async with AsyncSessionLocal() as session:
             codes = set(
                 (
@@ -195,7 +248,15 @@ async def collect() -> dict[str, ProbeResult]:
                     )
                 ).all()
             )
-        return universe_health(codes)
+        missing = sorted(CANONICAL_UNIVERSES - codes)
+        return ProbeOutcome(
+            value=not missing,
+            safe_evidence={
+                "active_canonical": len(CANONICAL_UNIVERSES) - len(missing),
+                "required": len(CANONICAL_UNIVERSES),
+                "missing": ",".join(missing),
+            },
+        )
 
     async def journal_probe() -> ProbeOutcome:
         health = DiagnosticJournal(Path(settings.deus_diagnostics_root)).health()
@@ -429,7 +490,7 @@ async def run() -> None:
             observation = Observation(
                 id=str(uuid.uuid4()),
                 resource=resource,
-                rule="availability",
+                rule=PROBE_RULES.get(resource, "availability"),
                 status=result.status,
                 observed_at=now,
                 valid_until=now + timedelta(seconds=45),
