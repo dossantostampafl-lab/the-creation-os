@@ -16,8 +16,16 @@
         "preserve containment and evidence integrity"
       ],
       "prerequisites": [],
-      "success_criteria": ["execution_evidence", "attack_evidence", "replay_evidence"],
-      "failure_criteria": ["containment_failure", "policy_bypass", "evidence_integrity_failure"],
+      "success_criteria": [
+        "execution_evidence",
+        "attack_evidence",
+        "replay_evidence"
+      ],
+      "failure_criteria": [
+        "containment_failure",
+        "policy_bypass",
+        "evidence_integrity_failure"
+      ],
       "reset_policy": "deterministic",
       "purple_required": false,
       "blind": false
@@ -37,8 +45,16 @@
         "repeat the result after deterministic reset"
       ],
       "prerequisites": [],
-      "success_criteria": ["execution_evidence", "attack_evidence", "replay_evidence"],
-      "failure_criteria": ["containment_failure", "unauthorized_target", "policy_bypass"],
+      "success_criteria": [
+        "execution_evidence",
+        "attack_evidence",
+        "replay_evidence"
+      ],
+      "failure_criteria": [
+        "containment_failure",
+        "unauthorized_target",
+        "policy_bypass"
+      ],
       "reset_policy": "deterministic",
       "purple_required": false,
       "blind": false
@@ -56,12 +72,66 @@
         "measure whether the defensive signal is present",
         "replay the scenario without losing evidence lineage"
       ],
-      "prerequisites": ["juice-shop-baseline"],
-      "success_criteria": ["attack_evidence", "defense_evidence", "replay_evidence"],
-      "failure_criteria": ["containment_failure", "evidence_integrity_failure", "missing_defense_evidence"],
+      "prerequisites": [
+        "juice-shop-baseline"
+      ],
+      "success_criteria": [
+        "attack_evidence",
+        "defense_evidence",
+        "replay_evidence"
+      ],
+      "failure_criteria": [
+        "containment_failure",
+        "evidence_integrity_failure",
+        "missing_defense_evidence"
+      ],
       "reset_policy": "deterministic",
       "purple_required": true,
       "blind": false
+    },
+    {
+      "id": "purple-blind-baseline",
+      "version": 1,
+      "target": "juice-shop",
+      "family": "detection",
+      "difficulty": 4,
+      "description": "Blind purple-team drill with a committed but hidden training variant",
+      "service_url": "http://juice-shop:3000",
+      "objectives": [
+        "detect and correlate the declared lab activity without variant disclosure",
+        "preserve attack and defense evidence lineage",
+        "reproduce the drill from a saved Range snapshot"
+      ],
+      "prerequisites": [
+        "juice-shop-baseline"
+      ],
+      "success_criteria": [
+        "attack_evidence",
+        "defense_evidence",
+        "replay_evidence"
+      ],
+      "failure_criteria": [
+        "containment_failure",
+        "evidence_integrity_failure",
+        "missing_defense_evidence"
+      ],
+      "reset_policy": "deterministic",
+      "purple_required": true,
+      "blind": true,
+      "variants": [
+        {
+          "id": "signal-correlation",
+          "focus": "correlation"
+        },
+        {
+          "id": "response-latency",
+          "focus": "detection_timing"
+        },
+        {
+          "id": "evidence-gap",
+          "focus": "evidence_completeness"
+        }
+      ]
     }
   ]
 }
