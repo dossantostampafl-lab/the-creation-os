@@ -44,6 +44,20 @@ jobs:
         run: |
           docker compose -f cyber_range/compose.yml ps
           docker compose -f cyber_range/compose.yml logs controller || true
+      - name: Prove vulnerable targets have only the internal target network
+        run: |
+          set -euo pipefail
+          for service in juice-shop webgoat; do
+            id="$(docker compose -f cyber_range/compose.yml ps -q "$service")"
+            test -n "$id"
+            networks="$(docker inspect "$id" --format '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}} {{end}}')"
+            echo "$service networks: $networks"
+            echo "$networks" | grep -q 'range_targets'
+            if echo "$networks" | grep -Eq 'range_loopback|range_control'; then
+              echo "$service escaped the internal target network" >&2
+              exit 1
+            fi
+          done
       - name: Verify isolated range
         run: ./cyber_range/scripts/verify.sh
       - name: Reset range state
