@@ -123,10 +123,12 @@ def evaluate(*, gates: dict[str, GateResult], scenarios: dict[str, GateResult], 
         return Qualification(False, None, failed, passed, [f"mandatory_gate_failed:{name}" for name in failed_mandatory])
 
     scenarios_ok = all(f"scenario:{family}" in passed for family in REQUIRED_SCENARIO_FAMILIES)
+    at_least_one_scenario = any(f"scenario:{family}" in passed for family in REQUIRED_SCENARIO_FAMILIES)
     granted: str | None = None
     for level in rubric["levels"]:  # ordered from SH-1 up; the last one whose conditions all hold wins
         needs_met = all(name in passed for name in level["requires"])
-        if score >= level["min_score"] and needs_met and (scenarios_ok or level["id"] == "SH-1"):
+        coverage_ok = scenarios_ok if level["id"] != "SH-1" else at_least_one_scenario
+        if score >= level["min_score"] and needs_met and coverage_ok:
             granted = level["id"]
     reasons = [] if granted else ["score_or_requirements_below_first_level"]
     return Qualification(granted is not None, granted, failed, passed, reasons)
