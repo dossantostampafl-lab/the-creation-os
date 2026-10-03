@@ -122,3 +122,28 @@ async def test_campaign_evidence_is_accepted_after_required_advances_are_proven(
 
     assert record.payload["_scenario_id"] == "blue-detection-baseline"
     assert len(service.repository.recorded) == 1
+
+
+async def test_campaign_evidence_cannot_retroactively_claim_a_later_scenario():
+    service = service_with(advances_executed=2)
+    plan = service.repository.run.plan_json
+    observation = next(item for item in plan if item["action_id"] == "observe")
+    service.repository.run.plan_json = [
+        plan[0],
+        observation,
+        *[item for item in plan[1:] if item["action_id"] != "observe"],
+    ]
+
+    with pytest.raises(ValueError, match="campaign had not reached scenario when action executed"):
+        await service.record_evidence(
+            Actor("creator-1", "creator"),
+            "m1",
+            "run-1",
+            "exec-observe",
+            scenario_id="blue-detection-baseline",
+            kind="attack",
+            source="range-red",
+            payload={"observed": True},
+        )
+
+    assert service.repository.recorded == []
