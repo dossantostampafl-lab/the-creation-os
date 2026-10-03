@@ -51,15 +51,20 @@ jobs:
                       total += 1
                       level = result.get("level", "warning")
                       if level in {"error", "warning"}:
+                          locations = result.get("locations", [])
+                          physical = locations[0].get("physicalLocation", {}) if locations else {}
+                          artifact = physical.get("artifactLocation", {}).get("uri", "<unknown>")
+                          line = physical.get("region", {}).get("startLine", "?")
                           blocking.append((
                               level,
                               result.get("ruleId", "unknown"),
+                              f"{artifact}:{line}",
                               result.get("message", {}).get("text", ""),
                           ))
 
           print(f"CodeQL local SARIF results: {total}; blocking: {len(blocking)}")
-          for level, rule, message in blocking[:50]:
-              print(f"{level}: {rule}: {message}")
+          for level, rule, location, message in blocking[:50]:
+              print(f"{level}: {rule}: {location}: {message}")
           if blocking:
               raise SystemExit(1)
           PY
