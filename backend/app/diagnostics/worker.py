@@ -260,6 +260,7 @@ async def _current_projection(
     creator_id: str,
     resource: str,
     observation_type: str,
+    episode_id: str | None = None,
 ) -> KnowledgeRevision | None:
     rows = list(
         await session.scalars(
@@ -280,7 +281,13 @@ async def _current_projection(
             data = json.loads(row.content)
         except (TypeError, ValueError):
             continue
-        if data.get("resource") == resource and data.get("type") == observation_type:
+        if data.get("type") != observation_type:
+            continue
+        if observation_type == "incident":
+            if episode_id and data.get("episode_id") == episode_id:
+                return row
+            continue
+        if data.get("resource") == resource:
             return row
     return None
 
@@ -288,16 +295,25 @@ async def _current_projection(
 async def publish(journal: DiagnosticJournal, creator_id: str) -> None:
     for observation in journal.pending():
         async with AsyncSessionLocal() as session:
-            valid_until = datetime.fromisoformat(observation["valid_until"])
+            valid_until = (
+                None
+                if observation["type"] == "incident"
+                else datetime.fromisoformat(observation["valid_until"])
+            )
             scope = Scope(creator_id=creator_id)
             service = KnowledgeService(session)
+            identity = (
+                observation.get("episode_id")
+                if observation["type"] == "incident"
+                else observation["resource"]
+            )
             projection_key = str(
                 uuid.uuid5(
                     uuid.NAMESPACE_URL,
                     "creation:diagnostic:"
                     + creator_id
                     + ":"
-                    + observation["resource"]
+                    + str(identity)
                     + ":"
                     + observation["type"],
                 )
@@ -311,6 +327,7 @@ async def publish(journal: DiagnosticJournal, creator_id: str) -> None:
                 creator_id,
                 observation["resource"],
                 observation["type"],
+                observation.get("episode_id"),
             )
             older = (
                 previous is not None
