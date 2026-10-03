@@ -480,3 +480,30 @@ async def test_verified_projection_tables_are_immutable(stf_db):
                 text("UPDATE stf_qualifications SET score = 100 WHERE run_id = :run_id"),
                 {"run_id": run_id},
             )
+
+
+async def test_attack_evidence_cannot_be_attached_before_execution(stf_db):
+    from app.security_task_force.evidence import EvidenceRecord
+
+    _, factory = stf_db
+    _, run_id, grant_id = await _seed(factory)
+    async with factory() as session:
+        repository = _repository(session)
+        dispatch = await repository.reserve_dispatch(run_id, _action(), grant_id)
+        assert dispatch.status == "authorized" and dispatch.execution_id is not None
+        evidence = EvidenceRecord.build(
+            evidence_id=f"evidence:{uuid.uuid4()}",
+            run_id=run_id,
+            execution_id=dispatch.execution_id,
+            mission_id="m1",
+            action_id="a1",
+            task_id="t1",
+            environment_id=RANGE,
+            source="range-red",
+            kind="attack",
+            acquired_at=datetime.now(timezone.utc).isoformat(),
+            payload={"observed": True},
+        )
+        with pytest.raises(ValueError, match="requires an executed dispatch"):
+            await repository.record_evidence(run_id, dispatch.execution_id, evidence)
+        await session.rollback()
