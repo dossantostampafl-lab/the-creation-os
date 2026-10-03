@@ -20,6 +20,7 @@ from app.models.entities import uuid_string
 
 RUN_STATES = ("QUEUED", "RUNNING", "AWAITING_CREATOR", "VERIFYING", "CANCELLING", "UNKNOWN", "COMPLETED", "ABORTED")
 DISPATCH_STATUSES = ("denied", "authorized", "dispatched", "executed", "unknown")
+EVIDENCE_KINDS = ("execution", "attack", "defense")
 
 
 def _in(column: str, values: tuple[str, ...]) -> str:
@@ -107,6 +108,29 @@ class StfDispatch(Base):
     reason_codes: Mapped[list] = mapped_column(JSON, nullable=False, server_default=text("'[]'"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+
+
+class StfEvidence(Base):
+    """Immutable, redacted evidence correlated to one persisted dispatch."""
+
+    __tablename__ = "stf_evidence"
+    __table_args__ = (
+        CheckConstraint(_in("kind", EVIDENCE_KINDS), name="ck_stf_evidence_kind"),
+    )
+
+    evidence_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("stf_runs.id"), nullable=False, index=True)
+    execution_id: Mapped[str] = mapped_column(ForeignKey("stf_dispatches.execution_id"), nullable=False, index=True)
+    mission_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    action_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    task_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    environment_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    source: Mapped[str] = mapped_column(String(128), nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    acquired_at: Mapped[str] = mapped_column(String(64), nullable=False)
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
 
 
 class StfApproval(Base):
