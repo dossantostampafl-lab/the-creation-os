@@ -18,10 +18,13 @@ from app.security_task_force.contracts import ActionRequest, MissionContract, Ri
 from app.security_task_force.repository import StfRepository
 from app.security_task_force.runtime_contracts import ApprovalRecord, RunView
 
-# The only capability this integration can run, with its fixed classification. The client's declared
-# risk class is never trusted to widen or narrow it.
-CAPABILITY = "range.health.verify"
-CAPABILITY_RISK = RiskClass.R1
+# Governed Cyber Range control capabilities. The client's declared risk class is never trusted.
+CAPABILITY_RISKS = {
+    "range.health.verify": RiskClass.R1,
+    "range.scenario.verify": RiskClass.R1,
+    "range.scenario.start": RiskClass.R2,
+    "range.reset": RiskClass.R2,
+}
 APPROVAL_TTL = timedelta(minutes=10)
 CLOSED_STATES = ("COMPLETED", "ABORTED", "CANCELLING")
 
@@ -140,15 +143,18 @@ class StfService:
         for action in actions:
             if action.mission_id != contract.mission_id or action.mission_version != contract.mission_version:
                 raise ValueError("every action must belong to this mission and version")
-            if action.capability != CAPABILITY:
-                raise ValueError(f"only {CAPABILITY} can run")
+            capability_risk = CAPABILITY_RISKS.get(action.capability)
+            if capability_risk is None:
+                raise ValueError("capability is not available to the Cyber Range integration")
             if action.environment_id not in contract.authorized_environments:
                 raise RunForbidden("environment is not authorized by the contract")
             if action.target_id not in contract.authorized_targets or action.target_id in contract.excluded_targets:
                 raise ValueError("target is not authorized by the contract")
             if action.action_class not in contract.allowed_action_classes:
                 raise ValueError("action class is not allowed by the contract")
-            if CAPABILITY_RISK.rank > contract.risk_ceiling.rank:
+            if action.capability == "range.reset" and action.target_id != "range":
+                raise ValueError("range.reset requires target_id=range")
+            if capability_risk.rank > contract.risk_ceiling.rank:
                 raise ValueError("the capability exceeds the contract risk ceiling")
-            plan.append({**action.model_dump(mode="json"), "risk_class": CAPABILITY_RISK.value})
+            plan.append({**action.model_dump(mode="json"), "risk_class": capability_risk.value})
         return plan
