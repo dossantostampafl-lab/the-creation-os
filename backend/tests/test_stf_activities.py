@@ -337,3 +337,41 @@ async def test_persisted_lost_gateway_response_is_unknown_and_not_replayed(tmp_p
     assert len(deps.gateway.calls) == 1
     assert ("outcome", "claim-lost", "unknown", ("gateway_response_lost",)) in calls
     assert deps.ledger.result("k1") is None
+
+
+async def test_persisted_range_cancel_kills_before_cleanup(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    activities, deps = make(tmp_path)
+    calls = []
+
+    class Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def commit(self):
+            calls.append(("commit",))
+
+    class Repository:
+        def __init__(self, session):
+            self.session = session
+
+        async def get_run(self, run_id, *, lock=False):
+            return SimpleNamespace(plan_json=[{"environment_id": RANGE}])
+
+        async def revoke_run(self, run_id):
+            calls.append(("revoke", run_id))
+
+    monkeypatch.setattr("app.security_task_force.repository.StfRepository", Repository)
+    deps.session_factory = lambda: Session()
+
+    await activities.revoke_grants("m1", "run-1")
+
+    assert deps.gateway.controls == [
+        {"op": "kill", "mission_id": "m1"},
+        {"op": "range_reset"},
+    ]
+    assert calls[0] == ("revoke", "run-1")
