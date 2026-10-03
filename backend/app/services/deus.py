@@ -403,6 +403,7 @@ class DeusConversationService:
             "skip_health_probe": True,
         }
         if context_packet is not None:
+            creator_message.metadata_json = {**creator_message.metadata_json, 'knowledge_project_id':context_packet.trace['project_id']}
             metadata.update({'cache_policy': 'bypass', 'knowledge_version': str(context_packet.trace['knowledge_epoch']), 'retrieval_fingerprint': context_packet.trace['retrieval_fingerprint'], 'context_trace_id': context_packet.trace_id})
         if outcome.deliberation is not None:
             messages.append({"role": "system", "content": proposal_note(outcome.deliberation)})
@@ -447,7 +448,13 @@ class DeusConversationService:
             for entry in [creator_message, deus_message]:
                 if entry.role == 'deus' and (not context_packet or len(context_packet.trace['dependency_revision_ids']) > 32):
                     continue
-                await KnowledgeService(self.repo.session).write(Scope(creator_id=actor.id), Candidate(title='Conversa: ' + entry.role, content=entry.content, kind='derived_note' if entry.role == 'deus' else 'document', source_type='message', source_id=entry.id, dependencies=context_packet.trace['dependency_revision_ids'] if entry.role == 'deus' and context_packet else []), 'message:' + entry.id)
+                written = await KnowledgeService(self.repo.session).write(Scope(creator_id=actor.id), Candidate(title='Conversa: ' + entry.role, content=entry.content, kind='derived_note' if entry.role == 'deus' else 'document', source_type='message', source_id=entry.id, project_id=context_packet.trace['project_id'] if context_packet else None, dependencies=context_packet.trace['dependency_revision_ids'] if entry.role == 'deus' and context_packet else []), 'message:' + entry.id)
+                if entry.role == 'creator' and context_packet:
+                    from app.services.deus_context import bind_question_source
+                    entry.metadata_json = {**entry.metadata_json, 'knowledge_revision_id':written.revision_id}
+                    context_packet.trace['dependency_revision_ids'] = await bind_question_source(
+                        self.repo.session, actor.id, context_packet.trace_id,
+                        context_packet.trace['dependency_revision_ids'], written.revision_id)
         reply = DeusReply(
             creator_message_id=creator_message.id,
             deus_message_id=deus_message.id,

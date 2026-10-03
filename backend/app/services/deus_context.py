@@ -63,6 +63,14 @@ class DeusContextBuilder:
                     scope = Scope(creator_id=creator_id, project_id=project_id)
                     for entry in source_history:
                         metadata = getattr(entry, 'metadata_json', {}) or {}
+                        if 'knowledge_project_id' in metadata and metadata['knowledge_project_id'] != scope.project_id:
+                            continue
+                        source_ref = metadata.get('knowledge_revision_id')
+                        if source_ref:
+                            source = await session.get(KnowledgeRevision, source_ref)
+                            if source is None or not await service.eligible(scope, source):
+                                continue
+                            ancestry.add(source_ref)
                         trace_id = metadata.get('context_trace_id')
                         if getattr(entry, 'role', None) == 'deus' and not trace_id:
                             continue
@@ -136,3 +144,12 @@ class DeusContextBuilder:
         except Exception as exc:
             logger.bind(component='deus_context_trace', error_type=type(exc).__name__).warning('context trace could not be persisted')
         return ContextPacket(messages, trace, trace_id)
+
+
+async def bind_question_source(session: AsyncSession, creator_id: str, trace_id: str,
+                               dependencies: list[str], revision_id: str) -> list[str]:
+    refs = sorted(set(dependencies) | {revision_id})
+    row = await session.scalar(select(ContextTrace).where(ContextTrace.id==trace_id, ContextTrace.creator_id==creator_id))
+    if row is not None:
+        row.data = {**row.data, 'dependency_revision_ids':refs}
+    return refs

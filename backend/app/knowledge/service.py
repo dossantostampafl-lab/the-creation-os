@@ -78,6 +78,10 @@ class KnowledgeService:
             raise KnowledgeConflict("invalid idempotency key")
         if len(candidate.content.encode()) > 262144:
             raise KnowledgeConflict("source exceeds 256 KiB")
+        # All import paths share one canonical message source, including revoked sources.
+        if candidate.source_type == "message" and candidate.source_id and item_id is None:
+            await self.session.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+                {"key": scope.creator_id + ':message-source:' + candidate.source_id})
         canonical = candidate.model_dump(mode="json")
         fingerprint = digest(json.dumps([canonical, item_id, expected_revision_id], sort_keys=True, ensure_ascii=False))
         # Serialize matching requests only; this lock is transaction scoped and never held over inference.
@@ -87,6 +91,16 @@ class KnowledgeService:
             if existing.payload_hash != fingerprint:
                 raise KnowledgeConflict("idempotency key has a different payload")
             return Written(item_id=existing.item_id, revision_id=existing.revision_id)
+        if candidate.source_type == "message" and candidate.source_id and item_id is None:
+            prior = await self.session.scalar(select(KnowledgeRevision).where(
+                KnowledgeRevision.creator_id == scope.creator_id,
+                KnowledgeRevision.source_type == "message",
+                KnowledgeRevision.source_id == candidate.source_id).order_by(KnowledgeRevision.ordinal.desc()).limit(1))
+            if prior is not None:
+                self.session.add(KnowledgeOutbox(creator_id=scope.creator_id, request_key=key,
+                    payload_hash=fingerprint, item_id=prior.item_id, revision_id=prior.id))
+                await self.session.flush()
+                return Written(item_id=prior.item_id, revision_id=prior.id)
         creator = await self.session.get(Creator, scope.creator_id)
         if not creator or not creator.is_active:
             raise KnowledgeConflict("Creator unavailable")

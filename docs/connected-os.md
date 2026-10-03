@@ -49,7 +49,7 @@ Na gavetaVitals estão pesquisa, inclusão/revogação de memória, projetos e f
 - `GET /knowledge/context-traces/{uuid}`: referências e prazo da consulta, limitado ao proprietário.
 - `GET /cyber-range/status`, `POST /cyber-range/start` com `scenario_id`, `POST /cyber-range/reset`, `POST/GET /cyber-range/snapshots`.
 
-A consulta global preserva todos os projetos do mesmo Creator; foco restringe a recuperação por projeto. O histórico de respostas com foco diferente não entra no novo contexto; mensagens legadas sem proveniência não são promovidas. Revogação remove fontes/derivados da recuperação e exportação, mas não é apagamento físico de dados pessoais. O operador deve executar sua política de eliminação e de backups quando solicitada.
+A consulta global preserva todos os projetos do mesmo Creator; foco restringe a recuperação por projeto. O histórico de respostas com foco diferente não entra no novo contexto; mensagens legadas sem proveniência não são promovidas. Mensagens novas herdam o projeto em foco; respostas derivadas referenciam também a pergunta original. O backfill ignora fontes já importadas, inclusive revogadas, evitando duplicação e ressurreição. Revogação remove fontes/derivados da recuperação e exportação, mas não é apagamento físico de dados pessoais. O operador deve executar sua política de eliminação e de backups quando solicitada.
 
 ## Cyber Range sem conectar alvos à produção
 

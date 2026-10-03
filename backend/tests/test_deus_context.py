@@ -221,3 +221,101 @@ async def test_changing_focus_excludes_previous_project_answer(knowledge_db):  #
         await session.commit()
     packet = await DeusContextBuilder(factory).build(a,conversation.id,'Explique este projeto', 'text')
     assert not any('Resposta somente do projeto A' in entry['content'] for entry in packet.messages)
+
+
+@pytest.mark.asyncio
+async def test_current_voice_statement_provenance_and_backfill_are_not_duplicated(knowledge_db, monkeypatch):  # noqa: F811
+    from sqlalchemy import func, select
+
+    from app.config import settings
+    from app.knowledge.backfill import backfill
+    from app.knowledge.contracts import Scope
+    from app.knowledge.service import KnowledgeService
+    from app.models.knowledge import KnowledgeItem
+    from app.repositories.domain import DomainRepository
+    from app.services.deus_context import DeusContextBuilder
+    from app.voice_session.conversation import VoiceConversationBridge
+    factory, a, _ = knowledge_db
+    monkeypatch.setattr(settings, 'deus_knowledge_ingestion_enabled', True)
+    async with factory() as session:
+        conversation = Conversation(id=str(uuid.uuid4()),creator_id=a,title='Statement',status='active')
+        session.add(conversation)
+        await session.commit()
+        bridge = VoiceConversationBridge(DomainRepository(session), creator_id=a,conversation_id=conversation.id,context_builder=DeusContextBuilder(factory))
+        await bridge.build_request('Minha voz preferida é Kokoro.',1)
+        await bridge.complete_turn(1,'A voz preferida é Kokoro.','test')
+        found = await KnowledgeService(session).search(Scope(creator_id=a),'Kokoro')
+        original = next(row for row in found.evidences if row.kind=='document')
+        assert len(found.evidences)==2
+    report = await backfill(factory,dry_run=False)
+    assert report['written']==0
+    async with factory() as session:
+        assert await session.scalar(select(func.count()).select_from(KnowledgeItem).where(KnowledgeItem.creator_id==a))==2
+        await KnowledgeService(session).revoke(Scope(creator_id=a),original.item_id,original.revision_id)
+        await session.commit()
+        assert not (await KnowledgeService(session).search(Scope(creator_id=a),'Kokoro')).evidences
+    assert (await backfill(factory,dry_run=False))['written']==0
+    packet = await DeusContextBuilder(factory).build(a,conversation.id,'Qual voz?', 'text')
+    assert all('preferida é Kokoro.' not in entry['content'] for entry in packet.messages)
+
+
+@pytest.mark.asyncio
+async def test_legacy_backfill_revocation_excludes_original_history(knowledge_db):  # noqa: F811
+    from app.knowledge.backfill import backfill
+    from app.knowledge.contracts import Candidate, Scope
+    from app.knowledge.service import KnowledgeService
+    from app.services.deus_context import DeusContextBuilder
+    factory, a, _ = knowledge_db
+    async with factory() as session:
+        conversation = Conversation(id=str(uuid.uuid4()),creator_id=a,title='Legacy',status='active')
+        session.add(conversation)
+        await session.flush()
+        source = Message(id=str(uuid.uuid4()),conversation_id=conversation.id,actor_id=a,role='creator',content='Minha preferência secreta é Kokoro.',route='deus',metadata_json={},correlation_id=str(uuid.uuid4()))
+        session.add(source)
+        await session.commit()
+    assert (await backfill(factory,dry_run=False))['written']==1
+    async with factory() as session:
+        found = await KnowledgeService(session).search(Scope(creator_id=a),'Kokoro')
+        original = found.evidences[0]
+        # Different import keys/payloads still resolve to the canonical source item.
+        again = await KnowledgeService(session).write(Scope(creator_id=a),Candidate(title='Live ingestion',content=source.content,source_type='message',source_id=source.id),'other-import')
+        assert again.item_id==original.item_id
+        from app.knowledge.service import KnowledgeConflict
+        with pytest.raises(KnowledgeConflict, match='different payload'):
+            await KnowledgeService(session).write(Scope(creator_id=a),Candidate(title='Changed',content='changed',source_type='message',source_id=source.id),'other-import')
+        with pytest.raises(KnowledgeConflict, match='different payload'):
+            await KnowledgeService(session).write(Scope(creator_id=a),Candidate(title='Manual',content='other'),'other-import')
+        await KnowledgeService(session).revoke(Scope(creator_id=a),original.item_id,original.revision_id)
+        await session.commit()
+    assert (await backfill(factory,dry_run=False))['written']==0
+    packet = await DeusContextBuilder(factory).build(a,conversation.id,'Qual preferência?', 'text')
+    assert all('preferência secreta é Kokoro' not in entry['content'] for entry in packet.messages)
+
+
+@pytest.mark.asyncio
+async def test_concurrent_message_imports_share_one_canonical_source(knowledge_db):  # noqa: F811
+    import asyncio
+
+    from sqlalchemy import func, select
+
+    from app.knowledge.contracts import Candidate, Scope
+    from app.knowledge.service import KnowledgeService
+    from app.models.knowledge import KnowledgeItem
+    factory, a, _ = knowledge_db
+    async with factory() as session:
+        conversation = Conversation(id=str(uuid.uuid4()),creator_id=a,title='Concurrent imports',status='active')
+        session.add(conversation)
+        await session.flush()
+        source = Message(id=str(uuid.uuid4()),conversation_id=conversation.id,actor_id=a,role='creator',content='Fonte canônica concorrente',route='deus',metadata_json={},correlation_id=str(uuid.uuid4()))
+        session.add(source)
+        await session.commit()
+    async def write(key):
+        async with factory() as session:
+            result = await KnowledgeService(session).write(Scope(creator_id=a),Candidate(title=key,content=source.content,source_type='message',source_id=source.id),key)
+            await session.commit()
+            return result
+    first, second = await asyncio.gather(write('backfill-import'),write('live-import'))
+    assert first.item_id==second.item_id
+    assert first.revision_id==second.revision_id
+    async with factory() as session:
+        assert await session.scalar(select(func.count()).select_from(KnowledgeItem).where(KnowledgeItem.creator_id==a))==1

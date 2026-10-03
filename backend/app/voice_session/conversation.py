@@ -35,6 +35,7 @@ class VoiceConversationBridge:
         self._renewals: dict = {}
         self._trace_ids: dict = {}
         self._dependencies: dict = {}
+        self._projects: dict = {}
         self.renewal_interval_seconds = 20.0
         self.repo = repository
         self.creator_id = creator_id
@@ -104,11 +105,18 @@ class VoiceConversationBridge:
         if packet:
             self._trace_ids[turn_id] = packet.trace_id
             self._dependencies[turn_id] = packet.trace['dependency_revision_ids']
+            self._projects[turn_id] = packet.trace['project_id']
+            creator_message.metadata_json = {**creator_message.metadata_json, 'knowledge_project_id':packet.trace['project_id']}
         from app.config import settings
         if settings.deus_knowledge_ingestion_enabled:
             from app.knowledge.contracts import Candidate, Scope
             from app.knowledge.service import KnowledgeService
-            await KnowledgeService(self.repo.session).write(Scope(creator_id=self.creator_id), Candidate(title='Conversa por voz', content=command, source_type='message', source_id=creator_message.id), 'message:' + creator_message.id)
+            written = await KnowledgeService(self.repo.session).write(Scope(creator_id=self.creator_id), Candidate(title='Conversa por voz', content=command, source_type='message', source_id=creator_message.id, project_id=self._projects.get(turn_id)), 'message:' + creator_message.id)
+            creator_message.metadata_json = {**creator_message.metadata_json, 'knowledge_revision_id':written.revision_id}
+            if packet:
+                from app.services.deus_context import bind_question_source
+                self._dependencies[turn_id] = await bind_question_source(self.repo.session, self.creator_id,
+                    packet.trace_id, self._dependencies[turn_id], written.revision_id)
             await self.repo.commit()
         return InferenceRequest(
             messages=packet.messages if packet else conversation_messages(history),
@@ -149,13 +157,13 @@ class VoiceConversationBridge:
             )
         )
         from app.config import settings
-        if settings.deus_knowledge_ingestion_enabled and len(self._dependencies.get(turn_id, [])) <= 32:
+        if settings.deus_knowledge_ingestion_enabled and turn_id in self._dependencies and len(self._dependencies[turn_id]) <= 32:
             from app.knowledge.contracts import Candidate, Scope
             from app.knowledge.service import KnowledgeService
             await KnowledgeService(self.repo.session).write(
                 Scope(creator_id=self.creator_id),
                 Candidate(title='Resposta de Deus por voz', content=response_text,
-                          kind='derived_note', source_type='message', source_id=deus_message.id,
+                          kind='derived_note', source_type='message', source_id=deus_message.id, project_id=self._projects.get(turn_id),
                           dependencies=self._dependencies.get(turn_id, [])),
                 'message:' + deus_message.id,
             )
@@ -179,6 +187,7 @@ class VoiceConversationBridge:
         await self.repo.commit()
         self._claims.pop(turn_id, None)
         self._dependencies.pop(turn_id, None)
+        self._projects.pop(turn_id, None)
 
         claimed = None
         renewal = self._renewals.pop(turn_id, None)
@@ -203,6 +212,7 @@ class VoiceConversationBridge:
         self._pending.pop(turn_id, None)
         self._trace_ids.pop(turn_id, None)
         self._dependencies.pop(turn_id, None)
+        self._projects.pop(turn_id, None)
 
     async def close(self) -> None:
         for turn_id in list(self._claims):
