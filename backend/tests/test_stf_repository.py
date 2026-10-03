@@ -78,6 +78,7 @@ async def _seed(factory, *, max_invocations=1, expires_in=timedelta(minutes=5)):
         await repository.create_run(creator_id=creator_id, run_id=run_id, mission_id="m1", mission_version=1,
                                     request_key="req-1", request_hash="h" * 64, plan_hash="p" * 64,
                                     plan=[_action().model_dump(mode="json")])
+        assert await repository.set_run_state(run_id, "RUNNING")
         grant = CapabilityGrant(grant_id=grant_id, mission_id="m1", mission_version=1, actor="agent:red",
                                 capability="range.health.verify", target_id="juice-shop", environment_id=RANGE,
                                 action_class="validate", expires_at=datetime.now(timezone.utc) + expires_in,
@@ -511,3 +512,29 @@ async def test_attack_evidence_cannot_be_attached_before_execution(stf_db):
         with pytest.raises(ValueError, match="requires an executed dispatch"):
             await repository.record_evidence(run_id, dispatch.execution_id, evidence)
         await session.rollback()
+
+
+async def test_non_running_run_cannot_issue_or_spend_authority(stf_db):
+    from app.security_task_force.contracts import CapabilityGrant
+
+    _, factory = stf_db
+    creator_id, run_id, grant_id = str(uuid.uuid4()), str(uuid.uuid4()), f"grant:{uuid.uuid4()}"
+    async with factory() as session:
+        session.add(Creator(id=creator_id, username=f"c-{creator_id[:8]}", password_hash="x", is_active=True))
+        await session.flush()
+        repository = _repository(session)
+        await repository.create_run(
+            creator_id=creator_id, run_id=run_id, mission_id="m1", mission_version=1,
+            request_key="queued", request_hash="q" * 64, plan_hash="p" * 64,
+            plan=[_action().model_dump(mode="json")],
+        )
+        grant = CapabilityGrant(
+            grant_id=grant_id, mission_id="m1", mission_version=1, actor="agent:red",
+            capability="range.health.verify", target_id="juice-shop", environment_id=RANGE,
+            action_class="validate", expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+        )
+        assert await repository.issue_grant(run_id, grant) is False
+        denied = await repository.reserve_dispatch(run_id, _action(), grant_id)
+        await session.commit()
+    assert denied.status == "denied"
+    assert denied.reason_codes == ["run_not_dispatchable"]
