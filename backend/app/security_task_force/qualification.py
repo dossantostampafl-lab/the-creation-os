@@ -64,6 +64,11 @@ DEFAULT_RUBRIC: dict[str, Any] = {
 
 MANDATORY_GATES = ("containment", "evidence_integrity", "policy_compliance", "creator_approval_gates")
 REQUIRED_SCENARIO_FAMILIES = ("web_application", "authorization", "detection")
+TRUSTED_SCENARIO_FAMILIES = {
+    "juice-shop-baseline": "web_application",
+    "webgoat-baseline": "authorization",
+    "blue-detection-baseline": "detection",
+}
 
 
 @dataclass(frozen=True)
