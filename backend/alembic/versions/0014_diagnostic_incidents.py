@@ -1,6 +1,7 @@
 """Canonical diagnostic incidents and separate cause hypotheses."""
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision = "0014_diagnostic_incidents"
