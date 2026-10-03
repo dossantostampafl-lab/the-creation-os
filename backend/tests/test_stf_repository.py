@@ -421,7 +421,11 @@ async def test_verified_finding_projection_and_qualification_use_only_evidence_r
             source="range-red",
             kind="attack",
             acquired_at=datetime.now(timezone.utc).isoformat(),
-            payload={"observed": True, "api_token": "must-not-survive"},
+            payload={
+                "observed": True,
+                "api_token": "must-not-survive",
+                "_scenario_id": "juice-shop-baseline",
+            },
         )
         defense = EvidenceRecord.build(
             evidence_id=f"evidence:{uuid.uuid4()}",
@@ -434,7 +438,7 @@ async def test_verified_finding_projection_and_qualification_use_only_evidence_r
             source="range-blue",
             kind="defense",
             acquired_at=datetime.now(timezone.utc).isoformat(),
-            payload={"alerted": True},
+            payload={"alerted": True, "_scenario_id": "juice-shop-baseline"},
         )
         await repository.record_evidence(run_id, first.execution_id, attack)
         await repository.record_evidence(run_id, first.execution_id, defense)
