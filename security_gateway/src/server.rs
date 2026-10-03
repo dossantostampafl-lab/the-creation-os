@@ -61,6 +61,23 @@ impl Gateway {
                 }
                 reply("ok", vec![])
             }
+            Some("range_reset") => {
+                if !self.state.global_kill && self.state.killed_missions.is_empty() {
+                    return reply("deny", vec!["kill_required".into()]);
+                }
+                let Some(client) = self.range_control.as_ref() else {
+                    return reply("deny", vec!["RangeControlUnavailable".into()]);
+                };
+                match client.reset() {
+                    Ok(()) => reply("ok", vec![]),
+                    Err(RangeControlError::Unavailable) => {
+                        reply("deny", vec!["RangeControlUnavailable".into()])
+                    }
+                    Err(RangeControlError::InvalidConfiguration | RangeControlError::InvalidResponse) => {
+                        reply("deny", vec!["RangeControlInvalidResponse".into()])
+                    }
+                }
+            }
             Some("kill") => {
                 match message.get("mission_id").and_then(Value::as_str) {
                     Some(mission) => {
@@ -87,10 +104,14 @@ impl Gateway {
         {
             return reply_execute("deny", "denied", vec![format!("{reason:?}")], None);
         }
-        if requested.tool_id == "range.health.verify" {
-            if requested.capability != "range.health.verify"
+        if matches!(
+            requested.tool_id.as_str(),
+            "range.health.verify" | "range.scenario.start" | "range.scenario.verify" | "range.reset"
+        ) {
+            if requested.capability != requested.tool_id
                 || !requested.environment.starts_with("cyber_range:")
                 || requested.args_json.trim() != "{}"
+                || (requested.tool_id == "range.reset" && requested.target != "range")
             {
                 return reply_execute(
                     "deny",
@@ -107,12 +128,28 @@ impl Gateway {
                     None,
                 );
             };
-            return match client.verify_health() {
-                Ok(()) => reply_execute(
+            let result = match requested.tool_id.as_str() {
+                "range.health.verify" => client.verify_health().map(|()| true),
+                "range.scenario.start" => client.start_scenario(&requested.target).map(|()| true),
+                "range.scenario.verify" => client.verify_scenario(&requested.target),
+                "range.reset" => client.reset().map(|()| true),
+                _ => unreachable!(),
+            };
+            return match result {
+                Ok(true) => reply_execute(
                     "permit",
                     "executed",
                     vec![],
-                    Some(format!("range-health:{}:{}", envelope.action_id, envelope.nonce)),
+                    Some(format!(
+                        "range-control:{}:{}:{}",
+                        requested.tool_id, envelope.action_id, envelope.nonce
+                    )),
+                ),
+                Ok(false) => reply_execute(
+                    "deny",
+                    "denied",
+                    vec!["RangeScenarioNotActive".into()],
+                    None,
                 ),
                 Err(RangeControlError::Unavailable) => reply_execute(
                     "deny",
