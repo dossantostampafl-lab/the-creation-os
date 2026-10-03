@@ -179,6 +179,9 @@ async def test_persisted_run_reserves_database_authority_before_gateway(tmp_path
         async def record_outcome(self, execution_id, status, reason_codes=None, evidence_id=None):
             calls.append(("outcome", execution_id, status, tuple(reason_codes or [])))
 
+        async def get_grant(self, grant_id, run_id=None):
+            return deps.grants.get(grant_id)
+
     def factory():
         return Session()
 
