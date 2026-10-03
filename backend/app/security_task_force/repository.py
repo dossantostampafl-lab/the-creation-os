@@ -32,7 +32,11 @@ from app.security_task_force.canonicalize import canonical_hash
 from app.security_task_force.contracts import ActionRequest, CapabilityGrant
 from app.security_task_force.evidence import EvidenceRecord
 from app.security_task_force.mission_compiler import CompilationResult
-from app.security_task_force.qualification import GateResult, evaluate as evaluate_qualification
+from app.security_task_force.qualification import (
+    GateResult,
+    TRUSTED_SCENARIO_FAMILIES,
+    evaluate as evaluate_qualification,
+)
 from app.security_task_force.runtime_contracts import DispatchReceipt, OutboxLease, RunRecord
 from app.security_task_force.verification import FindingStatus, verify_finding
 
@@ -493,22 +497,34 @@ class StfRepository:
             approval_refs = list(plan_refs)
 
         replay_refs: list[str] = []
-        scenario_refs: dict[str, list[str]] = {name: [] for name in ("web_application", "authorization", "detection")}
         for action in run.plan_json:
             if not isinstance(action, dict):
                 continue
-            action_id = str(action.get("action_id", ""))
-            dispatch = by_action.get(action_id)
+            dispatch = by_action.get(str(action.get("action_id", "")))
             params = action.get("parameters") if isinstance(action.get("parameters"), dict) else {}
             if params.get("replay_of") and dispatch is not None and dispatch.status == "executed" and dispatch.evidence_id:
                 replay_refs.append(dispatch.evidence_id)
-            family = params.get("scenario_family")
-            if family in scenario_refs and dispatch is not None and dispatch.status == "executed" and dispatch.evidence_id:
-                scenario_refs[str(family)].append(dispatch.evidence_id)
-        for record in records:
-            if record.kind == "defense":
-                scenario_refs["detection"].append(record.evidence_id)
 
+        scenario_refs: dict[str, list[str]] = {name: [] for name in TRUSTED_SCENARIO_FAMILIES.values()}
+        findings = (await self.session.scalars(
+            select(StfFinding).where(
+                StfFinding.run_id == run_id,
+                StfFinding.status == FindingStatus.CONFIRMED.value,
+            )
+        )).all()
+        for finding in findings:
+            finding_refs = list(finding.attack_evidence) + list(finding.defense_evidence)
+            scenarios = {
+                str(evidence_by_id[ref].payload.get("_scenario_id", ""))
+                for ref in finding_refs
+                if ref in evidence_by_id
+            }
+            for scenario_id in scenarios:
+                family = TRUSTED_SCENARIO_FAMILIES.get(scenario_id)
+                if family is not None:
+                    scenario_refs[family].extend(finding_refs)
+
+        required_coverage = all(bool(scenario_refs[name]) for name in scenario_refs)
         refs = tuple(evidence_refs or plan_refs)
         gates = {
             "containment": GateResult(all_contained, refs),
@@ -516,7 +532,7 @@ class StfRepository:
             "policy_compliance": GateResult(all_executed, refs),
             "creator_approval_gates": GateResult(approvals_ok, tuple(approval_refs)),
             "reproducibility": GateResult(bool(replay_refs), tuple(replay_refs)),
-            "full_required_coverage": GateResult(all_executed, tuple(evidence_refs)),
+            "full_required_coverage": GateResult(all_executed and required_coverage, tuple(evidence_refs)),
         }
         scenarios = {
             family: GateResult(bool(items), tuple(sorted(set(items))))
