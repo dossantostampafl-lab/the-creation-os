@@ -692,6 +692,16 @@ class StfRepository:
             max_invocations=grant.max_invocations, revoked=grant.revoked,
         )
 
+    async def get_dispatch(self, execution_id: str, run_id: str | None = None) -> StfDispatch | None:
+        stmt = select(StfDispatch).where(StfDispatch.execution_id == execution_id)
+        if run_id is not None:
+            stmt = stmt.where(StfDispatch.run_id == run_id)
+        return await self.session.scalar(stmt)
+
+    async def get_qualification(self, run_id: str) -> dict | None:
+        row = await self.session.get(StfQualification, run_id)
+        return self._qualification_dict(row) if row is not None else None
+
     async def active_run_ids(self, creator_id: str, mission_id: str) -> list[str]:
         rows = await self.session.scalars(select(StfRun.id).where(
             StfRun.creator_id == creator_id, StfRun.mission_id == mission_id, StfRun.state.notin_(TERMINAL_RUN_STATES)))
