@@ -72,3 +72,22 @@ def test_sh1_requires_at_least_one_verified_scenario_family():
     result = evaluate(gates=ok(*ALL_GATES), scenarios={}, score=100)
     assert not result.eligible
     assert result.level is None
+
+
+def test_trusted_training_registry_matches_the_range_manifests():
+    root = Path(__file__).resolve().parents[2] / "cyber_range" / "scenarios"
+    catalog = json.loads((root / "catalog.json").read_text(encoding="utf-8"))
+    campaigns = json.loads((root / "campaigns.json").read_text(encoding="utf-8"))
+
+    declared = {item["id"]: item for item in catalog["scenarios"]}
+    assert TRUSTED_SCENARIO_FAMILIES == {
+        scenario_id: item["family"]
+        for scenario_id, item in declared.items()
+    }
+    assert TRUSTED_PURPLE_SCENARIOS == frozenset(
+        scenario_id for scenario_id, item in declared.items() if item["purple_required"]
+    )
+    assert TRUSTED_CAMPAIGNS == {
+        item["id"]: tuple(item["scenario_ids"])
+        for item in campaigns["campaigns"]
+    }
