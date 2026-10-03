@@ -11,7 +11,7 @@ from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.diagnostics.context import current_diagnostics
+from app.diagnostics.context import current_diagnostics, prioritize_diagnostics
 from app.knowledge.contracts import RetrievalResult, Scope
 from app.knowledge.service import KnowledgeService
 from app.models.entities import Conversation, ConversationMemory, uuid_string
@@ -92,7 +92,7 @@ class DeusContextBuilder:
                         filtered.append(entry)
                     recent = filtered
                     live = live_context_note(await system_snapshot(repo, creator_id))
-                    diagnostics = (await current_diagnostics(session, creator_id))[:6]
+                    diagnostics = prioritize_diagnostics(await current_diagnostics(session, creator_id))
                     result = await KnowledgeService(session).search(scope, query)
         except LookupError:
             raise
