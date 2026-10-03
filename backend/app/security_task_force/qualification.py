@@ -74,6 +74,14 @@ TRUSTED_PURPLE_SCENARIOS = frozenset({
     "blue-detection-baseline",
     "purple-blind-baseline",
 })
+TRUSTED_CAMPAIGNS = {
+    "stf-foundation-v1": (
+        "juice-shop-baseline",
+        "webgoat-baseline",
+        "blue-detection-baseline",
+    ),
+}
+
 
 
 @dataclass(frozen=True)
