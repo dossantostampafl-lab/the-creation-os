@@ -151,9 +151,13 @@ class StfService:
         )
         if action is None:
             raise LookupError("Dispatch action not found")
+        action_index = next(
+            index for index, item in enumerate(run.plan_json)
+            if isinstance(item, dict) and item.get("action_id") == dispatch.action_id
+        )
         scenario_start = next(
             (
-                item for item in run.plan_json
+                (index, item) for index, item in enumerate(run.plan_json)
                 if isinstance(item, dict)
                 and item.get("capability") == "range.scenario.start"
                 and item.get("target_id") == scenario_id
@@ -162,39 +166,45 @@ class StfService:
         )
         campaign_start = next(
             (
-                item for item in run.plan_json
+                (index, item) for index, item in enumerate(run.plan_json)
                 if isinstance(item, dict)
                 and item.get("capability") == "range.campaign.start"
                 and scenario_id in TRUSTED_CAMPAIGNS.get(str(item.get("target_id", "")), ())
             ),
             None,
         )
-        authority_action = scenario_start or campaign_start
-        if authority_action is None:
+        authority = scenario_start or campaign_start
+        if authority is None:
             raise ValueError("scenario was not part of this run")
+        authority_index, authority_action = authority
         start_dispatch = await self.repository.get_dispatch_for_action(
             run_id, str(authority_action.get("action_id", ""))
         )
         if start_dispatch is None or start_dispatch.status != "executed":
             raise ValueError("scenario or campaign start is not proven by execution evidence")
+        if authority_index >= action_index:
+            if scenario_start is not None:
+                raise ValueError("scenario was not active when action executed")
+            raise ValueError("campaign had not reached scenario when action executed")
         if scenario_start is None and campaign_start is not None:
-            campaign_id = str(campaign_start.get("target_id", ""))
+            campaign_id = str(campaign_start[1].get("target_id", ""))
             members = TRUSTED_CAMPAIGNS[campaign_id]
             required_advances = members.index(scenario_id)
             advances = [
-                item for item in run.plan_json
-                if isinstance(item, dict)
+                item for index, item in enumerate(run.plan_json)
+                if authority_index < index < action_index
+                and isinstance(item, dict)
                 and item.get("capability") == "range.campaign.advance"
                 and item.get("target_id") == campaign_id
             ]
             if len(advances) < required_advances:
-                raise ValueError("campaign has not reached scenario")
+                raise ValueError("campaign had not reached scenario when action executed")
             for advance in advances[:required_advances]:
                 advance_dispatch = await self.repository.get_dispatch_for_action(
                     run_id, str(advance.get("action_id", ""))
                 )
                 if advance_dispatch is None or advance_dispatch.status != "executed":
-                    raise ValueError("campaign has not reached scenario")
+                    raise ValueError("campaign had not reached scenario when action executed")
         record = EvidenceRecord.build(
             evidence_id=f"evidence:{uuid.uuid4()}",
             run_id=run_id,
