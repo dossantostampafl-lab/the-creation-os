@@ -5,10 +5,11 @@ import fcntl
 import json
 import os
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import datetime, timedelta, timezone
 from functools import partial
 from pathlib import Path
+from typing import Literal
 
 import httpx
 from loguru import logger
@@ -76,7 +77,7 @@ def projection_health(head: int, positions: dict[str, int], max_lag: int) -> boo
 
 
 def task_stall_health(
-    started_at: list[datetime | None],
+    started_at: Sequence[datetime | None],
     now: datetime,
     stall_seconds: int,
 ) -> bool:
@@ -317,7 +318,7 @@ async def publish(journal: DiagnosticJournal, creator_id: str) -> None:
                 >= observation["observed_at"]
             )
             if not older:
-                source_type = (
+                source_type: Literal["diagnostic_incident", "diagnostic_observation"] = (
                     "diagnostic_incident"
                     if observation["type"] == "incident"
                     else "diagnostic_observation"
