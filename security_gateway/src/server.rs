@@ -148,7 +148,9 @@ impl Gateway {
                 "range.scenario.start" => client.start_scenario(&requested.target).map(|()| true),
                 "range.scenario.verify" => client.verify_scenario(&requested.target),
                 "range.campaign.start" => client.start_campaign(&requested.target).map(|()| true),
-                "range.campaign.advance" => client.advance_campaign(&requested.target).map(|()| true),
+                "range.campaign.advance" => {
+                    client.advance_campaign(&requested.target).map(|()| true)
+                }
                 "range.campaign.verify" => client.campaign_completed(&requested.target),
                 "range.reset" => client.reset().map(|()| true),
                 _ => unreachable!(),
