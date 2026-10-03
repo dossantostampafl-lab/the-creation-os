@@ -62,7 +62,10 @@ impl Gateway {
                 reply("ok", vec![])
             }
             Some("range_reset") => {
-                if !self.state.global_kill && self.state.killed_missions.is_empty() {
+                let Some(mission_id) = message.get("mission_id").and_then(Value::as_str) else {
+                    return reply("deny", vec!["mission_id_required".into()]);
+                };
+                if !self.state.global_kill && !self.state.killed_missions.contains(mission_id) {
                     return reply("deny", vec!["kill_required".into()]);
                 }
                 let Some(client) = self.range_control.as_ref() else {
