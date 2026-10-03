@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.domain import Actor, require_creator
 from app.security_task_force.canonicalize import canonical_hash
 from app.security_task_force.contracts import ActionRequest, MissionContract, RiskClass
+from app.security_task_force.evidence import EvidenceRecord
 from app.security_task_force.repository import StfRepository
 from app.security_task_force.runtime_contracts import ApprovalRecord, RunView
 
@@ -112,6 +113,57 @@ class StfService:
                                                         "signal": "cancel", "reason": reason})
         await self.session.refresh(run)
         return self._view(run)
+
+    async def record_evidence(
+        self,
+        creator: Actor,
+        mission_id: str,
+        run_id: str,
+        execution_id: str,
+        *,
+        kind: str,
+        source: str,
+        payload: dict,
+        acquired_at: str | None = None,
+    ) -> EvidenceRecord:
+        if kind not in {"attack", "defense"}:
+            raise ValueError("kind must be attack or defense")
+        if not source.strip() or len(source) > 128:
+            raise ValueError("source is required and must be at most 128 characters")
+        run = await self._owned(creator, run_id, mission_id=mission_id)
+        dispatch = await self.repository.get_dispatch(execution_id, run_id)
+        if dispatch is None:
+            raise LookupError("Dispatch not found")
+        action = next(
+            (item for item in run.plan_json if isinstance(item, dict) and item.get("action_id") == dispatch.action_id),
+            None,
+        )
+        if action is None:
+            raise LookupError("Dispatch action not found")
+        record = EvidenceRecord.build(
+            evidence_id=f"evidence:{uuid.uuid4()}",
+            run_id=run_id,
+            execution_id=execution_id,
+            mission_id=mission_id,
+            action_id=dispatch.action_id,
+            task_id=str(action.get("task_id", "")),
+            environment_id=str(action.get("environment_id", "")),
+            source=source.strip(),
+            kind=kind,
+            acquired_at=acquired_at or datetime.now(timezone.utc).isoformat(),
+            payload=payload,
+        )
+        await self.repository.record_evidence(run_id, execution_id, record)
+        await self.repository.project_verified_findings(run_id)
+        return record
+
+    async def findings(self, creator: Actor, mission_id: str, run_id: str) -> list[dict]:
+        await self._owned(creator, run_id, mission_id=mission_id)
+        return await self.repository.verified_findings(run_id)
+
+    async def qualification(self, creator: Actor, mission_id: str, run_id: str) -> dict | None:
+        await self._owned(creator, run_id, mission_id=mission_id)
+        return await self.repository.get_qualification(run_id)
 
     # --- internals ---------------------------------------------------------------------------------
 
