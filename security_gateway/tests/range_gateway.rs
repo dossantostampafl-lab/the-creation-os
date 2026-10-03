@@ -151,3 +151,67 @@ fn range_health_rejects_unbound_arguments_before_any_control_connection() {
     assert_eq!(reply["status"], "denied");
     assert_eq!(reply["reasons"][0], "RangeControlRequestInvalid");
 }
+
+
+fn post_server(path: &'static str, body: &'static str) -> (String, thread::JoinHandle<String>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap().to_string();
+    let handle = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = [0_u8; 4096];
+        let n = stream.read(&mut request).unwrap();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(), body
+        );
+        stream.write_all(response.as_bytes()).unwrap();
+        let text = String::from_utf8_lossy(&request[..n]).to_string();
+        assert!(text.starts_with(&format!("POST {path} HTTP/1.1\r\n")));
+        text
+    });
+    (addr, handle)
+}
+
+#[test]
+fn scenario_start_uses_only_the_declared_scenario_route() {
+    let body = r#"{"scenario_id":"juice-shop-baseline","status":"active"}"#;
+    let (addr, seen) = post_server("/scenarios/juice-shop-baseline/start", body);
+    let mut gateway = Gateway {
+        state: state(),
+        backend: SandboxBackend::Unavailable,
+        key: KEY.to_vec(),
+        range_control: Some(RangeControlClient::new(addr, "r".repeat(40)).unwrap()),
+    };
+    let mut e = envelope("range-start-1");
+    e.target = "juice-shop-baseline".into();
+    e.capability = "range.scenario.start".into();
+    e.signature = expected_signature(&e, KEY);
+    let mut r = requested("range.scenario.start");
+    r.target = "juice-shop-baseline".into();
+    r.capability = "range.scenario.start".into();
+    let line = serde_json::json!({"op":"execute","envelope":e,"requested":r}).to_string();
+
+    let reply: serde_json::Value = serde_json::from_str(&gateway.handle_line(&line, 100)).unwrap();
+
+    assert_eq!(reply["decision"], "permit");
+    assert_eq!(reply["status"], "executed");
+    seen.join().unwrap();
+}
+
+#[test]
+fn range_reset_control_is_cleanup_only_and_uses_fixed_reset_route() {
+    let body = r#"{"status":"reset","removed_state_files":1}"#;
+    let (addr, seen) = post_server("/reset", body);
+    let mut gateway = Gateway {
+        state: state(),
+        backend: SandboxBackend::Unavailable,
+        key: KEY.to_vec(),
+        range_control: Some(RangeControlClient::new(addr, "r".repeat(40)).unwrap()),
+    };
+
+    let reply: serde_json::Value =
+        serde_json::from_str(&gateway.handle_line(r#"{"op":"range_reset"}"#, 100)).unwrap();
+
+    assert_eq!(reply["decision"], "ok");
+    seen.join().unwrap();
+}
