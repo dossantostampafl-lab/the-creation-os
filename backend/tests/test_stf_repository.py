@@ -338,3 +338,145 @@ async def test_persisted_run_verification_requires_intact_correlated_evidence(st
     async with factory() as session:
         with pytest.raises(ValueError, match="correlation"):
             await _repository(session).record_evidence(run_id, receipt.execution_id, wrong)
+
+
+async def test_verified_finding_projection_and_qualification_use_only_evidence_references(stf_db):
+    from app.security_task_force.contracts import CapabilityGrant
+    from app.security_task_force.evidence import EvidenceRecord, REDACTED
+
+    _, factory = stf_db
+    _, run_id, grant_id = await _seed(factory)
+    replay = _action(
+        action_id="a2",
+        task_id="t2",
+        idempotency_key="k2",
+        parameters={"replay_of": "a1", "scenario_family": "web_application"},
+    )
+    original = _action(parameters={
+        "scenario_family": "web_application",
+        "purple_required": True,
+        "finding_title": "Correlated training finding",
+    })
+    replay_grant = CapabilityGrant(
+        grant_id=f"grant:{uuid.uuid4()}",
+        mission_id="m1",
+        mission_version=1,
+        actor="agent:red",
+        capability="range.health.verify",
+        target_id="juice-shop",
+        environment_id=RANGE,
+        action_class="validate",
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+    )
+
+    async with factory() as session:
+        repository = _repository(session)
+        run = await repository.get_run(run_id, lock=True)
+        assert run is not None
+        run.plan_json = [original.model_dump(mode="json"), replay.model_dump(mode="json")]
+        assert await repository.issue_grant(run_id, replay_grant)
+        first = await repository.reserve_dispatch(run_id, original, grant_id)
+        second = await repository.reserve_dispatch(run_id, replay, replay_grant.grant_id)
+        assert first.execution_id and second.execution_id
+
+        first_exec = EvidenceRecord.build(
+            evidence_id=f"evidence:{uuid.uuid4()}",
+            run_id=run_id,
+            execution_id=first.execution_id,
+            mission_id="m1",
+            action_id="a1",
+            task_id="t1",
+            environment_id=RANGE,
+            source="stf-gateway",
+            kind="execution",
+            acquired_at=datetime.now(timezone.utc).isoformat(),
+            payload={"status": "executed"},
+        )
+        replay_exec = EvidenceRecord.build(
+            evidence_id=f"evidence:{uuid.uuid4()}",
+            run_id=run_id,
+            execution_id=second.execution_id,
+            mission_id="m1",
+            action_id="a2",
+            task_id="t2",
+            environment_id=RANGE,
+            source="stf-gateway",
+            kind="execution",
+            acquired_at=datetime.now(timezone.utc).isoformat(),
+            payload={"status": "executed"},
+        )
+        await repository.record_evidence(run_id, first.execution_id, first_exec)
+        await repository.record_outcome(first.execution_id, "executed", evidence_id=first_exec.evidence_id)
+        await repository.record_evidence(run_id, second.execution_id, replay_exec)
+        await repository.record_outcome(second.execution_id, "executed", evidence_id=replay_exec.evidence_id)
+
+        attack = EvidenceRecord.build(
+            evidence_id=f"evidence:{uuid.uuid4()}",
+            run_id=run_id,
+            execution_id=first.execution_id,
+            mission_id="m1",
+            action_id="a1",
+            task_id="t1",
+            environment_id=RANGE,
+            source="range-red",
+            kind="attack",
+            acquired_at=datetime.now(timezone.utc).isoformat(),
+            payload={"observed": True, "api_token": "must-not-survive"},
+        )
+        defense = EvidenceRecord.build(
+            evidence_id=f"evidence:{uuid.uuid4()}",
+            run_id=run_id,
+            execution_id=first.execution_id,
+            mission_id="m1",
+            action_id="a1",
+            task_id="t1",
+            environment_id=RANGE,
+            source="range-blue",
+            kind="defense",
+            acquired_at=datetime.now(timezone.utc).isoformat(),
+            payload={"alerted": True},
+        )
+        await repository.record_evidence(run_id, first.execution_id, attack)
+        await repository.record_evidence(run_id, first.execution_id, defense)
+
+        findings = await repository.project_verified_findings(run_id)
+        qualification = await repository.qualify_run(run_id)
+        stored_attack = [item for item in await repository.evidence_records(run_id, kind="attack")][0]
+        await session.commit()
+
+    assert len(findings) == 1
+    assert findings[0]["status"] == "confirmed"
+    assert findings[0]["attack_evidence"] == [attack.evidence_id]
+    assert findings[0]["defense_evidence"] == [defense.evidence_id]
+    assert "payload" not in findings[0]
+    assert stored_attack.payload["api_token"] == REDACTED
+    assert qualification["eligible"] is True
+    assert qualification["level"] == "SH-1"
+    assert "reproducibility" in qualification["passed_gates"]
+    assert "scenario:authorization" in qualification["failed_gates"]
+    assert attack.evidence_id in qualification["evidence_refs"]
+
+
+async def test_verified_projection_tables_are_immutable(stf_db):
+    _, factory = stf_db
+    _, run_id, _ = await _seed(factory)
+    async with factory() as session:
+        from app.models.security_task_force import StfQualification
+
+        session.add(StfQualification(
+            run_id=run_id,
+            eligible=False,
+            level=None,
+            score=0,
+            failed_gates=["x"],
+            passed_gates=[],
+            reasons=["x"],
+            evidence_refs=["plan:p"],
+        ))
+        await session.commit()
+    async with factory() as session:
+        with pytest.raises(Exception, match="immutable"):
+            await session.execute(
+                text("UPDATE stf_qualifications SET score = 100 WHERE run_id = :run_id"),
+                {"run_id": run_id},
+            )
