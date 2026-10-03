@@ -76,7 +76,6 @@ fn range_control_rejects_public_and_arbitrary_dns_destinations() {
     }
 }
 
-
 #[test]
 fn campaign_controls_use_only_declared_fixed_routes() {
     let body = r#"{"campaign_id":"stf-foundation-v1","status":"active"}"#;
