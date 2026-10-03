@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timedelta
 
 
@@ -32,12 +33,21 @@ class DiagnosticRules:
         row["successes"] = row["successes"] + 1 if healthy else 0
         if not row["open"] and row["failures"] >= 3:
             row["open"] = True
-            return {"resource": resource, "state": "open", "observed_at": now.isoformat()}
+            row["episode_id"] = str(uuid.uuid4())
+            return {
+                "resource": resource,
+                "state": "open",
+                "episode_id": row["episode_id"],
+                "observed_at": now.isoformat(),
+            }
         if row["open"] and row["successes"] >= 2:
             row["open"] = False
+            episode_id = row.get("episode_id") or str(uuid.uuid4())
+            row["episode_id"] = None
             return {
                 "resource": resource,
                 "state": "recovered",
+                "episode_id": episode_id,
                 "observed_at": now.isoformat(),
             }
         return None
