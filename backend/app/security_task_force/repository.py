@@ -716,6 +716,14 @@ class StfRepository:
             stmt = stmt.where(StfDispatch.run_id == run_id)
         return await self.session.scalar(stmt)
 
+    async def get_dispatch_for_action(self, run_id: str, action_id: str) -> StfDispatch | None:
+        return await self.session.scalar(
+            select(StfDispatch).where(
+                StfDispatch.run_id == run_id,
+                StfDispatch.action_id == action_id,
+            )
+        )
+
     async def get_qualification(self, run_id: str) -> dict | None:
         row = await self.session.get(StfQualification, run_id)
         return self._qualification_dict(row) if row is not None else None
