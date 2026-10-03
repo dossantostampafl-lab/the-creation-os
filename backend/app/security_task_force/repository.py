@@ -34,6 +34,7 @@ from app.security_task_force.evidence import EvidenceRecord
 from app.security_task_force.mission_compiler import CompilationResult
 from app.security_task_force.qualification import (
     GateResult,
+    TRUSTED_PURPLE_SCENARIOS,
     TRUSTED_SCENARIO_FAMILIES,
     evaluate as evaluate_qualification,
 )
@@ -362,10 +363,15 @@ class StfRepository:
 
             attack = attack_records[-1]
             defense = defense_records[-1] if defense_records else None
+            scenario_id = str(attack.payload.get("_scenario_id", ""))
+            if scenario_id not in TRUSTED_SCENARIO_FAMILIES:
+                continue
+            if defense is not None and str(defense.payload.get("_scenario_id", "")) != scenario_id:
+                continue
             verdict = verify_finding(
                 attack,
                 defense,
-                purple_required=bool(params.get("purple_required", False)),
+                purple_required=scenario_id in TRUSTED_PURPLE_SCENARIOS,
                 reproduced=bool(replay_refs),
                 mission_id=run.mission_id,
                 action_id=action_id,
