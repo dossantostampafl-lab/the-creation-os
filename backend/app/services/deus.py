@@ -354,7 +354,7 @@ class DeusConversationService:
         inception.trinity_assessment_json = {**inception.trinity_assessment_json, "mission_id": mission.id}
         return mission
 
-    async def respond(self, actor: Actor, conversation_id: str, content: str, correlation_id: str) -> DeusReply:
+    async def respond(self, actor: Actor, conversation_id: str, content: str, correlation_id: str, commit_guard=None) -> DeusReply:
         require_creator(actor, "speak with DEUS")
         conversation = await self.repo.get(Conversation, conversation_id)
         owner_id = await self.repo.owner_id(Conversation, conversation_id) if conversation is not None else None
@@ -445,9 +445,10 @@ class DeusConversationService:
             from app.knowledge.contracts import Candidate, Scope
             from app.knowledge.service import KnowledgeService
             for entry in [creator_message, deus_message]:
-                await KnowledgeService(self.repo.session).write(Scope(creator_id=actor.id), Candidate(title='Conversa: ' + entry.role, content=entry.content, kind='derived_note' if entry.role == 'deus' else 'document', source_type='message', source_id=entry.id), 'message:' + entry.id)
-        await self.repo.commit()
-        return DeusReply(
+                if entry.role == 'deus' and (not context_packet or len(context_packet.trace['dependency_revision_ids']) > 32):
+                    continue
+                await KnowledgeService(self.repo.session).write(Scope(creator_id=actor.id), Candidate(title='Conversa: ' + entry.role, content=entry.content, kind='derived_note' if entry.role == 'deus' else 'document', source_type='message', source_id=entry.id, dependencies=context_packet.trace['dependency_revision_ids'] if entry.role == 'deus' and context_packet else []), 'message:' + entry.id)
+        reply = DeusReply(
             creator_message_id=creator_message.id,
             deus_message_id=deus_message.id,
             conversation_id=conversation_id,
@@ -456,3 +457,7 @@ class DeusConversationService:
             model=inference.model,
             inception=inception,
         )
+        if commit_guard is not None:
+            await commit_guard(reply)
+        await self.repo.commit()
+        return reply

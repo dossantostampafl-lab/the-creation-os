@@ -8,14 +8,14 @@ from sqlalchemy import select
 from app.db.session import AsyncSessionLocal
 from app.knowledge.contracts import Candidate, Scope
 from app.knowledge.service import KnowledgeService, digest
-from app.models.entities import Conversation, Message
+from app.models.entities import Conversation, Creator, Message
 
 
 async def backfill(factory=AsyncSessionLocal, dry_run: bool = True) -> dict[str, int]:
     scanned = written = offset = 0
     while True:
         async with factory() as session:
-            rows = list((await session.execute(select(Message, Conversation.creator_id).join(Conversation, Conversation.id == Message.conversation_id).order_by(Message.id).limit(100).offset(offset))).all())
+            rows = list((await session.execute(select(Message, Conversation.creator_id).join(Conversation, Conversation.id == Message.conversation_id).join(Creator, Creator.id == Conversation.creator_id).where(Message.role == 'creator', Creator.is_active.is_(True)).order_by(Message.id).limit(100).offset(offset))).all())
             if not rows:
                 break
             for message, creator_id in rows:

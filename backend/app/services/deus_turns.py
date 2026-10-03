@@ -3,11 +3,11 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
+from typing import Any, cast
 
 from sqlalchemy import select, update
-from sqlalchemy.engine import CursorResult
-from typing import Any, cast
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.knowledge.service import digest
@@ -49,24 +49,46 @@ class TurnStore:
             changed = await session.execute(update(ConversationTurn).where(ConversationTurn.id == turn.id, ConversationTurn.owner == turn.owner, ConversationTurn.state == 'pending', ConversationTurn.lease_until > datetime.now(timezone.utc)).values(lease_until=datetime.now(timezone.utc)+timedelta(seconds=120)))
             return bool(cast(CursorResult[Any], changed).rowcount)
 
-    async def finish(self, turn: ConversationTurn, response: dict | None, state: str) -> None:
-        if state not in {'completed','interrupted','failed'}:
+    async def finish_in_session(self, session: AsyncSession, turn: ConversationTurn, response: dict | None, state: str) -> None:
+        """Fence domain effects and terminal state in the SAME transaction."""
+        if state not in {'completed', 'interrupted', 'failed'}:
             raise ValueError('invalid terminal state')
+        changed = await session.execute(update(ConversationTurn).where(
+            ConversationTurn.id == turn.id, ConversationTurn.owner == turn.owner,
+            ConversationTurn.state == 'pending',
+            ConversationTurn.lease_until > datetime.now(timezone.utc)
+        ).values(state=state, response=response))
+        if not cast(CursorResult[Any], changed).rowcount:
+            raise TurnConflict('generation ownership expired')
+
+    async def finish(self, turn: ConversationTurn, response: dict | None, state: str) -> None:
         async with self.factory() as session, session.begin():
-            changed = await session.execute(update(ConversationTurn).where(ConversationTurn.id == turn.id, ConversationTurn.owner == turn.owner, ConversationTurn.state == 'pending', ConversationTurn.lease_until > datetime.now(timezone.utc)).values(state=state, response=response))
-            if not cast(CursorResult[Any], changed).rowcount:
-                raise TurnConflict('generation ownership expired')
+            await self.finish_in_session(session, turn, response, state)
 
     @asynccontextmanager
     async def renewing(self, turn: ConversationTurn):
+        generation = asyncio.current_task()
+        lost = False
         async def heartbeat():
+            nonlocal lost
             while True:
                 await asyncio.sleep(20)
-                if not await self.renew(turn):
+                try:
+                    renewed = await self.renew(turn)
+                except Exception:
+                    renewed = False
+                if not renewed:
+                    lost = True
+                    if generation:
+                        generation.cancel()
                     return
         task = asyncio.create_task(heartbeat())
         try:
             yield
+        except asyncio.CancelledError:
+            if lost:
+                raise TurnConflict('generation ownership expired') from None
+            raise
         finally:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)

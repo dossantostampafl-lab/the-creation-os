@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import sqlite3
+import tempfile
 from pathlib import Path
 
 from sqlalchemy import select
@@ -20,12 +21,16 @@ def file_hash(path: Path) -> str | None:
     return hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None
 
 def atomic_write(path: Path, content: str) -> None:
-    temporary = path.with_name(path.name + '.pending')
-    with temporary.open('w', encoding='utf-8') as handle:
-        handle.write(content)
-        handle.flush()
-        os.fsync(handle.fileno())
-    os.replace(temporary, path)
+    descriptor, name = tempfile.mkstemp(prefix='.' + path.name + '.', suffix='.pending', dir=path.parent)
+    temporary = Path(name)
+    try:
+        with os.fdopen(descriptor, 'w', encoding='utf-8') as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
     descriptor = os.open(path.parent, os.O_RDONLY)
     try:
         os.fsync(descriptor)
@@ -53,7 +58,7 @@ class ObsidianExporter:
     def _export(self, scope: Scope, notes: dict[str, tuple[str, str]]) -> dict[str, int]:
         import uuid
         uuid.UUID(scope.creator_id)
-        if self.root.is_symlink():
+        if self.root.is_symlink() or any(parent.is_symlink() for parent in self.root.parents):
             raise ValueError('export root cannot be a symlink')
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         base = self.root / scope.creator_id
@@ -73,7 +78,10 @@ class ObsidianExporter:
             for item_id in sorted(set(existing) | set(notes)):
                 previous = existing.get(item_id)
                 if previous:
-                    path = base / previous[0]
+                    relative = Path(previous[0])
+                    if relative.is_absolute() or len(relative.parts) != 2 or relative.parts[0] not in {'document','decision','preference','result','diagnostic','derived_note'} or relative.name != item_id + '.md':
+                        raise ValueError('unsafe export manifest path')
+                    path = base / relative
                 else:
                     path = base / notes[item_id][0] / (item_id + '.md')
                 if path.is_symlink() or path.parent.is_symlink():

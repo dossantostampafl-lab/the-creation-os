@@ -1,22 +1,19 @@
 from __future__ import annotations
 
-import os
 import uuid
 
 import pytest
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from stf_database import stf_db  # noqa: F401
 
 
 @pytest.fixture
-async def knowledge_db():
-    engine = create_async_engine(os.environ['DATABASE_URL'])
+async def knowledge_db(stf_db):  # noqa: F811
+    engine, factory = stf_db
     async with engine.begin() as conn:
-        await conn.execute(text('TRUNCATE creator RESTART IDENTITY CASCADE'))
         a, b = str(uuid.uuid4()), str(uuid.uuid4())
-        await conn.execute(text("INSERT INTO creator(id,username,password_hash,is_active) VALUES (:a,'a','unused',true),(:b,'b','unused',true)"), {'a': a, 'b': b})
-    yield async_sessionmaker(engine, expire_on_commit=False), a, b
-    await engine.dispose()
+        await conn.execute(text("INSERT INTO creator(id,username,password_hash,is_active) VALUES(:a,'a','unused',true),(:b,'b','unused',true)"), {'a': a, 'b': b})
+    yield factory, a, b
 
 
 @pytest.mark.asyncio
@@ -128,9 +125,9 @@ async def test_obsidian_recovers_replace_crash_and_revocation(knowledge_db, tmp_
 
 @pytest.mark.asyncio
 async def test_obsidian_recovers_after_file_replaced_before_manifest(knowledge_db, tmp_path, monkeypatch):
+    from app.knowledge import obsidian
     from app.knowledge.contracts import Candidate, Scope
     from app.knowledge.service import KnowledgeService
-    from app.knowledge import obsidian
     factory, a, _ = knowledge_db
     async with factory() as session:
         note = await KnowledgeService(session).write(Scope(creator_id=a), Candidate(title='Crash', content='Kokoro'), 'crash')
@@ -145,3 +142,34 @@ async def test_obsidian_recovers_after_file_replaced_before_manifest(knowledge_d
     monkeypatch.setattr(obsidian, 'atomic_write', original)
     assert (await obsidian.ObsidianExporter(factory, tmp_path).export(Scope(creator_id=a)))['conflicts'] == 0
     assert (tmp_path / a / 'document' / (note.item_id + '.md')).exists()
+
+
+def test_export_uses_exclusive_random_temp_and_preserves_symlink_target(tmp_path):
+    from app.knowledge.obsidian import atomic_write
+    outside = tmp_path/'outside.txt'
+    outside.write_text('private')
+    note = tmp_path/'note.md'
+    note.with_name('note.md.pending').symlink_to(outside)
+    atomic_write(note, 'new note')
+    assert outside.read_text()=='private'
+    assert note.read_text()=='new note'
+
+
+@pytest.mark.asyncio
+async def test_one_hop_relations_preserve_owner_and_current_revision(knowledge_db):
+    from app.knowledge.contracts import Candidate, Scope
+    from app.knowledge.service import KnowledgeService
+    from app.models.knowledge import KnowledgeRelation
+    factory, a, _ = knowledge_db
+    async with factory() as session:
+        service = KnowledgeService(session)
+        root = await service.write(Scope(creator_id=a), Candidate(title='Voz escolhida',content='Kokoro'), 'root')
+        child = await service.write(Scope(creator_id=a), Candidate(title='Decisão relacionada',content='Servidor local, CPU2threads'), 'child')
+        session.add(KnowledgeRelation(creator_id=a,from_id=root.item_id,to_id=child.item_id,kind='related_to'))
+        await session.commit()
+        result = await service.search(Scope(creator_id=a), 'Kokoro')
+        assert {row.item_id for row in result.evidences}=={root.item_id, child.item_id}
+        await service.revoke(Scope(creator_id=a), child.item_id, child.revision_id)
+        await session.commit()
+        result = await service.search(Scope(creator_id=a), 'Kokoro')
+        assert [row.item_id for row in result.evidences]==[root.item_id]

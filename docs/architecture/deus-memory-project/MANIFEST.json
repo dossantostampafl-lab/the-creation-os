@@ -1,0 +1,82 @@
+{
+  "status": "documentation_only_not_implemented",
+  "date": "2026-10-03",
+  "repository_base": "50924e3ca5b6f71a6a8287e2b19929da56306819",
+  "independent_review": "five_findings_resolved_documentally",
+  "checks": [
+    "internal_relative_links",
+    "json_parse",
+    "sha256_inventory",
+    "final_zip_crc"
+  ],
+  "files": [
+    {
+      "path": "BRAINSTORM.md",
+      "sha256": "545035ab746daf2be4c643d808611ad2f2d9a01365a5d8cc5eb5098a5928a690"
+    },
+    {
+      "path": "README.md",
+      "sha256": "0db3faf9ff368a37279d067183c64bbfed281d0a4499848348e6faf9ebe67458"
+    },
+    {
+      "path": "audit/01-matriz.md",
+      "sha256": "6071775ca6d20a76a0385fd5127d1ee92989d99efbdaad5aec6f88be6536e3c0"
+    },
+    {
+      "path": "audit/02-aceitacao.md",
+      "sha256": "a4fa11e8f0002d517f5e0c7df2d59733b6e2218624dde5b63bef5cda9aa700aa"
+    },
+    {
+      "path": "audit/03-revisao.md",
+      "sha256": "21093d488d0bf3be4643fc529ef836ae8179191afb871de6716d54a7bf2c0b80"
+    },
+    {
+      "path": "audit/conselho-anterior.md",
+      "sha256": "df96396cada162d5d22c454eb2b3a7b971dd378a8b2871f53f7e727c11be2b75"
+    },
+    {
+      "path": "fixtures/corpus.json",
+      "sha256": "b3f9f30da7518521a4995eebf580a0d2f51e2961a25e8ccc9da650638badef9b"
+    },
+    {
+      "path": "plans/00-roteiro.md",
+      "sha256": "7307837de559fd51f65ab756955de8bf6b38aa4afc334e679d3af2928c1c512e"
+    },
+    {
+      "path": "plans/01-memoria.md",
+      "sha256": "8ce34232c97c58d0a3343d074e63c947cc6a263604d303fff18756545d176572"
+    },
+    {
+      "path": "plans/02-contexto.md",
+      "sha256": "7ea1a4c2111e27aca6a2de8912ee4856140665df51ad72dc9f344b55e0d4349e"
+    },
+    {
+      "path": "plans/03-diagnostico.md",
+      "sha256": "dc51a3cbee8b2604be69bb5020182a6b5161e0e0ddf2466d1b1e56910d024d82"
+    },
+    {
+      "path": "plans/04-obsidian.md",
+      "sha256": "b84b5acfa989868086b05225dc11ec35963d21d62c04ba66264a4c40bcd560df"
+    },
+    {
+      "path": "specs/00-arquitetura.md",
+      "sha256": "da5e1033294a3408e6ee9f383df9c58ed28061f3001e718da9e69e19dc1d4ca4"
+    },
+    {
+      "path": "specs/01-memoria.md",
+      "sha256": "2afb888eb945c5e998cc5a5579a00da5fedc73e4d9847b47bb148e0634b13eb1"
+    },
+    {
+      "path": "specs/02-contexto.md",
+      "sha256": "141c45fa33732bc5e5afef240c2426d5b352de33ffb1b2b6981d71bf27579ddc"
+    },
+    {
+      "path": "specs/03-diagnostico.md",
+      "sha256": "70ebb3924c08499949e3def06c5ac2f810268a462607321f8e06b2c55ec50bc3"
+    },
+    {
+      "path": "specs/04-obsidian.md",
+      "sha256": "39b80ec8bc63d095226ba41f2877c8cd3ab2b742775cfe2ae73dffa9a7cf0af5"
+    }
+  ]
+}

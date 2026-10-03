@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
 import {
+  CREATOR_CONVERSATION_KEY,
   converseWithDeus,
   createConversation,
   decideInception,
@@ -23,7 +24,7 @@ type Props = {
   onMoodChange?: (mood: CosmosMood) => void;
 };
 
-const CONVERSATION_KEY = "creation_conversation_id";
+const CONVERSATION_KEY = CREATOR_CONVERSATION_KEY;
 
 type Entry = { kind: "message"; at: string; message: ConversationMessage } | { kind: "proposal"; at: string; proposal: Proposal };
 

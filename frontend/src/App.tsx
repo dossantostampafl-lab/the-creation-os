@@ -4,6 +4,7 @@ import { clearSession, fetchChronicleHistory, fetchInferenceStatus, fetchProject
 import { Cosmos } from "./Cosmos";
 import type { CosmosMood } from "./Cosmos";
 import { CreatorConsole } from "./CreatorConsole";
+import { ConnectedPanel } from "./ConnectedPanel";
 import { DecisionsPanel } from "./DecisionsPanel";
 import { PwaStatus } from "./PwaStatus";
 import { systemPageCount } from "./systemPagination";
@@ -278,6 +279,7 @@ function App() {
       {state && (
         <aside className="vitals" id="system-vitals" aria-label="System vitals" hidden={!vitalsOpen}>
           <header className="drawer-header"><div><span className="eyebrow">OBSERVABILITY</span><h2>System vitals</h2></div><button type="button" className="drawer-close" aria-label="Close system vitals" onClick={closeVitals}>×</button></header>
+          <ConnectedPanel />
           <section className="metrics">
             {[
               ["MISSIONS", state.counts.missions], ["RUNNING", state.counts.running_missions], ["TASKS", state.counts.tasks],

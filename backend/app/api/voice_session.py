@@ -295,7 +295,8 @@ async def voice_session_socket(
                         if event.type == "barge_in":
                             cancelled = session.barge_in(event.turn_id)
                             if cancelled:
-                                await bridge.abort_turn(event.turn_id)
+                                if settings.deus_context_retrieval_enabled:
+                                    await bridge.abort_turn(event.turn_id)
                                 pump.cancel()
                                 await asyncio.gather(pump, return_exceptions=True)
                                 pump = asyncio.create_task(transcript_pump())
@@ -317,7 +318,8 @@ async def voice_session_socket(
                 except WebSocketDisconnect:
                     session.close()
                 finally:
-                    await bridge.close()
+                    if settings.deus_context_retrieval_enabled:
+                        await bridge.close()
                     pump.cancel()
                     receiver.cancel()
                     await asyncio.gather(pump, receiver, return_exceptions=True)

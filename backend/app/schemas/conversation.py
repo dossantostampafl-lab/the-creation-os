@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class ConversationCreateRequest(BaseModel):
@@ -25,6 +26,13 @@ class MessageRequest(BaseModel):
     content: str = Field(..., min_length=1, max_length=4000)
     client_message_id: str | None = Field(None, min_length=1, max_length=128)
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator('content')
+    @classmethod
+    def bound_utf8(cls, value: str) -> str:
+        if len(json.dumps(value, ensure_ascii=False).encode()) > 8192:
+            raise ValueError('content must not exceed8192 serialized UTF-8 bytes')
+        return value
 
 
 class MessageResponse(BaseModel):

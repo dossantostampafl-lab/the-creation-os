@@ -5,15 +5,19 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import select, text
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import actor
 from app.core.domain import Actor
 from app.db.session import get_session
+from app.diagnostics.context import current_diagnostics
 from app.knowledge.contracts import Candidate, Scope
 from app.knowledge.service import KnowledgeConflict, KnowledgeService
+from app.models.entities import Conversation, ConversationMemory
 from app.models.knowledge import ContextTrace, KnowledgeItem, KnowledgeProject, KnowledgeRelation
+from app.repositories.domain import DomainRepository
 
 router = APIRouter(prefix="/knowledge", tags=["knowledge"])
 
@@ -89,9 +93,16 @@ async def relate(body: RelationRequest, a: Actor = Depends(actor), session: Asyn
         if await session.scalar(select(KnowledgeItem.id).where(KnowledgeItem.id == str(item_id), KnowledgeItem.creator_id == a.id, KnowledgeItem.active.is_(True))) is None:
             raise HTTPException(404, "Item not found")
     relation = KnowledgeRelation(creator_id=a.id, from_id=str(body.from_id), to_id=str(body.to_id), kind=body.kind)
-    session.add(relation)
+    import uuid
+    relation_id = str(uuid.uuid4())
+    await session.execute(insert(KnowledgeRelation).values(id=relation_id, creator_id=a.id,
+        from_id=relation.from_id, to_id=relation.to_id, kind=relation.kind).on_conflict_do_nothing(
+            index_elements=['from_id', 'to_id', 'kind']))
+    found_relation_id = await session.scalar(select(KnowledgeRelation.id).where(
+        KnowledgeRelation.creator_id==a.id, KnowledgeRelation.from_id==relation.from_id,
+        KnowledgeRelation.to_id==relation.to_id, KnowledgeRelation.kind==relation.kind))
     await session.commit()
-    return {"id": relation.id}
+    return {'id':found_relation_id}
 
 @router.get("/context-traces/{trace_id}")
 async def trace(trace_id: UUID, a: Actor = Depends(actor), session: AsyncSession = Depends(get_session)) -> dict[str, Any]:
@@ -99,3 +110,38 @@ async def trace(trace_id: UUID, a: Actor = Depends(actor), session: AsyncSession
     if row is None:
         raise HTTPException(404, "Trace not found")
     return row.data
+
+
+@router.get('/projects')
+async def list_projects(a: Actor = Depends(actor), session: AsyncSession = Depends(get_session)):
+    return [{'id':p.id, 'title':p.title} for p in await session.scalars(
+        select(KnowledgeProject).where(KnowledgeProject.creator_id==a.id).order_by(KnowledgeProject.title).limit(100))]
+
+
+class FocusRequest(BaseModel):
+    project_id: UUID | None = None
+
+
+@router.put('/conversations/{conversation_id}/focus')
+async def set_focus(conversation_id: UUID, body: FocusRequest, a: Actor = Depends(actor), session: AsyncSession = Depends(get_session)):
+    await session.execute(text('SELECT pg_advisory_xact_lock(hashtextextended(:key,0))'), {'key':'focus:'+str(conversation_id)})
+    if not await session.scalar(select(Conversation.id).where(Conversation.id==str(conversation_id), Conversation.creator_id==a.id)):
+        raise HTTPException(404, 'Conversation not found')
+    if body.project_id and not await session.scalar(select(KnowledgeProject.id).where(KnowledgeProject.id==str(body.project_id), KnowledgeProject.creator_id==a.id)):
+        raise HTTPException(404, 'Project not found')
+    await DomainRepository(session).upsert_memory('conversation', str(conversation_id), 'deus_project_focus', {'project_id':str(body.project_id) if body.project_id else None})
+    await session.commit()
+    return {'project_id':str(body.project_id) if body.project_id else None}
+
+
+@router.get('/conversations/{conversation_id}/focus')
+async def get_focus(conversation_id: UUID, a: Actor = Depends(actor), session: AsyncSession = Depends(get_session)):
+    if not await session.scalar(select(Conversation.id).where(Conversation.id==str(conversation_id), Conversation.creator_id==a.id)):
+        raise HTTPException(404, 'Conversation not found')
+    row = await session.scalar(select(ConversationMemory).where(ConversationMemory.conversation_id==str(conversation_id), ConversationMemory.key=='deus_project_focus'))
+    return row.value_json if row else {'project_id':None}
+
+
+@router.get('/diagnostics/current')
+async def diagnostics(a: Actor = Depends(actor), session: AsyncSession = Depends(get_session)):
+    return {'observations':await current_diagnostics(session, a.id), 'unknown_without_recent_observation':True}

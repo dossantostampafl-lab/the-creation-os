@@ -15,6 +15,7 @@ from app.capabilities.web_providers import RemoteContractWebProvider, WebProvide
 from app.capabilities.workspace import WorkspaceCapabilityAdapter
 from app.config import settings
 from app.db.session import AsyncSessionLocal
+from app.diagnostics.heartbeat import supervised
 from app.inference.bootstrap import build_model_router
 from app.kernel.agent_runtime import AgentRuntime
 from app.kernel.completion_engine import MissionCompletionEngine
@@ -178,7 +179,7 @@ async def run_worker() -> None:
 
 def main() -> None:
     try:
-        asyncio.run(run_worker())
+        asyncio.run(supervised('task-worker', run_worker))
     except KeyboardInterrupt:
         logger.info("worker stopped")
 

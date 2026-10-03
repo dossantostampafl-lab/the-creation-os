@@ -34,6 +34,8 @@ class VoiceConversationBridge:
         self._claims: dict = {}
         self._renewals: dict = {}
         self._trace_ids: dict = {}
+        self._dependencies: dict = {}
+        self.renewal_interval_seconds = 20.0
         self.repo = repository
         self.creator_id = creator_id
         self.conversation_id = conversation_id
@@ -63,10 +65,17 @@ class VoiceConversationBridge:
             if claimed.response is not None:
                 raise RuntimeError('voice turn already completed')
             self._claims[turn_id] = claimed
+            generation = asyncio.current_task()
             async def renew():
                 while True:
-                    await asyncio.sleep(20)
-                    if not await self.turn_store.renew(claimed):
+                    await asyncio.sleep(self.renewal_interval_seconds)
+                    try:
+                        renewed = await self.turn_store.renew(claimed)
+                    except Exception:
+                        renewed = False
+                    if not renewed:
+                        if generation:
+                            generation.cancel()
                         return
             self._renewals[turn_id] = asyncio.create_task(renew())
         correlation_id = str(uuid.uuid4())
@@ -94,6 +103,7 @@ class VoiceConversationBridge:
         packet = await self.context_builder.build(self.creator_id, self.conversation_id, command, 'voice', history) if self.context_builder is not None else None
         if packet:
             self._trace_ids[turn_id] = packet.trace_id
+            self._dependencies[turn_id] = packet.trace['dependency_revision_ids']
         from app.config import settings
         if settings.deus_knowledge_ingestion_enabled:
             from app.knowledge.contracts import Candidate, Scope
@@ -122,7 +132,7 @@ class VoiceConversationBridge:
         pending = self._pending.pop(turn_id, None)
         if pending is None:
             return
-        await self.repo.add(
+        deus_message = await self.repo.add(
             Message(
                 conversation_id=self.conversation_id,
                 actor_id="deus",
@@ -138,6 +148,17 @@ class VoiceConversationBridge:
                 correlation_id=pending.correlation_id,
             )
         )
+        from app.config import settings
+        if settings.deus_knowledge_ingestion_enabled and len(self._dependencies.get(turn_id, [])) <= 32:
+            from app.knowledge.contracts import Candidate, Scope
+            from app.knowledge.service import KnowledgeService
+            await KnowledgeService(self.repo.session).write(
+                Scope(creator_id=self.creator_id),
+                Candidate(title='Resposta de Deus por voz', content=response_text,
+                          kind='derived_note', source_type='message', source_id=deus_message.id,
+                          dependencies=self._dependencies.get(turn_id, [])),
+                'message:' + deus_message.id,
+            )
         await self.repo.add_event(
             "deus_voice_response_generated",
             "conversation",
@@ -151,9 +172,15 @@ class VoiceConversationBridge:
                 "voice_turn_id": turn_id,
             },
         )
+        claimed = self._claims.get(turn_id)
+        if claimed is not None:
+            await self.turn_store.finish_in_session(self.repo.session, claimed,
+                {'response': response_text, 'provider': provider}, 'completed')
         await self.repo.commit()
+        self._claims.pop(turn_id, None)
+        self._dependencies.pop(turn_id, None)
 
-        claimed = self._claims.pop(turn_id, None)
+        claimed = None
         renewal = self._renewals.pop(turn_id, None)
         if renewal:
             renewal.cancel()
@@ -175,6 +202,7 @@ class VoiceConversationBridge:
                 pass
         self._pending.pop(turn_id, None)
         self._trace_ids.pop(turn_id, None)
+        self._dependencies.pop(turn_id, None)
 
     async def close(self) -> None:
         for turn_id in list(self._claims):

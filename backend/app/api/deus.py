@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -81,12 +82,31 @@ async def converse_with_deus(
             raise HTTPException(404, 'Conversation not found') from exc
         if turn.response is not None:
             return MessageResponse(**turn.response)
+    def response_for(result):
+        return MessageResponse(message_id=result.creator_message_id,
+            conversation_id=result.conversation_id, route='deus', response=result.response,
+            inception=result.inception, system_state=None, correlation_id=cid)
+
+    async def commit_guard(result):
+        await store.finish_in_session(session, turn, response_for(result).model_dump(mode='json'), 'completed')
+
     try:
         if turn is not None:
             async with store.renewing(turn):
-                result = await service.respond(a, str(entity_id), body.content, cid)
+                result = await service.respond(a, str(entity_id), body.content, cid, commit_guard=commit_guard)
         else:
             result = await service.respond(a, str(entity_id), body.content, cid)
+    except TurnConflict as exc:
+        await session.rollback()
+        raise HTTPException(409, 'Generation ownership expired; use a new request_id') from exc
+    except asyncio.CancelledError:
+        await session.rollback()
+        if turn is not None:
+            try:
+                await asyncio.shield(store.finish(turn, None, 'interrupted'))
+            except TurnConflict:
+                pass
+        raise
     except NotFoundError as exc:
         if turn is not None:
             await store.finish(turn, None, 'failed')
@@ -101,16 +121,13 @@ async def converse_with_deus(
             "DEUS could not get an answer from any inference provider: {}", exc)
         raise HTTPException(status_code=503, detail="DEUS could not reach any inference provider right now") from exc
 
-    response = MessageResponse(
-        message_id=result.creator_message_id,
-        conversation_id=result.conversation_id,
-        route="deus",
-        response=result.response,
-        inception=result.inception,
-        system_state=None,
-        correlation_id=cid,
-    )
+    except Exception:
+        await session.rollback()
+        if turn is not None:
+            try:
+                await store.finish(turn, None, 'failed')
+            except TurnConflict:
+                pass
+        raise
 
-    if turn is not None:
-        await store.finish(turn, response.model_dump(mode='json'), 'completed')
-    return response
+    return response_for(result)

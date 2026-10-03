@@ -13,7 +13,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.knowledge.contracts import Candidate, Evidence, RetrievalResult, Scope, Written
 from app.models.entities import Conversation, Creator, Message, Mission, Task, uuid_string
-from app.models.knowledge import KnowledgeDependency, KnowledgeEpoch, KnowledgeItem, KnowledgeOutbox, KnowledgeProject, KnowledgeRevision
+from app.models.knowledge import (
+    KnowledgeDependency,
+    KnowledgeEpoch,
+    KnowledgeItem,
+    KnowledgeOutbox,
+    KnowledgeProject,
+    KnowledgeRelation,
+    KnowledgeRevision,
+)
 
 
 class KnowledgeConflict(ValueError):
@@ -166,5 +174,26 @@ class KnowledgeService:
                 evidence.append(Evidence(item_id=row.item_id, revision_id=row.id, title=row.title, content=row.content[:1500], kind=row.kind, epistemic_state=row.epistemic_state, source_type=row.source_type, source_id=row.source_id, observed_at=row.created_at, valid_until=row.valid_until))
             if len(evidence) == 6:
                 break
+        if evidence:
+            roots = [entry.item_id for entry in evidence[:3]]
+            related = select(KnowledgeRevision).join(KnowledgeItem,
+                KnowledgeItem.current_revision_id==KnowledgeRevision.id).join(KnowledgeRelation,
+                KnowledgeRelation.to_id==KnowledgeItem.id).where(
+                    KnowledgeRelation.creator_id==scope.creator_id, KnowledgeRelation.from_id.in_(roots),
+                    KnowledgeItem.creator_id==scope.creator_id, KnowledgeItem.active.is_(True),
+                    KnowledgeItem.id.not_in([entry.item_id for entry in evidence])).order_by(
+                        KnowledgeRevision.created_at.desc()).limit(3)
+            if scope.project_id:
+                related = related.where(KnowledgeItem.project_id==scope.project_id)
+            links = []
+            linked_ids: set[str] = set()
+            for row in await self.session.scalars(related):
+                if row.item_id not in linked_ids and await self.eligible(scope, row):
+                    linked_ids.add(row.item_id)
+                    links.append(Evidence(item_id=row.item_id, revision_id=row.id, title=row.title,
+                        content=row.content[:1500], kind=row.kind, epistemic_state=row.epistemic_state,
+                        source_type=row.source_type, source_id=row.source_id, observed_at=row.created_at,
+                        valid_until=row.valid_until))
+            evidence = (evidence[:3] + links + evidence[3:])[:6]
         epoch = await self.session.scalar(select(KnowledgeEpoch.version).where(KnowledgeEpoch.creator_id == scope.creator_id)) or 0
         return RetrievalResult(status="ok" if evidence else "empty", evidences=evidence, knowledge_epoch=epoch, elapsed_ms=(time.perf_counter()-started)*1000)

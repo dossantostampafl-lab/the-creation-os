@@ -580,3 +580,10 @@ html, body, #root {
 .boot-fallback p { color: var(--muted); line-height: 1.6; }
 .boot-fallback code { display: block; margin: 16px 0; padding: 12px; overflow-wrap: anywhere; border-radius: 10px; background: #0008; color: var(--warn); }
 .boot-fallback button { min-width: 44px; min-height: 44px; padding: 11px 18px; border: 1px solid #a78bfa66; border-radius: 999px; background: #211854; color: #fff; cursor: pointer; }
+
+.connected-tools { display: grid; gap: 1rem; margin: 1.5rem 0; }
+.connected-tools form, .connected-tools label { display: grid; gap: .5rem; }
+.connected-tools input, .connected-tools textarea { width: 100%; box-sizing: border-box; color: inherit; background: rgba(8,12,25,.8); border: 1px solid rgba(180,200,255,.25); border-radius: .5rem; padding: .7rem; font: inherit; }
+.connected-tools textarea { min-height: 6rem; resize: vertical; }
+.connected-tools button { min-height: 44px; padding: .5rem .75rem; }
+.connected-tools p { overflow-wrap: anywhere; }

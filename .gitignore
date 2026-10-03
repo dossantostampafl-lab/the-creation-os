@@ -34,3 +34,6 @@ dump.rdb
 .idea/
 
 .superpowers/
+frontend/.creation-brand-assets/
+.connected-backups/
+frontend/ios-build/

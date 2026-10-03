@@ -19,7 +19,7 @@ retry() {
 docker compose -f "$COMPOSE" --profile cyber-range config --quiet
 retry http://127.0.0.1:7070/health
 retry http://127.0.0.1:3000/
-retry http://127.0.0.1:8080/WebGoat
+retry http://127.0.0.1:18080/WebGoat
 retry http://127.0.0.1:9090/WebWolf
 
 echo "Creation Cyber Range v1 verified on loopback-only endpoints."
