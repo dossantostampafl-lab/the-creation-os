@@ -123,7 +123,7 @@ fn a_different_tool_never_uses_the_range_control_bypass() {
 
     assert_eq!(reply["decision"], "deny");
     assert_eq!(reply["status"], "denied");
-    assert_eq!(reply["reasons"][0], "SandboxUnavailable");
+    assert_eq!(reply["reasons"][0], "ToolCapabilityMismatch");
 }
 
 #[test]
