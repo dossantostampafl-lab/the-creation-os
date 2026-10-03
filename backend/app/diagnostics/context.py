@@ -22,6 +22,17 @@ def _safe_evidence(value: object) -> dict[str, object]:
     return result
 
 
+def prioritize_diagnostics(rows: list[dict], limit: int = 12) -> list[dict]:
+    priority = {"unhealthy": 0, "unknown": 1, "healthy": 2}
+    return sorted(
+        rows,
+        key=lambda row: (
+            priority.get(str(row.get("status")), 1),
+            str(row.get("resource", "")),
+        ),
+    )[:limit]
+
+
 async def current_diagnostics(
     session: AsyncSession,
     creator_id: str,
