@@ -200,3 +200,25 @@ async def test_observation_projection_uses_typed_diagnostic_source(knowledge_db,
         revision = await session.get(KnowledgeRevision, item.current_revision_id)
         assert revision.source_type == 'diagnostic_observation'
         assert revision.source_id == observation_id
+
+
+def test_local_voice_health_checks_cached_models_only(tmp_path):
+    from app.diagnostics.worker import local_voice_health
+
+    assert local_voice_health(tmp_path, False) is None
+    assert local_voice_health(tmp_path, True) is False
+    (tmp_path / 'kokoro-v1.0.onnx').write_bytes(b'model')
+    (tmp_path / 'voices-v1.0.bin').write_bytes(b'voices')
+    (tmp_path / 'vosk-pt').mkdir()
+    assert local_voice_health(tmp_path, True) is True
+
+
+def test_journal_spool_marker_clears_after_capacity_recovers(tmp_path):
+    from app.diagnostics.journal import DiagnosticJournal, JournalFull
+
+    journal = DiagnosticJournal(tmp_path, max_bytes=180)
+    with pytest.raises(JournalFull):
+        journal.append({'id':'too-big', 'data':'x'*400})
+    assert (tmp_path / 'spool-full.json').exists()
+    journal.append({'id':'small', 'data':'ok'})
+    assert not (tmp_path / 'spool-full.json').exists()
