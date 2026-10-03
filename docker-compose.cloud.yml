@@ -46,17 +46,17 @@ services:
       - tco_internal
 
   knowledge-worker:
-    <<: *hardening
+    read_only: true
     tmpfs: [/tmp]
     networks: [tco_net, tco_internal]
 
   diagnostics-worker:
-    <<: *hardening
+    read_only: true
     tmpfs: [/tmp]
     networks: [tco_net, tco_internal]
 
   discovery-worker:
-    <<: *hardening
+    read_only: true
     tmpfs: [/tmp]
     networks: [tco_net, tco_internal]
 
