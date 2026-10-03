@@ -76,7 +76,8 @@ async def _seed(factory, *, max_invocations=1, expires_in=timedelta(minutes=5)):
                                              authorized_environments=[RANGE])
         await repository.save_contract(compiled)
         await repository.create_run(creator_id=creator_id, run_id=run_id, mission_id="m1", mission_version=1,
-                                    request_key="req-1", request_hash="h" * 64, plan_hash="p" * 64)
+                                    request_key="req-1", request_hash="h" * 64, plan_hash="p" * 64,
+                                    plan=[_action().model_dump(mode="json")])
         grant = CapabilityGrant(grant_id=grant_id, mission_id="m1", mission_version=1, actor="agent:red",
                                 capability="range.health.verify", target_id="juice-shop", environment_id=RANGE,
                                 action_class="validate", expires_at=datetime.now(timezone.utc) + expires_in,
