@@ -65,3 +65,14 @@ fn range_control_requires_a_real_control_token() {
         RangeControlError::InvalidConfiguration
     );
 }
+
+
+#[test]
+fn range_control_rejects_public_and_arbitrary_dns_destinations() {
+    for addr in ["8.8.8.8:7071", "example.com:7071", "169.254.169.254:80"] {
+        assert_eq!(
+            RangeControlClient::new(addr.into(), "r".repeat(40)).unwrap_err(),
+            RangeControlError::InvalidConfiguration
+        );
+    }
+}
