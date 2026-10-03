@@ -16,7 +16,7 @@ from app.core.domain import Actor, require_creator
 from app.security_task_force.canonicalize import canonical_hash
 from app.security_task_force.contracts import ActionRequest, MissionContract, RiskClass
 from app.security_task_force.evidence import EvidenceRecord
-from app.security_task_force.qualification import TRUSTED_SCENARIO_FAMILIES
+from app.security_task_force.qualification import TRUSTED_CAMPAIGNS, TRUSTED_SCENARIO_FAMILIES
 from app.security_task_force.repository import StfRepository
 from app.security_task_force.runtime_contracts import ApprovalRecord, RunView
 
@@ -160,13 +160,23 @@ class StfService:
             ),
             None,
         )
-        if scenario_start is None:
+        campaign_start = next(
+            (
+                item for item in run.plan_json
+                if isinstance(item, dict)
+                and item.get("capability") == "range.campaign.start"
+                and scenario_id in TRUSTED_CAMPAIGNS.get(str(item.get("target_id", "")), ())
+            ),
+            None,
+        )
+        authority_action = scenario_start or campaign_start
+        if authority_action is None:
             raise ValueError("scenario was not part of this run")
         start_dispatch = await self.repository.get_dispatch_for_action(
-            run_id, str(scenario_start.get("action_id", ""))
+            run_id, str(authority_action.get("action_id", ""))
         )
         if start_dispatch is None or start_dispatch.status != "executed":
-            raise ValueError("scenario start is not proven by execution evidence")
+            raise ValueError("scenario or campaign start is not proven by execution evidence")
         record = EvidenceRecord.build(
             evidence_id=f"evidence:{uuid.uuid4()}",
             run_id=run_id,
