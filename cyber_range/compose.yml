@@ -57,11 +57,9 @@ networks:
     internal: true
   range_targets:
     internal: true
-  # The only network the published loopback ports can be reached through: Docker maps no host
-  # port for a container whose networks are all internal, so the range was unreachable from the
-  # machine running it. Masquerading is off, which is what internal was there to guarantee —
-  # there is no NAT, so a container on this network still has no route to the internet or the
-  # LAN, and the targets stay published on 127.0.0.1 only.
+  # Loopback publication requires a non-internal bridge on this Docker topology.
+  # NAT is disabled, but this is not a firewall against host or routed destinations.
+  # Run on a dedicated/disposable host; see README safety boundary before deployment.
   range_loopback:
     driver: bridge
     driver_opts:
