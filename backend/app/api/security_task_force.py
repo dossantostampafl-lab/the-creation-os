@@ -59,6 +59,14 @@ class CancelBody(BaseModel):
     reason: str = Field(min_length=1, max_length=1000)
 
 
+class EvidenceBody(BaseModel):
+    execution_id: str = Field(min_length=1, max_length=64)
+    kind: str = Field(pattern=r"^(attack|defense)$")
+    source: str = Field(min_length=1, max_length=128)
+    acquired_at: str | None = Field(default=None, max_length=64)
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
 async def _chronicle(session: AsyncSession, a: Actor, cid: str, event: str, mission_id: str, payload: dict[str, Any]) -> None:
     repo = DomainRepository(session)
     await repo.add_event(event, AGGREGATE, mission_id, a.id, a.role, cid, payload)
@@ -222,6 +230,62 @@ async def cancel_mission(
         raise _not_found(error) from error
     await _chronicle(session, a, cid, "stf_mission_cancelled", mission_id, {"mission_id": mission_id, "reason": body.reason})
     return {"mission_id": mission_id, "status": "ABORTED"}
+
+
+@router.post("/{mission_id}/runs/{run_id}/evidence", status_code=status.HTTP_201_CREATED)
+async def record_run_evidence(
+    mission_id: str,
+    run_id: str,
+    body: EvidenceBody,
+    a: Actor = Depends(actor),
+    session: AsyncSession = Depends(get_session),
+):
+    service = StfService(session)
+    try:
+        record = await service.record_evidence(
+            a,
+            mission_id,
+            run_id,
+            body.execution_id,
+            kind=body.kind,
+            source=body.source,
+            acquired_at=body.acquired_at,
+            payload=body.payload,
+        )
+        await session.commit()
+    except (LookupError, ValueError, PermissionError, IdempotencyConflict) as error:
+        await session.rollback()
+        raise _http(error) from error
+    return record.chronicle_payload()
+
+
+@router.get("/{mission_id}/runs/{run_id}/findings")
+async def run_findings(
+    mission_id: str,
+    run_id: str,
+    a: Actor = Depends(actor),
+    session: AsyncSession = Depends(get_session),
+):
+    try:
+        return {"findings": await StfService(session).findings(a, mission_id, run_id)}
+    except LookupError as error:
+        raise _not_found(error) from error
+
+
+@router.get("/{mission_id}/runs/{run_id}/qualification")
+async def run_qualification(
+    mission_id: str,
+    run_id: str,
+    a: Actor = Depends(actor),
+    session: AsyncSession = Depends(get_session),
+):
+    try:
+        result = await StfService(session).qualification(a, mission_id, run_id)
+    except LookupError as error:
+        raise _not_found(error) from error
+    if result is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="qualification is not finalized")
+    return result
 
 
 @router.get("/{mission_id}/findings")
