@@ -503,12 +503,25 @@ class StfRepository:
             approvals = (await self.session.scalars(
                 select(StfApproval).where(
                     StfApproval.run_id == run_id,
+                    StfApproval.creator_id == run.creator_id,
                     StfApproval.decision == "approve",
                 )
             )).all()
-            approved_actions = {row.action_id for row in approvals}
-            approvals_ok = all(str(action.get("action_id", "")) in approved_actions for action in high_risk)
-            approval_refs = [f"approval:{row.id}" for row in approvals]
+            matched_approvals: list[StfApproval] = []
+            for action in high_risk:
+                action_id = str(action.get("action_id", ""))
+                parameters_hash = canonical_hash(action.get("parameters", {}))
+                match = next(
+                    (
+                        row for row in approvals
+                        if row.action_id == action_id and row.parameters_hash == parameters_hash
+                    ),
+                    None,
+                )
+                if match is not None:
+                    matched_approvals.append(match)
+            approvals_ok = len(matched_approvals) == len(high_risk)
+            approval_refs = [f"approval:{row.id}" for row in matched_approvals]
         else:
             approval_refs = list(plan_refs)
 
