@@ -128,13 +128,14 @@ def test_range_services_have_no_privileged_mode() -> None:
         assert compose["services"][service_name].get("privileged") is not True
 
 
-def test_reset_preserves_evidence_volumes() -> None:
-    """A reset clears scenario state; the evidence journal and the snapshots are proof and stay."""
+def test_reset_preserves_proof_but_clears_all_disposable_state() -> None:
+    """A reset clears scenario/campaign state; evidence and snapshots are proof and stay."""
     for name in ("reset.sh", "reset.ps1"):
         script = (ROOT / "scripts" / name).read_text(encoding="utf-8")
         code = "\n".join(line for line in script.splitlines() if not line.lstrip().startswith(("#",)))
         assert "down -v" not in code and "--volumes" not in code, f"{name} deletes every volume"
         assert "range_evidence" not in code and "range_snapshots" not in code, f"{name} touches the proof volumes"
+        assert "range_state" in code and "range_campaign_state" in code, f"{name} leaves disposable state behind"
 
 
 def test_vulnerable_targets_and_controller_cannot_join_the_host_publication_network() -> None:
