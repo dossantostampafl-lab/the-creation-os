@@ -166,6 +166,8 @@ class StfRepository:
         if existing is not None:
             if existing.request_hash != request_hash or existing.idempotency_key != action.idempotency_key:
                 raise IdempotencyConflict(f"{action.idempotency_key!r} was used for a different action")
+            if existing.status == "authorized":
+                return DispatchReceipt("unknown", existing.execution_id, ["dispatch_outcome_unknown"])
             return DispatchReceipt(existing.status, existing.execution_id, list(existing.reason_codes))
 
         if run.desired_state == "CANCEL" or run.state in TERMINAL_RUN_STATES:
