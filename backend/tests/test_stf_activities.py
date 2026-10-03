@@ -176,6 +176,9 @@ async def test_persisted_run_reserves_database_authority_before_gateway(tmp_path
             calls.append(("reserve", run_id, request.action_id, grant_id))
             return DispatchReceipt("authorized", "claim-1", [])
 
+        async def record_evidence(self, run_id, execution_id, evidence):
+            calls.append(("evidence", run_id, execution_id, evidence.evidence_id))
+
         async def record_outcome(self, execution_id, status, reason_codes=None, evidence_id=None):
             calls.append(("outcome", execution_id, status, tuple(reason_codes or [])))
 
