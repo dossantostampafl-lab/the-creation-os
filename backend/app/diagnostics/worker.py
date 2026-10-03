@@ -286,6 +286,8 @@ async def _current_projection(
         if observation_type == "incident":
             if episode_id and data.get("episode_id") == episode_id:
                 return row
+            if episode_id is None and data.get("resource") == resource:
+                return row
             continue
         if data.get("resource") == resource:
             return row
