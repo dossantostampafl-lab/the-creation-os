@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.db.session import AsyncSessionLocal
 from app.diagnostics.heartbeat import ServiceHeartbeat, supervised
-from app.diagnostics.contracts import Observation, ProbeOutcome, ProbeResult
+from app.diagnostics.contracts import Observation, ProbeOutcome, ProbeResult, ProbeStatus
 from app.diagnostics.incidents import record_incident_evidence
 from app.diagnostics.journal import DiagnosticJournal, JournalFull
 from app.diagnostics.rules import DiagnosticRules
@@ -233,7 +233,7 @@ async def collect() -> dict[str, ProbeResult]:
             async with asyncio.timeout(2):
                 raw = await call()
             outcome = raw if isinstance(raw, ProbeOutcome) else ProbeOutcome(value=raw)
-            status = (
+            status: ProbeStatus = (
                 "healthy"
                 if outcome.value is True
                 else "unhealthy"
