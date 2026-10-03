@@ -55,8 +55,12 @@ fn main() {
         .filter(|item| !item.is_empty())
         .collect();
     let range_control = match (
-        std::env::var("CYBER_RANGE_CONTROL_ADDR").ok(),
-        std::env::var("CYBER_RANGE_CONTROL_TOKEN").ok(),
+        std::env::var("CYBER_RANGE_CONTROL_ADDR")
+            .ok()
+            .filter(|value| !value.trim().is_empty()),
+        std::env::var("CYBER_RANGE_CONTROL_TOKEN")
+            .ok()
+            .filter(|value| !value.trim().is_empty()),
     ) {
         (None, None) => None,
         (Some(addr), Some(token)) => match RangeControlClient::new(addr, token) {
