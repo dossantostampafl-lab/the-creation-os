@@ -32,3 +32,5 @@ dump.rdb
 # IDEs
 .vscode/
 .idea/
+
+.superpowers/

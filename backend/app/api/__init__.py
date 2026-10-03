@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app.api.cache_status import router as cache_status_router
 from app.api.deus import router as deus_router
+from app.api.knowledge import router as knowledge_router
 from app.api.health import router as health_router
 from app.api.inference_status import router as inference_status_router
 from app.api.kernel import router as kernel_router
@@ -13,6 +14,7 @@ from app.api.voice_session import router as voice_session_router
 
 router = APIRouter()
 router.include_router(health_router)
+router.include_router(knowledge_router)
 router.include_router(living_core_router)
 router.include_router(opportunity_state_router)
 router.include_router(deus_router)
