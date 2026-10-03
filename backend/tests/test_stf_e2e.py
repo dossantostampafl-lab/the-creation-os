@@ -48,8 +48,9 @@ async def test_the_real_gateway_authorizes_but_executes_nothing_until_a_runtime_
     """Python authorization -> signed envelope -> the real Rust gateway. The adapters are not connected to an
     isolation runtime, so the honest end of this chain is "authorized", never "executed"."""
     activities, deps = make(tmp_path, gateway=TcpGatewayClient("127.0.0.1", gateway.port))
-    decision = await activities.authorize_action("m1", action(), None)
-    result = await activities.dispatch_action(action(), decision)
+    sandbox_action = action(capability="range.validate")
+    decision = await activities.authorize_action("m1", sandbox_action, None)
+    result = await activities.dispatch_action(sandbox_action, decision)
     assert result["status"] == "authorized" and result["status"] != "executed"
     assert "execution_id" not in result and result["reasons"] == ["ExecutionNotImplemented"]
     # And the workflow's verification cannot complete a run that nothing proved.
@@ -107,7 +108,7 @@ async def test_forged_environment_is_refused_by_the_gateway_itself(binary, tmp_p
 
 async def test_replay_tamper_and_parameter_swap_are_denied(gateway, tmp_path):
     client = TcpGatewayClient("127.0.0.1", gateway.port)
-    req, envelope = signed_parts(action(), tmp_path)
+    req, envelope = signed_parts(action(capability="range.validate"), tmp_path)
     requested = requested_for(req)
     assert (await client.execute(envelope, requested))["decision"] == "permit"
     assert (await client.execute(envelope, requested))["reasons"] == ["Replay"]
@@ -131,7 +132,7 @@ async def test_grant_for_one_target_cannot_be_used_for_another(tmp_path):
 async def test_gateway_restart_does_not_forget_spent_nonces(binary, tmp_path):
     state = tmp_path / "gw"
     first = GatewayProcess(binary, state).start()
-    req, envelope = signed_parts(action(), tmp_path)
+    req, envelope = signed_parts(action(capability="range.validate"), tmp_path)
     assert (await TcpGatewayClient("127.0.0.1", first.port).execute(envelope, requested_for(req)))["decision"] == "permit"
     first.stop()
     second = GatewayProcess(binary, state).start()
@@ -157,7 +158,7 @@ async def test_revocation_mid_task_and_gateway_outage_stop_execution(gateway, tm
 async def test_no_isolated_sandbox_means_a_permit_still_never_runs(binary, tmp_path):
     process = GatewayProcess(binary, tmp_path / "gw", kata=False).start()
     try:
-        req, envelope = signed_parts(action(), tmp_path)
+        req, envelope = signed_parts(action(capability="range.validate"), tmp_path)
         answer = await TcpGatewayClient("127.0.0.1", process.port).execute(envelope, requested_for(req))
         assert answer["decision"] == "deny" and answer["reasons"] == ["SandboxUnavailable"]
     finally:
