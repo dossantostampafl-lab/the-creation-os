@@ -70,6 +70,10 @@ TRUSTED_SCENARIO_FAMILIES = {
     "blue-detection-baseline": "detection",
     "purple-blind-baseline": "detection",
 }
+TRUSTED_PURPLE_SCENARIOS = frozenset({
+    "blue-detection-baseline",
+    "purple-blind-baseline",
+})
 
 
 @dataclass(frozen=True)
