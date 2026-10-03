@@ -1,3 +1,4 @@
+use std::fmt;
 use std::io::{Read, Write};
 use std::net::{Ipv4Addr, TcpStream};
 use std::time::Duration;
@@ -19,6 +20,27 @@ pub struct RangeControlClient {
     addr: String,
     host: String,
     token: String,
+}
+
+impl fmt::Debug for RangeControlClient {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RangeControlClient")
+            .field("addr", &self.addr)
+            .field("host", &self.host)
+            .field("token", &"<redacted>")
+            .finish()
+    }
+}
+
+fn valid_scenario_id(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    if bytes.is_empty() || bytes.len() > 64 || value.contains("..") {
+        return false;
+    }
+    bytes[0].is_ascii_alphanumeric()
+        && bytes
+            .iter()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(*byte, b'.' | b'_' | b'-'))
 }
 
 impl RangeControlClient {
@@ -51,7 +73,7 @@ impl RangeControlClient {
         Ok(Self { addr, host, token })
     }
 
-    pub fn verify_health(&self) -> Result<(), RangeControlError> {
+    fn request(&self, method: &str, path: &str) -> Result<Value, RangeControlError> {
         let mut stream =
             TcpStream::connect(&self.addr).map_err(|_| RangeControlError::Unavailable)?;
         stream
@@ -60,8 +82,14 @@ impl RangeControlClient {
         stream
             .set_write_timeout(Some(IO_TIMEOUT))
             .map_err(|_| RangeControlError::Unavailable)?;
+
+        let content_length = if method == "POST" {
+            "Content-Length: 0\r\n"
+        } else {
+            ""
+        };
         let request = format!(
-            "GET /health HTTP/1.1\r\nHost: {}\r\nAuthorization: Bearer {}\r\nConnection: close\r\n\r\n",
+            "{method} {path} HTTP/1.1\r\nHost: {}\r\nAuthorization: Bearer {}\r\n{content_length}Connection: close\r\n\r\n",
             self.host, self.token
         );
         stream
@@ -85,11 +113,52 @@ impl RangeControlClient {
         if !(status.starts_with("HTTP/1.1 200 ") || status.starts_with("HTTP/1.0 200 ")) {
             return Err(RangeControlError::InvalidResponse);
         }
-        let payload: Value =
-            serde_json::from_str(body).map_err(|_| RangeControlError::InvalidResponse)?;
+        serde_json::from_str(body).map_err(|_| RangeControlError::InvalidResponse)
+    }
+
+    pub fn verify_health(&self) -> Result<(), RangeControlError> {
+        let payload = self.request("GET", "/health")?;
         if payload.get("status").and_then(Value::as_str) != Some("ok")
             || payload.get("environment").and_then(Value::as_str) != Some("CYBER_RANGE")
         {
+            return Err(RangeControlError::InvalidResponse);
+        }
+        Ok(())
+    }
+
+    pub fn start_scenario(&self, scenario_id: &str) -> Result<(), RangeControlError> {
+        if !valid_scenario_id(scenario_id) {
+            return Err(RangeControlError::InvalidConfiguration);
+        }
+        let payload = self.request("POST", &format!("/scenarios/{scenario_id}/start"))?;
+        if payload.get("scenario_id").and_then(Value::as_str) != Some(scenario_id)
+            || payload.get("status").and_then(Value::as_str) != Some("active")
+        {
+            return Err(RangeControlError::InvalidResponse);
+        }
+        Ok(())
+    }
+
+    pub fn verify_scenario(&self, scenario_id: &str) -> Result<bool, RangeControlError> {
+        if !valid_scenario_id(scenario_id) {
+            return Err(RangeControlError::InvalidConfiguration);
+        }
+        let payload = self.request("GET", "/state")?;
+        if payload.get("environment").and_then(Value::as_str) != Some("CYBER_RANGE") {
+            return Err(RangeControlError::InvalidResponse);
+        }
+        let Some(scenarios) = payload.get("scenarios").and_then(Value::as_array) else {
+            return Err(RangeControlError::InvalidResponse);
+        };
+        Ok(scenarios.iter().any(|scenario| {
+            scenario.get("scenario_id").and_then(Value::as_str) == Some(scenario_id)
+                && scenario.get("status").and_then(Value::as_str) == Some("active")
+        }))
+    }
+
+    pub fn reset(&self) -> Result<(), RangeControlError> {
+        let payload = self.request("POST", "/reset")?;
+        if payload.get("status").and_then(Value::as_str) != Some("reset") {
             return Err(RangeControlError::InvalidResponse);
         }
         Ok(())
