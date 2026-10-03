@@ -5,7 +5,7 @@ import os
 import selectors
 import socket
 import socketserver
-from dataclasses import dataclass
+from typing import NamedTuple
 
 _ALLOWED_DESTINATIONS = {
     ("juice-shop", 3000),
@@ -14,8 +14,7 @@ _ALLOWED_DESTINATIONS = {
 }
 
 
-@dataclass(frozen=True)
-class ProxyConfig:
+class ProxyConfig(NamedTuple):
     listen_port: int
     target_host: str
     target_port: int
