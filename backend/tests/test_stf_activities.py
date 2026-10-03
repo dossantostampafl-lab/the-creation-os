@@ -375,7 +375,7 @@ async def test_persisted_range_cancel_kills_before_cleanup(tmp_path, monkeypatch
 
     assert deps.gateway.controls == [
         {"op": "kill", "mission_id": "m1"},
-        {"op": "range_reset"},
+        {"op": "range_reset", "mission_id": "m1"},
     ]
     assert calls[0] == ("revoke", "run-1")
 
