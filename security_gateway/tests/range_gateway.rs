@@ -218,7 +218,6 @@ fn range_reset_control_is_cleanup_only_and_uses_fixed_reset_route() {
     seen.join().unwrap();
 }
 
-
 #[test]
 fn campaign_start_uses_only_the_declared_campaign_route() {
     let body = r#"{"campaign_id":"stf-foundation-v1","status":"active"}"#;
