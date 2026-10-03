@@ -354,7 +354,7 @@ def get_campaign_state(campaign_id: str) -> dict[str, Any]:
 @app.post("/campaigns/{campaign_id}/advance")
 def advance_campaign(campaign_id: str) -> dict[str, Any]:
     campaign = _campaign(campaign_id)
-    path = _campaign_state_path(campaign_id)
+    path = _campaign_state_path(campaign)
     if not path.exists():
         raise HTTPException(status_code=409, detail="campaign has not started")
     record = json.loads(path.read_text(encoding="utf-8"))
