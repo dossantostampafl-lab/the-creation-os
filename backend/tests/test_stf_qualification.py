@@ -1,7 +1,12 @@
 import json
 from pathlib import Path
 
-from app.security_task_force.qualification import DEFAULT_RUBRIC, GateResult, evaluate
+from app.security_task_force.qualification import (
+    DEFAULT_RUBRIC,
+    TRUSTED_SCENARIO_FAMILIES,
+    GateResult,
+    evaluate,
+)
 
 REF = ("ci://run/1",)
 
@@ -51,3 +56,10 @@ def test_score_below_the_first_level_is_ineligible():
 def test_embedded_rubric_matches_the_range_rubric():
     path = Path(__file__).resolve().parents[2] / "cyber_range" / "qualification" / "rubric.json"
     assert json.loads(path.read_text(encoding="utf-8")) == DEFAULT_RUBRIC
+
+
+def test_trusted_scenario_family_map_matches_range_catalog():
+    path = Path(__file__).resolve().parents[2] / "cyber_range" / "scenarios" / "catalog.json"
+    catalog = json.loads(path.read_text(encoding="utf-8"))
+    declared = {item["id"]: item["family"] for item in catalog["scenarios"]}
+    assert declared == TRUSTED_SCENARIO_FAMILIES
