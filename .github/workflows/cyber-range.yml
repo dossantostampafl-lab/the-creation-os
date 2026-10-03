@@ -40,6 +40,25 @@ jobs:
           persist-credentials: false
       - name: Start isolated range
         run: docker compose -f cyber_range/compose.yml --profile cyber-range up -d --build
+      - name: Apply host containment firewall
+        run: |
+          sudo bash cyber_range/scripts/containment-linux.sh apply
+          sudo bash cyber_range/scripts/containment-linux.sh status
+      - name: Prove target cannot open a new connection to the host
+        run: |
+          set -euo pipefail
+          HOST_GATEWAY="$(docker network inspect creation-cyber-range_range_targets --format '{{(index .IPAM.Config 0).Gateway}}')"
+          test -n "$HOST_GATEWAY"
+          python3 -m http.server 18081 --bind 0.0.0.0 >/tmp/range-host-probe.log 2>&1 &
+          host_http_pid=$!
+          trap 'kill "$host_http_pid" 2>/dev/null || true' EXIT
+          sleep 1
+          if docker compose -f cyber_range/compose.yml exec -T -e HOST_GATEWAY="$HOST_GATEWAY" juice-shop \
+            node -e 'const net=require("net"); const s=net.connect({host:process.env.HOST_GATEWAY,port:18081}); s.setTimeout(1500); s.on("connect",()=>{s.destroy();process.exit(0)}); s.on("timeout",()=>{s.destroy();process.exit(1)}); s.on("error",()=>process.exit(1));'; then
+            echo "host containment failed: vulnerable target reached a host listener" >&2
+            exit 1
+          fi
+          echo "host containment blocked the new target-to-host connection"
       - name: Diagnose controller
         run: |
           docker compose -f cyber_range/compose.yml ps
@@ -64,6 +83,12 @@ jobs:
         run: |
           curl --fail --silent --show-error -X POST http://127.0.0.1:7070/scenarios/juice-shop-baseline/start >/dev/null
           curl --fail --silent --show-error -X POST http://127.0.0.1:7070/reset >/dev/null
+      - name: Remove host containment firewall
+        if: always()
+        run: |
+          if sudo nft list table inet tco_range >/dev/null 2>&1; then
+            sudo bash cyber_range/scripts/containment-linux.sh remove
+          fi
       - name: Stop range
         if: always()
         run: ./cyber_range/scripts/stop.sh
