@@ -234,9 +234,11 @@ class StfActivities:
             result = await self._execute_gateway(request, decision, grant, None)
 
         assert receipt.execution_id is not None
+        outcome_status = str(result["status"])
+        outcome_reasons = [str(item) for item in result.get("reasons", [])]
         async with self._d.session_factory() as session:
             await StfRepository(session).record_outcome(
-                receipt.execution_id, result["status"], result.get("reasons", [])
+                receipt.execution_id, outcome_status, outcome_reasons
             )
             await session.commit()
         emit("action.dispatched", mission_id=request.mission_id, action_id=request.action_id,
