@@ -154,7 +154,7 @@ with httpx.Client(base_url=BASE, timeout=45) as client:
                 from sqlalchemy import select
                 from app.db.session import AsyncSessionLocal
                 from app.diagnostics.heartbeat import ServiceHeartbeat
-                expected = {"task-worker", "knowledge-worker"}
+                expected = {"task-worker", "knowledge-worker", "diagnostics-worker"}
                 if os.getenv("DEUS_AUTONOMY_DISCOVERY_ENABLED", "").lower() == "true":
                     expected.add("discovery-worker")
                 async with AsyncSessionLocal() as session:

@@ -52,8 +52,10 @@ async def test_projection_replaces_incident_and_replays_after_ack_loss(knowledge
     monkeypatch.setattr(worker, 'AsyncSessionLocal', factory)
     journal = DiagnosticJournal(tmp_path)
     now = datetime.now(timezone.utc)
+    episode_id = str(uuid.uuid4())
     for index, state in enumerate(['open', 'recovered']):
         observation = {'id':str(uuid.uuid4()),'type':'incident','resource':'PostgreSQL','state':state,
+                       'episode_id': episode_id,
                        'observed_at':(now+timedelta(seconds=index)).isoformat(),
                        'valid_until':(now+timedelta(seconds=45+index)).isoformat()}
         journal.append(observation)
@@ -68,7 +70,9 @@ async def test_projection_replaces_incident_and_replays_after_ack_loss(knowledge
         assert len(items)==1
         revision = await session.get(KnowledgeRevision, items[0].current_revision_id)
         assert 'recovered' in revision.content
-        assert revision.valid_until is not None
+        assert revision.valid_until is None
+        assert revision.source_type == 'diagnostic_incident'
+        assert revision.source_id
 
 
 @pytest.mark.asyncio
@@ -107,11 +111,341 @@ async def test_context_reads_only_recent_diagnostics_and_tracks_dependencies(kno
         conversation = Conversation(id=str(uuid.uuid4()),creator_id=a,title='Diagnóstico',status='active')
         session.add(conversation)
         service = KnowledgeService(session)
-        current = await service.write(Scope(creator_id=a), Candidate(title='Redis', kind='diagnostic', valid_until=now+timedelta(seconds=45),content=json.dumps({'type':'observation','resource':'Redis','status':'healthy','observed_at':now.isoformat(),'valid_until':(now+timedelta(seconds=45)).isoformat()})), 'current')
+        current = await service.write(Scope(creator_id=a), Candidate(title='Redis', kind='diagnostic', valid_until=now+timedelta(seconds=45),content=json.dumps({'type':'observation','resource':'Redis','status':'healthy','observed_at':now.isoformat(),'valid_until':(now+timedelta(seconds=45)).isoformat(),'latency_ms':12,'safe_evidence':{'probe':'internal'}})), 'current')
         await service.write(Scope(creator_id=a), Candidate(title='DB antiga', kind='diagnostic',valid_until=now-timedelta(seconds=1),content=json.dumps({'type':'observation','resource':'DB antiga','status':'healthy'})), 'old')
         await session.commit()
         observed = await current_diagnostics(session,a)
         assert [row['resource'] for row in observed]==['Redis']
+        assert observed[0]['latency_ms'] == 12
+        assert observed[0]['safe_evidence'] == {'probe':'internal'}
     packet = await DeusContextBuilder(factory).build(a,conversation.id,'Como está o sistema?', 'voice')
     assert current.revision_id in packet.trace['dependency_revision_ids']
     assert any('Redis' in row['content'] for row in packet.messages)
+
+
+def test_unknown_observation_does_not_open_or_recover_incident():
+    from app.diagnostics.rules import DiagnosticRules
+
+    rules = DiagnosticRules()
+    now = datetime.now(timezone.utc)
+    assert rules.observe('inference', False, now) is None
+    assert rules.observe('inference', False, now) is None
+    assert rules.observe('inference', None, now) is None
+    assert rules.current('inference', now)['status'] == 'unknown'
+    assert rules.observe('inference', False, now)['state'] == 'open'
+    assert rules.observe('inference', True, now) is None
+    assert rules.observe('inference', None, now) is None
+    assert rules.observe('inference', True, now)['state'] == 'recovered'
+
+
+def test_projection_health_requires_all_checkpoints_and_bounded_lag():
+    from app.diagnostics.worker import EXPECTED_PROJECTIONS, projection_health
+
+    positions = {name: 100 for name in EXPECTED_PROJECTIONS}
+    assert projection_health(100, positions, 0)
+    assert not projection_health(100, {name: 100 for name in EXPECTED_PROJECTIONS[:-1]}, 0)
+    assert not projection_health(100, {**positions, EXPECTED_PROJECTIONS[0]: 98}, 1)
+    assert not projection_health(100, {**positions, EXPECTED_PROJECTIONS[0]: 101}, 10)
+
+
+def test_task_stall_health_uses_configured_duration():
+    from app.diagnostics.worker import task_stall_health
+
+    now = datetime.now(timezone.utc)
+    assert task_stall_health([], now, 900)
+    assert task_stall_health([now - timedelta(seconds=899)], now, 900)
+    assert not task_stall_health([now - timedelta(seconds=901)], now, 900)
+
+
+def test_universe_health_requires_all_canonical_universes():
+    from app.diagnostics.worker import CANONICAL_UNIVERSES, universe_health
+
+    assert universe_health(set(CANONICAL_UNIVERSES))
+    assert universe_health(set(CANONICAL_UNIVERSES) | {'custom'})
+    assert not universe_health(set(CANONICAL_UNIVERSES) - {'security'})
+
+
+def test_journal_health_reports_spool_full(tmp_path):
+    from app.diagnostics.worker import journal_health
+
+    assert journal_health(tmp_path)
+    (tmp_path / 'spool-full.json').write_text('{"status":"spool_full"}', encoding='utf-8')
+    assert not journal_health(tmp_path)
+
+
+@pytest.mark.asyncio
+async def test_observation_projection_uses_typed_diagnostic_source(knowledge_db, monkeypatch, tmp_path):  # noqa: F811
+    import uuid
+
+    from sqlalchemy import select
+
+    from app.diagnostics import worker
+    from app.diagnostics.journal import DiagnosticJournal
+    from app.models.knowledge import KnowledgeItem, KnowledgeRevision
+
+    factory, creator_id, _ = knowledge_db
+    monkeypatch.setattr(worker, 'AsyncSessionLocal', factory)
+    journal = DiagnosticJournal(tmp_path)
+    now = datetime.now(timezone.utc)
+    observation_id = str(uuid.uuid4())
+    journal.append({
+        'id': observation_id,
+        'type': 'observation',
+        'resource': 'Redis',
+        'status': 'healthy',
+        'observed_at': now.isoformat(),
+        'valid_until': (now + timedelta(seconds=45)).isoformat(),
+    })
+
+    await worker.publish(journal, creator_id)
+
+    async with factory() as session:
+        item = await session.scalar(select(KnowledgeItem).where(KnowledgeItem.creator_id == creator_id))
+        revision = await session.get(KnowledgeRevision, item.current_revision_id)
+        assert revision.source_type == 'diagnostic_observation'
+        assert revision.source_id == observation_id
+
+
+def test_local_voice_health_checks_cached_models_only(tmp_path):
+    from app.diagnostics.worker import local_voice_health
+
+    assert local_voice_health(tmp_path, False) is None
+    assert local_voice_health(tmp_path, True) is False
+    (tmp_path / 'kokoro-v1.0.onnx').write_bytes(b'model')
+    (tmp_path / 'voices-v1.0.bin').write_bytes(b'voices')
+    (tmp_path / 'vosk-pt').mkdir()
+    assert local_voice_health(tmp_path, True) is True
+
+
+def test_journal_spool_marker_clears_after_capacity_recovers(tmp_path):
+    from app.diagnostics.journal import DiagnosticJournal, JournalFull
+
+    journal = DiagnosticJournal(tmp_path, max_bytes=180)
+    with pytest.raises(JournalFull):
+        journal.append({'id':'too-big', 'data':'x'*400})
+    assert (tmp_path / 'spool-full.json').exists()
+    journal.append({'id':'small', 'data':'ok'})
+    assert not (tmp_path / 'spool-full.json').exists()
+
+
+def test_incident_episode_id_survives_recovery_and_rotates():
+    from app.diagnostics.rules import DiagnosticRules
+
+    rules = DiagnosticRules()
+    now = datetime.now(timezone.utc)
+    assert rules.observe('db', False, now) is None
+    assert rules.observe('db', False, now) is None
+    opened = rules.observe('db', False, now)
+    assert opened and opened['state'] == 'open'
+    first_episode = opened['episode_id']
+
+    assert rules.observe('db', True, now) is None
+    recovered = rules.observe('db', True, now)
+    assert recovered and recovered['state'] == 'recovered'
+    assert recovered['episode_id'] == first_episode
+
+    assert rules.observe('db', False, now) is None
+    assert rules.observe('db', False, now) is None
+    reopened = rules.observe('db', False, now)
+    assert reopened and reopened['episode_id'] != first_episode
+
+
+@pytest.mark.asyncio
+async def test_incident_history_is_canonical_and_creator_scoped(knowledge_db, monkeypatch, tmp_path):  # noqa: F811
+    import uuid
+
+    from sqlalchemy import select
+
+    from app.diagnostics import worker
+    from app.diagnostics.incidents import record_cause_hypothesis
+    from app.diagnostics.journal import DiagnosticJournal
+    from app.models.diagnostics import DiagnosticCauseHypothesis, DiagnosticIncident
+
+    factory, creator_id, other_creator = knowledge_db
+    monkeypatch.setattr(worker, 'AsyncSessionLocal', factory)
+    journal = DiagnosticJournal(tmp_path)
+    now = datetime.now(timezone.utc)
+    episode_id = str(uuid.uuid4())
+
+    for index, state in enumerate(['open', 'recovered']):
+        journal.append({
+            'id': str(uuid.uuid4()),
+            'type': 'incident',
+            'resource': 'PostgreSQL',
+            'rule': 'availability',
+            'state': state,
+            'episode_id': episode_id,
+            'observed_at': (now + timedelta(seconds=index)).isoformat(),
+            'valid_until': (now + timedelta(seconds=45 + index)).isoformat(),
+        })
+
+    await worker.publish(journal, creator_id)
+
+    async with factory() as session:
+        incident = await session.scalar(
+            select(DiagnosticIncident).where(
+                DiagnosticIncident.id == episode_id,
+                DiagnosticIncident.creator_id == creator_id,
+            )
+        )
+        assert incident is not None
+        assert incident.state == 'recovered'
+        assert incident.recovered_at is not None
+        assert len(incident.observation_ids) == 2
+        assert incident.observation_count == 2
+        assert incident.first_seen <= incident.last_seen
+
+        hypothesis = await record_cause_hypothesis(
+            session,
+            creator_id=creator_id,
+            incident_id=episode_id,
+            content='Hipótese baseada em evidência interna',
+            author_type='deus',
+            author_id='deus',
+            evidence_ids=list(incident.observation_ids),
+        )
+        await session.commit()
+        assert hypothesis.status == 'hypothesis'
+
+    async with factory() as session:
+        causes = list(await session.scalars(
+            select(DiagnosticCauseHypothesis).where(
+                DiagnosticCauseHypothesis.creator_id == creator_id,
+                DiagnosticCauseHypothesis.incident_id == episode_id,
+            )
+        ))
+        assert len(causes) == 1
+        with pytest.raises(ValueError):
+            await record_cause_hypothesis(
+                session,
+                creator_id=other_creator,
+                incident_id=episode_id,
+                content='Não pode atravessar Creator',
+                author_type='deus',
+            )
+
+
+@pytest.mark.asyncio
+async def test_open_incident_accumulates_observation_evidence(knowledge_db, monkeypatch, tmp_path):  # noqa: F811
+    import uuid
+
+    from sqlalchemy import select
+
+    from app.diagnostics import worker
+    from app.diagnostics.journal import DiagnosticJournal
+    from app.models.diagnostics import DiagnosticIncident
+
+    factory, creator_id, _ = knowledge_db
+    monkeypatch.setattr(worker, 'AsyncSessionLocal', factory)
+    journal = DiagnosticJournal(tmp_path)
+    now = datetime.now(timezone.utc)
+    episode_id = str(uuid.uuid4())
+
+    for index in range(2):
+        journal.append({
+            'id': str(uuid.uuid4()),
+            'type': 'observation',
+            'resource': 'Redis',
+            'rule': 'availability',
+            'status': 'unhealthy',
+            'incident_episode_id': episode_id,
+            'observed_at': (now + timedelta(seconds=index)).isoformat(),
+            'valid_until': (now + timedelta(seconds=45 + index)).isoformat(),
+        })
+
+    await worker.publish(journal, creator_id)
+
+    async with factory() as session:
+        incident = await session.scalar(
+            select(DiagnosticIncident).where(
+                DiagnosticIncident.id == episode_id,
+                DiagnosticIncident.creator_id == creator_id,
+            )
+        )
+        assert incident is not None
+        assert incident.state == 'open'
+        assert len(incident.observation_ids) == 2
+        assert incident.observation_count == 2
+        assert incident.last_seen > incident.first_seen
+
+
+def test_journal_sequence_and_drop_health_are_explicit(tmp_path):
+    from app.diagnostics.journal import DiagnosticJournal, JournalFull
+
+    journal = DiagnosticJournal(tmp_path, max_bytes=220)
+    journal.append({'id':'first', 'data':'a'})
+    journal.append({'id':'second', 'data':'b'})
+    assert [row['id'] for row in journal.pending()] == ['first', 'second']
+
+    with pytest.raises(JournalFull):
+        journal.append({'id':'too-big', 'data':'x'*400})
+
+    health = journal.health()
+    assert health['spool_full'] is True
+    assert health['dropped_observations'] >= 1
+    assert health['pending_observations'] == 2
+    assert health['used_bytes'] > 0
+
+
+@pytest.mark.asyncio
+async def test_creator_scope_stays_local_only_when_creator_is_ambiguous(knowledge_db, monkeypatch):  # noqa: F811
+    from app.config import settings
+    from app.diagnostics import worker
+
+    factory, _, _ = knowledge_db
+    monkeypatch.setattr(worker, 'AsyncSessionLocal', factory)
+    monkeypatch.setattr(settings, 'sovereign_creator_id', None)
+    assert await worker.creator_scope() is None
+
+
+@pytest.mark.asyncio
+async def test_publish_failure_keeps_journal_pending(monkeypatch, tmp_path):
+    import uuid
+
+    from app.diagnostics import worker
+    from app.diagnostics.journal import DiagnosticJournal
+
+    journal = DiagnosticJournal(tmp_path)
+    now = datetime.now(timezone.utc)
+    observation_id = str(uuid.uuid4())
+    journal.append({
+        'id': observation_id,
+        'type': 'observation',
+        'resource': 'PostgreSQL',
+        'rule': 'availability',
+        'status': 'unhealthy',
+        'observed_at': now.isoformat(),
+        'valid_until': (now + timedelta(seconds=45)).isoformat(),
+    })
+
+    def unavailable_session():
+        raise RuntimeError('database unavailable')
+
+    monkeypatch.setattr(worker, 'AsyncSessionLocal', unavailable_session)
+    with pytest.raises(RuntimeError):
+        await worker.publish(journal, str(uuid.uuid4()))
+    assert [row['id'] for row in journal.pending()] == [observation_id]
+
+
+def test_incident_evidence_ids_are_bounded():
+    from app.diagnostics.incidents import MAX_INCIDENT_EVIDENCE_IDS, _append_observation
+
+    ids: list[str] = []
+    for index in range(MAX_INCIDENT_EVIDENCE_IDS + 10):
+        ids = _append_observation(ids, f'observation-{index}')
+    assert len(ids) == MAX_INCIDENT_EVIDENCE_IDS
+    assert ids[0] == 'observation-10'
+    assert ids[-1] == f'observation-{MAX_INCIDENT_EVIDENCE_IDS + 9}'
+
+
+def test_diagnostic_context_prioritizes_degraded_resources():
+    from app.diagnostics.context import prioritize_diagnostics
+
+    rows = [
+        {'resource': 'healthy-a', 'status': 'healthy'},
+        {'resource': 'unknown-a', 'status': 'unknown'},
+        {'resource': 'unhealthy-a', 'status': 'unhealthy'},
+        {'resource': 'healthy-b', 'status': 'healthy'},
+    ]
+    selected = prioritize_diagnostics(rows, limit=3)
+    assert [row['status'] for row in selected] == ['unhealthy', 'unknown', 'healthy']

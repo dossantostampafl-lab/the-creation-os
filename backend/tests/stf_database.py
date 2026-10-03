@@ -25,7 +25,7 @@ REQUIRED_PREFIX = "test_stf_"
 # which is exactly why this may only ever run against a guarded database.
 TABLES = (
     "stf_inbox", "stf_outbox", "stf_approvals", "stf_dispatches", "stf_grants", "stf_runs", "stf_contracts",
-    "chronicles", "creator",
+    "diagnostic_cause_hypotheses", "diagnostic_incidents", "chronicles", "creator",
 )
 
 

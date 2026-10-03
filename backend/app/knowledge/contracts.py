@@ -16,7 +16,7 @@ class Candidate(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     content: str = Field(min_length=1, max_length=262144)
     kind: Literal["document", "decision", "preference", "result", "diagnostic", "derived_note"] = "document"
-    source_type: Literal["manual", "message", "mission", "task"] = "manual"
+    source_type: Literal["manual", "message", "mission", "task", "diagnostic_observation", "diagnostic_incident"] = "manual"
     source_id: str | None = None
     epistemic_state: Literal["recorded", "verified", "hypothesis"] = "recorded"
     dependencies: list[str] = Field(default_factory=list, max_length=32)
