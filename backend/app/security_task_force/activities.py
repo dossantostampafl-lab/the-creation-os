@@ -159,8 +159,9 @@ class StfActivities:
                 verified = await repository.verify_run_evidence(run_id)
                 if not verified:
                     return False
+                # Mission completion proves the planned execution chain only. Training findings and
+                # qualification are finalized later, after attack/defense evidence has been submitted.
                 await repository.project_verified_findings(run_id)
-                await repository.qualify_run(run_id)
                 await session.commit()
                 return True
         if self._d.verify is None:
