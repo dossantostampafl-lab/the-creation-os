@@ -19,6 +19,7 @@ from app.models.security_task_force import (
     StfApproval,
     StfContract,
     StfDispatch,
+    StfEvidence,
     StfGrant,
     StfInbox,
     StfOutbox,
@@ -27,6 +28,7 @@ from app.models.security_task_force import (
 from app.repositories.domain import DomainRepository
 from app.security_task_force.canonicalize import canonical_hash
 from app.security_task_force.contracts import ActionRequest, CapabilityGrant
+from app.security_task_force.evidence import EvidenceRecord
 from app.security_task_force.mission_compiler import CompilationResult
 from app.security_task_force.runtime_contracts import DispatchReceipt, OutboxLease, RunRecord
 
@@ -187,6 +189,103 @@ class StfRepository:
         if evidence_id is not None:
             values["evidence_id"] = evidence_id
         await self.session.execute(update(StfDispatch).where(StfDispatch.execution_id == execution_id).values(**values))
+
+
+    async def record_evidence(self, run_id: str, execution_id: str, evidence: EvidenceRecord) -> None:
+        """Persist redacted immutable evidence only when every correlation key matches the reserved dispatch."""
+        if not evidence.integrity_ok():
+            raise ValueError("evidence integrity check failed")
+        run = await self.get_run(run_id)
+        dispatch = await self.session.scalar(
+            select(StfDispatch).where(
+                StfDispatch.run_id == run_id,
+                StfDispatch.execution_id == execution_id,
+            )
+        )
+        if run is None or dispatch is None:
+            raise ValueError("evidence correlation target not found")
+        action = next(
+            (item for item in run.plan_json if isinstance(item, dict) and item.get("action_id") == dispatch.action_id),
+            None,
+        )
+        if action is None:
+            raise ValueError("evidence correlation action not found")
+        if (
+            evidence.run_id != run_id
+            or evidence.execution_id != execution_id
+            or evidence.mission_id != run.mission_id
+            or evidence.action_id != dispatch.action_id
+            or evidence.task_id != action.get("task_id")
+            or evidence.environment_id != action.get("environment_id")
+        ):
+            raise ValueError("evidence correlation mismatch")
+
+        existing = await self.session.get(StfEvidence, evidence.evidence_id)
+        if existing is not None:
+            if existing.sha256 != evidence.sha256:
+                raise IdempotencyConflict(f"evidence id {evidence.evidence_id!r} has different content")
+            return
+
+        self.session.add(StfEvidence(
+            evidence_id=evidence.evidence_id,
+            run_id=run_id,
+            execution_id=execution_id,
+            mission_id=evidence.mission_id,
+            action_id=evidence.action_id,
+            task_id=evidence.task_id,
+            environment_id=evidence.environment_id,
+            source=evidence.source,
+            kind=evidence.kind,
+            acquired_at=evidence.acquired_at,
+            payload=evidence.payload,
+            sha256=evidence.sha256,
+        ))
+        await self.session.flush()
+        await self._audit("stf.evidence.recorded", run_id, evidence.chronicle_payload())
+
+    async def verify_run_evidence(self, run_id: str) -> bool:
+        """A persisted run verifies only when every planned action has intact, correlated execution evidence."""
+        run = await self.get_run(run_id)
+        if run is None or not run.plan_json:
+            return False
+        dispatches = (await self.session.scalars(
+            select(StfDispatch).where(StfDispatch.run_id == run_id, StfDispatch.status == "executed")
+        )).all()
+        by_action = {item.action_id: item for item in dispatches}
+        for action in run.plan_json:
+            if not isinstance(action, dict):
+                return False
+            dispatch = by_action.get(str(action.get("action_id", "")))
+            if dispatch is None or not dispatch.evidence_id:
+                return False
+            row = await self.session.get(StfEvidence, dispatch.evidence_id)
+            if row is None:
+                return False
+            record = EvidenceRecord(
+                evidence_id=row.evidence_id,
+                mission_id=row.mission_id,
+                action_id=row.action_id,
+                task_id=row.task_id,
+                environment_id=row.environment_id,
+                source=row.source,
+                kind=row.kind,
+                acquired_at=row.acquired_at,
+                payload=dict(row.payload),
+                sha256=row.sha256,
+                run_id=row.run_id,
+                execution_id=row.execution_id,
+            )
+            if (
+                not record.integrity_ok()
+                or record.run_id != run_id
+                or record.execution_id != dispatch.execution_id
+                or record.mission_id != run.mission_id
+                or record.action_id != action.get("action_id")
+                or record.task_id != action.get("task_id")
+                or record.environment_id != action.get("environment_id")
+            ):
+                return False
+        return True
 
     # --- outbox and inbox --------------------------------------------------------------------------
 
