@@ -3,6 +3,7 @@ use std::net::TcpListener;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use creation_security_gateway::range_control::RangeControlClient;
 use creation_security_gateway::replay::FileReplayStore;
 use creation_security_gateway::sandbox::{probe, SandboxBackend};
 use creation_security_gateway::server::Gateway;
@@ -53,10 +54,28 @@ fn main() {
         .map(|item| item.trim().to_owned())
         .filter(|item| !item.is_empty())
         .collect();
+    let range_control = match (
+        std::env::var("CYBER_RANGE_CONTROL_ADDR").ok(),
+        std::env::var("CYBER_RANGE_CONTROL_TOKEN").ok(),
+    ) {
+        (None, None) => None,
+        (Some(addr), Some(token)) => match RangeControlClient::new(addr, token) {
+            Ok(client) => Some(client),
+            Err(_) => {
+                eprintln!("Cyber Range control relay configuration rejected");
+                std::process::exit(2);
+            }
+        },
+        _ => {
+            eprintln!("CYBER_RANGE_CONTROL_ADDR and CYBER_RANGE_CONTROL_TOKEN must be configured together");
+            std::process::exit(2);
+        }
+    };
     let mut gateway = Gateway {
         state: GatewayState::new(Box::new(replay), prefixes),
         backend,
         key,
+        range_control,
     };
 
     let address = std::env::var("STF_GATEWAY_ADDR").unwrap_or_else(|_| "0.0.0.0:7443".into());
