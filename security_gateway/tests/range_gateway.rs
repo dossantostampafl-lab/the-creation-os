@@ -207,8 +207,10 @@ fn range_reset_control_is_cleanup_only_and_uses_fixed_reset_route() {
         range_control: Some(RangeControlClient::new(addr, "r".repeat(40)).unwrap()),
     };
 
-    let before: serde_json::Value =
-        serde_json::from_str(&gateway.handle_line(r#"{"op":"range_reset","mission_id":"m1"}"#, 100)).unwrap();
+    let before: serde_json::Value = serde_json::from_str(
+        &gateway.handle_line(r#"{"op":"range_reset","mission_id":"m1"}"#, 100),
+    )
+    .unwrap();
     assert_eq!(before["decision"], "deny");
     gateway.handle_line(r#"{"op":"kill","mission_id":"m1"}"#, 100);
 
@@ -216,8 +218,10 @@ fn range_reset_control_is_cleanup_only_and_uses_fixed_reset_route() {
         serde_json::from_str(&gateway.handle_line(r#"{"op":"range_reset"}"#, 100)).unwrap();
     assert_eq!(unbound["decision"], "deny");
 
-    let wrong: serde_json::Value =
-        serde_json::from_str(&gateway.handle_line(r#"{"op":"range_reset","mission_id":"m2"}"#, 100)).unwrap();
+    let wrong: serde_json::Value = serde_json::from_str(
+        &gateway.handle_line(r#"{"op":"range_reset","mission_id":"m2"}"#, 100),
+    )
+    .unwrap();
     assert_eq!(wrong["decision"], "deny");
 
     let reply: serde_json::Value = serde_json::from_str(
