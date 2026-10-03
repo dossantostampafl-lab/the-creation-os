@@ -217,3 +217,30 @@ fn range_reset_control_is_cleanup_only_and_uses_fixed_reset_route() {
     assert_eq!(reply["decision"], "ok");
     seen.join().unwrap();
 }
+
+
+#[test]
+fn campaign_start_uses_only_the_declared_campaign_route() {
+    let body = r#"{"campaign_id":"stf-foundation-v1","status":"active"}"#;
+    let (addr, seen) = post_server("/campaigns/stf-foundation-v1/start", body);
+    let mut gateway = Gateway {
+        state: state(),
+        backend: SandboxBackend::Unavailable,
+        key: KEY.to_vec(),
+        range_control: Some(RangeControlClient::new(addr, "r".repeat(40)).unwrap()),
+    };
+    let mut e = envelope("campaign-start-1");
+    e.target = "stf-foundation-v1".into();
+    e.capability = "range.campaign.start".into();
+    e.signature = expected_signature(&e, KEY);
+    let mut r = requested("range.campaign.start");
+    r.target = "stf-foundation-v1".into();
+    r.capability = "range.campaign.start".into();
+    let line = serde_json::json!({"op":"execute","envelope":e,"requested":r}).to_string();
+
+    let reply: serde_json::Value = serde_json::from_str(&gateway.handle_line(&line, 100)).unwrap();
+
+    assert_eq!(reply["decision"], "permit");
+    assert_eq!(reply["status"], "executed");
+    seen.join().unwrap();
+}
