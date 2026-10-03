@@ -33,9 +33,11 @@ from app.security_task_force.contracts import ActionRequest, CapabilityGrant
 from app.security_task_force.evidence import EvidenceRecord
 from app.security_task_force.mission_compiler import CompilationResult
 from app.security_task_force.qualification import (
-    GateResult,
     TRUSTED_PURPLE_SCENARIOS,
     TRUSTED_SCENARIO_FAMILIES,
+    GateResult,
+)
+from app.security_task_force.qualification import (
     evaluate as evaluate_qualification,
 )
 from app.security_task_force.runtime_contracts import DispatchReceipt, OutboxLease, RunRecord
