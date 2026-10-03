@@ -174,3 +174,32 @@ async def test_approval_and_cancel_need_the_run_and_cancel_revokes(api):
     async with factory() as session:
         desired = await session.scalar(text("SELECT desired_state FROM stf_runs"))
     assert desired == "CANCEL"
+
+
+async def test_range_scenario_start_is_a_governed_capability_with_fixed_risk(api):
+    client, headers, creator_id, _, factory = api
+    compile_body = {
+        **COMPILE,
+        "authorized_targets": ["juice-shop", "juice-shop-baseline"],
+    }
+    assert (await client.post(f"{BASE}/compile", headers=headers(creator_id), json=compile_body)).status_code == 201
+    start = {
+        **ACTION,
+        "action_id": "start-1",
+        "idempotency_key": "start-k1",
+        "target_id": "juice-shop-baseline",
+        "capability": "range.scenario.start",
+        "risk_class": "R0",
+    }
+
+    response = await client.post(
+        f"{BASE}/m1/runs",
+        headers=headers(creator_id, "range-start"),
+        json={"actions": [start]},
+    )
+
+    assert response.status_code == 202
+    async with factory() as session:
+        plan = await session.scalar(text("SELECT plan_json FROM stf_runs"))
+    assert plan[0]["capability"] == "range.scenario.start"
+    assert plan[0]["risk_class"] == "R2"
