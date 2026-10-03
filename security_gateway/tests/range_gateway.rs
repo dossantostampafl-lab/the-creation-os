@@ -115,7 +115,7 @@ fn a_different_tool_never_uses_the_range_control_bypass() {
     let line = serde_json::json!({
         "op": "execute",
         "envelope": envelope("range-health-2"),
-        "requested": requested("range.scenario.start")
+        "requested": requested("sandbox.health.verify")
     })
     .to_string();
 
