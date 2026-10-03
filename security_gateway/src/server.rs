@@ -110,6 +110,9 @@ impl Gateway {
             "range.health.verify"
                 | "range.scenario.start"
                 | "range.scenario.verify"
+                | "range.campaign.start"
+                | "range.campaign.advance"
+                | "range.campaign.verify"
                 | "range.reset"
         ) {
             if requested.capability != requested.tool_id
@@ -136,6 +139,9 @@ impl Gateway {
                 "range.health.verify" => client.verify_health().map(|()| true),
                 "range.scenario.start" => client.start_scenario(&requested.target).map(|()| true),
                 "range.scenario.verify" => client.verify_scenario(&requested.target),
+                "range.campaign.start" => client.start_campaign(&requested.target).map(|()| true),
+                "range.campaign.advance" => client.advance_campaign(&requested.target).map(|()| true),
+                "range.campaign.verify" => client.campaign_completed(&requested.target),
                 "range.reset" => client.reset().map(|()| true),
                 _ => unreachable!(),
             };
@@ -152,7 +158,11 @@ impl Gateway {
                 Ok(false) => reply_execute(
                     "deny",
                     "denied",
-                    vec!["RangeScenarioNotActive".into()],
+                    vec![if requested.tool_id == "range.campaign.verify" {
+                        "RangeCampaignNotComplete".into()
+                    } else {
+                        "RangeScenarioNotActive".into()
+                    }],
                     None,
                 ),
                 Err(RangeControlError::Unavailable) => reply_execute(
