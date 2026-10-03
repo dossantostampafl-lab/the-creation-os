@@ -80,6 +80,11 @@ TRUSTED_CAMPAIGNS = {
         "webgoat-baseline",
         "blue-detection-baseline",
     ),
+    "stf-advanced-v1": (
+        "juice-shop-baseline",
+        "webgoat-baseline",
+        "purple-blind-baseline",
+    ),
 }
 
 
