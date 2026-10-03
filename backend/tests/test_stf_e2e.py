@@ -44,15 +44,15 @@ def requested_for(req: ActionRequest) -> dict:
             "parameters_hash": parameters_hash(req.parameters), "tool_id": req.capability, "args_json": "{}"}
 
 
-async def test_the_real_gateway_authorizes_but_executes_nothing_until_a_runtime_is_connected(gateway, tmp_path):
-    """Python authorization -> signed envelope -> the real Rust gateway. The adapters are not connected to an
-    isolation runtime, so the honest end of this chain is "authorized", never "executed"."""
+async def test_the_real_gateway_denies_unallowlisted_work_until_a_runtime_capability_is_connected(gateway, tmp_path):
+    """Python authorization may permit the request, but the Rust gateway still refuses a tool that has no
+    allowlisted isolated executor. Authorization alone is never execution."""
     activities, deps = make(tmp_path, gateway=TcpGatewayClient("127.0.0.1", gateway.port))
     sandbox_action = action(capability="range.validate")
     decision = await activities.authorize_action("m1", sandbox_action, None)
     result = await activities.dispatch_action(sandbox_action, decision)
-    assert result["status"] == "authorized" and result["status"] != "executed"
-    assert "execution_id" not in result and result["reasons"] == ["ExecutionNotImplemented"]
+    assert result["status"] == "denied" and result["status"] != "executed"
+    assert "execution_id" not in result and result["reasons"] == ["ToolNotAllowlisted"]
     # And the workflow's verification cannot complete a run that nothing proved.
     assert await activities.verify_mission("m1") is True  # only because this double declares it; see below
     deps.verify = None
@@ -110,7 +110,8 @@ async def test_replay_tamper_and_parameter_swap_are_denied(gateway, tmp_path):
     client = TcpGatewayClient("127.0.0.1", gateway.port)
     req, envelope = signed_parts(action(capability="range.validate"), tmp_path)
     requested = requested_for(req)
-    assert (await client.execute(envelope, requested))["decision"] == "permit"
+    first = await client.execute(envelope, requested)
+    assert first["decision"] == "deny" and first["reasons"] == ["ToolNotAllowlisted"]
     assert (await client.execute(envelope, requested))["reasons"] == ["Replay"]
     req2, envelope2 = signed_parts(action(action_id="a2"), tmp_path, nonce="n-2")
     swapped = {**requested_for(req2), "parameters_hash": parameters_hash({"path": "/admin"})}
@@ -133,7 +134,8 @@ async def test_gateway_restart_does_not_forget_spent_nonces(binary, tmp_path):
     state = tmp_path / "gw"
     first = GatewayProcess(binary, state).start()
     req, envelope = signed_parts(action(capability="range.validate"), tmp_path)
-    assert (await TcpGatewayClient("127.0.0.1", first.port).execute(envelope, requested_for(req)))["decision"] == "permit"
+    first_answer = await TcpGatewayClient("127.0.0.1", first.port).execute(envelope, requested_for(req))
+    assert first_answer["decision"] == "deny" and first_answer["reasons"] == ["ToolNotAllowlisted"]
     first.stop()
     second = GatewayProcess(binary, state).start()
     try:
