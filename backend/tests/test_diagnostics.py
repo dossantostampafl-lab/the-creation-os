@@ -381,3 +381,43 @@ def test_journal_sequence_and_drop_health_are_explicit(tmp_path):
     assert health['dropped_observations'] >= 1
     assert health['pending_observations'] == 2
     assert health['used_bytes'] > 0
+
+
+@pytest.mark.asyncio
+async def test_creator_scope_stays_local_only_when_creator_is_ambiguous(knowledge_db, monkeypatch):  # noqa: F811
+    from app.config import settings
+    from app.diagnostics import worker
+
+    factory, _, _ = knowledge_db
+    monkeypatch.setattr(worker, 'AsyncSessionLocal', factory)
+    monkeypatch.setattr(settings, 'sovereign_creator_id', None)
+    assert await worker.creator_scope() is None
+
+
+@pytest.mark.asyncio
+async def test_publish_failure_keeps_journal_pending(monkeypatch, tmp_path):
+    import uuid
+
+    from app.diagnostics import worker
+    from app.diagnostics.journal import DiagnosticJournal
+
+    journal = DiagnosticJournal(tmp_path)
+    now = datetime.now(timezone.utc)
+    observation_id = str(uuid.uuid4())
+    journal.append({
+        'id': observation_id,
+        'type': 'observation',
+        'resource': 'PostgreSQL',
+        'rule': 'availability',
+        'status': 'unhealthy',
+        'observed_at': now.isoformat(),
+        'valid_until': (now + timedelta(seconds=45)).isoformat(),
+    })
+
+    def unavailable_session():
+        raise RuntimeError('database unavailable')
+
+    monkeypatch.setattr(worker, 'AsyncSessionLocal', unavailable_session)
+    with pytest.raises(RuntimeError):
+        await worker.publish(journal, str(uuid.uuid4()))
+    assert [row['id'] for row in journal.pending()] == [observation_id]
