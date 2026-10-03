@@ -68,6 +68,7 @@ TRUSTED_SCENARIO_FAMILIES = {
     "juice-shop-baseline": "web_application",
     "webgoat-baseline": "authorization",
     "blue-detection-baseline": "detection",
+    "purple-blind-baseline": "detection",
 }
 
 
