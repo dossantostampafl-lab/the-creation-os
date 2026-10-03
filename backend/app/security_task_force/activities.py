@@ -105,6 +105,7 @@ class StfActivities:
                 or run.mission_id != mission_id
                 or run.mission_version != request.mission_version
                 or run.desired_state != "RUN"
+                or run.state != "RUNNING"
             ):
                 return AuthorizationDecision(
                     decision_id=f"decision:{request.action_id}", action_id=request.action_id, decision="deny",
