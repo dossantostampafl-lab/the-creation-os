@@ -16,10 +16,20 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
 def allowed(method: str, path: str) -> bool:
+    identifier = r'[A-Za-z0-9][A-Za-z0-9._-]{0,63}'
     if method == 'GET':
-        return path in {'/health', '/state', '/scenarios', '/snapshots'}
-    return method == 'POST' and (path in {'/reset', '/snapshots'} or bool(re.fullmatch(
-        r'/scenarios/[A-Za-z0-9][A-Za-z0-9_-]{0,63}/start|/snapshots/[a-f0-9-]{36}/restore', path)))
+        return (
+            path in {'/health', '/state', '/scenarios', '/campaigns', '/snapshots'}
+            or bool(re.fullmatch(rf'/campaigns/{identifier}/state', path))
+        )
+    if method != 'POST':
+        return False
+    return (
+        path in {'/reset', '/snapshots'}
+        or bool(re.fullmatch(rf'/scenarios/{identifier}/start', path))
+        or bool(re.fullmatch(rf'/campaigns/{identifier}/(start|advance)', path))
+        or bool(re.fullmatch(r'/snapshots/[A-Za-z0-9][A-Za-z0-9._-]{0,127}/restore', path))
+    )
 
 
 def serve(bind: str, port: int, token: str) -> ThreadingHTTPServer:
