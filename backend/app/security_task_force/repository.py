@@ -351,12 +351,16 @@ class StfRepository:
             if not attack_records:
                 continue
             defense_records = grouped.get(action_id, {}).get("defense", [])
-            params = action.get("parameters") if isinstance(action.get("parameters"), dict) else {}
+            params = action.get("parameters")
+            if not isinstance(params, dict):
+                params = {}
             replay_refs: list[str] = []
             for replay in run.plan_json:
                 if not isinstance(replay, dict):
                     continue
-                replay_params = replay.get("parameters") if isinstance(replay.get("parameters"), dict) else {}
+                replay_params = replay.get("parameters")
+                if not isinstance(replay_params, dict):
+                    replay_params = {}
                 if replay_params.get("replay_of") != action_id:
                     continue
                 replay_dispatch = by_action.get(str(replay.get("action_id", "")))
@@ -522,12 +526,12 @@ class StfRepository:
         )).all()
         for finding in findings:
             finding_refs = list(finding.attack_evidence) + list(finding.defense_evidence)
-            scenarios = {
+            finding_scenarios = {
                 str(evidence_by_id[ref].payload.get("_scenario_id", ""))
                 for ref in finding_refs
                 if ref in evidence_by_id
             }
-            for scenario_id in scenarios:
+            for scenario_id in finding_scenarios:
                 family = TRUSTED_SCENARIO_FAMILIES.get(scenario_id)
                 if family is not None:
                     scenario_refs[family].extend(finding_refs)
@@ -542,12 +546,12 @@ class StfRepository:
             "reproducibility": GateResult(bool(replay_refs), tuple(replay_refs)),
             "full_required_coverage": GateResult(all_executed and required_coverage, tuple(evidence_refs)),
         }
-        scenarios = {
+        scenario_results = {
             family: GateResult(bool(items), tuple(sorted(set(items))))
             for family, items in scenario_refs.items()
         }
         score = int(round(100 * executed_count / len(run.plan_json))) if run.plan_json else 0
-        result = evaluate_qualification(gates=gates, scenarios=scenarios, score=score)
+        result = evaluate_qualification(gates=gates, scenarios=scenario_results, score=score)
         all_refs = sorted(set(evidence_refs + approval_refs + list(plan_refs)))
         row = StfQualification(
             run_id=run_id,
