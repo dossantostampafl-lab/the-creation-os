@@ -174,7 +174,9 @@ async def test_same_key_same_content_is_idempotent_and_different_content_conflic
         first = await repository.reserve_dispatch(run_id, _action(), grant_id)
         again = await repository.reserve_dispatch(run_id, _action(), grant_id)
         await session.commit()
-        assert first.status == "authorized" and again.execution_id == first.execution_id
+        assert first.status == "authorized"
+        assert again.status == "unknown" and again.execution_id == first.execution_id
+        assert again.reason_codes == ["dispatch_outcome_unknown"]
         with pytest.raises(IdempotencyConflict):
             await repository.reserve_dispatch(run_id, _action(parameters={"path": "/other"}), grant_id)
         await session.rollback()
