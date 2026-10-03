@@ -137,14 +137,19 @@ networks:
   # Controller has no routable interface; only its fixed proxy can reach it.
   range_control:
     internal: true
+    driver_opts:
+      com.docker.network.bridge.name: tco_rng_ctl
   # Vulnerable targets have no routable interface; only fixed proxies can reach them.
   range_targets:
     internal: true
+    driver_opts:
+      com.docker.network.bridge.name: tco_rng_tgt
   # Host publication exists only on unprivileged fixed-destination proxies.
   # Masquerading is disabled, so the proxy bridge is not an Internet egress path.
   range_loopback:
     driver: bridge
     driver_opts:
+      com.docker.network.bridge.name: tco_rng_pub
       com.docker.network.bridge.enable_ip_masquerade: "false"
 
 volumes:
