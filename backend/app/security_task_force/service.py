@@ -177,6 +177,24 @@ class StfService:
         )
         if start_dispatch is None or start_dispatch.status != "executed":
             raise ValueError("scenario or campaign start is not proven by execution evidence")
+        if scenario_start is None and campaign_start is not None:
+            campaign_id = str(campaign_start.get("target_id", ""))
+            members = TRUSTED_CAMPAIGNS[campaign_id]
+            required_advances = members.index(scenario_id)
+            advances = [
+                item for item in run.plan_json
+                if isinstance(item, dict)
+                and item.get("capability") == "range.campaign.advance"
+                and item.get("target_id") == campaign_id
+            ]
+            if len(advances) < required_advances:
+                raise ValueError("campaign has not reached scenario")
+            for advance in advances[:required_advances]:
+                advance_dispatch = await self.repository.get_dispatch_for_action(
+                    run_id, str(advance.get("action_id", ""))
+                )
+                if advance_dispatch is None or advance_dispatch.status != "executed":
+                    raise ValueError("campaign has not reached scenario")
         record = EvidenceRecord.build(
             evidence_id=f"evidence:{uuid.uuid4()}",
             run_id=run_id,
