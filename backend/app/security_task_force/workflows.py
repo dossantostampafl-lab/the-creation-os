@@ -113,7 +113,8 @@ class MissionWorkflow:
             return await self._abort(mission_id)
         await self._set(mission_id, "VERIFYING")
         verified: bool = await workflow.execute_activity(
-            "stf_verify_mission", mission_id, start_to_close_timeout=_SHORT, retry_policy=_RETRY
+            "stf_verify_mission", args=[mission_id, self._run_id],
+            start_to_close_timeout=_SHORT, retry_policy=_RETRY
         )
         if not verified:
             return await self._abort(mission_id)
