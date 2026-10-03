@@ -281,3 +281,59 @@ async def test_inbox_applies_each_event_once(stf_db):
 def test_the_database_guard_is_active_in_ci_only_when_required():
     # Local runs without STF_TEST_DATABASE_URL skip the database tests; CI sets STF_REQUIRE_TEST_DATABASE=1.
     assert True
+
+
+async def test_persisted_run_verification_requires_intact_correlated_evidence(stf_db):
+    from app.security_task_force.evidence import EvidenceRecord
+
+    _, factory = stf_db
+    _, run_id, grant_id = await _seed(factory)
+    request = _action()
+    async with factory() as session:
+        repository = _repository(session)
+        receipt = await repository.reserve_dispatch(run_id, request, grant_id)
+        assert receipt.status == "authorized" and receipt.execution_id is not None
+        await repository.record_outcome(receipt.execution_id, "executed")
+        await session.commit()
+
+    async with factory() as session:
+        assert await _repository(session).verify_run_evidence(run_id) is False
+
+    evidence = EvidenceRecord.build(
+        evidence_id=f"evidence:{uuid.uuid4()}",
+        run_id=run_id,
+        execution_id=receipt.execution_id,
+        mission_id=request.mission_id,
+        action_id=request.action_id,
+        task_id=request.task_id,
+        environment_id=request.environment_id,
+        source="stf-gateway",
+        kind="execution",
+        acquired_at=datetime.now(timezone.utc).isoformat(),
+        payload={"status": "executed", "gateway_execution_id": "gw-1"},
+    )
+    async with factory() as session:
+        repository = _repository(session)
+        await repository.record_evidence(run_id, receipt.execution_id, evidence)
+        await repository.record_outcome(receipt.execution_id, "executed", evidence_id=evidence.evidence_id)
+        await session.commit()
+
+    async with factory() as session:
+        assert await _repository(session).verify_run_evidence(run_id) is True
+
+    wrong = EvidenceRecord.build(
+        evidence_id=f"evidence:{uuid.uuid4()}",
+        run_id=run_id,
+        execution_id=receipt.execution_id,
+        mission_id=request.mission_id,
+        action_id="another-action",
+        task_id=request.task_id,
+        environment_id=request.environment_id,
+        source="stf-gateway",
+        kind="execution",
+        acquired_at=datetime.now(timezone.utc).isoformat(),
+        payload={"status": "executed"},
+    )
+    async with factory() as session:
+        with pytest.raises(ValueError, match="correlation"):
+            await _repository(session).record_evidence(run_id, receipt.execution_id, wrong)
