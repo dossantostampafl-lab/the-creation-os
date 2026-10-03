@@ -152,3 +152,23 @@ def test_proxies_have_no_docker_socket_or_host_network_mode() -> None:
         service = services[service_name]
         assert service.get("network_mode") != "host"
         assert all("/var/run/docker.sock" not in str(volume) for volume in service.get("volumes", []))
+
+
+def test_range_bridges_have_stable_names_for_host_firewall_enforcement() -> None:
+    networks = load_compose()["networks"]
+    assert networks["range_targets"]["driver_opts"]["com.docker.network.bridge.name"] == "tco_rng_tgt"
+    assert networks["range_control"]["driver_opts"]["com.docker.network.bridge.name"] == "tco_rng_ctl"
+    assert networks["range_loopback"]["driver_opts"]["com.docker.network.bridge.name"] == "tco_rng_pub"
+
+
+def test_linux_containment_script_blocks_new_host_and_routed_connections() -> None:
+    script = ROOT / "scripts" / "containment-linux.sh"
+    assert script.is_file()
+    code = script.read_text(encoding="utf-8")
+    assert "table inet tco_range" in code
+    assert "ct state established,related accept" in code
+    for bridge in ("tco_rng_tgt", "tco_rng_ctl", "tco_rng_pub"):
+        assert bridge in code
+    assert "hook input" in code and "hook forward" in code
+    assert "drop" in code
+    assert "CYBER_RANGE_ENFORCE_HOST_FIREWALL" not in code, "the enforcement script itself must not silently no-op"
