@@ -436,3 +436,16 @@ def test_incident_evidence_ids_are_bounded():
     assert len(ids) == MAX_INCIDENT_EVIDENCE_IDS
     assert ids[0] == 'observation-10'
     assert ids[-1] == f'observation-{MAX_INCIDENT_EVIDENCE_IDS + 9}'
+
+
+def test_diagnostic_context_prioritizes_degraded_resources():
+    from app.diagnostics.context import prioritize_diagnostics
+
+    rows = [
+        {'resource': 'healthy-a', 'status': 'healthy'},
+        {'resource': 'unknown-a', 'status': 'unknown'},
+        {'resource': 'unhealthy-a', 'status': 'unhealthy'},
+        {'resource': 'healthy-b', 'status': 'healthy'},
+    ]
+    selected = prioritize_diagnostics(rows, limit=3)
+    assert [row['status'] for row in selected] == ['unhealthy', 'unknown', 'healthy']
