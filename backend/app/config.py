@@ -56,6 +56,8 @@ class Settings(BaseSettings):
     cyber_range_control_token: SecretStr | None = Field(None, env="CYBER_RANGE_CONTROL_TOKEN")
     deus_obsidian_root: str = Field("/var/lib/creation/obsidian", env="DEUS_OBSIDIAN_ROOT")
     deus_diagnostics_root: str = Field("/var/lib/creation/diagnostics", env="DEUS_DIAGNOSTICS_ROOT")
+    deus_diagnostics_task_stall_seconds: int = Field(900, ge=30, env="DEUS_DIAGNOSTICS_TASK_STALL_SECONDS")
+    deus_diagnostics_projection_max_lag: int = Field(100, ge=0, env="DEUS_DIAGNOSTICS_PROJECTION_MAX_LAG")
     trinity_enabled: bool = Field(True, env="TRINITY_ENABLED")
     trinity_min_confidence: float = Field(0.7, ge=0.0, le=1.0, env="TRINITY_MIN_CONFIDENCE")
     workspace_root: str = Field("/var/lib/creation/workspaces", env="WORKSPACE_ROOT")
