@@ -90,6 +90,7 @@ def test_controller_lists_only_declared_scenarios(tmp_path, monkeypatch) -> None
     assert {item["id"] for item in response.json()["scenarios"]} == {
         "juice-shop-baseline",
         "webgoat-baseline",
+        "blue-detection-baseline",
     }
 
 
