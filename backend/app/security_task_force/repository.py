@@ -208,6 +208,8 @@ class StfRepository:
         )
         if run is None or dispatch is None:
             raise ValueError("evidence correlation target not found")
+        if evidence.kind in {"attack", "defense"} and dispatch.status != "executed":
+            raise ValueError("attack or defense evidence requires an executed dispatch")
         action = next(
             (item for item in run.plan_json if isinstance(item, dict) and item.get("action_id") == dispatch.action_id),
             None,
