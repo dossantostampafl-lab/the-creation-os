@@ -69,6 +69,8 @@ async def test_projection_replaces_incident_and_replays_after_ack_loss(knowledge
         revision = await session.get(KnowledgeRevision, items[0].current_revision_id)
         assert 'recovered' in revision.content
         assert revision.valid_until is not None
+        assert revision.source_type == 'diagnostic_incident'
+        assert revision.source_id
 
 
 @pytest.mark.asyncio
@@ -115,3 +117,86 @@ async def test_context_reads_only_recent_diagnostics_and_tracks_dependencies(kno
     packet = await DeusContextBuilder(factory).build(a,conversation.id,'Como está o sistema?', 'voice')
     assert current.revision_id in packet.trace['dependency_revision_ids']
     assert any('Redis' in row['content'] for row in packet.messages)
+
+
+def test_unknown_observation_does_not_open_or_recover_incident():
+    from app.diagnostics.rules import DiagnosticRules
+
+    rules = DiagnosticRules()
+    now = datetime.now(timezone.utc)
+    assert rules.observe('inference', False, now) is None
+    assert rules.observe('inference', False, now) is None
+    assert rules.observe('inference', None, now) is None
+    assert rules.current('inference', now)['status'] == 'unknown'
+    assert rules.observe('inference', False, now)['state'] == 'open'
+    assert rules.observe('inference', True, now) is None
+    assert rules.observe('inference', None, now) is None
+    assert rules.observe('inference', True, now)['state'] == 'recovered'
+
+
+def test_projection_health_requires_all_checkpoints_and_bounded_lag():
+    from app.diagnostics.worker import EXPECTED_PROJECTIONS, projection_health
+
+    positions = {name: 100 for name in EXPECTED_PROJECTIONS}
+    assert projection_health(100, positions, 0)
+    assert not projection_health(100, {name: 100 for name in EXPECTED_PROJECTIONS[:-1]}, 0)
+    assert not projection_health(100, {**positions, EXPECTED_PROJECTIONS[0]: 98}, 1)
+    assert not projection_health(100, {**positions, EXPECTED_PROJECTIONS[0]: 101}, 10)
+
+
+def test_task_stall_health_uses_configured_duration():
+    from app.diagnostics.worker import task_stall_health
+
+    now = datetime.now(timezone.utc)
+    assert task_stall_health([], now, 900)
+    assert task_stall_health([now - timedelta(seconds=899)], now, 900)
+    assert not task_stall_health([now - timedelta(seconds=901)], now, 900)
+
+
+def test_universe_health_requires_all_canonical_universes():
+    from app.diagnostics.worker import CANONICAL_UNIVERSES, universe_health
+
+    assert universe_health(set(CANONICAL_UNIVERSES))
+    assert universe_health(set(CANONICAL_UNIVERSES) | {'custom'})
+    assert not universe_health(set(CANONICAL_UNIVERSES) - {'security'})
+
+
+def test_journal_health_reports_spool_full(tmp_path):
+    from app.diagnostics.worker import journal_health
+
+    assert journal_health(tmp_path)
+    (tmp_path / 'spool-full.json').write_text('{"status":"spool_full"}', encoding='utf-8')
+    assert not journal_health(tmp_path)
+
+
+@pytest.mark.asyncio
+async def test_observation_projection_uses_typed_diagnostic_source(knowledge_db, monkeypatch, tmp_path):  # noqa: F811
+    import uuid
+
+    from sqlalchemy import select
+
+    from app.diagnostics import worker
+    from app.diagnostics.journal import DiagnosticJournal
+    from app.models.knowledge import KnowledgeItem, KnowledgeRevision
+
+    factory, creator_id, _ = knowledge_db
+    monkeypatch.setattr(worker, 'AsyncSessionLocal', factory)
+    journal = DiagnosticJournal(tmp_path)
+    now = datetime.now(timezone.utc)
+    observation_id = str(uuid.uuid4())
+    journal.append({
+        'id': observation_id,
+        'type': 'observation',
+        'resource': 'Redis',
+        'status': 'healthy',
+        'observed_at': now.isoformat(),
+        'valid_until': (now + timedelta(seconds=45)).isoformat(),
+    })
+
+    await worker.publish(journal, creator_id)
+
+    async with factory() as session:
+        item = await session.scalar(select(KnowledgeItem).where(KnowledgeItem.creator_id == creator_id))
+        revision = await session.get(KnowledgeRevision, item.current_revision_id)
+        assert revision.source_type == 'diagnostic_observation'
+        assert revision.source_id == observation_id
