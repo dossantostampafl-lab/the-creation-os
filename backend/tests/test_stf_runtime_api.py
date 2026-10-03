@@ -232,3 +232,55 @@ async def test_range_campaign_start_is_governed_and_risk_is_server_owned(api):
         plan = await session.scalar(text("SELECT plan_json FROM stf_runs"))
     assert plan[0]["capability"] == "range.campaign.start"
     assert plan[0]["risk_class"] == "R2"
+
+
+async def test_replay_must_reference_an_earlier_equivalent_action(api):
+    client, headers, creator_id, _, factory = api
+    compile_body = {**COMPILE, "authorized_targets": ["juice-shop", "webgoat"]}
+    assert (await client.post(f"{BASE}/compile", headers=headers(creator_id), json=compile_body)).status_code == 201
+
+    cross_target = {
+        **ACTION,
+        "action_id": "a2",
+        "idempotency_key": "k2",
+        "target_id": "webgoat",
+        "parameters": {"replay_of": "a1"},
+    }
+    response = await client.post(
+        f"{BASE}/m1/runs",
+        headers=headers(creator_id, "bad-replay-target"),
+        json={"actions": [ACTION, cross_target]},
+    )
+    assert response.status_code == 422
+    assert await _count(factory, "stf_runs") == 0
+
+    unknown = {
+        **ACTION,
+        "action_id": "a3",
+        "idempotency_key": "k3",
+        "parameters": {"replay_of": "missing"},
+    }
+    response = await client.post(
+        f"{BASE}/m1/runs",
+        headers=headers(creator_id, "bad-replay-ref"),
+        json={"actions": [ACTION, unknown]},
+    )
+    assert response.status_code == 422
+    assert await _count(factory, "stf_runs") == 0
+
+
+async def test_equivalent_replay_is_accepted(api):
+    client, headers, creator_id, _, _ = api
+    await _compiled(client, headers, creator_id)
+    replay = {
+        **ACTION,
+        "action_id": "a2",
+        "idempotency_key": "k2",
+        "parameters": {"path": "/", "replay_of": "a1"},
+    }
+    response = await client.post(
+        f"{BASE}/m1/runs",
+        headers=headers(creator_id, "good-replay"),
+        json={"actions": [ACTION, replay]},
+    )
+    assert response.status_code == 202
