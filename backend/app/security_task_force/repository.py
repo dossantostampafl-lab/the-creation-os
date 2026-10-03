@@ -137,7 +137,7 @@ class StfRepository:
         if (
             run is None
             or run.desired_state != "RUN"
-            or run.state in TERMINAL_RUN_STATES
+            or run.state != "RUNNING"
             or run.mission_id != grant.mission_id
             or run.mission_version != grant.mission_version
         ):
@@ -170,6 +170,8 @@ class StfRepository:
 
         if run.desired_state == "CANCEL" or run.state in TERMINAL_RUN_STATES:
             return await self._deny(run_id, action, ["run_cancelled"])
+        if run.state != "RUNNING":
+            return await self._deny(run_id, action, ["run_not_dispatchable"])
         if run.mission_version != action.mission_version or run.mission_id != action.mission_id:
             return await self._deny(run_id, action, ["mission_version_mismatch"])
 
