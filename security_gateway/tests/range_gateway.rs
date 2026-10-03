@@ -97,7 +97,7 @@ fn range_health_executes_only_through_authenticated_control_relay() {
     assert!(reply["execution_id"]
         .as_str()
         .unwrap()
-        .starts_with("range-health:"));
+        .starts_with("range-control:range.health.verify:"));
     let request = seen.join().unwrap();
     assert!(request.starts_with("GET /health HTTP/1.1\r\n"));
     assert!(request.contains(&format!("Authorization: Bearer {token}\r\n")));
@@ -125,7 +125,6 @@ fn a_different_tool_never_uses_the_range_control_bypass() {
     assert_eq!(reply["status"], "denied");
     assert_eq!(reply["reasons"][0], "SandboxUnavailable");
 }
-
 
 #[test]
 fn range_health_rejects_unbound_arguments_before_any_control_connection() {
