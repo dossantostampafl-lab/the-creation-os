@@ -5,6 +5,7 @@ import fcntl
 import json
 import os
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta, timezone
 from functools import partial
 from pathlib import Path
@@ -21,129 +22,396 @@ from app.diagnostics.journal import DiagnosticJournal, JournalFull
 from app.diagnostics.rules import DiagnosticRules
 from app.knowledge.contracts import Candidate, Scope
 from app.knowledge.service import KnowledgeService
-from app.models.entities import Creator
-from app.models.knowledge import KnowledgeItem, KnowledgeOutbox, KnowledgeReceipt, KnowledgeRevision
+from app.models.entities import Chronicle, Creator, Task, Universe
+from app.models.knowledge import (
+    KnowledgeItem,
+    KnowledgeOutbox,
+    KnowledgeReceipt,
+    KnowledgeRevision,
+)
+from app.models.projection import ProjectionCheckpoint
+from app.projections.system import (
+    AGENT_PROJECTION,
+    MEMORY_PROJECTION,
+    MISSION_PROJECTION,
+    SYSTEM_PROJECTION,
+    TASK_PROJECTION,
+)
+
+EXPECTED_PROJECTIONS = (
+    SYSTEM_PROJECTION,
+    MISSION_PROJECTION,
+    TASK_PROJECTION,
+    AGENT_PROJECTION,
+    MEMORY_PROJECTION,
+)
+CANONICAL_UNIVERSES = frozenset(
+    {
+        "knowledge",
+        "engineering",
+        "security",
+        "vision",
+        "design",
+        "business",
+        "marketing",
+        "legal",
+        "finance",
+        "automation",
+        "communication",
+        "evolution",
+    }
+)
+Probe = Callable[[], Awaitable[bool | None]]
 
 
-async def collect() -> dict[str,bool]:
-    async def db_probe():
+def projection_health(head: int, positions: dict[str, int], max_lag: int) -> bool:
+    for name in EXPECTED_PROJECTIONS:
+        position = positions.get(name)
+        if position is None or position < 0 or position > head:
+            return False
+        if head - position > max_lag:
+            return False
+    return True
+
+
+def task_stall_health(
+    started_at: list[datetime | None],
+    now: datetime,
+    stall_seconds: int,
+) -> bool:
+    limit = timedelta(seconds=stall_seconds)
+    return all(started is not None and now - started <= limit for started in started_at)
+
+
+def universe_health(active_codes: set[str]) -> bool:
+    return CANONICAL_UNIVERSES.issubset(active_codes)
+
+
+def journal_health(root: Path) -> bool:
+    return not (root / "spool-full.json").exists()
+
+
+def local_voice_health(root: Path, enabled: bool) -> bool | None:
+    if not enabled:
+        return None
+    return (
+        (root / "kokoro-v1.0.onnx").is_file()
+        and (root / "voices-v1.0.bin").is_file()
+        and (root / "vosk-pt").is_dir()
+    )
+
+
+async def collect() -> dict[str, bool | None]:
+    async def db_probe() -> bool:
         async with AsyncSessionLocal() as session:
-            await session.execute(text('SELECT 1'))
-    async def redis_probe():
-        redis=Redis.from_url(settings.redis_url, socket_timeout=2, socket_connect_timeout=2)
+            await session.execute(text("SELECT 1"))
+        return True
+
+    async def redis_probe() -> bool:
+        redis = Redis.from_url(
+            settings.redis_url,
+            socket_timeout=2,
+            socket_connect_timeout=2,
+        )
         try:
-            await redis.ping()
+            return bool(await redis.ping())
         finally:
             await redis.aclose()
-    async def api_probe():
+
+    async def api_probe() -> bool:
         async with httpx.AsyncClient(timeout=2, trust_env=False) as client:
-            response=await client.get(os.environ.get('DIAGNOSTICS_API_URL','http://api:8000')+'/api/v1/health/ready')
+            response = await client.get(
+                os.environ.get("DIAGNOSTICS_API_URL", "http://api:8000")
+                + "/api/v1/health/ready"
+            )
             response.raise_for_status()
-    async def worker_probe(resource):
+        return True
+
+    async def worker_probe(resource: str) -> bool:
         async with AsyncSessionLocal() as session:
-            if not await session.scalar(select(ServiceHeartbeat.boot_id).where(
-                ServiceHeartbeat.service==resource,
-                ServiceHeartbeat.valid_until>datetime.now(timezone.utc)).limit(1)):
-                raise RuntimeError('worker heartbeat stale')
-    async def queue_probe():
+            found = await session.scalar(
+                select(ServiceHeartbeat.boot_id)
+                .where(
+                    ServiceHeartbeat.service == resource,
+                    ServiceHeartbeat.valid_until > datetime.now(timezone.utc),
+                )
+                .limit(1)
+            )
+        return found is not None
+
+    async def queue_probe() -> bool:
         async with AsyncSessionLocal() as session:
-            done = exists(select(KnowledgeReceipt.sequence).where(
-                KnowledgeReceipt.sequence==KnowledgeOutbox.sequence, KnowledgeReceipt.consumer=='knowledge'))
-            pending = await session.scalar(select(func.count()).select_from(KnowledgeOutbox).where(~done))
-            if (pending or 0)>1000:
-                raise RuntimeError('knowledge consumer backlog above threshold')
-    async def disk_probe():
+            done = exists(
+                select(KnowledgeReceipt.sequence).where(
+                    KnowledgeReceipt.sequence == KnowledgeOutbox.sequence,
+                    KnowledgeReceipt.consumer == "knowledge",
+                )
+            )
+            pending = await session.scalar(
+                select(func.count()).select_from(KnowledgeOutbox).where(~done)
+            )
+        return (pending or 0) <= 1000
+
+    async def disk_probe() -> bool:
         stats = os.statvfs(settings.deus_diagnostics_root)
-        if stats.f_bavail*stats.f_frsize < 64*1024*1024:
-            raise RuntimeError('diagnostic volume free space below64MiB')
-    async def bounded(call):
+        return stats.f_bavail * stats.f_frsize >= 64 * 1024 * 1024
+
+    async def projection_probe() -> bool:
+        async with AsyncSessionLocal() as session:
+            head = int(await session.scalar(select(func.max(Chronicle.position))) or 0)
+            rows = list((await session.scalars(select(ProjectionCheckpoint))).all())
+        return projection_health(
+            head,
+            {row.projection_name: row.position for row in rows},
+            settings.deus_diagnostics_projection_max_lag,
+        )
+
+    async def task_probe() -> bool:
+        async with AsyncSessionLocal() as session:
+            starts = list(
+                (
+                    await session.scalars(
+                        select(Task.started_at).where(Task.status == "RUNNING")
+                    )
+                ).all()
+            )
+        return task_stall_health(
+            starts,
+            datetime.now(timezone.utc),
+            settings.deus_diagnostics_task_stall_seconds,
+        )
+
+    async def universe_probe() -> bool:
+        async with AsyncSessionLocal() as session:
+            codes = set(
+                (
+                    await session.scalars(
+                        select(Universe.code).where(Universe.active.is_(True))
+                    )
+                ).all()
+            )
+        return universe_health(codes)
+
+    async def journal_probe() -> bool:
+        return journal_health(Path(settings.deus_diagnostics_root))
+
+    async def voice_probe() -> bool | None:
+        return local_voice_health(
+            Path(settings.deus_local_voice_models_dir),
+            settings.deus_voice_session_enabled,
+        )
+
+    async def inference_probe() -> bool | None:
+        # Provider health would perform a network call. Diagnostics must not manufacture
+        # health traffic or spend quota; until execution telemetry is persisted, be honest.
+        return None
+
+    async def bounded(call: Probe) -> bool | None:
         try:
             async with asyncio.timeout(2):
-                await call()
-            return True
+                return await call()
         except Exception:
             return False
-    probes = {'PostgreSQL':db_probe, 'Redis':redis_probe, 'API':api_probe,
-              'Fila da memória':queue_probe, 'Disco diagnóstico':disk_probe}
+
+    probes: dict[str, Probe] = {
+        "PostgreSQL": db_probe,
+        "Redis": redis_probe,
+        "API": api_probe,
+        "Fila da memória": queue_probe,
+        "Disco diagnóstico": disk_probe,
+        "Projeções do Chronicle": projection_probe,
+        "Tarefas em execução": task_probe,
+        "Universos canônicos": universe_probe,
+        "Journal diagnóstico": journal_probe,
+        "Voz local": voice_probe,
+        "Inferência": inference_probe,
+    }
     if settings.deus_diagnostics_enabled:
-        for resource in ['task-worker','knowledge-worker']:
+        for resource in ["task-worker", "knowledge-worker"]:
             probes[resource] = partial(worker_probe, resource)
         if settings.deus_autonomy_discovery_enabled:
-            probes['discovery-worker'] = lambda: worker_probe('discovery-worker')
+            probes["discovery-worker"] = partial(worker_probe, "discovery-worker")
+
     values = await asyncio.gather(*(bounded(probe) for probe in probes.values()))
     return dict(zip(probes, values))
+
 
 async def creator_scope() -> str | None:
     async with AsyncSessionLocal() as session:
         if settings.sovereign_creator_id:
-            return await session.scalar(select(Creator.id).where(Creator.id==settings.sovereign_creator_id,Creator.is_active.is_(True)))
-        ids=list(await session.scalars(select(Creator.id).where(Creator.is_active.is_(True)).limit(2)))
-        return ids[0] if len(ids)==1 else None
+            return await session.scalar(
+                select(Creator.id).where(
+                    Creator.id == settings.sovereign_creator_id,
+                    Creator.is_active.is_(True),
+                )
+            )
+        ids = list(
+            await session.scalars(
+                select(Creator.id).where(Creator.is_active.is_(True)).limit(2)
+            )
+        )
+        return ids[0] if len(ids) == 1 else None
+
+
+async def _current_projection(
+    session,
+    creator_id: str,
+    resource: str,
+    observation_type: str,
+) -> KnowledgeRevision | None:
+    rows = list(
+        await session.scalars(
+            select(KnowledgeRevision)
+            .join(
+                KnowledgeItem,
+                KnowledgeItem.current_revision_id == KnowledgeRevision.id,
+            )
+            .where(
+                KnowledgeItem.creator_id == creator_id,
+                KnowledgeItem.active.is_(True),
+                KnowledgeRevision.kind == "diagnostic",
+            )
+        )
+    )
+    for row in rows:
+        try:
+            data = json.loads(row.content)
+        except (TypeError, ValueError):
+            continue
+        if data.get("resource") == resource and data.get("type") == observation_type:
+            return row
+    return None
+
 
 async def publish(journal: DiagnosticJournal, creator_id: str) -> None:
     for observation in journal.pending():
         async with AsyncSessionLocal() as session:
-            valid_until=datetime.fromisoformat(observation['valid_until'])
+            valid_until = datetime.fromisoformat(observation["valid_until"])
             scope = Scope(creator_id=creator_id)
             service = KnowledgeService(session)
-            # One current projection per resource/type. The immutable revisions and
-            # local journal retain history; recovered incidents replace open ones.
-            item_id = str(uuid.uuid5(uuid.NAMESPACE_URL,
-                'creation:diagnostic:' + creator_id + ':' + observation['resource'] + ':' + observation['type']))
-            await session.execute(text('SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))'),
-                                  {'key': 'diagnostic-projection:' + item_id})
-            previous = await session.scalar(select(KnowledgeRevision).join(
-                KnowledgeItem, KnowledgeItem.current_revision_id == KnowledgeRevision.id).where(
-                    KnowledgeItem.creator_id == creator_id, KnowledgeItem.active.is_(True),
-                    KnowledgeRevision.source_type == 'manual', KnowledgeRevision.source_id == item_id))
-            older = previous and json.loads(previous.content)['observed_at'] >= observation['observed_at']
+            projection_key = str(
+                uuid.uuid5(
+                    uuid.NAMESPACE_URL,
+                    "creation:diagnostic:"
+                    + creator_id
+                    + ":"
+                    + observation["resource"]
+                    + ":"
+                    + observation["type"],
+                )
+            )
+            await session.execute(
+                text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+                {"key": "diagnostic-projection:" + projection_key},
+            )
+            previous = await _current_projection(
+                session,
+                creator_id,
+                observation["resource"],
+                observation["type"],
+            )
+            older = (
+                previous is not None
+                and json.loads(previous.content)["observed_at"]
+                >= observation["observed_at"]
+            )
             if not older:
-                await service.write(scope, Candidate(
-                    title='Diagnóstico: ' + observation['resource'],
-                    content=json.dumps(observation, ensure_ascii=False), kind='diagnostic',
-                    valid_until=valid_until, source_id=item_id), 'diagnostic:' + observation['id'],
-                    previous.item_id if previous else None, previous.id if previous else None)
+                source_type = (
+                    "diagnostic_incident"
+                    if observation["type"] == "incident"
+                    else "diagnostic_observation"
+                )
+                await service.write(
+                    scope,
+                    Candidate(
+                        title="Diagnóstico: " + observation["resource"],
+                        content=json.dumps(observation, ensure_ascii=False),
+                        kind="diagnostic",
+                        source_type=source_type,
+                        source_id=observation["id"],
+                        valid_until=valid_until,
+                    ),
+                    "diagnostic:" + observation["id"],
+                    previous.item_id if previous else None,
+                    previous.id if previous else None,
+                )
             await session.commit()
-        journal.ack(observation['id'])
+        journal.ack(observation["id"])
+
 
 async def run() -> None:
     if not settings.deus_diagnostics_enabled:
-        logger.info('diagnostics disabled by configuration')
+        logger.info("diagnostics disabled by configuration")
         return
-    journal=DiagnosticJournal(Path(settings.deus_diagnostics_root))
-    rules=DiagnosticRules()
-    stored=journal.get_rules()
+    journal = DiagnosticJournal(Path(settings.deus_diagnostics_root))
+    rules = DiagnosticRules()
+    stored = journal.get_rules()
     for row in stored.values():
-        for key in ['observed_at','valid_until']:
+        for key in ["observed_at", "valid_until"]:
             if key in row:
-                row[key]=datetime.fromisoformat(row[key])
-    rules.states=stored
+                row[key] = datetime.fromisoformat(row[key])
+    rules.states = stored
+
     while True:
-        now=datetime.now(timezone.utc)
-        observations=await collect()
-        for resource,healthy in observations.items():
-            incident=rules.observe(resource,healthy,now)
-            observation={'id':str(uuid.uuid4()),'type':'observation','resource':resource,'status':'healthy' if healthy else 'unhealthy','observed_at':now.isoformat(),'valid_until':(now+timedelta(seconds=45)).isoformat()}
+        now = datetime.now(timezone.utc)
+        observations = await collect()
+        for resource, healthy in observations.items():
+            incident = rules.observe(resource, healthy, now)
+            status = (
+                "healthy"
+                if healthy is True
+                else "unhealthy"
+                if healthy is False
+                else "unknown"
+            )
+            observation = {
+                "id": str(uuid.uuid4()),
+                "type": "observation",
+                "resource": resource,
+                "status": status,
+                "observed_at": now.isoformat(),
+                "valid_until": (now + timedelta(seconds=45)).isoformat(),
+            }
             try:
                 journal.append(observation)
                 if incident:
-                    journal.append({**observation,**incident,'id':str(uuid.uuid4()),'type':'incident'})
+                    journal.append(
+                        {
+                            **observation,
+                            **incident,
+                            "id": str(uuid.uuid4()),
+                            "type": "incident",
+                        }
+                    )
             except JournalFull:
-                logger.error('diagnostic journal full; new evidence admission stopped')
-        saved={key:{k:v.isoformat() if isinstance(v,datetime) else v for k,v in row.items()} for key,row in rules.states.items()}
+                logger.error(
+                    "diagnostic journal full; new evidence admission stopped"
+                )
+
+        saved = {
+            key: {
+                k: v.isoformat() if isinstance(v, datetime) else v
+                for k, v in row.items()
+            }
+            for key, row in rules.states.items()
+        }
         journal.set_rules(saved)
         try:
-            creator_id=await creator_scope()
+            creator_id = await creator_scope()
             if creator_id:
                 journal.bind_creator(creator_id)
-                await publish(journal,creator_id)
+                await publish(journal, creator_id)
         except Exception as exc:
-            logger.bind(component='diagnostics',error_type=type(exc).__name__).warning('diagnostics retained locally for replay')
+            logger.bind(
+                component="diagnostics",
+                error_type=type(exc).__name__,
+            ).warning("diagnostics retained locally for replay")
         await asyncio.sleep(15)
 
-if __name__=='__main__':
-    root=Path(settings.deus_diagnostics_root)
-    root.mkdir(parents=True,exist_ok=True,mode=0o700)
-    with (root/'.worker.lock').open('a') as lock:
-        fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+
+if __name__ == "__main__":
+    root = Path(settings.deus_diagnostics_root)
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    with (root / ".worker.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         asyncio.run(run())
