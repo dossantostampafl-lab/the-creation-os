@@ -17,7 +17,9 @@ Isolated local environment for training, experimentation, replay and verificatio
 
 ## Safety boundary
 
-All published ports bind to loopback. Controller/targets share an internal network; the additional `range_loopback` bridge permits host publication with IP masquerading disabled. Disabling NAT does not remove gateway routes or enforce an outbound firewall. Containers can still reach host listeners, and routing configurations may permit other destinations. Use a dedicated or disposable machine without production credentials/data. Co-hosting with production requires tested host INPUT and forwarded-egress deny rules that preserve established replies and required controller traffic; DOCKER-USER alone does not protect host listeners. The controller has no arbitrary shell or external-target execution API. Production networks and real credentials must never be attached to this compose project.
+The vulnerable Juice Shop and WebGoat containers now have exactly one interface: the Docker `range_targets` network, declared `internal: true`. They publish no host ports and never join `range_loopback` or `range_control`. Host loopback access is provided by small non-root, read-only, capability-dropped TCP proxies that have fixed targets in Compose; those proxies have no Docker socket, writable volume, arbitrary destination parameter, or production credential. The controller is separate from the vulnerable-target network and exposes only its declared lifecycle API on loopback.
+
+The publication bridge still has IP masquerading disabled, and the Range must never be attached to production networks or given production credentials/data. The fixed proxies materially reduce target-to-host/routed reachability, but this project still treats the Range as disposable training infrastructure rather than as production authority. Any future component that can execute commands or arbitrary network actions must remain behind the strong-isolation gateway and its fail-closed policy.
 
 ## Windows / Docker Desktop
 
@@ -67,4 +69,4 @@ Snapshots live in the dedicated `range_snapshots` Docker volume. `POST /reset` c
 
 ### Hospedagem separada de produção
 
-NAT desativado não equivale a firewall: containers ainda podem alcançar listeners do próprio host. Use uma máquina dedicada/descartável sem dados ou credenciais de produção. A ponte descrita aqui não autoriza co-hospedar alvos vulneráveis no servidor público do OS. Para isso, primeiro implemente e teste isolamento de saída/host, preservando o tráfego de resposta necessário. O relay autentica controles, mas não impõe esse isolamento.
+Os alvos vulneráveis não possuem mais interface na rede de publicação do host: ficam somente em `range_targets`, que é interna. Os proxies de loopback são de destino fixo, sem privilégios, sem volumes e sem Docker socket. Mesmo assim, o Range continua sendo infraestrutura descartável de treinamento: não anexe redes, dados ou credenciais de produção. O relay autentica controles e os proxies reduzem a superfície de publicação, mas nenhum deles concede autoridade sobre ambientes `real:*`.
