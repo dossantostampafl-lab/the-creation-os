@@ -26,7 +26,12 @@ O observador passa a cobrir:
 
 Uma sonda retorna `healthy`, `unhealthy` ou `unknown`. `unknown` atualiza a validade da observação, mas não abre nem recupera incidente e não é contabilizado como sucesso/falha.
 
+## Incidentes duráveis
+
+A abertura de incidente recebe um `episode_id` imutável. A recuperação revisa o mesmo item do episódio. Observações correntes continuam expirando em 45 segundos; incidentes não expiram e permanecem como histórico auditável. Um novo episódio do mesmo recurso recebe outro `episode_id`.
+
 ## Proveniência
+
 
 Revisões de conhecimento geradas pelo Centro usam fonte tipada:
 - `diagnostic_observation`
