@@ -49,7 +49,10 @@ fn requested(tool_id: &str) -> RequestedAction {
 }
 
 fn state() -> GatewayState {
-    GatewayState::new(Box::new(ReplayGuard::default()), vec!["cyber_range:".into()])
+    GatewayState::new(
+        Box::new(ReplayGuard::default()),
+        vec!["cyber_range:".into()],
+    )
 }
 
 fn health_server() -> (String, thread::JoinHandle<String>) {
@@ -84,13 +87,17 @@ fn range_health_executes_only_through_authenticated_control_relay() {
         "op": "execute",
         "envelope": envelope("range-health-1"),
         "requested": requested("range.health.verify")
-    }).to_string();
+    })
+    .to_string();
 
     let reply: serde_json::Value = serde_json::from_str(&gateway.handle_line(&line, 100)).unwrap();
 
     assert_eq!(reply["decision"], "permit");
     assert_eq!(reply["status"], "executed");
-    assert!(reply["execution_id"].as_str().unwrap().starts_with("range-health:"));
+    assert!(reply["execution_id"]
+        .as_str()
+        .unwrap()
+        .starts_with("range-health:"));
     let request = seen.join().unwrap();
     assert!(request.starts_with("GET /health HTTP/1.1\r\n"));
     assert!(request.contains(&format!("Authorization: Bearer {token}\r\n")));
