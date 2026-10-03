@@ -14,23 +14,64 @@ CONTROLLER_APP = ROOT / "controller" / "app.py"
 
 def load_controller(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     scenarios = tmp_path / "catalog.json"
+    campaigns = tmp_path / "campaigns.json"
     evidence = tmp_path / "evidence"
     state = tmp_path / "state"
+    campaign_state = tmp_path / "campaign-state"
+    snapshots = tmp_path / "snapshots"
+
+    def scenario(scenario_id: str, target: str, family: str, prerequisites=None, purple=False):
+        return {
+            "id": scenario_id,
+            "version": 1,
+            "target": target,
+            "family": family,
+            "difficulty": 2,
+            "description": f"{scenario_id} training",
+            "objectives": ["produce scoped evidence"],
+            "prerequisites": prerequisites or [],
+            "success_criteria": ["execution_evidence"],
+            "failure_criteria": ["containment_failure"],
+            "reset_policy": "deterministic",
+            "purple_required": purple,
+            "blind": False,
+        }
+
     scenarios.write_text(
-        json.dumps(
-            {
-                "scenarios": [
-                    {"id": "juice-shop-baseline", "target": "juice-shop"},
-                    {"id": "webgoat-baseline", "target": "webgoat"},
-                ]
-            }
-        ),
+        json.dumps({
+            "schema_version": 2,
+            "environment": "CYBER_RANGE",
+            "scenarios": [
+                scenario("juice-shop-baseline", "juice-shop", "web_application"),
+                scenario("webgoat-baseline", "webgoat", "authorization"),
+                scenario("blue-detection-baseline", "juice-shop", "detection",
+                         prerequisites=["juice-shop-baseline"], purple=True),
+            ],
+        }),
+        encoding="utf-8",
+    )
+    campaigns.write_text(
+        json.dumps({
+            "schema_version": 1,
+            "environment": "CYBER_RANGE",
+            "campaigns": [{
+                "id": "stf-foundation-v1",
+                "version": 1,
+                "name": "STF Foundation",
+                "description": "ordered training",
+                "scenario_ids": ["juice-shop-baseline", "webgoat-baseline", "blue-detection-baseline"],
+                "completion_policy": "ordered",
+                "reset_between_scenarios": True,
+                "blind": False,
+            }],
+        }),
         encoding="utf-8",
     )
     monkeypatch.setenv("RANGE_SCENARIO_CATALOG", str(scenarios))
+    monkeypatch.setenv("RANGE_CAMPAIGN_CATALOG", str(campaigns))
     monkeypatch.setenv("RANGE_EVIDENCE_DIR", str(evidence))
-    snapshots = tmp_path / "snapshots"
     monkeypatch.setenv("RANGE_STATE_DIR", str(state))
+    monkeypatch.setenv("RANGE_CAMPAIGN_STATE_DIR", str(campaign_state))
     monkeypatch.setenv("RANGE_SNAPSHOT_DIR", str(snapshots))
 
     assert CONTROLLER_APP.exists(), "Range Controller app.py must exist"
