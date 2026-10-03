@@ -1,6 +1,8 @@
+import hashlib
 import json
 import os
 import re
+import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -72,6 +74,25 @@ def _load_catalog() -> list[dict[str, Any]]:
             raise RuntimeError("scenario manifest must declare deterministic reset")
         if not isinstance(item.get("purple_required"), bool) or not isinstance(item.get("blind"), bool):
             raise RuntimeError("scenario manifest flags are invalid")
+        variants = item.get("variants", [])
+        if not isinstance(variants, list):
+            raise RuntimeError("scenario variants must be a list")
+        variant_ids: set[str] = set()
+        for variant in variants:
+            if not isinstance(variant, dict):
+                raise RuntimeError("scenario contains an invalid variant")
+            variant_id = variant.get("id")
+            if (
+                not isinstance(variant_id, str)
+                or not SCENARIO_ID.fullmatch(variant_id)
+                or variant_id in variant_ids
+                or not isinstance(variant.get("focus"), str)
+                or not variant["focus"]
+            ):
+                raise RuntimeError("scenario contains an invalid variant")
+            variant_ids.add(variant_id)
+        if item.get("blind") and len(variants) < 2:
+            raise RuntimeError("blind scenarios require at least two hidden variants")
     for item in scenarios:
         prerequisites = set(item.get("prerequisites", []))
         if not prerequisites.issubset(ids) or item["id"] in prerequisites:
@@ -151,13 +172,29 @@ def _declared_id(scenario: dict[str, Any]) -> str:
     return _validated_name(str(scenario["id"]), SCENARIO_ID)
 
 
-def _state_records() -> list[dict[str, Any]]:
+def _public_scenario(scenario: dict[str, Any]) -> dict[str, Any]:
+    visible = dict(scenario)
+    if visible.get("blind"):
+        variants = visible.pop("variants", [])
+        visible["variant_count"] = len(variants)
+    return visible
+
+
+def _public_state(record: dict[str, Any]) -> dict[str, Any]:
+    visible = dict(record)
+    if visible.get("blind"):
+        visible.pop("variant_id", None)
+        visible.pop("variant_nonce", None)
+    return visible
+
+
+def _state_records(*, public: bool = True) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     for path in sorted(STATE_DIR.glob("*.json")):
         record = json.loads(path.read_text(encoding="utf-8"))
         scenario_id = record.get("scenario_id")
         if isinstance(scenario_id, str) and SCENARIO_ID.fullmatch(scenario_id):
-            records.append(record)
+            records.append(_public_state(record) if public else record)
     return records
 
 
@@ -198,6 +235,19 @@ def _activate_scenario(scenario: dict[str, Any]) -> dict[str, Any]:
         "status": "active",
         "started_at": datetime.now(timezone.utc).isoformat(),
     }
+    variants = scenario.get("variants", [])
+    if scenario.get("blind") and variants:
+        variant = secrets.choice(variants)
+        nonce = secrets.token_hex(16)
+        commitment = hashlib.sha256(
+            f"{scenario['id']}:{variant['id']}:{nonce}".encode("utf-8")
+        ).hexdigest()
+        record.update({
+            "variant_id": variant["id"],
+            "variant_nonce": nonce,
+            "variant_commitment": commitment,
+            "variant_count": len(variants),
+        })
     _safe_child(STATE_DIR, f"{_declared_id(scenario)}.json").write_text(
         json.dumps(record, sort_keys=True), encoding="utf-8"
     )
@@ -235,7 +285,7 @@ def health() -> dict[str, str]:
 
 @app.get("/scenarios")
 def list_scenarios() -> dict[str, list[dict[str, Any]]]:
-    return {"scenarios": _load_catalog()}
+    return {"scenarios": [_public_scenario(item) for item in _load_catalog()]}
 
 
 @app.get("/campaigns")
@@ -254,7 +304,7 @@ def get_range_state() -> dict[str, Any]:
 
 @app.post("/scenarios/{scenario_id}/start")
 def start_scenario(scenario_id: str) -> dict[str, Any]:
-    return _activate_scenario(_scenario(scenario_id))
+    return _public_state(_activate_scenario(_scenario(scenario_id)))
 
 
 @app.post("/campaigns/{campaign_id}/start")
@@ -370,7 +420,7 @@ def save_range() -> dict[str, Any]:
         "snapshot_id": snapshot_id,
         "environment": "CYBER_RANGE",
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "state": _state_records(),
+        "state": _state_records(public=False),
         "campaign_state": _campaign_records(),
     }
     destination = _safe_child(SNAPSHOT_DIR, f"{_validated_name(snapshot_id, SNAPSHOT_ID)}.json")
