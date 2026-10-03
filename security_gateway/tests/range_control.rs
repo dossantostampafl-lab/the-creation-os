@@ -40,14 +40,21 @@ fn health_uses_only_fixed_authenticated_route_and_accepts_cyber_range_identity()
 #[test]
 fn health_rejects_wrong_environment_even_on_http_200() {
     let body = r#"{"status":"ok","environment":"PRODUCTION"}"#;
-    let response = Box::leak(format!(
-        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-        body.len(), body
-    ).into_boxed_str());
+    let response = Box::leak(
+        format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        )
+        .into_boxed_str(),
+    );
     let (addr, request) = one_response(response);
     let client = RangeControlClient::new(addr, "r".repeat(40)).unwrap();
 
-    assert_eq!(client.verify_health(), Err(RangeControlError::InvalidResponse));
+    assert_eq!(
+        client.verify_health(),
+        Err(RangeControlError::InvalidResponse)
+    );
     request.join().unwrap();
 }
 
