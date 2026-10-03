@@ -8,6 +8,7 @@ import socketserver
 from typing import NamedTuple
 
 _ALLOWED_DESTINATIONS = {
+    ("controller", 7070),
     ("juice-shop", 3000),
     ("webgoat", 8080),
     ("webgoat", 9090),
