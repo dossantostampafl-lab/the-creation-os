@@ -13,7 +13,7 @@ impl Sandbox for KataSandbox {
         if !self.available {
             return Err(SandboxError::Unavailable);
         }
-        if tool_id != "range.health.verify" {
+        if tool_id != "sandbox.health.verify" {
             return Err(SandboxError::NotAllowlisted);
         }
         // Running work inside Kata is an operator-supplied integration that has not been connected or
