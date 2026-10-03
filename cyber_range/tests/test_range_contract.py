@@ -182,3 +182,14 @@ def test_runtime_smoke_applies_host_firewall_and_probes_host_reachability() -> N
     assert "HOST_GATEWAY" in text
     assert "host containment failed" in text
     assert "containment-linux.sh remove" in text
+
+
+def test_compose_bridge_names_match_the_host_containment_firewall() -> None:
+    networks = load_compose()["networks"]
+    expected = {
+        "range_control": "tco_rng_ctl",
+        "range_targets": "tco_rng_tgt",
+        "range_loopback": "tco_rng_pub",
+    }
+    for network_name, bridge_name in expected.items():
+        assert networks[network_name]["driver_opts"]["com.docker.network.bridge.name"] == bridge_name
