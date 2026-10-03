@@ -540,3 +540,29 @@ async def test_non_running_run_cannot_issue_or_spend_authority(stf_db):
         await session.commit()
     assert denied.status == "denied"
     assert denied.reason_codes == ["run_not_dispatchable"]
+
+
+async def test_qualification_rejects_approval_for_different_parameters(stf_db):
+    from app.models.security_task_force import StfApproval
+
+    _, factory = stf_db
+    creator_id, run_id, _ = await _seed(factory)
+    async with factory() as session:
+        repository = _repository(session)
+        run = await repository.get_run(run_id, lock=True)
+        assert run is not None
+        high_risk = _action(risk_class="R3", parameters={"path": "/sensitive"})
+        run.plan_json = [high_risk.model_dump(mode="json")]
+        session.add(StfApproval(
+            creator_id=creator_id,
+            run_id=run_id,
+            action_id=high_risk.action_id,
+            parameters_hash="0" * 64,
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+            decision="approve",
+        ))
+        await session.flush()
+        result = await repository.qualify_run(run_id)
+        await session.commit()
+
+    assert "creator_approval_gates" in result["failed_gates"]
