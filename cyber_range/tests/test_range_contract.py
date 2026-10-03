@@ -172,3 +172,13 @@ def test_linux_containment_script_blocks_new_host_and_routed_connections() -> No
     assert "hook input" in code and "hook forward" in code
     assert "drop" in code
     assert "CYBER_RANGE_ENFORCE_HOST_FIREWALL" not in code, "the enforcement script itself must not silently no-op"
+
+
+def test_runtime_smoke_applies_host_firewall_and_probes_host_reachability() -> None:
+    workflow = ROOT.parent / ".github" / "workflows" / "cyber-range.yml"
+    text = workflow.read_text(encoding="utf-8")
+    assert "containment-linux.sh apply" in text
+    assert "containment-linux.sh status" in text
+    assert "HOST_GATEWAY" in text
+    assert "host containment failed" in text
+    assert "containment-linux.sh remove" in text
