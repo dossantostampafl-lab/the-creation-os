@@ -67,7 +67,7 @@ class StfActivities:
         request = ActionRequest.model_validate(action)
         if not self._d.kill_switch.dispatch_allowed(mission_id):
             return {"decision": "deny", "reasons": ["kill_switch"]}
-        if run_id is not None:
+        if run_id is not None and self._d.session_factory is not None:
             decision = await self._authorize_persisted(mission_id, request, approval, run_id)
         else:
             contract = self._d.contracts.get(mission_id)
