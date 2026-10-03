@@ -246,3 +246,120 @@ def test_incident_episode_id_survives_recovery_and_rotates():
     assert rules.observe('db', False, now) is None
     reopened = rules.observe('db', False, now)
     assert reopened and reopened['episode_id'] != first_episode
+
+
+@pytest.mark.asyncio
+async def test_incident_history_is_canonical_and_creator_scoped(knowledge_db, monkeypatch, tmp_path):  # noqa: F811
+    import uuid
+
+    from sqlalchemy import select
+
+    from app.diagnostics import worker
+    from app.diagnostics.incidents import record_cause_hypothesis
+    from app.diagnostics.journal import DiagnosticJournal
+    from app.models.diagnostics import DiagnosticCauseHypothesis, DiagnosticIncident
+
+    factory, creator_id, other_creator = knowledge_db
+    monkeypatch.setattr(worker, 'AsyncSessionLocal', factory)
+    journal = DiagnosticJournal(tmp_path)
+    now = datetime.now(timezone.utc)
+    episode_id = str(uuid.uuid4())
+
+    for index, state in enumerate(['open', 'recovered']):
+        journal.append({
+            'id': str(uuid.uuid4()),
+            'type': 'incident',
+            'resource': 'PostgreSQL',
+            'rule': 'availability',
+            'state': state,
+            'episode_id': episode_id,
+            'observed_at': (now + timedelta(seconds=index)).isoformat(),
+            'valid_until': (now + timedelta(seconds=45 + index)).isoformat(),
+        })
+
+    await worker.publish(journal, creator_id)
+
+    async with factory() as session:
+        incident = await session.scalar(
+            select(DiagnosticIncident).where(
+                DiagnosticIncident.id == episode_id,
+                DiagnosticIncident.creator_id == creator_id,
+            )
+        )
+        assert incident is not None
+        assert incident.state == 'recovered'
+        assert incident.recovered_at is not None
+        assert len(incident.observation_ids) == 2
+        assert incident.first_seen <= incident.last_seen
+
+        hypothesis = await record_cause_hypothesis(
+            session,
+            creator_id=creator_id,
+            incident_id=episode_id,
+            content='Hipótese baseada em evidência interna',
+            author_type='deus',
+            author_id='deus',
+            evidence_ids=list(incident.observation_ids),
+        )
+        await session.commit()
+        assert hypothesis.status == 'hypothesis'
+
+    async with factory() as session:
+        causes = list(await session.scalars(
+            select(DiagnosticCauseHypothesis).where(
+                DiagnosticCauseHypothesis.creator_id == creator_id,
+                DiagnosticCauseHypothesis.incident_id == episode_id,
+            )
+        ))
+        assert len(causes) == 1
+        with pytest.raises(ValueError):
+            await record_cause_hypothesis(
+                session,
+                creator_id=other_creator,
+                incident_id=episode_id,
+                content='Não pode atravessar Creator',
+                author_type='deus',
+            )
+
+
+@pytest.mark.asyncio
+async def test_open_incident_accumulates_observation_evidence(knowledge_db, monkeypatch, tmp_path):  # noqa: F811
+    import uuid
+
+    from sqlalchemy import select
+
+    from app.diagnostics import worker
+    from app.diagnostics.journal import DiagnosticJournal
+    from app.models.diagnostics import DiagnosticIncident
+
+    factory, creator_id, _ = knowledge_db
+    monkeypatch.setattr(worker, 'AsyncSessionLocal', factory)
+    journal = DiagnosticJournal(tmp_path)
+    now = datetime.now(timezone.utc)
+    episode_id = str(uuid.uuid4())
+
+    for index in range(2):
+        journal.append({
+            'id': str(uuid.uuid4()),
+            'type': 'observation',
+            'resource': 'Redis',
+            'rule': 'availability',
+            'status': 'unhealthy',
+            'incident_episode_id': episode_id,
+            'observed_at': (now + timedelta(seconds=index)).isoformat(),
+            'valid_until': (now + timedelta(seconds=45 + index)).isoformat(),
+        })
+
+    await worker.publish(journal, creator_id)
+
+    async with factory() as session:
+        incident = await session.scalar(
+            select(DiagnosticIncident).where(
+                DiagnosticIncident.id == episode_id,
+                DiagnosticIncident.creator_id == creator_id,
+            )
+        )
+        assert incident is not None
+        assert incident.state == 'open'
+        assert len(incident.observation_ids) == 2
+        assert incident.last_seen > incident.first_seen
