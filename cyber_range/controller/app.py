@@ -262,8 +262,10 @@ def _clear_scenario_state() -> int:
     return removed
 
 
-def _campaign_state_path(campaign_id: str) -> Path:
-    return _safe_child(CAMPAIGN_STATE_DIR, f"{_validated_name(campaign_id, SCENARIO_ID)}.json")
+def _campaign_state_path(campaign: dict[str, Any]) -> Path:
+    """Build state paths only from catalog-declared campaign ids, never HTTP path parameters."""
+    declared = _validated_name(str(campaign["id"]), SCENARIO_ID)
+    return _safe_child(CAMPAIGN_STATE_DIR, f"{declared}.json")
 
 
 def _snapshot_path(snapshot_id: str) -> Path:
@@ -310,7 +312,7 @@ def start_scenario(scenario_id: str) -> dict[str, Any]:
 @app.post("/campaigns/{campaign_id}/start")
 def start_campaign(campaign_id: str) -> dict[str, Any]:
     campaign = _campaign(campaign_id)
-    path = _campaign_state_path(campaign_id)
+    path = _campaign_state_path(campaign)
     if path.exists():
         current = json.loads(path.read_text(encoding="utf-8"))
         if current.get("status") == "active":
@@ -342,8 +344,8 @@ def start_campaign(campaign_id: str) -> dict[str, Any]:
 
 @app.get("/campaigns/{campaign_id}/state")
 def get_campaign_state(campaign_id: str) -> dict[str, Any]:
-    _campaign(campaign_id)
-    path = _campaign_state_path(campaign_id)
+    campaign = _campaign(campaign_id)
+    path = _campaign_state_path(campaign)
     if not path.exists():
         raise HTTPException(status_code=404, detail="campaign has not started")
     return json.loads(path.read_text(encoding="utf-8"))
@@ -505,7 +507,7 @@ def restore_range(snapshot_id: str) -> dict[str, Any]:
         ):
             raise HTTPException(status_code=409, detail="invalid campaign snapshot state")
         campaign_prepared.append((
-            _campaign_state_path(str(campaign_id)),
+            _campaign_state_path(campaign),
             json.dumps(campaign_record, sort_keys=True),
         ))
         restored_campaigns.append(str(campaign_id))
