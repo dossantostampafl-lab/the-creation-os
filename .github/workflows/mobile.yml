@@ -29,6 +29,7 @@ jobs:
           name: creation-os-android-unsigned
           path: |
             frontend/android/app/build/outputs/apk/debug/*.apk
+            frontend/android/app/build/outputs/apk/release/*.apk
             frontend/android/app/build/outputs/bundle/release/*.aab
   ios-simulator:
     runs-on: macos-15
@@ -47,3 +48,8 @@ jobs:
         with:
           name: creation-os-ios-simulator
           path: frontend/ios-build/Build/Products/Debug-iphonesimulator/App.app
+      - run: xcodebuild archive -project ios/App/App.xcodeproj -scheme App -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -archivePath ios-device/CreationOS.xcarchive CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: creation-os-ios-device-unsigned
+          path: frontend/ios-device/CreationOS.xcarchive

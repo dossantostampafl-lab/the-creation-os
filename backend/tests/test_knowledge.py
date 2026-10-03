@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import uuid
 
 import pytest
@@ -173,3 +174,21 @@ async def test_one_hop_relations_preserve_owner_and_current_revision(knowledge_d
         await session.commit()
         result = await service.search(Scope(creator_id=a), 'Kokoro')
         assert [row.item_id for row in result.evidences]==[root.item_id]
+
+
+def test_export_does_not_leak_sqlite_descriptors(tmp_path):
+    import gc
+
+    from app.knowledge.contracts import Scope
+    from app.knowledge.obsidian import ObsidianExporter
+    scope = Scope(creator_id=str(uuid.uuid4()))
+    exporter = ObsidianExporter(None, tmp_path)
+    gc.collect()
+    baseline = len(os.listdir('/proc/self/fd'))
+    gc.disable()
+    try:
+        for _ in range(40):
+            exporter._export(scope, {})
+        assert len(os.listdir('/proc/self/fd')) <= baseline+1
+    finally:
+        gc.enable()

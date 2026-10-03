@@ -12,7 +12,7 @@ npm ci
 CREATION_MOBILE_API_URL=https://148-116-109-255.sslip.io/api/v1 npm run mobile:android
 ```
 
-Resultados: `android/app/build/outputs/apk/debug/app-debug.apk` e `android/app/build/outputs/bundle/release/app-release.aab`. APKdebug tem assinatura de desenvolvimento e serve a testes. AABrelease não possui assinatura de distribuição. Samsung aceita APKrelease assinado; gere `./gradlew assembleRelease` após configurar assinatura privada. Nenhuma chave de assinatura deve entrar no repositório, no ZIP ou no frontend.
+Resultados: `android/app/build/outputs/apk/debug/app-debug.apk` e `android/app/build/outputs/bundle/release/app-release.aab`. APKdebug tem assinatura de desenvolvimento e serve a testes. AABrelease não possui assinatura de distribuição. Samsung aceita APKrelease assinado; o build também produz `app-release-unsigned.apk`, que deve receber sua assinatura privada. Nenhuma chave de assinatura deve entrar no repositório, no ZIP ou no frontend.
 
 No macOS com Xcode compatível com o SDK exigido no momento do envio:
 
@@ -23,7 +23,7 @@ npm run mobile:sync
 npx cap open ios
 ```
 
-Selecione o Team correto, mantenha BundleID e versões, escolha dispositivo genérico, Product→Archive e DistributeApp. AppStoreConnect exige conta ativa, certificados/provisionamento e assinatura. O workflow manual `Mobile packaging` compila Android e um app de simulador iOS sem assinatura; ele não publica em nenhuma loja.
+Selecione o Team correto, mantenha BundleID e versões, escolha dispositivo genérico, Product→Archive e DistributeApp. AppStoreConnect exige conta ativa, certificados/provisionamento e assinatura. O workflow `Mobile packaging` compila Android, um app de simulador e um archive iOS para dispositivos sem assinatura; ele não publica em nenhuma loja.
 
 O endereço de backend é validado como HTTPS no build; está embutido no pacote. Mudanças de domínio requerem rebuild. Configure CORS nativo no backend. Os modelos de voz e inference vivem no servidor e não são incluídos no app.
 

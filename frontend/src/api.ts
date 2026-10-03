@@ -1,3 +1,4 @@
+import { newRequestId } from './requestId';
 import type { ChronicleEvent, ChronicleRecord, InferenceStatusSnapshot, ProjectionStatus, SystemState } from "./types";
 
 export const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ?? "http://localhost:8000/api/v1";
@@ -184,7 +185,7 @@ export type DeusConversationReply = {
   correlation_id: string;
 };
 
-export const converseWithDeus = (conversationId: string, content: string, requestId: string = crypto.randomUUID()) =>
+export const converseWithDeus = (conversationId: string, content: string, requestId: string = newRequestId()) =>
   api<DeusConversationReply>(`/conversations/${conversationId}/deus`, {
     method: "POST",
     body: JSON.stringify({ content, metadata: {}, request_id: requestId }),

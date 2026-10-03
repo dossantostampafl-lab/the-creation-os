@@ -1,3 +1,4 @@
+import { newRequestId } from './requestId';
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
 import {
@@ -195,7 +196,7 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
       setInput("");
 
       // Render the Creator's words immediately; do not make the UI wait for inference.
-      optimisticId = `local-creator-${crypto.randomUUID()}`;
+      optimisticId = `local-creator-${newRequestId()}`;
       const optimistic: ConversationMessage = {
         id: optimisticId,
         conversation_id: id,
@@ -218,7 +219,7 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
         correlation_id: reply.correlation_id || "",
       };
       const deusMessage: ConversationMessage = {
-        id: `local-deus-${reply.correlation_id || crypto.randomUUID()}`,
+        id: `local-deus-${reply.correlation_id || newRequestId()}`,
         conversation_id: id,
         actor_id: "deus",
         role: "deus",

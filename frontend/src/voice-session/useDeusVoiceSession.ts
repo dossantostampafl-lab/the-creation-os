@@ -1,3 +1,4 @@
+import { newRequestId } from '../requestId';
 import { NATIVE_BACKGROUND_EVENT } from '../native';
 import { useEffect, useRef, useState } from "react";
 
@@ -153,7 +154,7 @@ export function useDeusVoiceSession(options: UseDeusVoiceSessionOptions): DeusVo
         turn_id: model.turnId,
         audio_base64: bytesToBase64(pcm16k),
         commit: false,
-        utterance_id: crypto.randomUUID(),
+        utterance_id: newRequestId(),
       });
     };
 

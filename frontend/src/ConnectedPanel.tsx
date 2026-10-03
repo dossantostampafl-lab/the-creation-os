@@ -1,3 +1,4 @@
+import { newRequestId } from './requestId';
 import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { fetchDiagnostics, createKnowledgeProject, fetchKnowledgeProjects, setKnowledgeFocus, CREATOR_CONVERSATION_KEY, changeCyberRange, fetchCyberRange, revokeKnowledge, saveKnowledge, searchKnowledge } from './api';
@@ -10,7 +11,7 @@ export function ConnectedPanel() {
   const [query, setQuery] = useState('');
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
-  const [requestId, setRequestId] = useState(() => crypto.randomUUID());
+  const [requestId, setRequestId] = useState(() => newRequestId());
   const [evidence, setEvidence] = useState<KnowledgeEvidence[]>([]);
   const [diagnostics, setDiagnostics] = useState<{resource:string;status:string;observed_at:string}[] | null>(null);
   const [range, setRange] = useState<CyberRangeState | null>(null);
@@ -33,7 +34,7 @@ export function ConnectedPanel() {
     event.preventDefault();
     void run(async () => {
       await saveKnowledge(title, content, requestId, projectId || undefined);
-      setTitle(''); setContent(''); setRequestId(crypto.randomUUID());
+      setTitle(''); setContent(''); setRequestId(newRequestId());
       setMessage('Informação salva na memória de Deus.');
     });
   }
@@ -45,7 +46,7 @@ export function ConnectedPanel() {
     <button disabled={busy} onClick={()=>void run(async()=>{const conversationId=window.localStorage.getItem(CREATOR_CONVERSATION_KEY);if(!conversationId) throw new Error('Conversation unavailable');await setKnowledgeFocus(conversationId,projectId||null);setMessage('Foco aplicado à conversa por texto e voz.');})}>Aplicar foco à conversa atual</button>
     <form onSubmit={event=>{event.preventDefault();void run(async()=>{const project=await createKnowledgeProject(projectTitle);setProjects(rows=>[...rows,project]);setProjectId(project.id);setProjectTitle('');setMessage('Projeto criado.');});}}><label>Novo projeto<input value={projectTitle} onChange={e=>setProjectTitle(e.target.value)} maxLength={200} required/></label><button disabled={busy}>Criar projeto</button></form>
     <form onSubmit={find}><label>Pesquisar evidências<input value={query} onChange={e=>setQuery(e.target.value)} required maxLength={2048}/></label><button disabled={busy}>Pesquisar</button></form>
-    <form onSubmit={save}><label>Título<input value={title} onChange={e=>{setTitle(e.target.value);setRequestId(crypto.randomUUID());}} required maxLength={200}/></label><label>Informação<textarea value={content} onChange={e=>{setContent(e.target.value);setRequestId(crypto.randomUUID());}} required maxLength={262144}/></label><button disabled={busy}>Guardar na memória</button></form>
+    <form onSubmit={save}><label>Título<input value={title} onChange={e=>{setTitle(e.target.value);setRequestId(newRequestId());}} required maxLength={200}/></label><label>Informação<textarea value={content} onChange={e=>{setContent(e.target.value);setRequestId(newRequestId());}} required maxLength={262144}/></label><button disabled={busy}>Guardar na memória</button></form>
     <div className="stack">{evidence.map(item=><article className="decision" key={item.revision_id}><div><strong>{item.title}</strong><small>{item.epistemic_state}</small><p>{item.content}</p></div><button disabled={busy} onClick={()=>{if(window.confirm('Revogar esta informação e suas notas dependentes?')) void run(async()=>{await revokeKnowledge(item);setEvidence(rows=>rows.filter(row=>row.item_id!==item.item_id));setMessage('Informação revogada.');});}}>Revogar</button></article>)}</div>
     <h3>Diagnóstico do OS</h3>
     <button disabled={busy} onClick={()=>void run(async()=>{setDiagnostics((await fetchDiagnostics()).observations);})}>Consultar observações atuais</button>

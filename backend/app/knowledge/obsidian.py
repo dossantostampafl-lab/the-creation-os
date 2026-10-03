@@ -7,6 +7,7 @@ import json
 import os
 import sqlite3
 import tempfile
+from contextlib import closing
 from pathlib import Path
 
 from sqlalchemy import select
@@ -70,7 +71,7 @@ class ObsidianExporter:
         if journal_path.is_symlink() or lock_path.is_symlink():
             raise ValueError('unsafe export metadata')
         report = {'written': 0, 'removed': 0, 'conflicts': 0}
-        with lock_path.open('a') as lock, sqlite3.connect(journal_path) as journal:
+        with lock_path.open('a') as lock, closing(sqlite3.connect(journal_path)) as journal:
             fcntl.flock(lock, fcntl.LOCK_EX)
             journal.execute('PRAGMA synchronous=FULL')
             journal.execute('CREATE TABLE IF NOT EXISTS files(id TEXT PRIMARY KEY, path TEXT, old_hash TEXT, new_hash TEXT, state TEXT)')

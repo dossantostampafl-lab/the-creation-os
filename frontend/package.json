@@ -9,7 +9,7 @@
     "test": "vitest run",
     "test:e2e": "playwright test",
     "mobile:sync": "node scripts/build-mobile.mjs",
-    "mobile:android": "npm run mobile:sync && cd android && ./gradlew assembleDebug bundleRelease",
+    "mobile:android": "npm run mobile:sync && cd android && ./gradlew assembleDebug assembleRelease bundleRelease",
     "mobile:ios": "npm run mobile:sync && npx cap open ios"
   },
   "dependencies": {
@@ -22,7 +22,6 @@
     "react-dom": "19.2.8"
   },
   "devDependencies": {
-    "@capacitor/assets": "3.0.5",
     "@capacitor/cli": "8.5.2",
     "@playwright/test": "^1.63.0",
     "@types/react": "^19.3.0",
@@ -31,5 +30,10 @@
     "typescript": "^7.0.2",
     "vite": "^8.3.0",
     "vitest": "^5.0.1"
+  },
+  "overrides": {
+    "xcode": {
+      "uuid": "11.1.1"
+    }
   }
 }
