@@ -34,7 +34,13 @@ impl RangeControlClient {
         let Some((host, port)) = addr.rsplit_once(':') else {
             return Err(RangeControlError::InvalidConfiguration);
         };
-        if host.is_empty() || port.parse::<u16>().ok().filter(|value| *value > 0).is_none() {
+        if host.is_empty()
+            || port
+                .parse::<u16>()
+                .ok()
+                .filter(|value| *value > 0)
+                .is_none()
+        {
             return Err(RangeControlError::InvalidConfiguration);
         }
         Ok(Self {
@@ -45,7 +51,8 @@ impl RangeControlClient {
     }
 
     pub fn verify_health(&self) -> Result<(), RangeControlError> {
-        let mut stream = TcpStream::connect(&self.addr).map_err(|_| RangeControlError::Unavailable)?;
+        let mut stream =
+            TcpStream::connect(&self.addr).map_err(|_| RangeControlError::Unavailable)?;
         stream
             .set_read_timeout(Some(IO_TIMEOUT))
             .map_err(|_| RangeControlError::Unavailable)?;
@@ -68,7 +75,8 @@ impl RangeControlClient {
         if response.len() as u64 > MAX_RESPONSE_BYTES {
             return Err(RangeControlError::InvalidResponse);
         }
-        let text = std::str::from_utf8(&response).map_err(|_| RangeControlError::InvalidResponse)?;
+        let text =
+            std::str::from_utf8(&response).map_err(|_| RangeControlError::InvalidResponse)?;
         let Some((head, body)) = text.split_once("\r\n\r\n") else {
             return Err(RangeControlError::InvalidResponse);
         };
