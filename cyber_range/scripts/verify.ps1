@@ -11,4 +11,4 @@ foreach ($Url in $Urls) {
   }
   if (-not $ok) { throw "Cyber Range verification failed: $Url" }
 }
-Write-Host "Creation Cyber Range v1 verified on loopback-only endpoints."
+Write-Host "Creation Cyber Range v2 verified on loopback-only endpoints."
