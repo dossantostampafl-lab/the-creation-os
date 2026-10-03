@@ -155,7 +155,14 @@ class StfActivities:
             from .repository import StfRepository
 
             async with self._d.session_factory() as session:
-                return await StfRepository(session).verify_run_evidence(run_id)
+                repository = StfRepository(session)
+                verified = await repository.verify_run_evidence(run_id)
+                if not verified:
+                    return False
+                await repository.project_verified_findings(run_id)
+                await repository.qualify_run(run_id)
+                await session.commit()
+                return True
         if self._d.verify is None:
             return False  # nothing can prove the run, so nothing completes
         return bool(self._d.verify(mission_id))
