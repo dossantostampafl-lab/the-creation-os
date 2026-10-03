@@ -194,3 +194,57 @@ async def test_persisted_run_reserves_database_authority_before_gateway(tmp_path
     assert len(deps.gateway.calls) == 1
     # Persisted runs must not reserve dispatch in the legacy file-backed ledger.
     assert deps.ledger.result("k1") is None
+
+
+async def test_persisted_run_authorization_uses_database_contract_and_grant(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from app.security_task_force.contract_store import ContractStore
+    from app.security_task_force.mission_compiler import compile_verified_contract
+
+    activities, deps = make(tmp_path)
+    deps.contracts = ContractStore(tmp_path / "empty-contracts.json")
+    persisted = compile_verified_contract(
+        intent="validate", candidate={
+            "mission_id": "m1", "creator_id": "c1", "success_criteria": ["evidence"],
+            "authorized_targets": ["juice-shop"], "allowed_action_classes": ["validate"], "risk_ceiling": "R4",
+        }, authorized_environments=[RANGE],
+    ).contract
+    assert persisted is not None
+    issued = []
+
+    class Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def commit(self):
+            return None
+
+    class Repository:
+        def __init__(self, session):
+            self.session = session
+
+        async def get_run(self, run_id, *, lock=False):
+            return SimpleNamespace(
+                id=run_id, creator_id="c1", mission_id="m1", mission_version=1,
+                desired_state="RUN", state="RUNNING",
+            )
+
+        async def get_contract(self, creator_id, mission_id, version=None):
+            return SimpleNamespace(contract_json=persisted.model_dump(mode="json"))
+
+        async def issue_grant(self, run_id, grant):
+            issued.append((run_id, grant))
+            return True
+
+    monkeypatch.setattr("app.security_task_force.repository.StfRepository", Repository)
+    deps.session_factory = lambda: Session()
+
+    decision = await activities.authorize_action("m1", action(), None, "run-1")
+
+    assert decision["decision"] == "permit"
+    assert issued and issued[0][0] == "run-1" and issued[0][1].grant_id == decision["grant_id"]
+    assert deps.grants._state()["grants"] == {}
