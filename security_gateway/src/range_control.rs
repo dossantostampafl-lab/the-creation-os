@@ -43,11 +43,8 @@ impl RangeControlClient {
         {
             return Err(RangeControlError::InvalidConfiguration);
         }
-        Ok(Self {
-            addr,
-            host: host.to_owned(),
-            token,
-        })
+        let host = host.to_owned();
+        Ok(Self { addr, host, token })
     }
 
     pub fn verify_health(&self) -> Result<(), RangeControlError> {
