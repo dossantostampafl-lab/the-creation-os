@@ -20,9 +20,11 @@ from app.models.security_task_force import (
     StfContract,
     StfDispatch,
     StfEvidence,
+    StfFinding,
     StfGrant,
     StfInbox,
     StfOutbox,
+    StfQualification,
     StfRun,
 )
 from app.repositories.domain import DomainRepository
@@ -30,7 +32,9 @@ from app.security_task_force.canonicalize import canonical_hash
 from app.security_task_force.contracts import ActionRequest, CapabilityGrant
 from app.security_task_force.evidence import EvidenceRecord
 from app.security_task_force.mission_compiler import CompilationResult
+from app.security_task_force.qualification import GateResult, evaluate as evaluate_qualification
 from app.security_task_force.runtime_contracts import DispatchReceipt, OutboxLease, RunRecord
+from app.security_task_force.verification import FindingStatus, verify_finding
 
 ACTOR = "stf-repository"
 ACTOR_ROLE = "system"
@@ -286,6 +290,275 @@ class StfRepository:
             ):
                 return False
         return True
+
+
+    @staticmethod
+    def _evidence_record(row: StfEvidence) -> EvidenceRecord:
+        return EvidenceRecord(
+            evidence_id=row.evidence_id,
+            mission_id=row.mission_id,
+            action_id=row.action_id,
+            task_id=row.task_id,
+            environment_id=row.environment_id,
+            source=row.source,
+            kind=row.kind,
+            acquired_at=row.acquired_at,
+            payload=dict(row.payload),
+            sha256=row.sha256,
+            run_id=row.run_id,
+            execution_id=row.execution_id,
+        )
+
+    async def evidence_records(
+        self, run_id: str, *, action_id: str | None = None, kind: str | None = None
+    ) -> list[EvidenceRecord]:
+        stmt = select(StfEvidence).where(StfEvidence.run_id == run_id)
+        if action_id is not None:
+            stmt = stmt.where(StfEvidence.action_id == action_id)
+        if kind is not None:
+            stmt = stmt.where(StfEvidence.kind == kind)
+        rows = (await self.session.scalars(stmt.order_by(StfEvidence.created_at, StfEvidence.evidence_id))).all()
+        return [self._evidence_record(row) for row in rows]
+
+    async def project_verified_findings(self, run_id: str) -> list[dict]:
+        """Project only confirmed findings; Chronicle receives references and hashes, never evidence bodies."""
+        run = await self.get_run(run_id)
+        if run is None:
+            return []
+        dispatches = (await self.session.scalars(
+            select(StfDispatch).where(StfDispatch.run_id == run_id)
+        )).all()
+        by_action = {row.action_id: row for row in dispatches}
+        records = await self.evidence_records(run_id)
+        grouped: dict[str, dict[str, list[EvidenceRecord]]] = {}
+        for record in records:
+            grouped.setdefault(record.action_id, {}).setdefault(record.kind, []).append(record)
+
+        for action in run.plan_json:
+            if not isinstance(action, dict):
+                continue
+            action_id = str(action.get("action_id", ""))
+            attack_records = grouped.get(action_id, {}).get("attack", [])
+            if not attack_records:
+                continue
+            defense_records = grouped.get(action_id, {}).get("defense", [])
+            params = action.get("parameters") if isinstance(action.get("parameters"), dict) else {}
+            replay_refs: list[str] = []
+            for replay in run.plan_json:
+                if not isinstance(replay, dict):
+                    continue
+                replay_params = replay.get("parameters") if isinstance(replay.get("parameters"), dict) else {}
+                if replay_params.get("replay_of") != action_id:
+                    continue
+                replay_dispatch = by_action.get(str(replay.get("action_id", "")))
+                if replay_dispatch is not None and replay_dispatch.status == "executed" and replay_dispatch.evidence_id:
+                    replay_refs.append(replay_dispatch.evidence_id)
+
+            attack = attack_records[-1]
+            defense = defense_records[-1] if defense_records else None
+            verdict = verify_finding(
+                attack,
+                defense,
+                purple_required=bool(params.get("purple_required", False)),
+                reproduced=bool(replay_refs),
+                mission_id=run.mission_id,
+                action_id=action_id,
+                environment_id=str(action.get("environment_id", "")),
+            )
+            if verdict.status != FindingStatus.CONFIRMED.value:
+                continue
+
+            finding_id = "finding:" + canonical_hash({
+                "run_id": run_id,
+                "action_id": action_id,
+                "attack": attack.evidence_id,
+                "defense": defense.evidence_id if defense else None,
+                "replay": replay_refs,
+            })[:48]
+            title = str(params.get("finding_title") or f"Verified finding for {action_id}")[:256]
+            inserted = await self.session.scalar(
+                insert(StfFinding).values(
+                    finding_id=finding_id,
+                    run_id=run_id,
+                    mission_id=run.mission_id,
+                    action_id=action_id,
+                    task_id=str(action.get("task_id", "")),
+                    environment_id=str(action.get("environment_id", "")),
+                    title=title,
+                    status=FindingStatus.CONFIRMED.value,
+                    reason=verdict.reason,
+                    attack_evidence=[attack.evidence_id],
+                    defense_evidence=[defense.evidence_id] if defense else [],
+                    reproduced=True,
+                ).on_conflict_do_nothing(index_elements=[StfFinding.finding_id]).returning(StfFinding.finding_id)
+            )
+            if inserted is not None:
+                await self._audit("stf.finding.confirmed", run_id, {
+                    "finding_id": finding_id,
+                    "run_id": run_id,
+                    "mission_id": run.mission_id,
+                    "action_id": action_id,
+                    "environment_id": str(action.get("environment_id", "")),
+                    "attack_evidence": [attack.evidence_id],
+                    "defense_evidence": [defense.evidence_id] if defense else [],
+                    "replay_evidence": replay_refs,
+                    "reason": verdict.reason,
+                })
+        return await self.verified_findings(run_id)
+
+    async def verified_findings(self, run_id: str) -> list[dict]:
+        rows = (await self.session.scalars(
+            select(StfFinding).where(
+                StfFinding.run_id == run_id,
+                StfFinding.status == FindingStatus.CONFIRMED.value,
+            ).order_by(StfFinding.created_at, StfFinding.finding_id)
+        )).all()
+        return [{
+            "finding_id": row.finding_id,
+            "run_id": row.run_id,
+            "mission_id": row.mission_id,
+            "action_id": row.action_id,
+            "task_id": row.task_id,
+            "environment_id": row.environment_id,
+            "title": row.title,
+            "status": row.status,
+            "reason": row.reason,
+            "attack_evidence": list(row.attack_evidence),
+            "defense_evidence": list(row.defense_evidence),
+            "reproduced": row.reproduced,
+        } for row in rows]
+
+    async def qualify_run(self, run_id: str) -> dict:
+        """Derive the SH ladder input from persisted run/evidence state and store one immutable result."""
+        existing = await self.session.get(StfQualification, run_id)
+        if existing is not None:
+            return self._qualification_dict(existing)
+
+        run = await self.get_run(run_id)
+        if run is None or not run.plan_json:
+            return {
+                "eligible": False, "level": None, "score": 0, "failed_gates": ["run_missing"],
+                "passed_gates": [], "reasons": ["run_missing"], "evidence_refs": [],
+            }
+
+        dispatches = (await self.session.scalars(
+            select(StfDispatch).where(StfDispatch.run_id == run_id)
+        )).all()
+        by_action = {row.action_id: row for row in dispatches}
+        records = await self.evidence_records(run_id)
+        evidence_by_id = {row.evidence_id: row for row in records}
+        evidence_refs = sorted(evidence_by_id)
+        plan_refs = (f"plan:{run.plan_hash}",)
+
+        all_contained = all(
+            isinstance(action, dict) and str(action.get("environment_id", "")).startswith("cyber_range:")
+            for action in run.plan_json
+        )
+        evidence_integrity = bool(records) and all(record.integrity_ok() for record in records)
+        all_executed = True
+        executed_count = 0
+        for action in run.plan_json:
+            if not isinstance(action, dict):
+                all_executed = False
+                continue
+            dispatch = by_action.get(str(action.get("action_id", "")))
+            ok = bool(
+                dispatch is not None
+                and dispatch.status == "executed"
+                and dispatch.evidence_id
+                and dispatch.evidence_id in evidence_by_id
+            )
+            all_executed = all_executed and ok
+            executed_count += int(ok)
+
+        high_risk = [
+            action for action in run.plan_json
+            if isinstance(action, dict) and str(action.get("risk_class", "")) in {"R3", "R4"}
+        ]
+        approval_refs: list[str] = []
+        approvals_ok = True
+        if high_risk:
+            approvals = (await self.session.scalars(
+                select(StfApproval).where(
+                    StfApproval.run_id == run_id,
+                    StfApproval.decision == "approve",
+                )
+            )).all()
+            approved_actions = {row.action_id for row in approvals}
+            approvals_ok = all(str(action.get("action_id", "")) in approved_actions for action in high_risk)
+            approval_refs = [f"approval:{row.id}" for row in approvals]
+        else:
+            approval_refs = list(plan_refs)
+
+        replay_refs: list[str] = []
+        scenario_refs: dict[str, list[str]] = {name: [] for name in ("web_application", "authorization", "detection")}
+        for action in run.plan_json:
+            if not isinstance(action, dict):
+                continue
+            action_id = str(action.get("action_id", ""))
+            dispatch = by_action.get(action_id)
+            params = action.get("parameters") if isinstance(action.get("parameters"), dict) else {}
+            if params.get("replay_of") and dispatch is not None and dispatch.status == "executed" and dispatch.evidence_id:
+                replay_refs.append(dispatch.evidence_id)
+            family = params.get("scenario_family")
+            if family in scenario_refs and dispatch is not None and dispatch.status == "executed" and dispatch.evidence_id:
+                scenario_refs[str(family)].append(dispatch.evidence_id)
+        for record in records:
+            if record.kind == "defense":
+                scenario_refs["detection"].append(record.evidence_id)
+
+        refs = tuple(evidence_refs or plan_refs)
+        gates = {
+            "containment": GateResult(all_contained, refs),
+            "evidence_integrity": GateResult(evidence_integrity, tuple(evidence_refs)),
+            "policy_compliance": GateResult(all_executed, refs),
+            "creator_approval_gates": GateResult(approvals_ok, tuple(approval_refs)),
+            "reproducibility": GateResult(bool(replay_refs), tuple(replay_refs)),
+            "full_required_coverage": GateResult(all_executed, tuple(evidence_refs)),
+        }
+        scenarios = {
+            family: GateResult(bool(items), tuple(sorted(set(items))))
+            for family, items in scenario_refs.items()
+        }
+        score = int(round(100 * executed_count / len(run.plan_json))) if run.plan_json else 0
+        result = evaluate_qualification(gates=gates, scenarios=scenarios, score=score)
+        all_refs = sorted(set(evidence_refs + approval_refs + list(plan_refs)))
+        row = StfQualification(
+            run_id=run_id,
+            eligible=result.eligible,
+            level=result.level,
+            score=score,
+            failed_gates=result.failed_gates,
+            passed_gates=result.passed_gates,
+            reasons=result.reasons,
+            evidence_refs=all_refs,
+        )
+        self.session.add(row)
+        await self.session.flush()
+        await self._audit("stf.qualification.recorded", run_id, {
+            "run_id": run_id,
+            "eligible": result.eligible,
+            "level": result.level,
+            "score": score,
+            "failed_gates": result.failed_gates,
+            "passed_gates": result.passed_gates,
+            "reasons": result.reasons,
+            "evidence_refs": all_refs,
+        })
+        return self._qualification_dict(row)
+
+    @staticmethod
+    def _qualification_dict(row: StfQualification) -> dict:
+        return {
+            "run_id": row.run_id,
+            "eligible": row.eligible,
+            "level": row.level,
+            "score": row.score,
+            "failed_gates": list(row.failed_gates),
+            "passed_gates": list(row.passed_gates),
+            "reasons": list(row.reasons),
+            "evidence_refs": list(row.evidence_refs),
+        }
 
     # --- outbox and inbox --------------------------------------------------------------------------
 
