@@ -226,8 +226,12 @@ services:
       REDIS_URL: ${REDIS_URL}
       SOVEREIGN_CREATOR_ID: ${SOVEREIGN_CREATOR_ID:-}
       DEUS_DIAGNOSTICS_ENABLED: ${DEUS_DIAGNOSTICS_ENABLED:-false}
+      DEUS_DIAGNOSTICS_TASK_STALL_SECONDS: ${DEUS_DIAGNOSTICS_TASK_STALL_SECONDS:-900}
+      DEUS_DIAGNOSTICS_PROJECTION_MAX_LAG: ${DEUS_DIAGNOSTICS_PROJECTION_MAX_LAG:-100}
       DEUS_AUTONOMY_DISCOVERY_ENABLED: ${DEUS_AUTONOMY_DISCOVERY_ENABLED:-false}
       DEUS_OBSIDIAN_EXPORT_ENABLED: ${DEUS_OBSIDIAN_EXPORT_ENABLED:-false}
+      DEUS_VOICE_SESSION_ENABLED: ${DEUS_VOICE_SESSION_ENABLED:-false}
+      DEUS_LOCAL_VOICE_MODELS_DIR: ${DEUS_LOCAL_VOICE_MODELS_DIR:-/var/lib/creation/voice}
     command:
     - python
     - -m
@@ -260,6 +264,7 @@ services:
     volumes:
     - deus_diagnostics:/var/lib/creation/diagnostics
     - deus_obsidian:/var/lib/creation/obsidian
+    - voice_models:/var/lib/creation/voice:ro
     restart: unless-stopped
     networks:
     - tco_net
