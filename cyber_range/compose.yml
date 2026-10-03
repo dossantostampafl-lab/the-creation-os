@@ -20,7 +20,6 @@ services:
       - range_snapshots:/snapshots
     networks:
       - range_control
-      - range_loopback
     read_only: true
     tmpfs:
       - /tmp
@@ -46,6 +45,28 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  controller-proxy:
+    build:
+      context: ./proxy
+    profiles: ["cyber-range"]
+    depends_on:
+      - controller
+    environment:
+      LISTEN_PORT: "7070"
+      TARGET_HOST: controller
+      TARGET_PORT: "7070"
+    ports:
+      - "127.0.0.1:7070:7070"
+    networks:
+      - range_control
+      - range_loopback
+    read_only: true
+    cap_drop:
+      - ALL
+    pids_limit: 64
+    security_opt:
+      - no-new-privileges:true
+
   juice-shop-proxy:
     build:
       context: ./proxy
@@ -56,8 +77,11 @@ services:
       LISTEN_PORT: "3000"
       TARGET_HOST: juice-shop
       TARGET_PORT: "3000"
+    ports:
+      - "127.0.0.1:3000:3000"
     networks:
       - range_targets
+      - range_loopback
     read_only: true
     cap_drop:
       - ALL
@@ -109,96 +133,15 @@ services:
     security_opt:
       - no-new-privileges:true
 
-
-  controller-loopback:
-    build:
-      context: ./proxy
-    profiles: ["cyber-range"]
-    environment:
-      LISTEN_PORT: "7070"
-      TARGET_HOST: controller
-      TARGET_PORT: "7070"
-    ports:
-      - "127.0.0.1:7070:7070"
-    networks:
-      - range_control
-      - range_loopback
-    depends_on:
-      - controller
-    read_only: true
-    cap_drop: ["ALL"]
-    security_opt:
-      - no-new-privileges:true
-
-  juice-shop-loopback:
-    build:
-      context: ./proxy
-    profiles: ["cyber-range"]
-    environment:
-      LISTEN_PORT: "3000"
-      TARGET_HOST: juice-shop
-      TARGET_PORT: "3000"
-    ports:
-      - "127.0.0.1:3000:3000"
-    networks:
-      - range_targets
-      - range_loopback
-    depends_on:
-      - juice-shop
-    read_only: true
-    cap_drop: ["ALL"]
-    security_opt:
-      - no-new-privileges:true
-
-  webgoat-loopback:
-    build:
-      context: ./proxy
-    profiles: ["cyber-range"]
-    environment:
-      LISTEN_PORT: "8080"
-      TARGET_HOST: webgoat
-      TARGET_PORT: "8080"
-    ports:
-      - "127.0.0.1:18080:8080"
-    networks:
-      - range_targets
-      - range_loopback
-    depends_on:
-      - webgoat
-    read_only: true
-    cap_drop: ["ALL"]
-    security_opt:
-      - no-new-privileges:true
-
-  webwolf-loopback:
-    build:
-      context: ./proxy
-    profiles: ["cyber-range"]
-    environment:
-      LISTEN_PORT: "9090"
-      TARGET_HOST: webgoat
-      TARGET_PORT: "9090"
-    ports:
-      - "127.0.0.1:9090:9090"
-    networks:
-      - range_targets
-      - range_loopback
-    depends_on:
-      - webgoat
-    read_only: true
-    cap_drop: ["ALL"]
-    security_opt:
-      - no-new-privileges:true
-
 networks:
-  # Controller-only internal control network.
+  # Controller has no routable interface; only its fixed proxy can reach it.
   range_control:
     internal: true
-  # Vulnerable targets have only this internal network: no host, routed, or Internet egress interface.
+  # Vulnerable targets have no routable interface; only fixed proxies can reach them.
   range_targets:
     internal: true
-  # Only hardened fixed-destination proxies and the controller join this bridge for loopback publication.
-  # Masquerading remains disabled; vulnerable targets never join this network.
+  # Host publication exists only on unprivileged fixed-destination proxies.
+  # Masquerading is disabled, so the proxy bridge is not an Internet egress path.
   range_loopback:
     driver: bridge
     driver_opts:
