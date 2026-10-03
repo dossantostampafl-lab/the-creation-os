@@ -204,7 +204,7 @@ class StfService:
                     run_id, str(advance.get("action_id", ""))
                 )
                 if advance_dispatch is None or advance_dispatch.status != "executed":
-                    raise ValueError("campaign had not reached scenario when action executed")
+                    raise ValueError("campaign has not reached scenario")
         record = EvidenceRecord.build(
             evidence_id=f"evidence:{uuid.uuid4()}",
             run_id=run_id,
@@ -275,6 +275,7 @@ class StfService:
         if window and not window["start"] <= now <= window["end"]:
             raise ValueError("the mission is outside its time window")
         plan: list[dict] = []
+        previous_actions: dict[str, ActionRequest] = {}
         for action in actions:
             if action.mission_id != contract.mission_id or action.mission_version != contract.mission_version:
                 raise ValueError("every action must belong to this mission and version")
@@ -291,5 +292,22 @@ class StfService:
                 raise ValueError("range.reset requires target_id=range")
             if capability_risk.rank > contract.risk_ceiling.rank:
                 raise ValueError("the capability exceeds the contract risk ceiling")
+            replay_of = action.parameters.get("replay_of") if isinstance(action.parameters, dict) else None
+            if replay_of is not None:
+                if not isinstance(replay_of, str) or replay_of not in previous_actions:
+                    raise ValueError("replay_of must reference an earlier action")
+                original = previous_actions[replay_of]
+                replay_parameters = dict(action.parameters)
+                replay_parameters.pop("replay_of", None)
+                if (
+                    action.actor != original.actor
+                    or action.target_id != original.target_id
+                    or action.environment_id != original.environment_id
+                    or action.capability != original.capability
+                    or action.action_class != original.action_class
+                    or replay_parameters != original.parameters
+                ):
+                    raise ValueError("replay must be equivalent to the referenced action")
             plan.append({**action.model_dump(mode="json"), "risk_class": capability_risk.value})
+            previous_actions[action.action_id] = action
         return plan
