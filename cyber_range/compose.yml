@@ -22,47 +22,107 @@ services:
       - range_snapshots:/snapshots
     networks:
       - range_control
-      - range_targets
       - range_loopback
     read_only: true
     tmpfs:
       - /tmp
       - /home/range
+    cap_drop:
+      - ALL
     security_opt:
       - no-new-privileges:true
 
   juice-shop:
     image: bkimminich/juice-shop:latest
     profiles: ["cyber-range"]
-    ports:
-      - "127.0.0.1:3000:3000"
     networks:
       - range_targets
-      - range_loopback
     security_opt:
       - no-new-privileges:true
 
   webgoat:
     image: webgoat/webgoat:latest
     profiles: ["cyber-range"]
+    networks:
+      - range_targets
+    security_opt:
+      - no-new-privileges:true
+
+  juice-shop-proxy:
+    build:
+      context: ./proxy
+    profiles: ["cyber-range"]
+    depends_on:
+      - juice-shop
+    environment:
+      LISTEN_PORT: "3000"
+      TARGET_HOST: juice-shop
+      TARGET_PORT: "3000"
+    ports:
+      - "127.0.0.1:3000:3000"
+    networks:
+      - range_targets
+      - range_loopback
+    read_only: true
+    cap_drop:
+      - ALL
+    pids_limit: 64
+    security_opt:
+      - no-new-privileges:true
+
+  webgoat-proxy:
+    build:
+      context: ./proxy
+    profiles: ["cyber-range"]
+    depends_on:
+      - webgoat
+    environment:
+      LISTEN_PORT: "8080"
+      TARGET_HOST: webgoat
+      TARGET_PORT: "8080"
     ports:
       - "127.0.0.1:18080:8080"
+    networks:
+      - range_targets
+      - range_loopback
+    read_only: true
+    cap_drop:
+      - ALL
+    pids_limit: 64
+    security_opt:
+      - no-new-privileges:true
+
+  webwolf-proxy:
+    build:
+      context: ./proxy
+    profiles: ["cyber-range"]
+    depends_on:
+      - webgoat
+    environment:
+      LISTEN_PORT: "9090"
+      TARGET_HOST: webgoat
+      TARGET_PORT: "9090"
+    ports:
       - "127.0.0.1:9090:9090"
     networks:
       - range_targets
       - range_loopback
+    read_only: true
+    cap_drop:
+      - ALL
+    pids_limit: 64
     security_opt:
       - no-new-privileges:true
 
 networks:
-  # Range traffic between the controller and the targets. Nothing here reaches anything else.
+  # Controller-only internal control network.
   range_control:
     internal: true
+  # Vulnerable targets have only this internal network: no host, routed, or Internet egress interface.
   range_targets:
     internal: true
-  # Loopback publication requires a non-internal bridge on this Docker topology.
-  # NAT is disabled, but this is not a firewall against host or routed destinations.
-  # Run on a dedicated/disposable host; see README safety boundary before deployment.
+  # Only hardened fixed-destination proxies and the controller join this bridge for loopback publication.
+  # Masquerading remains disabled; vulnerable targets never join this network.
   range_loopback:
     driver: bridge
     driver_opts:
