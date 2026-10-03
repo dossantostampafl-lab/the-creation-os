@@ -255,7 +255,7 @@ async def record_run_evidence(
             payload=body.payload,
         )
         await session.commit()
-    except (LookupError, ValueError, PermissionError, IdempotencyConflict) as error:
+    except (LookupError, ValueError, PermissionError, IdempotencyConflict, RunConflict) as error:
         await session.rollback()
         raise _http(error) from error
     return record.chronicle_payload()
