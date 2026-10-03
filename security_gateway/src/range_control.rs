@@ -156,6 +156,48 @@ impl RangeControlClient {
         }))
     }
 
+    pub fn start_campaign(&self, campaign_id: &str) -> Result<(), RangeControlError> {
+        if !valid_scenario_id(campaign_id) {
+            return Err(RangeControlError::InvalidConfiguration);
+        }
+        let payload = self.request("POST", &format!("/campaigns/{campaign_id}/start"))?;
+        if payload.get("campaign_id").and_then(Value::as_str) != Some(campaign_id)
+            || payload.get("status").and_then(Value::as_str) != Some("active")
+        {
+            return Err(RangeControlError::InvalidResponse);
+        }
+        Ok(())
+    }
+
+    pub fn advance_campaign(&self, campaign_id: &str) -> Result<(), RangeControlError> {
+        if !valid_scenario_id(campaign_id) {
+            return Err(RangeControlError::InvalidConfiguration);
+        }
+        let payload = self.request("POST", &format!("/campaigns/{campaign_id}/advance"))?;
+        let status = payload.get("status").and_then(Value::as_str);
+        if payload.get("campaign_id").and_then(Value::as_str) != Some(campaign_id)
+            || !matches!(status, Some("active") | Some("completed"))
+        {
+            return Err(RangeControlError::InvalidResponse);
+        }
+        Ok(())
+    }
+
+    pub fn campaign_completed(&self, campaign_id: &str) -> Result<bool, RangeControlError> {
+        if !valid_scenario_id(campaign_id) {
+            return Err(RangeControlError::InvalidConfiguration);
+        }
+        let payload = self.request("GET", &format!("/campaigns/{campaign_id}/state"))?;
+        if payload.get("campaign_id").and_then(Value::as_str) != Some(campaign_id) {
+            return Err(RangeControlError::InvalidResponse);
+        }
+        match payload.get("status").and_then(Value::as_str) {
+            Some("completed") => Ok(true),
+            Some("active") => Ok(false),
+            _ => Err(RangeControlError::InvalidResponse),
+        }
+    }
+
     pub fn reset(&self) -> Result<(), RangeControlError> {
         let payload = self.request("POST", "/reset")?;
         if payload.get("status").and_then(Value::as_str) != Some("reset") {
