@@ -399,8 +399,12 @@ async def test_persisted_verifier_uses_database_evidence(tmp_path, monkeypatch):
             calls.append(run_id)
             return True
 
+        async def project_verified_findings(self, run_id):
+            calls.append(("project", run_id))
+            return []
+
     monkeypatch.setattr("app.security_task_force.repository.StfRepository", Repository)
     deps.session_factory = lambda: Session()
 
     assert await activities.verify_mission("m1", "run-1") is True
-    assert calls == ["run-1"]
+    assert calls == ["run-1", ("project", "run-1")]
