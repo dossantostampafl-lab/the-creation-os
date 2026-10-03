@@ -4,6 +4,7 @@ import asyncio
 import fcntl
 import json
 import os
+import time
 import uuid
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import datetime, timedelta, timezone
@@ -20,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.db.session import AsyncSessionLocal
 from app.diagnostics.heartbeat import ServiceHeartbeat, supervised
+from app.diagnostics.contracts import Observation, ProbeOutcome, ProbeResult
 from app.diagnostics.incidents import record_incident_evidence
 from app.diagnostics.journal import DiagnosticJournal, JournalFull
 from app.diagnostics.rules import DiagnosticRules
@@ -64,7 +66,7 @@ CANONICAL_UNIVERSES = frozenset(
         "evolution",
     }
 )
-Probe = Callable[[], Awaitable[bool | None]]
+Probe = Callable[[], Awaitable[bool | None | ProbeOutcome]]
 
 
 def projection_health(head: int, positions: dict[str, int], max_lag: int) -> bool:
@@ -104,7 +106,7 @@ def local_voice_health(root: Path, enabled: bool) -> bool | None:
     )
 
 
-async def collect() -> dict[str, bool | None]:
+async def collect() -> dict[str, ProbeResult]:
     async def db_probe() -> bool:
         async with AsyncSessionLocal() as session:
             await session.execute(text("SELECT 1"))
@@ -195,26 +197,58 @@ async def collect() -> dict[str, bool | None]:
             )
         return universe_health(codes)
 
-    async def journal_probe() -> bool:
-        return journal_health(Path(settings.deus_diagnostics_root))
-
-    async def voice_probe() -> bool | None:
-        return local_voice_health(
-            Path(settings.deus_local_voice_models_dir),
-            settings.deus_voice_session_enabled,
+    async def journal_probe() -> ProbeOutcome:
+        health = DiagnosticJournal(Path(settings.deus_diagnostics_root)).health()
+        return ProbeOutcome(
+            value=not bool(health["spool_full"]),
+            safe_evidence=health,
         )
 
-    async def inference_probe() -> bool | None:
+    async def voice_probe() -> ProbeOutcome:
+        enabled = settings.deus_voice_session_enabled
+        ready = local_voice_health(
+            Path(settings.deus_local_voice_models_dir),
+            enabled,
+        )
+        return ProbeOutcome(
+            value=ready,
+            safe_evidence={
+                "runtime": "local",
+                "enabled": enabled,
+                "models_ready": ready if enabled else None,
+            },
+        )
+
+    async def inference_probe() -> ProbeOutcome:
         # Provider health would perform a network call. Diagnostics must not manufacture
         # health traffic or spend quota; until execution telemetry is persisted, be honest.
-        return None
+        return ProbeOutcome(
+            value=None,
+            safe_evidence={"reason": "no_persisted_execution_telemetry"},
+        )
 
-    async def bounded(call: Probe) -> bool | None:
+    async def bounded(call: Probe) -> ProbeResult:
+        started = time.perf_counter()
         try:
             async with asyncio.timeout(2):
-                return await call()
-        except Exception:
-            return False
+                raw = await call()
+            outcome = raw if isinstance(raw, ProbeOutcome) else ProbeOutcome(value=raw)
+            status = (
+                "healthy"
+                if outcome.value is True
+                else "unhealthy"
+                if outcome.value is False
+                else "unknown"
+            )
+            evidence = outcome.safe_evidence
+        except Exception as exc:
+            status = "unhealthy"
+            evidence = {"error_type": type(exc).__name__}
+        return ProbeResult(
+            status=status,
+            latency_ms=round((time.perf_counter() - started) * 1000),
+            safe_evidence=evidence,
+        )
 
     probes: dict[str, Probe] = {
         "PostgreSQL": db_probe,
@@ -382,29 +416,27 @@ async def run() -> None:
     while True:
         now = datetime.now(timezone.utc)
         observations = await collect()
-        for resource, healthy in observations.items():
-            incident = rules.observe(resource, healthy, now)
-            status = (
-                "healthy"
-                if healthy is True
-                else "unhealthy"
-                if healthy is False
-                else "unknown"
-            )
-            observation = {
-                "id": str(uuid.uuid4()),
-                "type": "observation",
-                "resource": resource,
-                "rule": "availability",
-                "status": status,
-                "observed_at": now.isoformat(),
-                "valid_until": (now + timedelta(seconds=45)).isoformat(),
-            }
+        for resource, result in observations.items():
+            incident = rules.observe(resource, result.healthy, now)
             active_episode = rules.states.get(resource, {}).get("episode_id")
-            if active_episode:
-                observation["incident_episode_id"] = active_episode
-            elif incident and incident.get("episode_id"):
-                observation["incident_episode_id"] = incident["episode_id"]
+            incident_episode_id = (
+                str(active_episode)
+                if active_episode
+                else str(incident["episode_id"])
+                if incident and incident.get("episode_id")
+                else None
+            )
+            observation = Observation(
+                id=str(uuid.uuid4()),
+                resource=resource,
+                rule="availability",
+                status=result.status,
+                observed_at=now,
+                valid_until=now + timedelta(seconds=45),
+                latency_ms=result.latency_ms,
+                safe_evidence=result.safe_evidence,
+                incident_episode_id=incident_episode_id,
+            ).model_dump(mode="json", exclude_none=True)
             try:
                 journal.append(observation)
                 if incident:
