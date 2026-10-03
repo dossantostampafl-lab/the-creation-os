@@ -76,3 +76,8 @@ Desative as flags, pare `knowledge-worker`, `diagnostics-worker`, `discovery-wor
 FTS e os limites atuais são para um corpus inicial; há limite256KiB por fonte, dependências32/profundidade8, candidatos30, seis evidências e2000tokens estimados porbytes. IndexaçãoFTS é transacional; receipts servem às projeções. Observações confirmadas do diário têm retenção7dias; pendentes nunca são descartadas silenciosamente, e o diário sinaliza lotação em100MiB. O observador não sobrevive à queda do próprio host.
 
 Os MCPs já baixados são pacotes opcionais em `creation-mcps-*.zip`, com instalação/autorização própria. Não foram ativados indiscriminadamente, nem usados para negociar dinheiro ou conceder shell. A arquitetura auditada preservada está em `docs/architecture/deus-memory-project`; decisões concretas da implementação prevalecem nesta documentação operacional.
+
+
+## Limite de implantação do laboratório
+
+A bridge do laboratório com NAT desativado permite publicação em loopback, mas isso não constitui firewall contra serviços do próprio host. Execute os alvos em uma máquina dedicada ou ambiente descartável sem dados/chaves de produção. Não implante os alvos vulneráveis no mesmo host do OS até adicionar e validar bloqueios de saída e acesso ao host. O relay privado fornece somente controle autorizado; ele não corrige por si só o isolamento dos alvos. No Oracle atual, o endpoint retorna `not_configured` deliberadamente. O laboratório e seus23contratos foram verificados em ambiente local descartável, separado do servidor público. Execução privilegiada de agentes continua desativada sem isolamento forte.

@@ -69,3 +69,8 @@ The controller can preserve and restore the declared Cyber Range controller stat
 - `GET /state` returns the current controller state.
 
 Snapshots live in the dedicated `range_snapshots` Docker volume. `POST /reset` clears disposable state but intentionally preserves both evidence and snapshots.
+
+
+### Hospedagem separada de produção
+
+NAT desativado não equivale a firewall: containers ainda podem alcançar listeners do próprio host. Use uma máquina dedicada/descartável sem dados ou credenciais de produção. A ponte descrita aqui não autoriza co-hospedar alvos vulneráveis no servidor público do OS. Para isso, primeiro implemente e teste isolamento de saída/host, preservando o tráfego de resposta necessário. O relay autentica controles, mas não impõe esse isolamento.
