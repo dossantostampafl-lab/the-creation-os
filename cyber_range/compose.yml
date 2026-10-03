@@ -12,8 +12,6 @@ services:
       RANGE_STATE_DIR: /state
       RANGE_CAMPAIGN_STATE_DIR: /campaign-state
       RANGE_SNAPSHOT_DIR: /snapshots
-    ports:
-      - "127.0.0.1:7070:7070"
     volumes:
       - ./scenarios:/app/scenarios:ro
       - range_evidence:/evidence
@@ -58,11 +56,8 @@ services:
       LISTEN_PORT: "3000"
       TARGET_HOST: juice-shop
       TARGET_PORT: "3000"
-    ports:
-      - "127.0.0.1:3000:3000"
     networks:
       - range_targets
-      - range_loopback
     read_only: true
     cap_drop:
       - ALL
@@ -111,6 +106,87 @@ services:
     cap_drop:
       - ALL
     pids_limit: 64
+    security_opt:
+      - no-new-privileges:true
+
+
+  controller-loopback:
+    build:
+      context: ./proxy
+    profiles: ["cyber-range"]
+    environment:
+      LISTEN_PORT: "7070"
+      TARGET_HOST: controller
+      TARGET_PORT: "7070"
+    ports:
+      - "127.0.0.1:7070:7070"
+    networks:
+      - range_control
+      - range_loopback
+    depends_on:
+      - controller
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+
+  juice-shop-loopback:
+    build:
+      context: ./proxy
+    profiles: ["cyber-range"]
+    environment:
+      LISTEN_PORT: "3000"
+      TARGET_HOST: juice-shop
+      TARGET_PORT: "3000"
+    ports:
+      - "127.0.0.1:3000:3000"
+    networks:
+      - range_targets
+      - range_loopback
+    depends_on:
+      - juice-shop
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+
+  webgoat-loopback:
+    build:
+      context: ./proxy
+    profiles: ["cyber-range"]
+    environment:
+      LISTEN_PORT: "8080"
+      TARGET_HOST: webgoat
+      TARGET_PORT: "8080"
+    ports:
+      - "127.0.0.1:18080:8080"
+    networks:
+      - range_targets
+      - range_loopback
+    depends_on:
+      - webgoat
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+
+  webwolf-loopback:
+    build:
+      context: ./proxy
+    profiles: ["cyber-range"]
+    environment:
+      LISTEN_PORT: "9090"
+      TARGET_HOST: webgoat
+      TARGET_PORT: "9090"
+    ports:
+      - "127.0.0.1:9090:9090"
+    networks:
+      - range_targets
+      - range_loopback
+    depends_on:
+      - webgoat
+    read_only: true
+    cap_drop: ["ALL"]
     security_opt:
       - no-new-privileges:true
 
