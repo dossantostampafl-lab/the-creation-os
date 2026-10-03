@@ -118,23 +118,20 @@ class DiagnosticJournal:
                 raise
 
     def _full(self, db: sqlite3.Connection) -> None:
-        dropped = int(
-            db.execute(
-                "SELECT COALESCE(value,'0') FROM metadata WHERE key='dropped_observations'"
-            ).fetchone()[0]
-            if db.execute(
-                "SELECT 1 FROM metadata WHERE key='dropped_observations'"
-            ).fetchone()
-            else 0
-        )
-        dropped += 1
-        db.execute(
-            "INSERT OR REPLACE INTO metadata(key,value) VALUES('dropped_observations',?)",
-            (str(dropped),),
-        )
+        row = db.execute(
+            "SELECT value FROM metadata WHERE key='dropped_observations'"
+        ).fetchone()
+        dropped = int(row[0]) if row else 0
         path = self.root / "spool-full.json"
         if path.is_symlink():
             raise ValueError("unsafe journal marker")
+        if path.exists():
+            try:
+                previous = json.loads(path.read_text())
+                dropped = max(dropped, int(previous.get("dropped_observations", 0)))
+            except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                pass
+        dropped += 1
         with path.open("w") as handle:
             json.dump(
                 {
@@ -147,6 +144,18 @@ class DiagnosticJournal:
             )
             handle.flush()
             os.fsync(handle.fileno())
+        try:
+            db.execute(
+                "INSERT OR REPLACE INTO metadata(key,value) VALUES('dropped_observations',?)",
+                (str(dropped),),
+            )
+            # JournalFull deliberately escapes the surrounding transaction. Persist the
+            # drop counter before raising so the exception cannot roll this evidence back.
+            db.commit()
+        except sqlite3.Error:
+            # A physically full SQLite file may reject metadata writes. The reserved
+            # filesystem marker above remains the durable local health signal.
+            pass
 
     def pending(self, limit: int = 100) -> list[dict]:
         with self.connect() as db:
@@ -184,9 +193,20 @@ class DiagnosticJournal:
             row = db.execute(
                 "SELECT value FROM metadata WHERE key='dropped_observations'"
             ).fetchone()
+        marker = self.root / "spool-full.json"
+        dropped = int(row[0]) if row else 0
+        if marker.exists() and not marker.is_symlink():
+            try:
+                marker_data = json.loads(marker.read_text())
+                dropped = max(
+                    dropped,
+                    int(marker_data.get("dropped_observations", 0)),
+                )
+            except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                pass
         return {
-            "spool_full": (self.root / "spool-full.json").exists(),
-            "dropped_observations": int(row[0]) if row else 0,
+            "spool_full": marker.exists(),
+            "dropped_observations": dropped,
             "pending_observations": int(pending),
             "used_bytes": int(used),
             "max_bytes": int(self.max_bytes),
