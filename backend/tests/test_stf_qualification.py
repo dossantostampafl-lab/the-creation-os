@@ -3,6 +3,7 @@ from pathlib import Path
 
 from app.security_task_force.qualification import (
     DEFAULT_RUBRIC,
+    TRUSTED_CAMPAIGNS,
     TRUSTED_PURPLE_SCENARIOS,
     TRUSTED_SCENARIO_FAMILIES,
     GateResult,
