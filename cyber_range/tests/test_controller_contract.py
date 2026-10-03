@@ -200,3 +200,45 @@ def test_invalid_snapshot_restore_preserves_existing_state(tmp_path, monkeypatch
     assert response.status_code == 409
     assert {path.name: path.read_bytes() for path in state.iterdir()} == before
     assert {path.name for path in evidence.iterdir()} == audit_before
+
+
+def test_campaign_runs_declared_scenarios_in_order_with_deterministic_reset(tmp_path, monkeypatch) -> None:
+    module, evidence, state = load_controller(tmp_path, monkeypatch)
+    client = TestClient(module.app)
+
+    started = client.post("/campaigns/stf-foundation-v1/start")
+    assert started.status_code == 200
+    assert started.json()["current_scenario_id"] == "juice-shop-baseline"
+    assert [item["scenario_id"] for item in client.get("/state").json()["scenarios"]] == ["juice-shop-baseline"]
+
+    second = client.post("/campaigns/stf-foundation-v1/advance")
+    assert second.status_code == 200
+    assert second.json()["current_scenario_id"] == "webgoat-baseline"
+    assert second.json()["completed_scenarios"] == ["juice-shop-baseline"]
+    assert [item["scenario_id"] for item in client.get("/state").json()["scenarios"]] == ["webgoat-baseline"]
+
+    third = client.post("/campaigns/stf-foundation-v1/advance")
+    assert third.json()["current_scenario_id"] == "blue-detection-baseline"
+    finished = client.post("/campaigns/stf-foundation-v1/advance")
+    assert finished.json()["status"] == "completed"
+    assert finished.json()["current_scenario_id"] is None
+    assert list(state.glob("*.json")) == []
+    assert any(evidence.iterdir()), "campaign transitions must append audit evidence"
+
+
+def test_snapshot_round_trip_preserves_campaign_progress(tmp_path, monkeypatch) -> None:
+    module, _, _ = load_controller(tmp_path, monkeypatch)
+    client = TestClient(module.app)
+    assert client.post("/campaigns/stf-foundation-v1/start").status_code == 200
+    assert client.post("/campaigns/stf-foundation-v1/advance").json()["current_scenario_id"] == "webgoat-baseline"
+
+    snapshot_id = client.post("/snapshots").json()["snapshot_id"]
+    assert client.post("/reset").status_code == 200
+    assert client.get("/campaigns/stf-foundation-v1/state").status_code == 404
+
+    restored = client.post(f"/snapshots/{snapshot_id}/restore")
+    assert restored.status_code == 200
+    assert restored.json()["restored_campaigns"] == ["stf-foundation-v1"]
+    current = client.get("/campaigns/stf-foundation-v1/state").json()
+    assert current["current_scenario_id"] == "webgoat-baseline"
+    assert current["completed_scenarios"] == ["juice-shop-baseline"]
