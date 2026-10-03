@@ -64,6 +64,28 @@ def _decision(action: ActionRequest, decision: str, reasons: list[str], approval
     )
 
 
+async def authorize_decision(
+    contract: MissionContract,
+    action: ActionRequest,
+    *,
+    policy: PolicyClient | None = None,
+    creator_approval_reference: str | None = None,
+    now: datetime | None = None,
+) -> AuthorizationDecision:
+    """Evaluate local and external policy without choosing where a grant is persisted."""
+    decision, reasons = evaluate_local(
+        contract, action, creator_approval_reference=creator_approval_reference, now=now
+    )
+    if decision == "permit" and policy is not None:
+        try:
+            allowed, policy_reasons = await policy.evaluate(contract, action, creator_approval_reference)
+        except PolicyUnavailable:
+            return _decision(action, "deny", ["policy_unavailable"], creator_approval_reference)
+        if not allowed:
+            return _decision(action, "deny", policy_reasons or ["policy_denied"], creator_approval_reference)
+    return _decision(action, decision, reasons, creator_approval_reference)
+
+
 async def authorize_and_grant(
     contract: MissionContract,
     action: ActionRequest,
@@ -73,20 +95,15 @@ async def authorize_and_grant(
     creator_approval_reference: str | None = None,
     now: datetime | None = None,
 ) -> AuthorizationDecision:
-    """Decide, and only on a permit from every layer issue the ephemeral grant.
-
-    Any failure of the policy engine is a denial: unavailable policy never means allowed.
-    """
-    decision, reasons = evaluate_local(contract, action, creator_approval_reference=creator_approval_reference, now=now)
-    if decision == "permit" and policy is not None:
-        try:
-            allowed, policy_reasons = await policy.evaluate(contract, action, creator_approval_reference)
-        except PolicyUnavailable:
-            return _decision(action, "deny", ["policy_unavailable"], creator_approval_reference)
-        if not allowed:
-            return _decision(action, "deny", policy_reasons or ["policy_denied"], creator_approval_reference)
-    if decision != "permit":
-        return _decision(action, decision, reasons, creator_approval_reference)
+    """Decide, and only on a permit from every layer issue the ephemeral grant."""
+    decision = await authorize_decision(
+        contract, action, policy=policy, creator_approval_reference=creator_approval_reference, now=now
+    )
+    if decision.decision != "permit":
+        return decision
     window_end = contract.time_window.get("end") if contract.time_window else None
     grant = grants.issue(action, not_after=window_end, now=now)
-    return _decision(action, "permit", [], creator_approval_reference, grant_id=grant.grant_id, expires_at=grant.expires_at)
+    return decision.model_copy(update={
+        "capability_grant_reference": grant.grant_id,
+        "expires_at": grant.expires_at,
+    })
