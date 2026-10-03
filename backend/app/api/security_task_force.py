@@ -61,6 +61,7 @@ class CancelBody(BaseModel):
 
 class EvidenceBody(BaseModel):
     execution_id: str = Field(min_length=1, max_length=64)
+    scenario_id: str = Field(min_length=1, max_length=64)
     kind: str = Field(pattern=r"^(attack|defense)$")
     source: str = Field(min_length=1, max_length=128)
     acquired_at: str | None = Field(default=None, max_length=64)
@@ -247,6 +248,7 @@ async def record_run_evidence(
             mission_id,
             run_id,
             body.execution_id,
+            scenario_id=body.scenario_id,
             kind=body.kind,
             source=body.source,
             acquired_at=body.acquired_at,
