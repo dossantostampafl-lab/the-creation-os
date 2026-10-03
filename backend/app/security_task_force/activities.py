@@ -124,21 +124,76 @@ class StfActivities:
         return count
 
     @activity.defn(name="stf_dispatch_action")
-    async def dispatch_action(self, action: dict[str, Any], decision: dict[str, Any]) -> dict[str, Any]:
-        """Hand a permitted action to the gateway, at most once per idempotency key."""
+    async def dispatch_action(
+        self, action: dict[str, Any], decision: dict[str, Any], run_id: str | None = None
+    ) -> dict[str, Any]:
+        """Hand a permitted action to the gateway. Persisted runs reserve authority in PostgreSQL first."""
         request = ActionRequest.model_validate(action)
         if not self._d.kill_switch.dispatch_allowed(request.mission_id):
             return {"status": "denied", "reasons": ["kill_switch"]}
+        if run_id is not None:
+            return await self._dispatch_persisted(request, decision, run_id)
+
         state = self._d.ledger.reserve(request.idempotency_key)
         if state == "done":
             return self._d.ledger.result(request.idempotency_key) or {"status": "unknown"}
         if state == "unknown":
-            # Reserved earlier and never completed: the effect may or may not have happened.
             return {"status": "unknown", "reasons": ["dispatch_outcome_unknown"]}
         grant_id = decision.get("grant_id")
         grant = self._d.grants.get(grant_id) if grant_id else None
         if grant is None or not self._d.grants.consume(grant.grant_id, request):
             return self._finish(request, {"status": "denied", "reasons": ["grant_invalid"]})
+        return await self._execute_gateway(request, decision, grant, self._finish)
+
+    async def _dispatch_persisted(
+        self, request: ActionRequest, decision: dict[str, Any], run_id: str
+    ) -> dict[str, Any]:
+        if self._d.session_factory is None:
+            return {"status": "denied", "reasons": ["database_authority_unavailable"]}
+        from .repository import StfRepository
+
+        grant_id = decision.get("grant_id")
+        if not grant_id:
+            return {"status": "denied", "reasons": ["grant_missing"]}
+
+        async with self._d.session_factory() as session:
+            repository = StfRepository(session)
+            receipt = await repository.reserve_dispatch(run_id, request, grant_id)
+            await session.commit()
+
+        if receipt.status != "authorized":
+            result = {"status": receipt.status, "reasons": list(receipt.reason_codes)}
+            if receipt.status == "executed" and receipt.execution_id:
+                result["execution_id"] = receipt.execution_id
+            emit("action.dispatched", mission_id=request.mission_id, action_id=request.action_id,
+                 environment_id=request.environment_id, status=result["status"])
+            return result
+
+        # The database spends the authority. The legacy store is read only for the signed grant metadata
+        # until persisted authorization is migrated in the next Gauntlet step.
+        grant = self._d.grants.get(grant_id)
+        if grant is None:
+            result = {"status": "denied", "reasons": ["grant_metadata_unavailable"]}
+        else:
+            result = await self._execute_gateway(request, decision, grant, None)
+
+        assert receipt.execution_id is not None
+        async with self._d.session_factory() as session:
+            await StfRepository(session).record_outcome(
+                receipt.execution_id, result["status"], result.get("reasons", [])
+            )
+            await session.commit()
+        emit("action.dispatched", mission_id=request.mission_id, action_id=request.action_id,
+             environment_id=request.environment_id, status=result["status"])
+        return result
+
+    async def _execute_gateway(
+        self,
+        request: ActionRequest,
+        decision: dict[str, Any],
+        grant: Any,
+        finish: Callable[[ActionRequest, dict[str, Any]], dict[str, Any]] | None,
+    ) -> dict[str, Any]:
         permit = AuthorizationDecision(
             decision_id=decision["decision_id"], action_id=request.action_id, decision="permit",
             policy_version="stf-v1", environment_id=request.environment_id, capability_grant_reference=grant.grant_id,
@@ -152,13 +207,12 @@ class StfActivities:
         }
         try:
             answer = await self._d.gateway.execute(envelope, requested)
+            result = receipt_from(answer)
         except GatewayUnavailable:
-            # Nothing was sent, so nothing can have happened.
-            return self._finish(request, {"status": "denied", "reasons": ["gateway_unavailable"]})
+            result = {"status": "denied", "reasons": ["gateway_unavailable"]}
         except GatewayOutcomeUnknown:
-            # Sent, no answer: the effect may exist. Recorded as unknown so it is not repeated.
-            return self._finish(request, {"status": "unknown", "reasons": ["gateway_response_lost"]})
-        return self._finish(request, receipt_from(answer))
+            result = {"status": "unknown", "reasons": ["gateway_response_lost"]}
+        return finish(request, result) if finish is not None else result
 
     def _finish(self, request: ActionRequest, result: dict[str, Any]) -> dict[str, Any]:
         self._d.ledger.complete(request.idempotency_key, result)
