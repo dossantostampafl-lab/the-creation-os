@@ -25,16 +25,30 @@ def published_host(port_spec: object) -> str | None:
     return None
 
 
-def test_vulnerable_targets_never_bind_to_lan() -> None:
-    compose = load_compose()
-    services = compose["services"]
-
+def test_vulnerable_targets_are_not_published_at_all() -> None:
+    services = load_compose()["services"]
     for service_name in ("juice-shop", "webgoat"):
+        assert services[service_name].get("ports", []) == []
+        assert services[service_name]["networks"] == ["range_targets"]
+
+
+def test_fixed_target_proxies_are_loopback_only_and_unprivileged() -> None:
+    services = load_compose()["services"]
+    expected = {
+        "juice-shop-proxy": ("juice-shop", "3000"),
+        "webgoat-proxy": ("webgoat", "8080"),
+        "webwolf-proxy": ("webgoat", "9090"),
+    }
+    for service_name, (target, port) in expected.items():
         service = services[service_name]
-        for port_spec in service.get("ports", []):
-            assert published_host(port_spec) == "127.0.0.1", (
-                f"{service_name} must publish only on 127.0.0.1: {port_spec!r}"
-            )
+        assert service["environment"]["TARGET_HOST"] == target
+        assert str(service["environment"]["TARGET_PORT"]) == port
+        assert set(service["networks"]) == {"range_targets", "range_loopback"}
+        assert service.get("read_only") is True
+        assert "ALL" in service.get("cap_drop", [])
+        assert service.get("privileged") is not True
+        assert service.get("volumes", []) == []
+        assert all(published_host(spec) == "127.0.0.1" for spec in service.get("ports", []))
 
 
 def gives_internet_egress(network: dict) -> bool:
@@ -60,12 +74,11 @@ def test_no_range_network_reaches_the_internet() -> None:
     assert not reachable, f"these range networks would let a target reach the internet: {reachable}"
 
 
-def test_the_targets_stay_on_an_internal_network() -> None:
-    """Containment does not rest on the loopback network alone: the targets also talk to the
-    controller over a network with no gateway of any kind."""
+def test_the_targets_have_only_the_internal_target_network() -> None:
     services = load_compose()["services"]
-    for service_name in ("controller", "juice-shop", "webgoat"):
-        assert "range_targets" in services[service_name]["networks"]
+    for service_name in ("juice-shop", "webgoat"):
+        assert services[service_name]["networks"] == ["range_targets"]
+    assert "range_targets" not in services["controller"]["networks"]
 
 
 def test_controller_is_loopback_only() -> None:
@@ -102,9 +115,12 @@ def test_controller_has_no_docker_socket_mount() -> None:
     assert all("/var/run/docker.sock" not in str(volume) for volume in volumes)
 
 
-def test_targets_have_no_privileged_mode() -> None:
+def test_range_services_have_no_privileged_mode() -> None:
     compose = load_compose()
-    for service_name in ("controller", "juice-shop", "webgoat"):
+    for service_name in (
+        "controller", "juice-shop", "webgoat",
+        "juice-shop-proxy", "webgoat-proxy", "webwolf-proxy",
+    ):
         assert compose["services"][service_name].get("privileged") is not True
 
 
@@ -115,3 +131,18 @@ def test_reset_preserves_evidence_volumes() -> None:
         code = "\n".join(line for line in script.splitlines() if not line.lstrip().startswith(("#",)))
         assert "down -v" not in code and "--volumes" not in code, f"{name} deletes every volume"
         assert "range_evidence" not in code and "range_snapshots" not in code, f"{name} touches the proof volumes"
+
+
+def test_vulnerable_targets_cannot_join_the_host_publication_network() -> None:
+    services = load_compose()["services"]
+    for service_name in ("juice-shop", "webgoat"):
+        assert "range_loopback" not in services[service_name].get("networks", [])
+        assert "range_control" not in services[service_name].get("networks", [])
+
+
+def test_proxies_have_no_docker_socket_or_host_network_mode() -> None:
+    services = load_compose()["services"]
+    for service_name in ("juice-shop-proxy", "webgoat-proxy", "webwolf-proxy"):
+        service = services[service_name]
+        assert service.get("network_mode") != "host"
+        assert all("/var/run/docker.sock" not in str(volume) for volume in service.get("volumes", []))
