@@ -164,12 +164,23 @@ class StfActivities:
 
     @activity.defn(name="stf_revoke_grants")
     async def revoke_grants(self, mission_id: str, run_id: str | None = None) -> int:
-        """Stop new dispatch and expire every grant of the Mission before it reaches a terminal state."""
+        """Stop new dispatch, revoke authority, then clean disposable Range state after the kill."""
+        cleanup_range = False
         if run_id and self._d.session_factory:
             from .repository import StfRepository
 
             async with self._d.session_factory() as session:
-                await StfRepository(session).revoke_run(run_id)
+                repository = StfRepository(session)
+                run = await repository.get_run(run_id)
+                cleanup_range = bool(
+                    run is not None
+                    and any(
+                        str(item.get("environment_id", "")).startswith("cyber_range:")
+                        for item in run.plan_json
+                        if isinstance(item, dict)
+                    )
+                )
+                await repository.revoke_run(run_id)
                 await session.commit()
         self._d.kill_switch.kill_mission(mission_id)
         count = self._d.grants.revoke_mission(mission_id)
@@ -177,6 +188,13 @@ class StfActivities:
             await self._d.gateway.control({"op": "kill", "mission_id": mission_id})
         except (GatewayUnavailable, GatewayOutcomeUnknown):
             pass  # the gateway also refuses on its own revocation state; this only tightens it sooner
+        if cleanup_range:
+            try:
+                answer = await self._d.gateway.control({"op": "range_reset"})
+                if answer.get("decision") != "ok":
+                    emit("range.cleanup_failed", mission_id=mission_id, reasons=answer.get("reasons", []))
+            except (GatewayUnavailable, GatewayOutcomeUnknown):
+                emit("range.cleanup_failed", mission_id=mission_id, reasons=["gateway_unavailable"])
         emit("grant.revoked", mission_id=mission_id, revoked=count)
         return count
 
