@@ -105,6 +105,14 @@ impl Gateway {
         {
             return reply_execute("deny", "denied", vec![format!("{reason:?}")], None);
         }
+        if requested.tool_id != requested.capability {
+            return reply_execute(
+                "deny",
+                "denied",
+                vec!["ToolCapabilityMismatch".into()],
+                None,
+            );
+        }
         if matches!(
             requested.tool_id.as_str(),
             "range.health.verify"
