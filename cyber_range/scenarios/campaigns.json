@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "environment": "CYBER_RANGE",
+  "campaigns": [
+    {
+      "id": "stf-foundation-v1",
+      "version": 1,
+      "name": "STF Foundation Campaign",
+      "description": "Ordered qualification campaign across web application, authorization, and detection families.",
+      "scenario_ids": [
+        "juice-shop-baseline",
+        "webgoat-baseline",
+        "blue-detection-baseline"
+      ],
+      "completion_policy": "ordered",
+      "reset_between_scenarios": true,
+      "blind": false
+    }
+  ]
+}
