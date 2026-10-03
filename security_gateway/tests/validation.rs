@@ -36,7 +36,7 @@ fn requested() -> RequestedAction {
         capability: "range.validate".into(),
         action_class: "validate".into(),
         parameters_hash: "abc".into(),
-        tool_id: "range.health.verify".into(),
+        tool_id: "sandbox.health.verify".into(),
         args_json: "{}".into(),
     }
 }
@@ -228,7 +228,7 @@ fn server_permits_through_an_isolated_backend() {
         range_control: None,
     };
     let mut r = requested();
-    r.tool_id = "range.health.verify".into();
+    r.tool_id = "sandbox.health.verify".into();
     let line =
         serde_json::json!({"op": "execute", "envelope": envelope(), "requested": r}).to_string();
     assert!(gateway.handle_line(&line, 100).contains("\"permit\""));
@@ -245,7 +245,7 @@ fn a_permit_is_authorization_not_execution() {
         range_control: None,
     };
     let mut r = requested();
-    r.tool_id = "range.health.verify".into();
+    r.tool_id = "sandbox.health.verify".into();
     let line =
         serde_json::json!({"op": "execute", "envelope": envelope(), "requested": r}).to_string();
     let reply: serde_json::Value = serde_json::from_str(&gateway.handle_line(&line, 100)).unwrap();
