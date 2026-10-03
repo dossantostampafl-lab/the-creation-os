@@ -221,12 +221,14 @@ class DeusConversationService:
         provider: str,
         model: str,
         trinity: TrinityEngine | None = None,
+        context_builder=None,
     ) -> None:
         self.repo = repository
         self.router = router
         self.provider = provider
         self.model = model
         self.trinity = trinity
+        self.context_builder = context_builder
 
     async def _reason(
         self, actor: Actor, content: str, history: list[Message], snapshot: Awaitable[SystemSnapshot],
@@ -370,6 +372,9 @@ class DeusConversationService:
             metadata_json={},
             correlation_id=correlation_id,
         ))
+        if self.context_builder is not None:
+            # Make the turn visible to the builder's independent, short read transaction.
+            await self.repo.commit()
         history = await self.repo.list_messages(conversation_id, limit=20)
         # The snapshot's DB reads overlap SOPHIA's model call; nothing else touches the session meanwhile.
         snapshot_task = asyncio.ensure_future(system_snapshot(self.repo, actor.id))
@@ -381,7 +386,12 @@ class DeusConversationService:
             logger.bind(component="deus", error_type=exc.__class__.__name__).warning(
                 "live system context unavailable"
             )
-        messages = conversation_messages(history, system_notes=system_notes)
+        context_packet = None
+        if self.context_builder is not None:
+            context_packet = await self.context_builder.build(actor.id, conversation_id, content, 'text', history)
+            messages = context_packet.messages
+        else:
+            messages = conversation_messages(history, system_notes=system_notes)
         metadata = {
             "conversation_id": conversation_id,
             "creator_id": actor.id,
@@ -392,6 +402,8 @@ class DeusConversationService:
             "latency_class": "interactive",
             "skip_health_probe": True,
         }
+        if context_packet is not None:
+            metadata.update({'cache_policy': 'bypass', 'knowledge_version': str(context_packet.trace['knowledge_epoch']), 'retrieval_fingerprint': context_packet.trace['retrieval_fingerprint'], 'context_trace_id': context_packet.trace_id})
         if outcome.deliberation is not None:
             messages.append({"role": "system", "content": proposal_note(outcome.deliberation)})
             # The reply presents this one proposal; a cached reply would present a stale one.
@@ -409,7 +421,7 @@ class DeusConversationService:
             role="deus",
             content=inference.content,
             route="deus",
-            metadata_json={"provider": inference.provider, "model": inference.model},
+            metadata_json={"provider": inference.provider, "model": inference.model, **({"context_trace_id": context_packet.trace_id} if context_packet else {})},
             correlation_id=correlation_id,
         ))
         # Chronicle writes take a global lock, so they all happen after the model calls.
@@ -428,6 +440,12 @@ class DeusConversationService:
                 "model": inference.model,
             },
         )
+        from app.config import settings
+        if settings.deus_knowledge_ingestion_enabled:
+            from app.knowledge.contracts import Candidate, Scope
+            from app.knowledge.service import KnowledgeService
+            for entry in [creator_message, deus_message]:
+                await KnowledgeService(self.repo.session).write(Scope(creator_id=actor.id), Candidate(title='Conversa: ' + entry.role, content=entry.content, kind='derived_note' if entry.role == 'deus' else 'document', source_type='message', source_id=entry.id), 'message:' + entry.id)
         await self.repo.commit()
         return DeusReply(
             creator_message_id=creator_message.id,

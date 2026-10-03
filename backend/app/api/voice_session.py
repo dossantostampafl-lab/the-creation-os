@@ -15,6 +15,8 @@ from app.db.session import AsyncSessionLocal
 from app.inference.contracts import InferenceError
 from app.repositories.domain import DomainRepository
 from app.schemas.auth import TokenPayload
+from app.services.deus_context import DeusContextBuilder
+from app.services.deus_turns import TurnStore
 from app.voice_session.acknowledgement import VoiceAcknowledgementCache
 from app.voice_session.conversation import VoiceConversationBridge
 from app.voice_session.local import KokoroRealtimeTTS, VoskRealtimeSTT, get_local_engine
@@ -187,6 +189,9 @@ async def voice_session_socket(
             DomainRepository(db),
             creator_id=creator_id,
             conversation_id=conversation_id,
+            context_builder=DeusContextBuilder(AsyncSessionLocal) if settings.deus_context_retrieval_enabled else None,
+            turn_store=TurnStore(AsyncSessionLocal) if settings.deus_context_retrieval_enabled else None,
+            session_id=session.session_id,
         )
         try:
             await bridge.validate()
@@ -290,6 +295,7 @@ async def voice_session_socket(
                         if event.type == "barge_in":
                             cancelled = session.barge_in(event.turn_id)
                             if cancelled:
+                                await bridge.abort_turn(event.turn_id)
                                 pump.cancel()
                                 await asyncio.gather(pump, return_exceptions=True)
                                 pump = asyncio.create_task(transcript_pump())
@@ -311,6 +317,7 @@ async def voice_session_socket(
                 except WebSocketDisconnect:
                     session.close()
                 finally:
+                    await bridge.close()
                     pump.cancel()
                     receiver.cancel()
                     await asyncio.gather(pump, receiver, return_exceptions=True)

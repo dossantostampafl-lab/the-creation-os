@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import time
 import unicodedata
 from datetime import datetime, timezone
@@ -151,7 +152,8 @@ class KnowledgeService:
         if not query.strip() or len(query) > 2048:
             return RetrievalResult(status="empty")
         await self.session.execute(text("SET LOCAL statement_timeout = '200ms'"))
-        q = func.plainto_tsquery('portuguese', query)
+        terms = re.findall(r'[\w-]+', query, flags=re.UNICODE)[:30]
+        q = func.websearch_to_tsquery('portuguese', ' OR '.join(terms))
         rank = func.ts_rank_cd(KnowledgeRevision.search_vector, q)
         literal = '%' + query.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%'
         statement = select(KnowledgeRevision).join(KnowledgeItem, KnowledgeItem.current_revision_id == KnowledgeRevision.id).where(KnowledgeItem.creator_id == scope.creator_id, KnowledgeItem.active.is_(True), or_(KnowledgeRevision.search_vector.op('@@')(q), KnowledgeRevision.content.ilike(literal), KnowledgeRevision.title.ilike(literal))).order_by(rank.desc(), KnowledgeRevision.created_at.desc()).limit(30)

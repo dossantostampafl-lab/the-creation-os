@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -20,6 +21,7 @@ class ConversationResponse(BaseModel):
 
 
 class MessageRequest(BaseModel):
+    request_id: UUID | None = None
     content: str = Field(..., min_length=1, max_length=4000)
     client_message_id: str | None = Field(None, min_length=1, max_length=128)
     metadata: dict[str, Any] = Field(default_factory=dict)

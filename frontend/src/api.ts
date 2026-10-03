@@ -184,10 +184,10 @@ export type DeusConversationReply = {
   correlation_id: string;
 };
 
-export const converseWithDeus = (conversationId: string, content: string) =>
+export const converseWithDeus = (conversationId: string, content: string, requestId: string = crypto.randomUUID()) =>
   api<DeusConversationReply>(`/conversations/${conversationId}/deus`, {
     method: "POST",
-    body: JSON.stringify({ content, metadata: {} }),
+    body: JSON.stringify({ content, metadata: {}, request_id: requestId }),
   });
 
 
