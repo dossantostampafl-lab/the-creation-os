@@ -6,12 +6,12 @@ from typing import Any
 
 from temporalio import activity
 
-from .authorization import authorize_and_grant
+from .authorization import authorize_and_grant, authorize_decision
 from .contract_store import ContractStore
-from .contracts import ActionRequest, AuthorizationDecision
+from .contracts import ActionRequest, AuthorizationDecision, MissionContract
 from .envelope import build_envelope, parameters_hash
 from .gateway_client import GatewayClient, GatewayOutcomeUnknown, GatewayUnavailable
-from .grants import GrantStore
+from .grants import GrantStore, build_grant
 from .kill_switch import KillSwitch
 from .ledger import DispatchLedger
 from .policy import PolicyClient
@@ -61,20 +61,77 @@ class StfActivities:
         self._d = deps
 
     @activity.defn(name="stf_authorize_action")
-    async def authorize_action(self, mission_id: str, action: dict[str, Any], approval: str | None) -> dict[str, Any]:
+    async def authorize_action(
+        self, mission_id: str, action: dict[str, Any], approval: str | None, run_id: str | None = None
+    ) -> dict[str, Any]:
         request = ActionRequest.model_validate(action)
-        contract = self._d.contracts.get(mission_id)
-        if contract is None:
-            return {"decision": "deny", "reasons": ["mission_unknown"]}
         if not self._d.kill_switch.dispatch_allowed(mission_id):
             return {"decision": "deny", "reasons": ["kill_switch"]}
-        decision = await authorize_and_grant(
-            contract, request, grants=self._d.grants, policy=self._d.policy, creator_approval_reference=approval
-        )
+        if run_id is not None:
+            decision = await self._authorize_persisted(mission_id, request, approval, run_id)
+        else:
+            contract = self._d.contracts.get(mission_id)
+            if contract is None:
+                return {"decision": "deny", "reasons": ["mission_unknown"]}
+            decision = await authorize_and_grant(
+                contract, request, grants=self._d.grants, policy=self._d.policy,
+                creator_approval_reference=approval,
+            )
         emit("action.decided", mission_id=mission_id, action_id=request.action_id,
              environment_id=request.environment_id, decision=decision.decision, reasons=decision.reason_codes)
         return {"decision": decision.decision, "reasons": decision.reason_codes,
-                "decision_id": decision.decision_id, "grant_id": decision.capability_grant_reference}
+                "decision_id": decision.decision_id, "grant_id": decision.capability_grant_reference,
+                "expires_at": decision.expires_at.isoformat() if decision.expires_at else None}
+
+    async def _authorize_persisted(
+        self, mission_id: str, request: ActionRequest, approval: str | None, run_id: str
+    ) -> AuthorizationDecision:
+        if self._d.session_factory is None:
+            return AuthorizationDecision(
+                decision_id=f"decision:{request.action_id}", action_id=request.action_id, decision="deny",
+                policy_version="stf-v1", environment_id=request.environment_id,
+                reason_codes=["database_authority_unavailable"],
+            )
+        from .repository import StfRepository
+
+        async with self._d.session_factory() as session:
+            repository = StfRepository(session)
+            run = await repository.get_run(run_id, lock=True)
+            if (
+                run is None
+                or run.mission_id != mission_id
+                or run.mission_version != request.mission_version
+                or run.desired_state != "RUN"
+            ):
+                return AuthorizationDecision(
+                    decision_id=f"decision:{request.action_id}", action_id=request.action_id, decision="deny",
+                    policy_version="stf-v1", environment_id=request.environment_id,
+                    reason_codes=["run_not_authorizable"],
+                )
+            record = await repository.get_contract(run.creator_id, mission_id, run.mission_version)
+            if record is None:
+                return AuthorizationDecision(
+                    decision_id=f"decision:{request.action_id}", action_id=request.action_id, decision="deny",
+                    policy_version="stf-v1", environment_id=request.environment_id,
+                    reason_codes=["mission_unknown"],
+                )
+            contract = MissionContract.model_validate(record.contract_json)
+            decision = await authorize_decision(
+                contract, request, policy=self._d.policy, creator_approval_reference=approval
+            )
+            if decision.decision != "permit":
+                return decision
+            grant = build_grant(request, not_after=contract.time_window.get("end") if contract.time_window else None)
+            if not await repository.issue_grant(run_id, grant):
+                return decision.model_copy(update={
+                    "decision": "deny", "reason_codes": ["run_not_authorizable"],
+                    "capability_grant_reference": None, "expires_at": None,
+                })
+            await session.commit()
+            return decision.model_copy(update={
+                "capability_grant_reference": grant.grant_id,
+                "expires_at": grant.expires_at,
+            })
 
     @activity.defn(name="stf_check_approval")
     async def check_approval(self, run_id: str, approval_id: str, action: dict[str, Any]) -> bool:
@@ -169,9 +226,8 @@ class StfActivities:
                  environment_id=request.environment_id, status=result["status"])
             return result
 
-        # The database spends the authority. The legacy store is read only for the signed grant metadata
-        # until persisted authorization is migrated in the next Gauntlet step.
-        grant = self._d.grants.get(grant_id)
+        async with self._d.session_factory() as session:
+            grant = await StfRepository(session).get_grant(grant_id, run_id)
         if grant is None:
             result = {"status": "denied", "reasons": ["grant_metadata_unavailable"]}
         else:
