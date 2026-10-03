@@ -391,6 +391,9 @@ async def test_persisted_verifier_uses_database_evidence(tmp_path, monkeypatch):
         async def __aexit__(self, *args):
             return None
 
+        async def commit(self):
+            calls.append(("commit",))
+
     class Repository:
         def __init__(self, session):
             self.session = session
@@ -407,4 +410,4 @@ async def test_persisted_verifier_uses_database_evidence(tmp_path, monkeypatch):
     deps.session_factory = lambda: Session()
 
     assert await activities.verify_mission("m1", "run-1") is True
-    assert calls == ["run-1", ("project", "run-1")]
+    assert calls == ["run-1", ("project", "run-1"), ("commit",)]
