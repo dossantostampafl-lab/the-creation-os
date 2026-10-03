@@ -513,7 +513,9 @@ class StfRepository:
             if not isinstance(action, dict):
                 continue
             dispatch = by_action.get(str(action.get("action_id", "")))
-            params = action.get("parameters") if isinstance(action.get("parameters"), dict) else {}
+            params = action.get("parameters")
+            if not isinstance(params, dict):
+                params = {}
             if params.get("replay_of") and dispatch is not None and dispatch.status == "executed" and dispatch.evidence_id:
                 replay_refs.append(dispatch.evidence_id)
 
