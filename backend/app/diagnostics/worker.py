@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.db.session import AsyncSessionLocal
 from app.diagnostics.heartbeat import ServiceHeartbeat, supervised
+from app.diagnostics.incidents import record_incident_evidence
 from app.diagnostics.journal import DiagnosticJournal, JournalFull
 from app.diagnostics.rules import DiagnosticRules
 from app.knowledge.contracts import Candidate, Scope
@@ -324,6 +325,11 @@ async def publish(journal: DiagnosticJournal, creator_id: str) -> None:
                 text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
                 {"key": "diagnostic-projection:" + projection_key},
             )
+            await record_incident_evidence(
+                session,
+                creator_id=creator_id,
+                evidence=observation,
+            )
             previous = await _current_projection(
                 session,
                 creator_id,
@@ -389,10 +395,16 @@ async def run() -> None:
                 "id": str(uuid.uuid4()),
                 "type": "observation",
                 "resource": resource,
+                "rule": "availability",
                 "status": status,
                 "observed_at": now.isoformat(),
                 "valid_until": (now + timedelta(seconds=45)).isoformat(),
             }
+            active_episode = rules.states.get(resource, {}).get("episode_id")
+            if active_episode:
+                observation["incident_episode_id"] = active_episode
+            elif incident and incident.get("episode_id"):
+                observation["incident_episode_id"] = incident["episode_id"]
             try:
                 journal.append(observation)
                 if incident:
