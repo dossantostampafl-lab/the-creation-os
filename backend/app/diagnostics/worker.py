@@ -14,10 +14,11 @@ import httpx
 from loguru import logger
 from redis.asyncio import Redis
 from sqlalchemy import exists, func, select, text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db.session import AsyncSessionLocal
-from app.diagnostics.heartbeat import ServiceHeartbeat
+from app.diagnostics.heartbeat import ServiceHeartbeat, supervised
 from app.diagnostics.journal import DiagnosticJournal, JournalFull
 from app.diagnostics.rules import DiagnosticRules
 from app.knowledge.contracts import Candidate, Scope
@@ -254,7 +255,7 @@ async def creator_scope() -> str | None:
 
 
 async def _current_projection(
-    session,
+    session: AsyncSession,
     creator_id: str,
     resource: str,
     observation_type: str,
@@ -414,4 +415,4 @@ if __name__ == "__main__":
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
     with (root / ".worker.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        asyncio.run(run())
+        asyncio.run(supervised("diagnostics-worker", run))
