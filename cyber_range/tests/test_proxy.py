@@ -15,6 +15,7 @@ spec.loader.exec_module(proxy)
 @pytest.mark.parametrize(
     ("host", "port", "listen"),
     [
+        ("controller", "7070", "7070"),
         ("juice-shop", "3000", "3000"),
         ("webgoat", "8080", "8080"),
         ("webgoat", "9090", "9090"),
