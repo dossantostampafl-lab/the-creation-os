@@ -75,3 +75,46 @@ fn range_control_rejects_public_and_arbitrary_dns_destinations() {
         );
     }
 }
+
+
+#[test]
+fn campaign_controls_use_only_declared_fixed_routes() {
+    let body = r#"{"campaign_id":"stf-foundation-v1","status":"active"}"#;
+    let response = Box::leak(
+        format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        )
+        .into_boxed_str(),
+    );
+    let (addr, request) = one_response(response);
+    let client = RangeControlClient::new(addr, "r".repeat(40)).unwrap();
+
+    client.start_campaign("stf-foundation-v1").unwrap();
+
+    let request = request.join().unwrap();
+    assert!(request.starts_with("POST /campaigns/stf-foundation-v1/start HTTP/1.1\r\n"));
+    assert!(!request.contains("http://"));
+}
+
+#[test]
+fn campaign_completion_is_fail_closed_and_validated() {
+    let body = r#"{"campaign_id":"stf-foundation-v1","status":"completed"}"#;
+    let response = Box::leak(
+        format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        )
+        .into_boxed_str(),
+    );
+    let (addr, request) = one_response(response);
+    let client = RangeControlClient::new(addr, "r".repeat(40)).unwrap();
+
+    assert!(client.campaign_completed("stf-foundation-v1").unwrap());
+    assert!(request
+        .join()
+        .unwrap()
+        .starts_with("GET /campaigns/stf-foundation-v1/state HTTP/1.1\r\n"));
+}
