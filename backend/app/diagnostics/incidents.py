@@ -15,10 +15,13 @@ def incident_fingerprint(creator_id: str, resource: str, rule: str, episode_id: 
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
+MAX_INCIDENT_EVIDENCE_IDS = 256
+
+
 def _append_observation(existing: list[str], observation_id: str) -> list[str]:
     if observation_id in existing:
         return existing
-    return [*existing, observation_id]
+    return [*existing, observation_id][-MAX_INCIDENT_EVIDENCE_IDS:]
 
 
 async def record_incident_evidence(
@@ -53,12 +56,17 @@ async def record_incident_evidence(
             first_seen=observed_at,
             last_seen=observed_at,
             observation_ids=[observation_id],
+            observation_count=1,
         )
         session.add(incident)
         await session.flush()
     else:
         incident.last_seen = max(incident.last_seen, observed_at)
-        incident.observation_ids = _append_observation(list(incident.observation_ids or []), observation_id)
+        previous_ids = list(incident.observation_ids or [])
+        updated_ids = _append_observation(previous_ids, observation_id)
+        if updated_ids != previous_ids:
+            incident.observation_count += 1
+        incident.observation_ids = updated_ids
 
     if evidence.get("type") == "incident":
         state = str(evidence.get("state") or incident.state)
