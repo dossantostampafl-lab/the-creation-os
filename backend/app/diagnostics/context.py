@@ -15,7 +15,7 @@ async def current_diagnostics(session: AsyncSession, creator_id: str) -> list[di
             KnowledgeItem.creator_id==creator_id, KnowledgeItem.active.is_(True),
             KnowledgeRevision.kind=='diagnostic',
             KnowledgeRevision.valid_until>datetime.now(timezone.utc)).order_by(
-                KnowledgeRevision.created_at.desc()).limit(20))
+                KnowledgeRevision.created_at.desc()).limit(100))
     current: dict[str, dict] = {}
     for row in rows:
         try:
