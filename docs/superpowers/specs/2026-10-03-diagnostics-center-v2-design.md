@@ -20,7 +20,7 @@ O observador passa a cobrir:
 2. tarefas em execução sem progresso por tempo superior ao limite configurado;
 3. presença dos 12 Universos canônicos ativos;
 4. saúde do próprio journal local, inclusive `spool-full`;
-5. superfícies de inferência e voz como `unknown` quando não houver telemetria persistida segura, em vez de omiti-las.
+5. inferência como `unknown` enquanto não houver telemetria persistida segura; voz local validada somente pela presença dos artefatos Kokoro/Vosk quando a sessão de voz estiver habilitada.
 
 ## Estado ternário
 
@@ -42,7 +42,7 @@ Novos defaults:
 
 ## Segurança e limites
 
-- nenhuma chamada de provedor/TTS é feita para fabricar saúde;
+- nenhuma chamada de provedor ou síntese TTS é feita para fabricar saúde; a voz é local e o observador apenas inspeciona os artefatos necessários;
 - nenhum acesso a Docker socket;
 - nenhuma escrita em entidades de missão/tarefa/projeção;
 - nenhum vínculo com Cyber Range;
