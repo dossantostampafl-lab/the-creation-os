@@ -52,8 +52,10 @@ async def test_projection_replaces_incident_and_replays_after_ack_loss(knowledge
     monkeypatch.setattr(worker, 'AsyncSessionLocal', factory)
     journal = DiagnosticJournal(tmp_path)
     now = datetime.now(timezone.utc)
+    episode_id = str(uuid.uuid4())
     for index, state in enumerate(['open', 'recovered']):
         observation = {'id':str(uuid.uuid4()),'type':'incident','resource':'PostgreSQL','state':state,
+                       'episode_id': episode_id,
                        'observed_at':(now+timedelta(seconds=index)).isoformat(),
                        'valid_until':(now+timedelta(seconds=45+index)).isoformat()}
         journal.append(observation)
@@ -68,7 +70,7 @@ async def test_projection_replaces_incident_and_replays_after_ack_loss(knowledge
         assert len(items)==1
         revision = await session.get(KnowledgeRevision, items[0].current_revision_id)
         assert 'recovered' in revision.content
-        assert revision.valid_until is not None
+        assert revision.valid_until is None
         assert revision.source_type == 'diagnostic_incident'
         assert revision.source_id
 
@@ -222,3 +224,25 @@ def test_journal_spool_marker_clears_after_capacity_recovers(tmp_path):
     assert (tmp_path / 'spool-full.json').exists()
     journal.append({'id':'small', 'data':'ok'})
     assert not (tmp_path / 'spool-full.json').exists()
+
+
+def test_incident_episode_id_survives_recovery_and_rotates():
+    from app.diagnostics.rules import DiagnosticRules
+
+    rules = DiagnosticRules()
+    now = datetime.now(timezone.utc)
+    assert rules.observe('db', False, now) is None
+    assert rules.observe('db', False, now) is None
+    opened = rules.observe('db', False, now)
+    assert opened and opened['state'] == 'open'
+    first_episode = opened['episode_id']
+
+    assert rules.observe('db', True, now) is None
+    recovered = rules.observe('db', True, now)
+    assert recovered and recovered['state'] == 'recovered'
+    assert recovered['episode_id'] == first_episode
+
+    assert rules.observe('db', False, now) is None
+    assert rules.observe('db', False, now) is None
+    reopened = rules.observe('db', False, now)
+    assert reopened and reopened['episode_id'] != first_episode
