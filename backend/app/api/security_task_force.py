@@ -274,6 +274,23 @@ async def run_findings(
         raise _not_found(error) from error
 
 
+@router.post("/{mission_id}/runs/{run_id}/qualification/finalize")
+async def finalize_run_qualification(
+    mission_id: str,
+    run_id: str,
+    a: Actor = Depends(actor),
+    session: AsyncSession = Depends(get_session),
+):
+    service = StfService(session)
+    try:
+        result = await service.finalize_qualification(a, mission_id, run_id)
+        await session.commit()
+    except (LookupError, ValueError, PermissionError, RunConflict) as error:
+        await session.rollback()
+        raise _http(error) from error
+    return result
+
+
 @router.get("/{mission_id}/runs/{run_id}/qualification")
 async def run_qualification(
     mission_id: str,
