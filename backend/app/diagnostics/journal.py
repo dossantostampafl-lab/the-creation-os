@@ -171,7 +171,7 @@ class DiagnosticJournal:
                 (observation_id,),
             )
 
-    def health(self) -> dict[str, int | bool]:
+    def health(self) -> dict[str, object]:
         with self.connect() as db:
             pending, used = db.execute(
                 """
