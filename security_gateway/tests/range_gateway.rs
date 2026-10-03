@@ -125,3 +125,29 @@ fn a_different_tool_never_uses_the_range_control_bypass() {
     assert_eq!(reply["status"], "denied");
     assert_eq!(reply["reasons"][0], "SandboxUnavailable");
 }
+
+
+#[test]
+fn range_health_rejects_unbound_arguments_before_any_control_connection() {
+    let client = RangeControlClient::new("127.0.0.1:9".into(), "r".repeat(40)).unwrap();
+    let mut gateway = Gateway {
+        state: state(),
+        backend: SandboxBackend::Unavailable,
+        key: KEY.to_vec(),
+        range_control: Some(client),
+    };
+    let mut request = requested("range.health.verify");
+    request.args_json = r#"{"target":"anything"}"#.into();
+    let line = serde_json::json!({
+        "op": "execute",
+        "envelope": envelope("range-health-args"),
+        "requested": request
+    })
+    .to_string();
+
+    let reply: serde_json::Value = serde_json::from_str(&gateway.handle_line(&line, 100)).unwrap();
+
+    assert_eq!(reply["decision"], "deny");
+    assert_eq!(reply["status"], "denied");
+    assert_eq!(reply["reasons"][0], "RangeControlRequestInvalid");
+}
