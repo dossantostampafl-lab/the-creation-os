@@ -130,3 +130,21 @@
 - [ ] Whole-branch audit and Red Team pass.
 - [ ] Fix Critical/Important findings.
 - [ ] Re-run all gates before merge.
+
+
+## Gauntlet Progress
+
+### Task 1 — COMPLETE
+Verified on branch HEAD lineage through `845049b`:
+- persisted runs authorize from PostgreSQL contracts;
+- grants are persisted only for active matching runs;
+- `reserve_dispatch()` is the canonical authority before gateway dispatch;
+- gateway outcomes are persisted with `record_outcome()`;
+- legacy file stores are not the authority for persisted dispatch;
+- replay, cancellation, lost-response/unknown and Chronicle rollback attacks are covered;
+- Security Task Force, Security and full CI (PostgreSQL, mypy, Alembic, pytest) passed.
+
+### Ruling before Task 2
+**Ruling:** A Cyber Range controller health/lifecycle call through the authenticated, fixed-destination Range control relay is control-plane activity, not privileged code execution. It may be executed after the Rust Gateway validates the signed Mission envelope, even when Kata/Firecracker are unavailable. Any capability that executes commands/tools/processes remains disabled unless a strong isolation backend is proven available by `deploy/stf/verify-host.sh`. No plain-Docker fallback is introduced.
+
+**Cost if wrong:** Misclassifying a future capability as range-control could bypass the strong-sandbox requirement. Therefore the gateway must use an exact tool allowlist and fixed controller routes; unknown tools continue through the strong sandbox path and fail closed when it is unavailable.
