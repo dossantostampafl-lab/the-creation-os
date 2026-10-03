@@ -3,6 +3,7 @@ from pathlib import Path
 
 from app.security_task_force.qualification import (
     DEFAULT_RUBRIC,
+    TRUSTED_PURPLE_SCENARIOS,
     TRUSTED_SCENARIO_FAMILIES,
     GateResult,
     evaluate,
@@ -58,8 +59,10 @@ def test_embedded_rubric_matches_the_range_rubric():
     assert json.loads(path.read_text(encoding="utf-8")) == DEFAULT_RUBRIC
 
 
-def test_trusted_scenario_family_map_matches_range_catalog():
+def test_trusted_scenario_metadata_matches_range_catalog():
     path = Path(__file__).resolve().parents[2] / "cyber_range" / "scenarios" / "catalog.json"
     catalog = json.loads(path.read_text(encoding="utf-8"))
     declared = {item["id"]: item["family"] for item in catalog["scenarios"]}
+    purple = {item["id"] for item in catalog["scenarios"] if item["purple_required"]}
     assert declared == TRUSTED_SCENARIO_FAMILIES
+    assert purple == set(TRUSTED_PURPLE_SCENARIOS)
