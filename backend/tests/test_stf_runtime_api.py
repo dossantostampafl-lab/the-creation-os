@@ -203,3 +203,32 @@ async def test_range_scenario_start_is_a_governed_capability_with_fixed_risk(api
         plan = await session.scalar(text("SELECT plan_json FROM stf_runs"))
     assert plan[0]["capability"] == "range.scenario.start"
     assert plan[0]["risk_class"] == "R2"
+
+
+async def test_range_campaign_start_is_governed_and_risk_is_server_owned(api):
+    client, headers, creator_id, _, factory = api
+    compile_body = {
+        **COMPILE,
+        "authorized_targets": ["juice-shop", "stf-foundation-v1"],
+    }
+    assert (await client.post(f"{BASE}/compile", headers=headers(creator_id), json=compile_body)).status_code == 201
+    campaign = {
+        **ACTION,
+        "action_id": "campaign-start-1",
+        "idempotency_key": "campaign-start-k1",
+        "target_id": "stf-foundation-v1",
+        "capability": "range.campaign.start",
+        "risk_class": "R0",
+    }
+
+    response = await client.post(
+        f"{BASE}/m1/runs",
+        headers=headers(creator_id, "campaign-start"),
+        json={"actions": [campaign]},
+    )
+
+    assert response.status_code == 202
+    async with factory() as session:
+        plan = await session.scalar(text("SELECT plan_json FROM stf_runs"))
+    assert plan[0]["capability"] == "range.campaign.start"
+    assert plan[0]["risk_class"] == "R2"
