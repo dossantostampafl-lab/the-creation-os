@@ -116,7 +116,8 @@ fn a_different_tool_never_uses_the_range_control_bypass() {
         "op": "execute",
         "envelope": envelope("range-health-2"),
         "requested": requested("range.scenario.start")
-    }).to_string();
+    })
+    .to_string();
 
     let reply: serde_json::Value = serde_json::from_str(&gateway.handle_line(&line, 100)).unwrap();
 
