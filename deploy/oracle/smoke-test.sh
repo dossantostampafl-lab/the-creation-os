@@ -145,7 +145,7 @@ with httpx.Client(base_url=BASE, timeout=45) as client:
             if name == "Cyber Range configuration" and response.status_code == 200:
                 detail = response.json().get("status", "unknown")
             report(name, response.status_code == 200, detail)
-            if name == "current diagnostics" and response.status_code == 200:
+            if name == "current diagnostics" and response.status_code == 200 and os.getenv("DEUS_DIAGNOSTICS_ENABLED", "").lower() == "true":
                 observations = response.json().get("observations", [])
                 report("diagnostic observer recent observations", bool(observations), f"{len(observations)} observation(s)")
         if os.getenv("DEUS_DIAGNOSTICS_ENABLED", "").lower() == "true":

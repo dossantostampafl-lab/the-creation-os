@@ -182,6 +182,10 @@ jobs:
           fi
           target="${target:-main}"
           sudo git fetch --prune origin
+          # Installations cloned with --single-branch do not fetch feature refs by default.
+          if ! sudo git rev-parse --verify "origin/$target" >/dev/null 2>&1; then
+            sudo git fetch origin "$target:refs/remotes/origin/$target"
+          fi
           sudo git checkout "origin/$target" -- deploy/oracle deploy/stf
           sudo chmod +x deploy/oracle/*.sh deploy/stf/*.sh
           echo "== Deploy scripts taken from origin/$target =="
