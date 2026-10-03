@@ -1,5 +1,5 @@
 use std::io::{Read, Write};
-use std::net::TcpStream;
+use std::net::{Ipv4Addr, TcpStream};
 use std::time::Duration;
 
 use serde_json::Value;
@@ -14,7 +14,7 @@ pub enum RangeControlError {
     InvalidResponse,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct RangeControlClient {
     addr: String,
     host: String,
@@ -34,13 +34,17 @@ impl RangeControlClient {
         let Some((host, port)) = addr.rsplit_once(':') else {
             return Err(RangeControlError::InvalidConfiguration);
         };
-        if host.is_empty()
-            || port
-                .parse::<u16>()
+        let port_ok = port
+            .parse::<u16>()
+            .ok()
+            .filter(|value| *value > 0)
+            .is_some();
+        let host_ok = host == "host.docker.internal"
+            || host
+                .parse::<Ipv4Addr>()
                 .ok()
-                .filter(|value| *value > 0)
-                .is_none()
-        {
+                .is_some_and(|ip| ip.is_private() || ip.is_loopback());
+        if !host_ok || !port_ok {
             return Err(RangeControlError::InvalidConfiguration);
         }
         let host = host.to_owned();
