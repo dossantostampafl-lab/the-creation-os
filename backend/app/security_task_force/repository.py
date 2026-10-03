@@ -118,7 +118,17 @@ class StfRepository:
 
     # --- grants and dispatch -----------------------------------------------------------------------
 
-    async def issue_grant(self, run_id: str, grant: CapabilityGrant) -> None:
+    async def issue_grant(self, run_id: str, grant: CapabilityGrant) -> bool:
+        """Persist a grant only while the locked run still accepts authority."""
+        run = await self._lock_run(run_id)
+        if (
+            run is None
+            or run.desired_state != "RUN"
+            or run.state in TERMINAL_RUN_STATES
+            or run.mission_id != grant.mission_id
+            or run.mission_version != grant.mission_version
+        ):
+            return False
         self.session.add(StfGrant(
             grant_id=grant.grant_id, run_id=run_id, mission_id=grant.mission_id,
             mission_version=grant.mission_version, actor=grant.actor, capability=grant.capability,
@@ -126,6 +136,7 @@ class StfRepository:
             expires_at=grant.expires_at, max_invocations=grant.max_invocations,
         ))
         await self.session.flush()
+        return True
 
     async def reserve_dispatch(self, run_id: str, action: ActionRequest, grant_id: str) -> DispatchReceipt:
         request_hash = canonical_hash(action.model_dump(mode="json"))
@@ -294,6 +305,20 @@ class StfRepository:
     async def get_run(self, run_id: str, *, lock: bool = False) -> StfRun | None:
         stmt = select(StfRun).where(StfRun.id == run_id)
         return await self.session.scalar(stmt.with_for_update() if lock else stmt)
+
+    async def get_grant(self, grant_id: str, run_id: str | None = None) -> CapabilityGrant | None:
+        stmt = select(StfGrant).where(StfGrant.grant_id == grant_id)
+        if run_id is not None:
+            stmt = stmt.where(StfGrant.run_id == run_id)
+        grant = await self.session.scalar(stmt)
+        if grant is None:
+            return None
+        return CapabilityGrant(
+            grant_id=grant.grant_id, mission_id=grant.mission_id, mission_version=grant.mission_version,
+            actor=grant.actor, capability=grant.capability, target_id=grant.target_id,
+            environment_id=grant.environment_id, action_class=grant.action_class, expires_at=grant.expires_at,
+            max_invocations=grant.max_invocations, revoked=grant.revoked,
+        )
 
     async def active_run_ids(self, creator_id: str, mission_id: str) -> list[str]:
         rows = await self.session.scalars(select(StfRun.id).where(
