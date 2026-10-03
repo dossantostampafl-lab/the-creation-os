@@ -47,7 +47,7 @@ class KnowledgeService:
             row = await self.session.scalar(select(Task).join(Mission, Mission.id == Task.mission_id).where(Task.id == source_id, Mission.creator_id == scope.creator_id))
             return digest(json.dumps([row.status, row.output_json, row.error_json], sort_keys=True)) if row else None
         if source_type in {"diagnostic_observation", "diagnostic_incident"}:
-            return digest(f"{source_type}:{source_id}") if source_id else None
+            return digest(f"{scope.creator_id}:{source_type}:{source_id}") if source_id else None
         return None
 
     async def eligible(self, scope: Scope, revision: KnowledgeRevision, seen: set[str] | None = None, depth: int = 0) -> bool:
