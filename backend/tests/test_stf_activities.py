@@ -375,3 +375,29 @@ async def test_persisted_range_cancel_kills_before_cleanup(tmp_path, monkeypatch
         {"op": "range_reset"},
     ]
     assert calls[0] == ("revoke", "run-1")
+
+
+async def test_persisted_verifier_uses_database_evidence(tmp_path, monkeypatch):
+    activities, deps = make(tmp_path, verify=lambda mission_id: False)
+    calls = []
+
+    class Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+    class Repository:
+        def __init__(self, session):
+            self.session = session
+
+        async def verify_run_evidence(self, run_id):
+            calls.append(run_id)
+            return True
+
+    monkeypatch.setattr("app.security_task_force.repository.StfRepository", Repository)
+    deps.session_factory = lambda: Session()
+
+    assert await activities.verify_mission("m1", "run-1") is True
+    assert calls == ["run-1"]
