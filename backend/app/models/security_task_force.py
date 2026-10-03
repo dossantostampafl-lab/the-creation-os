@@ -21,6 +21,7 @@ from app.models.entities import uuid_string
 RUN_STATES = ("QUEUED", "RUNNING", "AWAITING_CREATOR", "VERIFYING", "CANCELLING", "UNKNOWN", "COMPLETED", "ABORTED")
 DISPATCH_STATUSES = ("denied", "authorized", "dispatched", "executed", "unknown")
 EVIDENCE_KINDS = ("execution", "attack", "defense")
+FINDING_STATUSES = ("confirmed",)
 
 
 def _in(column: str, values: tuple[str, ...]) -> str:
@@ -130,6 +131,46 @@ class StfEvidence(Base):
     acquired_at: Mapped[str] = mapped_column(String(64), nullable=False)
     payload: Mapped[dict] = mapped_column(JSON, nullable=False)
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+
+
+class StfFinding(Base):
+    """Verified finding projection. Raw evidence bodies never live here."""
+
+    __tablename__ = "stf_findings"
+    __table_args__ = (
+        UniqueConstraint("run_id", "action_id", "finding_id", name="uq_stf_finding_projection"),
+        CheckConstraint(_in("status", FINDING_STATUSES), name="ck_stf_finding_status"),
+    )
+
+    finding_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("stf_runs.id"), nullable=False, index=True)
+    mission_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    action_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    task_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    environment_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    title: Mapped[str] = mapped_column(String(256), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    reason: Mapped[str] = mapped_column(String(64), nullable=False)
+    attack_evidence: Mapped[list] = mapped_column(JSON, nullable=False, server_default=text("'[]'"))
+    defense_evidence: Mapped[list] = mapped_column(JSON, nullable=False, server_default=text("'[]'"))
+    reproduced: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+
+
+class StfQualification(Base):
+    """One immutable evidence-based qualification result for a finished run."""
+
+    __tablename__ = "stf_qualifications"
+
+    run_id: Mapped[str] = mapped_column(ForeignKey("stf_runs.id"), primary_key=True)
+    eligible: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    level: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    score: Mapped[int] = mapped_column(Integer, nullable=False)
+    failed_gates: Mapped[list] = mapped_column(JSON, nullable=False, server_default=text("'[]'"))
+    passed_gates: Mapped[list] = mapped_column(JSON, nullable=False, server_default=text("'[]'"))
+    reasons: Mapped[list] = mapped_column(JSON, nullable=False, server_default=text("'[]'"))
+    evidence_refs: Mapped[list] = mapped_column(JSON, nullable=False, server_default=text("'[]'"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
 
 
