@@ -24,6 +24,9 @@ CAPABILITY_RISKS = {
     "range.health.verify": RiskClass.R1,
     "range.scenario.verify": RiskClass.R1,
     "range.scenario.start": RiskClass.R2,
+    "range.campaign.verify": RiskClass.R1,
+    "range.campaign.start": RiskClass.R2,
+    "range.campaign.advance": RiskClass.R2,
     "range.reset": RiskClass.R2,
 }
 APPROVAL_TTL = timedelta(minutes=10)
