@@ -10,7 +10,29 @@ from .contracts import ActionRequest, CapabilityGrant
 DEFAULT_TTL = timedelta(minutes=5)
 MAX_TTL = timedelta(minutes=30)
 
-__all__ = ["CapabilityGrant", "GrantStore", "DEFAULT_TTL", "MAX_TTL"]
+__all__ = ["CapabilityGrant", "GrantStore", "DEFAULT_TTL", "MAX_TTL", "build_grant"]
+
+
+
+def build_grant(
+    action: ActionRequest,
+    *,
+    ttl: timedelta = DEFAULT_TTL,
+    not_after: datetime | None = None,
+    max_invocations: int = 1,
+    now: datetime | None = None,
+) -> CapabilityGrant:
+    """Build an ephemeral grant without choosing its persistence backend."""
+    moment = now or datetime.now(timezone.utc)
+    expires = moment + min(ttl, MAX_TTL)
+    if not_after is not None:
+        expires = min(expires, not_after)
+    return CapabilityGrant(
+        grant_id=f"grant:{uuid4()}", mission_id=action.mission_id, mission_version=action.mission_version,
+        actor=action.actor, capability=action.capability, target_id=action.target_id,
+        environment_id=action.environment_id, action_class=action.action_class,
+        expires_at=expires, max_invocations=max_invocations,
+    )
 
 
 class GrantStore:
@@ -45,15 +67,8 @@ class GrantStore:
 
     def issue(self, action: ActionRequest, *, ttl: timedelta = DEFAULT_TTL, not_after: datetime | None = None,
               max_invocations: int = 1, now: datetime | None = None) -> CapabilityGrant:
-        moment = now or datetime.now(timezone.utc)
-        expires = moment + min(ttl, MAX_TTL)
-        if not_after is not None:
-            expires = min(expires, not_after)
-        grant = CapabilityGrant(
-            grant_id=f"grant:{uuid4()}", mission_id=action.mission_id, mission_version=action.mission_version,
-            actor=action.actor, capability=action.capability, target_id=action.target_id,
-            environment_id=action.environment_id, action_class=action.action_class,
-            expires_at=expires, max_invocations=max_invocations,
+        grant = build_grant(
+            action, ttl=ttl, not_after=not_after, max_invocations=max_invocations, now=now
         )
         state = self._state()
         state["grants"][grant.grant_id] = grant.model_dump(mode="json")
