@@ -251,3 +251,89 @@ async def test_persisted_run_authorization_uses_database_contract_and_grant(tmp_
     assert decision["decision"] == "permit"
     assert issued and issued[0][0] == "run-1" and issued[0][1].grant_id == decision["grant_id"]
     assert deps.grants._state()["grants"] == {}
+
+
+async def test_persisted_dispatch_denial_never_reaches_gateway(tmp_path, monkeypatch):
+    from app.security_task_force.runtime_contracts import DispatchReceipt
+
+    activities, deps = make(tmp_path)
+    decision = await activities.authorize_action("m1", action(), None)
+
+    class Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def commit(self):
+            return None
+
+    class Repository:
+        def __init__(self, session):
+            self.session = session
+
+        async def reserve_dispatch(self, run_id, request, grant_id):
+            return DispatchReceipt("denied", None, ["run_cancelled"])
+
+    monkeypatch.setattr("app.security_task_force.repository.StfRepository", Repository)
+    deps.session_factory = lambda: Session()
+
+    result = await activities.dispatch_action(action(), decision, "run-cancelled")
+
+    assert result == {"status": "denied", "reasons": ["run_cancelled"]}
+    assert deps.gateway.calls == []
+    assert deps.ledger.result("k1") is None
+
+
+async def test_persisted_lost_gateway_response_is_unknown_and_not_replayed(tmp_path, monkeypatch):
+    from app.security_task_force.gateway_client import GatewayOutcomeUnknown
+    from app.security_task_force.runtime_contracts import DispatchReceipt
+
+    class LostAnswer(FakeGateway):
+        async def execute(self, envelope, requested):
+            self.calls.append((envelope, requested))
+            raise GatewayOutcomeUnknown("answer lost")
+
+    activities, deps = make(tmp_path, gateway=LostAnswer())
+    decision = await activities.authorize_action("m1", action(), None)
+    calls = []
+    outcome = {"status": None}
+
+    class Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def commit(self):
+            return None
+
+    class Repository:
+        def __init__(self, session):
+            self.session = session
+
+        async def reserve_dispatch(self, run_id, request, grant_id):
+            calls.append(("reserve", run_id, request.action_id, grant_id))
+            if outcome["status"] is not None:
+                return DispatchReceipt(outcome["status"], "claim-lost", ["gateway_response_lost"])
+            return DispatchReceipt("authorized", "claim-lost", [])
+
+        async def get_grant(self, grant_id, run_id=None):
+            return deps.grants.get(grant_id)
+
+        async def record_outcome(self, execution_id, status, reason_codes=None, evidence_id=None):
+            outcome["status"] = status
+            calls.append(("outcome", execution_id, status, tuple(reason_codes or [])))
+
+    monkeypatch.setattr("app.security_task_force.repository.StfRepository", Repository)
+    deps.session_factory = lambda: Session()
+
+    first = await activities.dispatch_action(action(), decision, "run-1")
+    second = await activities.dispatch_action(action(), decision, "run-1")
+
+    assert first["status"] == second["status"] == "unknown"
+    assert len(deps.gateway.calls) == 1
+    assert ("outcome", "claim-lost", "unknown", ("gateway_response_lost",)) in calls
+    assert deps.ledger.result("k1") is None
