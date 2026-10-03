@@ -138,6 +138,10 @@ class StfService:
         if not source.strip() or len(source) > 128:
             raise ValueError("source is required and must be at most 128 characters")
         run = await self._owned(creator, run_id, mission_id=mission_id)
+        if run.state not in {"RUNNING", "VERIFYING", "COMPLETED"}:
+            raise RunConflict("the run is not accepting training evidence")
+        if await self.repository.get_qualification(run_id) is not None:
+            raise RunConflict("qualification is already finalized")
         dispatch = await self.repository.get_dispatch(execution_id, run_id)
         if dispatch is None or dispatch.status != "executed":
             raise LookupError("Executed dispatch not found")
@@ -187,6 +191,24 @@ class StfService:
     async def qualification(self, creator: Actor, mission_id: str, run_id: str) -> dict | None:
         await self._owned(creator, run_id, mission_id=mission_id)
         return await self.repository.get_qualification(run_id)
+
+    async def finalize_qualification(self, creator: Actor, mission_id: str, run_id: str) -> dict:
+        run = await self._owned(creator, run_id, mission_id=mission_id, lock=True)
+        if run.state != "COMPLETED":
+            raise RunConflict("qualification requires a completed run")
+        existing = await self.repository.get_qualification(run_id)
+        if existing is not None:
+            return existing
+        await self.repository.project_verified_findings(run_id)
+        result = await self.repository.qualify_run(run_id)
+        await self.repository.audit(
+            "stf_qualification_finalized",
+            run_id,
+            {"run_id": run_id, "level": result.get("level"), "eligible": result.get("eligible")},
+            actor_id=creator.id,
+            actor_role=creator.role,
+        )
+        return result
 
     # --- internals ---------------------------------------------------------------------------------
 
