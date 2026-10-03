@@ -342,7 +342,7 @@ async def test_persisted_run_verification_requires_intact_correlated_evidence(st
 
 async def test_verified_finding_projection_and_qualification_use_only_evidence_references(stf_db):
     from app.security_task_force.contracts import CapabilityGrant
-    from app.security_task_force.evidence import EvidenceRecord, REDACTED
+    from app.security_task_force.evidence import REDACTED, EvidenceRecord
 
     _, factory = stf_db
     _, run_id, grant_id = await _seed(factory)
