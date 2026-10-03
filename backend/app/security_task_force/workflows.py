@@ -90,7 +90,7 @@ class MissionWorkflow:
             approval: str | None = None
             while True:
                 decision: dict[str, Any] = await workflow.execute_activity(
-                    "stf_authorize_action", args=[mission_id, action, approval],
+                    "stf_authorize_action", args=[mission_id, action, approval, self._run_id],
                     start_to_close_timeout=_SHORT, retry_policy=_RETRY,
                 )
                 if decision["decision"] == "permit":
@@ -104,7 +104,7 @@ class MissionWorkflow:
                     continue
                 return await self._abort(mission_id)  # deny, or an escalation this run cannot resolve
             result: dict[str, Any] = await workflow.execute_activity(
-                "stf_dispatch_action", args=[action, decision],
+                "stf_dispatch_action", args=[action, decision, self._run_id],
                 start_to_close_timeout=_SHORT, retry_policy=_ONCE,
             )
             if result["status"] != "executed":
