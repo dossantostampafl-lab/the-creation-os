@@ -66,3 +66,9 @@ def test_trusted_scenario_metadata_matches_range_catalog():
     purple = {item["id"] for item in catalog["scenarios"] if item["purple_required"]}
     assert declared == TRUSTED_SCENARIO_FAMILIES
     assert purple == set(TRUSTED_PURPLE_SCENARIOS)
+
+
+def test_sh1_requires_at_least_one_verified_scenario_family():
+    result = evaluate(gates=ok(*ALL_GATES), scenarios={}, score=100)
+    assert not result.eligible
+    assert result.level is None
