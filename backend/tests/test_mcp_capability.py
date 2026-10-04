@@ -86,3 +86,41 @@ async def test_mcp_tool_never_runs_when_mission_does_not_authorize_its_exact_cap
         )
 
     assert client.calls == []
+
+
+def test_mcp_config_rejects_duplicate_servers() -> None:
+    from app.capabilities.mcp import parse_mcp_servers
+
+    with pytest.raises(ValueError, match="duplicate MCP server"):
+        parse_mcp_servers(
+            '[{"name":"github","endpoint":"https://one.example/mcp"},'
+            '{"name":"github","endpoint":"https://two.example/mcp"}]'
+        )
+
+
+@pytest.mark.asyncio
+async def test_untrusted_mcp_write_tool_defaults_to_at_most_once_and_external_effect() -> None:
+    client = FakeMcpClient()
+    adapter = McpToolAdapter(
+        client=client,
+        descriptor=McpToolDescriptor(server="github", tool="write_file"),
+    )
+    gateway = CapabilityGateway()
+    gateway.register(adapter)
+
+    assert adapter.external_effect is True
+
+    with pytest.raises(CapabilityDenied, match="external effects"):
+        await gateway.execute(
+            CapabilityIntent(
+                capability=adapter.name,
+                action="call",
+                arguments={"path": "x"},
+                idempotency_key="write-1",
+            ),
+            CapabilityContext(
+                mission_id="mission-1",
+                authorization=_authorization(adapter.name),
+            ),
+        )
+    assert client.calls == []
