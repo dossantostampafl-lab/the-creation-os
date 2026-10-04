@@ -124,6 +124,8 @@ export function useDeusVoiceSession(options: UseDeusVoiceSessionOptions): DeusVo
     const vad = new VoiceActivityDetector({ threshold: 0.085, releaseFrames: 4 });
     const sink = new Pcm16AudioSink(24_000);
     const player = new StreamingAudioPlayer(sink);
+    let captureReady = false;
+    let captureStart: Promise<void> | null = null;
 
     const stopForTerminalError = (message: string) => {
       if (disposed || terminalError) return;
@@ -133,6 +135,7 @@ export function useDeusVoiceSession(options: UseDeusVoiceSessionOptions): DeusVo
       if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
       reconnectTimer = null;
       player.stop();
+      captureReady = false;
       void capture.stop();
       void sink.close();
       setError(message);
@@ -183,14 +186,29 @@ export function useDeusVoiceSession(options: UseDeusVoiceSessionOptions): DeusVo
     };
 
     const ensureCapture = async () => {
-      try {
-        await capture.start(handleFrame);
-        if (disposed || terminalError) await capture.stop();
-      } catch (failure) {
-        if (disposed || terminalError) return;
-        setError(failure instanceof Error ? failure.message : "MICROPHONE_UNAVAILABLE");
-        setStatus("error");
-      }
+      if (captureReady || disposed || terminalError) return;
+      if (captureStart) return captureStart;
+      captureStart = (async () => {
+        try {
+          await capture.start(handleFrame);
+          if (disposed || terminalError) {
+            await capture.stop();
+            return;
+          }
+          captureReady = true;
+          setError(null);
+          if (model.state === "armed") setStatus("ready");
+          else if (model.state === "listening") setStatus("listening");
+        } catch (failure) {
+          if (disposed || terminalError) return;
+          captureReady = false;
+          setError(failure instanceof Error ? failure.message : "MICROPHONE_UNAVAILABLE");
+          setStatus("error");
+        } finally {
+          captureStart = null;
+        }
+      })();
+      return captureStart;
     };
 
     const finishReply = (turnId: number) => {
@@ -347,6 +365,10 @@ export function useDeusVoiceSession(options: UseDeusVoiceSessionOptions): DeusVo
         };
       } catch (failure) {
         if (disposed || terminalError) return;
+        if (failure instanceof VoiceUnavailableError) {
+          stopForTerminalError(failure.message);
+          return;
+        }
         setError(failure instanceof Error ? failure.message : "VOICE_SESSION_CONNECTION_ERROR");
         scheduleReconnect();
       }
@@ -354,7 +376,11 @@ export function useDeusVoiceSession(options: UseDeusVoiceSessionOptions): DeusVo
 
     const resumeAudio = () => {
       if (disposed || terminalError) return;
-      void capture.resume().catch(() => undefined);
+      if (!captureReady) void ensureCapture();
+      else void capture.resume().catch(() => {
+        captureReady = false;
+        void ensureCapture();
+      });
       void sink.resume().catch(() => undefined);
     };
     const pauseForBackground = () => stopForTerminalError("A voz foi pausada ao sair do aplicativo. Ative-a novamente para continuar.");
