@@ -444,11 +444,42 @@ class DeusConversationService:
         from app.config import settings
         if settings.deus_knowledge_ingestion_enabled:
             from app.knowledge.contracts import Candidate, Scope
-            from app.knowledge.service import KnowledgeService
+            from app.knowledge.service import KnowledgeConflict, KnowledgeService
             for entry in [creator_message, deus_message]:
                 if entry.role == 'deus' and (not context_packet or len(context_packet.trace['dependency_revision_ids']) > 32):
                     continue
-                written = await KnowledgeService(self.repo.session).write(Scope(creator_id=actor.id), Candidate(title='Conversa: ' + entry.role, content=entry.content, kind='derived_note' if entry.role == 'deus' else 'document', source_type='message', source_id=entry.id, project_id=context_packet.trace['project_id'] if context_packet else None, dependencies=context_packet.trace['dependency_revision_ids'] if entry.role == 'deus' and context_packet else []), 'message:' + entry.id)
+                try:
+                    written = await KnowledgeService(self.repo.session).write(
+                        Scope(creator_id=actor.id),
+                        Candidate(
+                            title='Conversa: ' + entry.role,
+                            content=entry.content,
+                            kind='derived_note' if entry.role == 'deus' else 'document',
+                            source_type='message',
+                            source_id=entry.id,
+                            project_id=context_packet.trace['project_id'] if context_packet else None,
+                            dependencies=(
+                                context_packet.trace['dependency_revision_ids']
+                                if entry.role == 'deus' and context_packet
+                                else []
+                            ),
+                        ),
+                        'message:' + entry.id,
+                    )
+                except KnowledgeConflict as exc:
+                    # Knowledge is a secondary projection of a conversation turn. A source
+                    # retrieved before inference can legitimately expire while the model is
+                    # answering (diagnostic observations are intentionally short-lived).
+                    # Preserve the successful Creator/DEUS exchange and fail closed only for
+                    # the derived knowledge item instead of turning a good reply into HTTP 500.
+                    logger.bind(
+                        component='deus_knowledge_ingestion',
+                        conversation_id=conversation_id,
+                        message_id=entry.id,
+                        role=entry.role,
+                        conflict=str(exc),
+                    ).warning('conversation knowledge projection skipped')
+                    continue
                 if entry.role == 'creator' and context_packet:
                     from app.services.deus_context import bind_question_source
                     entry.metadata_json = {**entry.metadata_json, 'knowledge_revision_id':written.revision_id}
