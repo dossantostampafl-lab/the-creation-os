@@ -65,6 +65,8 @@ class Settings(BaseSettings):
     deus_obsidian_export_enabled: bool = Field(False, env="DEUS_OBSIDIAN_EXPORT_ENABLED")
     cyber_range_controller_url: str = Field("", env="CYBER_RANGE_CONTROLLER_URL")
     cyber_range_control_token: SecretStr | None = Field(None, env="CYBER_RANGE_CONTROL_TOKEN")
+    stf_auto_training_enabled: bool = Field(False, env="STF_AUTO_TRAINING_ENABLED")
+    stf_auto_training_interval_seconds: int = Field(30, ge=5, le=3600, env="STF_AUTO_TRAINING_INTERVAL_SECONDS")
     deus_obsidian_root: str = Field("/var/lib/creation/obsidian", env="DEUS_OBSIDIAN_ROOT")
     deus_diagnostics_root: str = Field("/var/lib/creation/diagnostics", env="DEUS_DIAGNOSTICS_ROOT")
     deus_diagnostics_task_stall_seconds: int = Field(900, ge=30, env="DEUS_DIAGNOSTICS_TASK_STALL_SECONDS")
