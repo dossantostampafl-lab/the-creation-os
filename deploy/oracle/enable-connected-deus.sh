@@ -51,6 +51,10 @@ for attempt in $(seq 1 30); do
       rollback
       exit 1
     fi
+    if [ -f deploy/oracle/activate-cyber-range-training.once ]; then
+      echo '== One-time activation: Cyber Range automatic STF training =='
+      ./deploy/oracle/enable-cyber-range-training.sh
+    fi
     echo 'Connected DEUS enabled; no external action authority was added.'
     exit 0
   fi
