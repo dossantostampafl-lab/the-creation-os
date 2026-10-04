@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+
+import httpx
 import pytest
 
 from app.capabilities.contracts import (
@@ -8,7 +11,12 @@ from app.capabilities.contracts import (
     MissionAuthorization,
 )
 from app.capabilities.gateway import CapabilityGateway
-from app.capabilities.mcp import McpToolAdapter, McpToolDescriptor
+from app.capabilities.mcp import (
+    McpToolCertification,
+    McpToolProvider,
+    discover_mcp_adapters,
+    parse_mcp_servers,
+)
 from app.capabilities.policy import CapabilityDenied
 
 
@@ -30,67 +38,107 @@ def _authorization(*capabilities: str, external_effects_allowed: bool = False) -
     )
 
 
+def _certification(
+    *,
+    capability: str = "research.code_search",
+    read_only: bool = True,
+    production_enabled: bool = True,
+) -> McpToolCertification:
+    return McpToolCertification(
+        capability=capability,
+        actions=frozenset({"search"}),
+        read_only=read_only,
+        idempotent=read_only,
+        destructive=False,
+        origin="mcp:github",
+        license="provider-terms",
+        security_review="approved",
+        shadow_enabled=True,
+        production_enabled=production_enabled,
+    )
+
+
 @pytest.mark.asyncio
-async def test_mcp_read_tool_is_a_granular_low_risk_capability() -> None:
+async def test_mcp_provider_is_hidden_behind_logical_capability() -> None:
     client = FakeMcpClient()
-    descriptor = McpToolDescriptor(
+    provider = McpToolProvider(
         server="github",
         tool="search_code",
-        read_only=True,
+        client=client,
+        certification=_certification(),
     )
-    adapter = McpToolAdapter(client=client, descriptor=descriptor)
+    from app.capabilities.providers import RoutedCapabilityAdapter
+
+    adapter = RoutedCapabilityAdapter(capability="research.code_search", providers=[provider])
     gateway = CapabilityGateway()
     gateway.register(adapter)
 
-    assert adapter.name == "mcp.github.search_code"
+    assert adapter.name == "research.code_search"
+    assert "github" not in adapter.name
     assert adapter.external_effect is False
 
     result = await gateway.execute(
         CapabilityIntent(
-            capability=adapter.name,
-            action="call",
+            capability="research.code_search",
+            action="search",
             arguments={"query": "OpportunityLease"},
         ),
         CapabilityContext(
             mission_id="mission-1",
-            authorization=_authorization(adapter.name),
+            authorization=_authorization("research.code_search"),
         ),
     )
 
     assert result.ok is True
+    assert result.data["provider"] == "mcp:github:search_code"
     assert client.calls == [("search_code", {"query": "OpportunityLease"})]
 
 
 @pytest.mark.asyncio
-async def test_mcp_tool_never_runs_when_mission_does_not_authorize_its_exact_capability() -> None:
+async def test_provider_specific_name_never_becomes_authority() -> None:
     client = FakeMcpClient()
-    adapter = McpToolAdapter(
+    provider = McpToolProvider(
+        server="github",
+        tool="search_code",
         client=client,
-        descriptor=McpToolDescriptor(server="github", tool="create_pull_request", read_only=False),
+        certification=_certification(),
     )
+    from app.capabilities.providers import RoutedCapabilityAdapter
+
     gateway = CapabilityGateway()
-    gateway.register(adapter)
+    gateway.register(RoutedCapabilityAdapter(capability="research.code_search", providers=[provider]))
 
     with pytest.raises(CapabilityDenied):
         await gateway.execute(
             CapabilityIntent(
-                capability=adapter.name,
-                action="call",
-                arguments={"title": "unauthorized"},
-                idempotency_key="attempt-1",
+                capability="mcp.github.search_code",
+                action="search",
+                arguments={"query": "x"},
             ),
             CapabilityContext(
                 mission_id="mission-1",
-                authorization=_authorization("mcp.github.search_code", external_effects_allowed=True),
+                authorization=_authorization("research.code_search"),
             ),
         )
-
     assert client.calls == []
 
 
-def test_mcp_config_rejects_duplicate_servers() -> None:
-    from app.capabilities.mcp import parse_mcp_servers
+def test_mcp_config_requires_local_mapping_and_certification_metadata() -> None:
+    with pytest.raises(ValueError, match="origin, license and security_review"):
+        parse_mcp_servers(json.dumps([{
+            "name": "github",
+            "endpoint": "https://example.com/mcp",
+            "tools": {
+                "search_code": {
+                    "capability": "research.code_search",
+                    "actions": ["search"],
+                    "read_only": True,
+                }
+            },
+        }]))
 
+
+def test_mcp_config_rejects_duplicate_servers() -> None:
     with pytest.raises(ValueError, match="duplicate MCP server"):
         parse_mcp_servers(
             '[{"name":"github","endpoint":"https://one.example/mcp"},'
@@ -98,51 +146,126 @@ def test_mcp_config_rejects_duplicate_servers() -> None:
         )
 
 
-@pytest.mark.asyncio
-async def test_untrusted_mcp_write_tool_defaults_to_at_most_once_and_external_effect() -> None:
-    client = FakeMcpClient()
-    adapter = McpToolAdapter(
-        client=client,
-        descriptor=McpToolDescriptor(server="github", tool="write_file"),
-    )
-    gateway = CapabilityGateway()
-    gateway.register(adapter)
+def test_mcp_config_rejects_read_only_destructive_overlap() -> None:
+    with pytest.raises(ValueError, match="read-only and destructive"):
+        parse_mcp_servers(json.dumps([{
+            "name": "github",
+            "endpoint": "https://example.com/mcp",
+            "tools": {
+                "danger": {
+                    "capability": "repo.write",
+                    "actions": ["write"],
+                    "read_only": True,
+                    "destructive": True,
+                    "origin": "mcp:github",
+                    "license": "provider-terms",
+                    "security_review": "approved",
+                }
+            },
+        }]))
 
+
+@pytest.mark.asyncio
+async def test_remote_annotations_do_not_lower_risk_without_local_certification() -> None:
+    requests: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content.decode())
+        requests.append(payload)
+        method = payload.get("method")
+        if method == "initialize":
+            return httpx.Response(200, json={
+                "jsonrpc": "2.0",
+                "id": payload["id"],
+                "result": {"protocolVersion": "2025-06-18", "capabilities": {}, "serverInfo": {"name": "x", "version": "1"}},
+            })
+        if method == "notifications/initialized":
+            return httpx.Response(202)
+        if method == "tools/list":
+            return httpx.Response(200, json={
+                "jsonrpc": "2.0",
+                "id": payload["id"],
+                "result": {
+                    "tools": [{
+                        "name": "write_file",
+                        "annotations": {"readOnlyHint": True, "idempotentHint": True},
+                    }]
+                },
+            })
+        raise AssertionError(method)
+
+    raw = json.dumps([{
+        "name": "github",
+        "endpoint": "https://example.com/mcp",
+        "tools": {
+            "write_file": {
+                "capability": "repo.write",
+                "actions": ["write"],
+                "origin": "mcp:github",
+                "license": "provider-terms",
+                "security_review": "approved",
+                "production_enabled": True,
+            }
+        },
+    }])
+    adapters = await discover_mcp_adapters(raw, transport=httpx.MockTransport(handler))
+    assert len(adapters) == 1
+    adapter = adapters[0]
+    assert adapter.name == "repo.write"
     assert adapter.external_effect is True
 
+    gateway = CapabilityGateway()
+    gateway.register(adapter)
     with pytest.raises(CapabilityDenied, match="external effects"):
         await gateway.execute(
             CapabilityIntent(
-                capability=adapter.name,
-                action="call",
+                capability="repo.write",
+                action="write",
                 arguments={"path": "x"},
                 idempotency_key="write-1",
             ),
             CapabilityContext(
                 mission_id="mission-1",
-                authorization=_authorization(adapter.name),
+                authorization=_authorization("repo.write"),
             ),
         )
-    assert client.calls == []
 
 
-def test_mcp_server_tool_certification_is_explicit() -> None:
-    from app.capabilities.mcp import parse_mcp_servers
+@pytest.mark.asyncio
+async def test_discovery_registers_only_locally_mapped_tools() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content.decode())
+        method = payload.get("method")
+        if method == "initialize":
+            return httpx.Response(200, json={
+                "jsonrpc": "2.0",
+                "id": payload["id"],
+                "result": {"protocolVersion": "2025-06-18", "capabilities": {}, "serverInfo": {"name": "x", "version": "1"}},
+            })
+        if method == "notifications/initialized":
+            return httpx.Response(202)
+        if method == "tools/list":
+            return httpx.Response(200, json={
+                "jsonrpc": "2.0",
+                "id": payload["id"],
+                "result": {"tools": [{"name": "search_code"}, {"name": "delete_repo"}]},
+            })
+        raise AssertionError(method)
 
-    [server] = parse_mcp_servers(
-        '[{"name":"github","endpoint":"https://example.com/mcp",'
-        '"read_only_tools":["search_code"],"idempotent_tools":["update_issue"]}]'
-    )
-    assert server.read_only_tools == frozenset({"search_code"})
-    assert server.idempotent_tools == frozenset({"update_issue"})
-    assert "create_pull_request" not in server.read_only_tools
-
-
-def test_mcp_config_rejects_read_only_destructive_overlap() -> None:
-    from app.capabilities.mcp import parse_mcp_servers
-
-    with pytest.raises(ValueError, match="risk certifications overlap"):
-        parse_mcp_servers(
-            '[{"name":"github","endpoint":"https://example.com/mcp",'
-            '"read_only_tools":["danger"],"destructive_tools":["danger"]}]'
-        )
+    raw = json.dumps([{
+        "name": "github",
+        "endpoint": "https://example.com/mcp",
+        "tools": {
+            "search_code": {
+                "capability": "research.code_search",
+                "actions": ["search"],
+                "read_only": True,
+                "origin": "mcp:github",
+                "license": "provider-terms",
+                "security_review": "approved",
+                "shadow_enabled": True,
+            }
+        },
+    }])
+    adapters = await discover_mcp_adapters(raw, transport=httpx.MockTransport(handler))
+    assert [adapter.name for adapter in adapters] == ["research.code_search"]
