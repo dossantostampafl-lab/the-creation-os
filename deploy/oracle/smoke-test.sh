@@ -180,7 +180,9 @@ with httpx.Client(base_url=BASE, timeout=45) as client:
             if name == "Cyber Range configuration" and response.status_code == 200 and os.getenv("STF_AUTO_TRAINING_ENABLED", "").lower() == "true":
                 report("Cyber Range available for automatic training", response.json().get("status") == "available",
                        str(response.json().get("status", "unknown")))
-        if os.getenv("DEUS_DIAGNOSTICS_ENABLED", "").lower() == "true":
+        diagnostics_enabled = os.getenv("DEUS_DIAGNOSTICS_ENABLED", "").lower() == "true"
+        training_enabled = os.getenv("STF_AUTO_TRAINING_ENABLED", "").lower() == "true"
+        if diagnostics_enabled or training_enabled:
             async def check_connected_runtime():
                 from datetime import datetime, timezone
                 from sqlalchemy import func, select
@@ -190,12 +192,13 @@ with httpx.Client(base_url=BASE, timeout=45) as client:
                 from app.models.security_task_force import StfRun
                 from app.security_task_force.training import TRAINING_AGENT_SPECS, training_mission_id
 
-                expected = {"task-worker", "knowledge-worker", "diagnostics-worker"}
-                if os.getenv("DEUS_AUTONOMY_DISCOVERY_ENABLED", "").lower() == "true":
-                    expected.add("discovery-worker")
-                if os.getenv("DEUS_AUTONOMY_COMPETITION_ENABLED", "").lower() == "true":
-                    expected.add("opportunity-worker")
-                training_enabled = os.getenv("STF_AUTO_TRAINING_ENABLED", "").lower() == "true"
+                expected = set()
+                if diagnostics_enabled:
+                    expected.update({"task-worker", "knowledge-worker", "diagnostics-worker"})
+                    if os.getenv("DEUS_AUTONOMY_DISCOVERY_ENABLED", "").lower() == "true":
+                        expected.add("discovery-worker")
+                    if os.getenv("DEUS_AUTONOMY_COMPETITION_ENABLED", "").lower() == "true":
+                        expected.add("opportunity-worker")
                 if training_enabled:
                     expected.add("stf-training-worker")
 
@@ -223,7 +226,7 @@ with httpx.Client(base_url=BASE, timeout=45) as client:
                 missing, training_agents, training_runs = asyncio.run(check_connected_runtime())
                 report("connected worker heartbeats", not missing,
                        "fresh" if not missing else "missing: " + ", ".join(missing))
-                if os.getenv("STF_AUTO_TRAINING_ENABLED", "").lower() == "true":
+                if training_enabled:
                     report("10 STF Cyber Range training agents active",
                            training_agents == 10, str(training_agents))
                     report("automatic STF training has started",
