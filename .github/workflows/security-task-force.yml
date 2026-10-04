@@ -55,6 +55,8 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --all-features -- -D warnings
       - run: cargo test --locked
+      - name: Build the exact production gateway image
+        run: docker build -t creation-security-gateway-ci .
   compose:
     runs-on: ubuntu-latest
     steps:
