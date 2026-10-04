@@ -407,4 +407,10 @@ export const fetchKnowledgeProjects = () => api<{id:string;title:string}[]>('/kn
 export const createKnowledgeProject = (title: string) => api<{id:string;title:string}>('/knowledge/projects',{method:'POST',body:JSON.stringify({title})});
 export const setKnowledgeFocus = (conversationId: string, projectId: string | null) => api(`/knowledge/conversations/${conversationId}/focus`,{method:'PUT',body:JSON.stringify({project_id:projectId})});
 
-export const fetchDiagnostics = () => api<{observations:{resource:string;status:string;observed_at:string}[]}>('/knowledge/diagnostics/current');
+export type DiagnosticsSnapshot = {
+  observations: {resource:string;status:string;observed_at:string;latency_ms?:number;safe_evidence?:Record<string,unknown>}[];
+  observer_status: "healthy" | "stale" | "disabled";
+  source: "journal" | "live_probe" | "unavailable";
+  unknown_without_recent_observation: boolean;
+};
+export const fetchDiagnostics = () => api<DiagnosticsSnapshot>('/knowledge/diagnostics/current');
