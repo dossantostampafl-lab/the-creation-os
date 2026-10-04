@@ -181,24 +181,30 @@ class RemoteMcpClient:
 
     async def list_tools(self) -> list[McpToolDescriptor]:
         await self.ensure_initialized()
-        result = await self._rpc("tools/list", {})
-        raw_tools = result.get("tools", [])
-        if not isinstance(raw_tools, list):
-            raise McpError("MCP tools/list returned malformed tools")
-
         server = _normalize_name(httpx.URL(self.endpoint).host or "server")
         descriptors: list[McpToolDescriptor] = []
-        for raw in raw_tools:
-            if not isinstance(raw, dict) or not isinstance(raw.get("name"), str):
-                continue
-            annotations = raw.get("annotations") if isinstance(raw.get("annotations"), dict) else {}
-            descriptors.append(McpToolDescriptor(
-                server=server,
-                tool=raw["name"],
-                read_only=bool(annotations.get("readOnlyHint", False)),
-                idempotent=bool(annotations.get("idempotentHint", False)),
-                destructive=bool(annotations.get("destructiveHint", False)),
-            ))
+        cursor: str | None = None
+        while True:
+            params = {"cursor": cursor} if cursor else {}
+            result = await self._rpc("tools/list", params)
+            raw_tools = result.get("tools", [])
+            if not isinstance(raw_tools, list):
+                raise McpError("MCP tools/list returned malformed tools")
+            for raw in raw_tools:
+                if not isinstance(raw, dict) or not isinstance(raw.get("name"), str):
+                    continue
+                annotations = raw.get("annotations") if isinstance(raw.get("annotations"), dict) else {}
+                descriptors.append(McpToolDescriptor(
+                    server=server,
+                    tool=raw["name"],
+                    read_only=bool(annotations.get("readOnlyHint", False)),
+                    idempotent=bool(annotations.get("idempotentHint", False)),
+                    destructive=bool(annotations.get("destructiveHint", False)),
+                ))
+            next_cursor = result.get("nextCursor")
+            if not isinstance(next_cursor, str) or not next_cursor:
+                break
+            cursor = next_cursor
         return descriptors
 
     async def call_tool(self, tool: str, arguments: dict) -> dict:
@@ -296,6 +302,8 @@ async def discover_mcp_adapters(
     seen: set[str] = set()
     for server in parse_mcp_servers(raw_config):
         token = os.environ.get(server.token_env) if server.token_env else None
+        if server.token_env and not token:
+            raise ValueError(f"MCP credential environment variable is missing: {server.token_env}")
         client = RemoteMcpClient(
             endpoint=server.endpoint,
             bearer_token=token,
