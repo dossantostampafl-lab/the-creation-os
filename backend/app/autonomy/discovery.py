@@ -9,7 +9,7 @@ from loguru import logger
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.autonomy.perception import PerceptionFabric
+from app.autonomy.perception import PerceptionFabric, build_perception_fabric
 from app.config import settings
 from app.db.session import AsyncSessionLocal
 from app.diagnostics.heartbeat import supervised
@@ -197,7 +197,19 @@ async def run() -> None:
         logger.info("autonomous discovery disabled by configuration")
         return
 
-    worker = DiscoveryWorker(AsyncSessionLocal)
+    # Reuse the same centrally governed capability construction as Mission execution.
+    # Import lazily to keep the discovery module independent from the task-worker startup.
+    from app.worker import build_capability_gateway, register_mcp_capabilities
+
+    gateway = build_capability_gateway()
+    await register_mcp_capabilities(gateway)
+    perception = build_perception_fabric(
+        gateway,
+        bindings_json=settings.perception_sensor_bindings_json,
+        allowlist=settings.perception_sensor_allowlist,
+        max_sensors_per_cycle=settings.perception_max_sensors_per_cycle,
+    )
+    worker = DiscoveryWorker(AsyncSessionLocal, perception=perception)
     while True:
         try:
             creator_id = await creator_scope()
