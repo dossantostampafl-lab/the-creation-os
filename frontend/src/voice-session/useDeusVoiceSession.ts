@@ -209,10 +209,11 @@ export function useDeusVoiceSession(options: UseDeusVoiceSessionOptions): DeusVo
           if (disposed || terminalError) return;
           captureReady = false;
           const code = failure instanceof Error ? failure.message : "MICROPHONE_UNAVAILABLE";
+          const errorName = failure instanceof DOMException ? failure.name : "";
           setError(
             code === "VOICE_CAPTURE_REQUIRES_USER_GESTURE"
               ? "Toque uma vez na tela para ativar a escuta contínua; depois diga “Deus”."
-              : code === "NotAllowedError"
+              : errorName === "NotAllowedError"
                 ? "Permita o acesso ao microfone para ativar a palavra “Deus”."
                 : code,
           );
@@ -400,7 +401,12 @@ export function useDeusVoiceSession(options: UseDeusVoiceSessionOptions): DeusVo
       void sink.resume().catch(() => undefined);
     };
     const pauseForBackground = () => stopForTerminalError("A voz foi pausada ao sair do aplicativo. Ative-a novamente para continuar.");
+    const resumeOnForeground = () => {
+      if (document.visibilityState === "visible") resumeAudio();
+    };
     window.addEventListener(NATIVE_BACKGROUND_EVENT, pauseForBackground);
+    window.addEventListener("focus", resumeOnForeground);
+    document.addEventListener("visibilitychange", resumeOnForeground);
     document.addEventListener("pointerdown", resumeAudio);
     document.addEventListener("keydown", resumeAudio);
     void connect();
@@ -411,6 +417,8 @@ export function useDeusVoiceSession(options: UseDeusVoiceSessionOptions): DeusVo
       player.stop();
       if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
       window.removeEventListener(NATIVE_BACKGROUND_EVENT, pauseForBackground);
+      window.removeEventListener("focus", resumeOnForeground);
+      document.removeEventListener("visibilitychange", resumeOnForeground);
       document.removeEventListener("pointerdown", resumeAudio);
       document.removeEventListener("keydown", resumeAudio);
       const current = socket;
