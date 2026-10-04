@@ -277,3 +277,60 @@ def test_live_context_lists_every_universe() -> None:
     readiness = {f"U{index:02d}": UniverseReadiness.READY for index in range(12)}
     note = live_context_note(SystemSnapshot(readiness=readiness, running=[], awaiting_authorization=[]))
     assert all(f"U{index:02d} ready" in note for index in range(12))
+
+@pytest.mark.asyncio
+async def test_deus_reply_survives_stale_knowledge_projection(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from app.config import settings
+    from app.knowledge.service import KnowledgeConflict, KnowledgeService
+
+    actor = Actor(str(uuid.uuid4()), "creator")
+    repo = FakeRepository(actor)
+    repo.session = object()  # type: ignore[attr-defined]
+    router = StubRouter()
+
+    class ContextBuilder:
+        async def build(self, creator_id, conversation_id, content, channel, history):
+            return SimpleNamespace(
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": content},
+                ],
+                trace={
+                    "project_id": None,
+                    "knowledge_epoch": 1,
+                    "retrieval_fingerprint": "test",
+                    "dependency_revision_ids": ["expired-diagnostic-revision"],
+                },
+                trace_id="trace-expiring-dependency",
+            )
+
+    calls: list[str] = []
+
+    async def stale_projection(self, scope, candidate, key, *args, **kwargs):
+        calls.append(candidate.source_id or "")
+        raise KnowledgeConflict("dependency unavailable")
+
+    monkeypatch.setattr(settings, "deus_knowledge_ingestion_enabled", True)
+    monkeypatch.setattr(KnowledgeService, "write", stale_projection)
+    service = DeusConversationService(
+        repo,
+        router,
+        provider="stub",
+        model="stub-model",
+        context_builder=ContextBuilder(),
+    )
+
+    result = await service.respond(
+        actor,
+        repo.conversation.id,
+        "Continue a conversa.",
+        str(uuid.uuid4()),
+    )
+
+    assert result.response == "DEUS response"
+    assert [message.role for message in repo.messages] == ["creator", "deus"]
+    assert len(calls) == 2
+    assert repo.commits == 1
+
