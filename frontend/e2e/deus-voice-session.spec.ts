@@ -453,7 +453,7 @@ test("wake word recovers microphone capture after an initial permission/startup 
   });
 
   await page.goto("/");
-  await expect(page.locator(".console-error")).toContainText("gesture required");
+  await expect(page.locator(".console-error")).toContainText("Permita o acesso ao microfone");
   await expect(page.locator(".wake-hint")).toContainText("precisa de atenção");
 
   await page.getByRole("textbox", { name: "Message DEUS" }).click();
@@ -466,4 +466,36 @@ test("wake word recovers microphone capture after an initial permission/startup 
   ).toBeTruthy();
   await expect(page.locator(".wake-hint")).toContainText("Pronto");
   await expect(page.locator(".console-error")).toHaveCount(0);
+});
+
+
+test("wake word retries microphone capture when the app returns to the foreground", async ({ page }) => {
+  const ticketCalls = { value: 0 };
+  await installVoiceSockets(page);
+  await mockDashboard(page, ticketCalls);
+  await page.addInitScript(() => {
+    const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    let attempts = 0;
+    navigator.mediaDevices.getUserMedia = async constraints => {
+      attempts += 1;
+      if (attempts === 1) throw new DOMException("permission temporarily unavailable", "NotAllowedError");
+      return original(constraints);
+    };
+    Object.assign(window, { voiceMediaAttempts: () => attempts });
+  });
+
+  await page.goto("/");
+  await expect.poll(() => page.evaluate(() =>
+    (window as unknown as { voiceMediaAttempts: () => number }).voiceMediaAttempts()
+  )).toBe(1);
+
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+
+  await expect.poll(() => page.evaluate(() =>
+    (window as unknown as { voiceMediaAttempts: () => number }).voiceMediaAttempts()
+  )).toBeGreaterThanOrEqual(2);
+  await expect.poll(async () =>
+    (await voiceSockets(page))[0]?.sent.some(raw => JSON.parse(raw).type === "audio")
+  ).toBeTruthy();
+  await expect(page.locator(".wake-hint")).toContainText("Pronto");
 });

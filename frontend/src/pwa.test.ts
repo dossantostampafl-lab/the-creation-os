@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createUpdateController } from "./PwaStatus";
-import { registerPwa } from "./pwa";
+import { registerPwa, startClientFreshnessPolling, startPwaUpdatePolling } from "./pwa";
 
 function registration(overrides: Record<string, unknown> = {}) {
   const listeners = new Map<string, () => void>();
@@ -106,5 +106,60 @@ describe("createUpdateController", () => {
     expect(controller.request({ waiting: null, addEventListener: vi.fn() })).toBe(false);
     controller.controllerChanged();
     expect(reload).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("startPwaUpdatePolling", () => {
+  it("checks for a newer worker on an interval and when the app becomes visible", async () => {
+    vi.useFakeTimers();
+    const update = vi.fn().mockResolvedValue(undefined);
+    const listeners = new Map<string, () => void>();
+    const documentLike = {
+      visibilityState: "visible" as DocumentVisibilityState,
+      addEventListener: vi.fn((type: string, listener: () => void) => listeners.set(type, listener)),
+      removeEventListener: vi.fn(),
+    };
+
+    const stop = startPwaUpdatePolling({ update }, {
+      document: documentLike,
+      intervalMs: 60_000,
+      setInterval: setInterval as unknown as typeof window.setInterval,
+      clearInterval: clearInterval as unknown as typeof window.clearInterval,
+    });
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(update).toHaveBeenCalledTimes(1);
+    listeners.get("visibilitychange")?.();
+    await Promise.resolve();
+    expect(update).toHaveBeenCalledTimes(2);
+
+    stop();
+    vi.useRealTimers();
+  });
+});
+
+
+describe("startClientFreshnessPolling", () => {
+  it("reloads an open app when the deployed module asset changes", async () => {
+    vi.useFakeTimers();
+    const reload = vi.fn();
+    const fetchShell = vi.fn().mockResolvedValue('<script type="module" crossorigin src="/assets/index-new.js"></script>');
+
+    const stop = startClientFreshnessPolling({
+      currentAsset: () => "/assets/index-old.js",
+      fetchShell,
+      reload,
+      intervalMs: 60_000,
+      setInterval: setInterval as unknown as typeof window.setInterval,
+      clearInterval: clearInterval as unknown as typeof window.clearInterval,
+    });
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetchShell).toHaveBeenCalledOnce();
+    expect(reload).toHaveBeenCalledOnce();
+
+    stop();
+    vi.useRealTimers();
   });
 });

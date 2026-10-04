@@ -14,6 +14,7 @@ export function ConnectedPanel() {
   const [requestId, setRequestId] = useState(() => newRequestId());
   const [evidence, setEvidence] = useState<KnowledgeEvidence[]>([]);
   const [diagnostics, setDiagnostics] = useState<DiagnosticsSnapshot | null>(null);
+  const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null);
   const [range, setRange] = useState<CyberRangeState | null>(null);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
@@ -44,9 +45,15 @@ export function ConnectedPanel() {
     const refresh = async () => {
       try {
         const snapshot = await fetchDiagnostics();
-        if (!disposed) setDiagnostics(snapshot);
+        if (!disposed) {
+          setDiagnostics(snapshot);
+          setDiagnosticsError(null);
+        }
       } catch {
-        if (!disposed) setDiagnostics(null);
+        if (!disposed) {
+          setDiagnostics(null);
+          setDiagnosticsError("Diagnóstico indisponível. O observador não respondeu; o estado não será marcado como saudável.");
+        }
       }
     };
     void refresh();
@@ -63,7 +70,16 @@ export function ConnectedPanel() {
     <form onSubmit={save}><label>Título<input value={title} onChange={e=>{setTitle(e.target.value);setRequestId(newRequestId());}} required maxLength={200}/></label><label>Informação<textarea value={content} onChange={e=>{setContent(e.target.value);setRequestId(newRequestId());}} required maxLength={262144}/></label><button disabled={busy}>Guardar na memória</button></form>
     <div className="stack">{evidence.map(item=><article className="decision" key={item.revision_id}><div><strong>{item.title}</strong><small>{item.epistemic_state}</small><p>{item.content}</p></div><button disabled={busy} onClick={()=>{if(window.confirm('Revogar esta informação e suas notas dependentes?')) void run(async()=>{await revokeKnowledge(item);setEvidence(rows=>rows.filter(row=>row.item_id!==item.item_id));setMessage('Informação revogada.');});}}>Revogar</button></article>)}</div>
     <h3>Diagnóstico do OS</h3>
-    <button disabled={busy} onClick={()=>void run(async()=>{setDiagnostics(await fetchDiagnostics());})}>Atualizar diagnóstico</button>
+    <button disabled={busy} onClick={()=>void run(async()=>{
+      try {
+        setDiagnostics(await fetchDiagnostics());
+        setDiagnosticsError(null);
+      } catch {
+        setDiagnostics(null);
+        setDiagnosticsError("Diagnóstico indisponível. O observador não respondeu; o estado não será marcado como saudável.");
+      }
+    })}>Atualizar diagnóstico</button>
+    {diagnosticsError && <p role="alert">{diagnosticsError}</p>}
     {diagnostics && <p>Observador: {diagnostics.observer_status} · fonte: {diagnostics.source}</p>}
     {diagnostics && (diagnostics.observations.length ? <ul>{diagnostics.observations.map(row=><li key={row.resource}>{row.resource}: {row.status} · {row.observed_at}</li>)}</ul> : <p>Sem observações recentes. Estado desconhecido; verifique o observador.</p>)}
     <h3>Cyber Range</h3>

@@ -408,3 +408,17 @@ test("handles a failed event snapshot refresh and recovers with Retry", async ({
   await expect(page.locator(".error-banner")).toHaveCount(0);
   await expect(page.locator(".top-status .status")).toHaveText("LIVE");
 });
+
+
+test("surfaces a diagnostic observer failure instead of silently hiding it", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("creation_access_token", "e2e-token"));
+  await mockOperationalApi(page);
+  await page.route("**/api/v1/knowledge/diagnostics/current", route =>
+    route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ detail: "observer unavailable" }) }));
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "System vitals" }).click();
+
+  const vitals = page.getByRole("complementary", { name: "System vitals" });
+  await expect(vitals.getByText(/Diagnóstico indisponível/i)).toBeVisible();
+});
