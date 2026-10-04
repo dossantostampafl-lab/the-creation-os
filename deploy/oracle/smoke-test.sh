@@ -157,6 +157,8 @@ with httpx.Client(base_url=BASE, timeout=45) as client:
                 expected = {"task-worker", "knowledge-worker", "diagnostics-worker"}
                 if os.getenv("DEUS_AUTONOMY_DISCOVERY_ENABLED", "").lower() == "true":
                     expected.add("discovery-worker")
+                # Production competition is only healthy when its supervised worker
+                # is emitting a fresh heartbeat; code deployment alone is not enough.
                 if os.getenv("DEUS_AUTONOMY_COMPETITION_ENABLED", "").lower() == "true":
                     expected.add("opportunity-worker")
                 async with AsyncSessionLocal() as session:
