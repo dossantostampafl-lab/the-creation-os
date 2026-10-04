@@ -150,8 +150,31 @@ services:
       - stf_state:/var/lib/creation/stf
     command: ["python", "-m", "app.security_task_force.temporal_worker"]
     depends_on: [stf-temporal, stf-nats, stf-opa]
-    networks: [stf-control]
+    # temporal_worker dispatches the durable DB outbox; it needs both the
+    # private STF control plane and PostgreSQL on tco_net.
+    networks: [tco_net, stf-control]
     restart: unless-stopped
+
+  stf-training-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    profiles: ["security-task-force"]
+    env_file: [.env]
+    environment:
+      STF_AUTO_TRAINING_ENABLED: ${STF_AUTO_TRAINING_ENABLED:-false}
+      STF_AUTO_TRAINING_CYCLE_SECONDS: ${STF_AUTO_TRAINING_CYCLE_SECONDS:-60}
+    command: ["python", "-m", "app.security_task_force.training_worker"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      stf-temporal:
+        condition: service_started
+      stf-worker:
+        condition: service_started
+    networks: [tco_net, stf-control]
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
 
   stf-gateway:
     build:
