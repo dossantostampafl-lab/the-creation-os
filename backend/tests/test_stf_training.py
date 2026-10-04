@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from app.security_task_force.contracts import RiskClass
 from app.security_task_force.training import (
     ADVANCED_CAMPAIGN_ID,
     RANGE_ENVIRONMENT_ID,
