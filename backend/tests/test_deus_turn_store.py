@@ -14,6 +14,9 @@ async def _conversation(factory):
     conversation_id = str(uuid.uuid4())
     async with factory() as session:
         session.add(Creator(id=creator_id, username=f"creator-{creator_id[:8]}", password_hash="x", is_active=True))
+        # Flush the FK parent before inserting Conversation. The production schema has a
+        # real creator_id foreign key and this fixture deliberately uses no ORM relationship.
+        await session.flush()
         session.add(Conversation(id=conversation_id, creator_id=creator_id, title="retry", status="active"))
         await session.commit()
     return creator_id, conversation_id
