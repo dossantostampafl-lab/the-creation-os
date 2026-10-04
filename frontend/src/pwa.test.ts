@@ -124,8 +124,8 @@ describe("startPwaUpdatePolling", () => {
     const stop = startPwaUpdatePolling({ update }, {
       document: documentLike,
       intervalMs: 60_000,
-      setInterval: window.setInterval.bind(window),
-      clearInterval: window.clearInterval.bind(window),
+      setInterval: setInterval as unknown as typeof window.setInterval,
+      clearInterval: clearInterval as unknown as typeof window.clearInterval,
     });
 
     await vi.advanceTimersByTimeAsync(60_000);
