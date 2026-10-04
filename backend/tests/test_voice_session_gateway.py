@@ -312,6 +312,11 @@ def test_sovereign_creator_can_issue_ephemeral_voice_ticket(voice_client: TestCl
 def test_websocket_consumes_ticket_and_announces_armed_session(voice_client: TestClient):
     with voice_client.websocket_connect("/api/v1/voice/session?ticket=ticket-1&conversation_id=conversation-1") as websocket:
         ready = websocket.receive_json()
+        websocket.send_json({
+            "type": "stop",
+            "session_id": ready["session_id"],
+            "turn_id": ready["turn_id"],
+        })
 
     assert ready["type"] == "session_ready"
     assert ready["state"] == "ARMED"
