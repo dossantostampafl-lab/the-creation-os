@@ -453,7 +453,7 @@ test("wake word recovers microphone capture after an initial permission/startup 
   });
 
   await page.goto("/");
-  await expect(page.locator(".console-error")).toContainText("gesture required");
+  await expect(page.locator(".console-error")).toContainText("Permita o acesso ao microfone");
   await expect(page.locator(".wake-hint")).toContainText("precisa de atenção");
 
   await page.getByRole("textbox", { name: "Message DEUS" }).click();
