@@ -18,7 +18,8 @@ from pathlib import Path
 p=Path('.env')
 lines=p.read_text().splitlines()
 values={'DEUS_KNOWLEDGE_INGESTION_ENABLED':'true','DEUS_CONTEXT_RETRIEVAL_ENABLED':'true',
-        'DEUS_DIAGNOSTICS_ENABLED':'true','DEUS_AUTONOMY_DISCOVERY_ENABLED':'true',\n        'DEUS_AUTONOMY_COMPETITION_ENABLED':'true',
+        'DEUS_DIAGNOSTICS_ENABLED':'true','DEUS_AUTONOMY_DISCOVERY_ENABLED':'true',
+        'DEUS_AUTONOMY_COMPETITION_ENABLED':'true',
         'DEUS_OBSIDIAN_EXPORT_ENABLED':'true'}
 existing={line.split('=',1)[0]:line.split('=',1)[1] for line in lines if '=' in line and not line.startswith('#')}
 origins=[value.strip() for value in existing.get('CORS_ALLOW_ORIGINS','').strip('\"\'').split(',') if value.strip()]
