@@ -4,8 +4,17 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Sequence
 
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from app.config import settings
+from app.core.domain import Actor
+from app.models.entities import Agent, Universe
+from app.models.security_task_force import StfRun
 from app.security_task_force.contracts import ActionRequest, MissionContract, RiskClass
 from app.security_task_force.mission_compiler import CompilationResult, compile_verified_contract
+from app.security_task_force.repository import StfRepository
+from app.security_task_force.service import StfService
 
 RANGE_ENVIRONMENT_ID = "cyber_range:lab-a"
 ADVANCED_CAMPAIGN_ID = "stf-advanced-v1"
@@ -142,3 +151,141 @@ def select_next_training_agent(
         return item.cycles, timestamp, spec.code
 
     return min(specs, key=key)
+
+
+def _training_capabilities(spec: TrainingAgentSpec) -> dict[str, object]:
+    return {
+        "inference_provider": settings.llm_provider,
+        "training_profile": "stf-cyber-range-v1",
+        "cell": spec.cell,
+        "specialty": spec.specialty,
+        "environment_scope": "cyber_range:*",
+        "autonomous_training": True,
+        "real_target_authority": False,
+    }
+
+
+async def ensure_training_agents(session: AsyncSession) -> list[Agent]:
+    security = await session.scalar(select(Universe).where(Universe.code == "security"))
+    if security is None or not security.active:
+        raise RuntimeError("canonical security Universe must be active before STF training")
+
+    codes = [item.code for item in TRAINING_AGENT_SPECS]
+    existing = {
+        item.code: item
+        for item in (
+            await session.scalars(select(Agent).where(Agent.code.in_(codes)))
+        ).all()
+    }
+    ready: list[Agent] = []
+    for spec in TRAINING_AGENT_SPECS:
+        expected = _training_capabilities(spec)
+        agent = existing.get(spec.code)
+        if agent is None:
+            agent = Agent(
+                code=spec.code,
+                name=spec.name,
+                universe_id=security.id,
+                active=True,
+                capabilities_json=expected,
+            )
+            session.add(agent)
+        else:
+            agent.name = spec.name
+            agent.universe_id = security.id
+            agent.active = True
+            agent.capabilities_json = expected
+        ready.append(agent)
+    await session.flush()
+    return ready
+
+
+class AutomaticRangeTraining:
+    """Serial, fail-closed scheduler for the ten dedicated Cyber Range trainees.
+
+    Only one training run is active at a time because the current Range campaign state is
+    intentionally global. Completed/aborted runs are kept as immutable history; the agent with
+    the fewest cycles and then the oldest start time is scheduled next.
+    """
+
+    def __init__(self, factory: async_sessionmaker[AsyncSession]) -> None:
+        self.factory = factory
+
+    async def run_once(self, creator_id: str) -> dict[str, object]:
+        mission_ids = [training_mission_id(item.code) for item in TRAINING_AGENT_SPECS]
+        async with self.factory() as session:
+            agents = await ensure_training_agents(session)
+            active = await session.scalar(
+                select(StfRun)
+                .where(
+                    StfRun.creator_id == creator_id,
+                    StfRun.mission_id.in_(mission_ids),
+                    StfRun.state.notin_(("COMPLETED", "ABORTED")),
+                )
+                .order_by(StfRun.created_at.asc())
+                .limit(1)
+            )
+            if active is not None:
+                await session.commit()
+                return {
+                    "status": "busy",
+                    "run_id": active.id,
+                    "mission_id": active.mission_id,
+                    "agents_ready": len(agents),
+                }
+
+            rows = (
+                await session.execute(
+                    select(
+                        StfRun.mission_id,
+                        func.count(StfRun.id),
+                        func.max(StfRun.created_at),
+                    )
+                    .where(
+                        StfRun.creator_id == creator_id,
+                        StfRun.mission_id.in_(mission_ids),
+                    )
+                    .group_by(StfRun.mission_id)
+                )
+            ).all()
+            by_mission = {
+                str(mission_id): TrainingHistory(
+                    cycles=int(cycles),
+                    last_started_at=last_started_at,
+                )
+                for mission_id, cycles, last_started_at in rows
+            }
+            history = {
+                spec.code: by_mission.get(training_mission_id(spec.code), TrainingHistory())
+                for spec in TRAINING_AGENT_SPECS
+            }
+            spec = select_next_training_agent(TRAINING_AGENT_SPECS, history)
+            cycle = history[spec.code].cycles + 1
+
+            repository = StfRepository(session)
+            stored = await repository.get_contract(creator_id, training_mission_id(spec.code))
+            if stored is None:
+                compiled = compile_training_contract(creator_id, spec)
+                if compiled.status != "COMPILED" or compiled.contract is None:
+                    raise RuntimeError("automatic training contract compilation failed")
+                await repository.save_contract(compiled)
+                contract = compiled.contract
+            else:
+                contract = MissionContract.model_validate(stored.contract_json)
+
+            service = StfService(session)
+            view = await service.start(
+                Actor(creator_id, "creator"),
+                contract.mission_id,
+                build_training_actions(contract, spec, cycle=cycle),
+                request_key=f"auto-training:{spec.code}:cycle-{cycle}",
+            )
+            await session.commit()
+            return {
+                "status": "queued",
+                "run_id": view.run_id,
+                "mission_id": view.mission_id,
+                "agent_code": spec.code,
+                "cycle": cycle,
+                "agents_ready": len(agents),
+            }
