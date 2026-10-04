@@ -11,6 +11,7 @@ export interface PwaRegistrationLike {
   waiting?: PwaWorkerLike | null;
   installing?: PwaWorkerLike | null;
   addEventListener: (type: string, listener: () => void) => void;
+  update?: () => Promise<void> | void;
 }
 
 interface PwaContainerLike {
@@ -52,4 +53,33 @@ export async function registerPwa(options: PwaRegistrationOptions = {}): Promise
     options.onError?.(error);
     return null;
   }
+}
+
+
+export interface PwaUpdatePollingOptions {
+  document?: Pick<Document, "visibilityState" | "addEventListener" | "removeEventListener">;
+  intervalMs?: number;
+  setInterval?: typeof window.setInterval;
+  clearInterval?: typeof window.clearInterval;
+}
+
+export function startPwaUpdatePolling(
+  registration: Pick<PwaRegistrationLike, "update">,
+  options: PwaUpdatePollingOptions = {},
+): () => void {
+  if (!registration.update) return () => undefined;
+  const documentLike = options.document ?? document;
+  const intervalMs = options.intervalMs ?? 60_000;
+  const schedule = options.setInterval ?? window.setInterval.bind(window);
+  const cancel = options.clearInterval ?? window.clearInterval.bind(window);
+  const check = () => {
+    if (documentLike.visibilityState !== "visible") return;
+    void Promise.resolve(registration.update?.()).catch(() => undefined);
+  };
+  const timer = schedule(check, intervalMs);
+  documentLike.addEventListener("visibilitychange", check);
+  return () => {
+    cancel(timer);
+    documentLike.removeEventListener("visibilitychange", check);
+  };
 }
