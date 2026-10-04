@@ -29,7 +29,7 @@ if docker exec "$container" python -c "from app.config import settings; raise Sy
   docker exec "$container" python -m app.voice_session.verify_local
 fi
 
-frontend_source_sha="$(cat frontend/src/CreatorConsole.tsx frontend/src/voice-session/useDeusVoiceSession.ts | sha256sum | awk '{print $1}')"
+frontend_source_sha="$(cd frontend && { find src public -type f -print; printf '%s\n' package.json package-lock.json vite.config.ts nginx.conf; } | sort | xargs sha256sum | sha256sum | awk '{print $1}')"
 
 docker exec -i -e TCO_WITH_DEUS="$with_deus" -e TCO_FRONTEND_SOURCE_SHA="$frontend_source_sha" "$container" python - <<'PY'
 import asyncio
