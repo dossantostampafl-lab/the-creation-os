@@ -37,3 +37,42 @@ exit 0
     assert (tmp_path/'.env').read_text()==original
     assert log.read_text().splitlines()==['stopped','recreated']
     assert list((tmp_path/'.connected-backups').glob('database-*.sql.gz'))
+
+def test_activation_restores_anthropic_reserve_for_freellmapi(tmp_path):
+    source = Path(__file__).resolve().parents[2] / 'deploy/oracle/enable-connected-deus.sh'
+    script = tmp_path / 'deploy/oracle/enable-connected-deus.sh'
+    script.parent.mkdir(parents=True)
+    script.write_bytes(source.read_bytes())
+    (tmp_path / '.env').write_text(
+        'LLM_PROVIDER=freellmapi\n'
+        'LLM_FALLBACK_PROVIDERS=\n'
+        'ANTHROPIC_API_KEY=test-anthropic-key\n'
+        'ANTHROPIC_MODEL=claude-sonnet-5\n'
+        'DEUS_CONTEXT_RETRIEVAL_ENABLED=false\n'
+        'CORS_ALLOW_ORIGINS=https://example.test\n'
+    )
+    binary = tmp_path / 'bin'
+    binary.mkdir()
+    docker = binary / 'docker'
+    docker.write_text('''#!/bin/sh
+case "$*" in
+ *pg_dump*) echo backup;;
+esac
+exit 0
+''')
+    docker.chmod(0o755)
+
+    result = subprocess.run(
+        ['bash', str(script)],
+        env={**os.environ, 'PATH': str(binary) + ':' + os.environ['PATH']},
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+    assert result.returncode == 0, result.stderr
+    env_text = (tmp_path / '.env').read_text()
+    assert 'LLM_PROVIDER=freellmapi' in env_text
+    assert 'LLM_FALLBACK_PROVIDERS=anthropic' in env_text
+    assert 'DEUS_CONTEXT_RETRIEVAL_ENABLED=true' in env_text
+
