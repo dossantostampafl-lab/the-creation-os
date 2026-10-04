@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { downsampleTo16k, float32ToPcm16 } from "./audio-capture";
+import { downsampleTo16k, ensureAudioContextRunning, float32ToPcm16 } from "./audio-capture";
 
 describe("realtime microphone PCM", () => {
   it("converts normalized float audio to little-endian PCM16", () => {
@@ -31,4 +31,24 @@ describe("realtime microphone PCM", () => {
       "VOICE_CAPTURE_SAMPLE_RATE_TOO_LOW",
     );
   });
+  it("does not report wake capture ready while the browser keeps AudioContext suspended", async () => {
+    const context = {
+      state: "suspended" as AudioContextState,
+      resume: async () => undefined,
+    };
+    await expect(ensureAudioContextRunning(context)).rejects.toThrow(
+      "VOICE_CAPTURE_REQUIRES_USER_GESTURE",
+    );
+  });
+
+  it("accepts capture after a user gesture lets AudioContext enter running state", async () => {
+    let state: AudioContextState = "suspended";
+    const context = {
+      get state() { return state; },
+      resume: async () => { state = "running"; },
+    };
+    await expect(ensureAudioContextRunning(context)).resolves.toBeUndefined();
+    expect(state).toBe("running");
+  });
+
 });
