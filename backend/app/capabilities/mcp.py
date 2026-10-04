@@ -280,14 +280,19 @@ def parse_mcp_servers(raw: str) -> list[McpServerConfig]:
             raise ValueError(f"duplicate MCP server name: {name}")
         names.add(name)
         token_env = str(item.get("token_env", "")).strip() or None
+        read_only_tools = _tool_names(item.get("read_only_tools"), field="read_only_tools")
+        idempotent_tools = _tool_names(item.get("idempotent_tools"), field="idempotent_tools")
+        destructive_tools = _tool_names(item.get("destructive_tools"), field="destructive_tools")
+        if read_only_tools & destructive_tools:
+            raise ValueError("MCP tool risk certifications overlap: read_only_tools and destructive_tools")
         servers.append(McpServerConfig(
             name=name,
             endpoint=endpoint,
             token_env=token_env,
             protocol_version=str(item.get("protocol_version", DEFAULT_PROTOCOL_VERSION)),
-            read_only_tools=_tool_names(item.get("read_only_tools"), field="read_only_tools"),
-            idempotent_tools=_tool_names(item.get("idempotent_tools"), field="idempotent_tools"),
-            destructive_tools=_tool_names(item.get("destructive_tools"), field="destructive_tools"),
+            read_only_tools=read_only_tools,
+            idempotent_tools=idempotent_tools,
+            destructive_tools=destructive_tools,
         ))
     return servers
 
