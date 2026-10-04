@@ -48,8 +48,9 @@ class TurnStore:
                     await session.flush()
                     return row
                 if row.state == 'pending' and row.lease_until <= now:
-                    row.state = 'failed'
-                    # Expiration is not permission to repeat reasoning or effects.
+                    # A lost lease has an unknown execution outcome. Keep it fenced from
+                    # the retryable "failed before commit" state.
+                    row.state = 'interrupted'
                     await session.commit()
                 raise TurnConflict('turn_in_progress_or_interrupted; use a new request_id to repeat')
             return row
