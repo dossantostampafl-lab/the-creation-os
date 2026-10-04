@@ -9,7 +9,7 @@ mkdir -p .connected-backups
 cp .env ".connected-backups/env-$stamp"
 rollback() {
   cp ".connected-backups/env-$stamp" .env
-  "${COMPOSE[@]}" --profile connected-deus stop knowledge-worker diagnostics-worker discovery-worker || true
+  "${COMPOSE[@]}" --profile connected-deus stop knowledge-worker diagnostics-worker discovery-worker opportunity-worker || true
   "${COMPOSE[@]}" up -d --force-recreate api worker || true
   echo 'Activation failed; original flags restored. Private backups retained for diagnosis.' >&2
 }
@@ -18,7 +18,7 @@ from pathlib import Path
 p=Path('.env')
 lines=p.read_text().splitlines()
 values={'DEUS_KNOWLEDGE_INGESTION_ENABLED':'true','DEUS_CONTEXT_RETRIEVAL_ENABLED':'true',
-        'DEUS_DIAGNOSTICS_ENABLED':'true','DEUS_AUTONOMY_DISCOVERY_ENABLED':'true',
+        'DEUS_DIAGNOSTICS_ENABLED':'true','DEUS_AUTONOMY_DISCOVERY_ENABLED':'true',\n        'DEUS_AUTONOMY_COMPETITION_ENABLED':'true',
         'DEUS_OBSIDIAN_EXPORT_ENABLED':'true'}
 existing={line.split('=',1)[0]:line.split('=',1)[1] for line in lines if '=' in line and not line.startswith('#')}
 origins=[value.strip() for value in existing.get('CORS_ALLOW_ORIGINS','').strip('\"\'').split(',') if value.strip()]
@@ -31,7 +31,7 @@ p.chmod(0o600)
 PY
 # Migration is additive. Backfill imports Creator messages only; model assertions without
 # provenance never become durable evidence. No database downgrade on runtime failures.
-if ! "${COMPOSE[@]}" --profile connected-deus up -d --build api worker knowledge-worker diagnostics-worker discovery-worker; then
+if ! "${COMPOSE[@]}" --profile connected-deus up -d --build api worker knowledge-worker diagnostics-worker discovery-worker opportunity-worker; then
   rollback
   exit 1
 fi
