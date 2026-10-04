@@ -435,3 +435,35 @@ test("configuration failure discovered while preloading acknowledgement remains 
   await expect(page.locator(".wake-hint")).toContainText("precisa de atenção");
   await expect(page.getByRole("textbox", { name: "Message DEUS" })).toBeEnabled();
 });
+
+
+test("wake word recovers microphone capture after an initial permission/startup failure", async ({ page }) => {
+  const ticketCalls = { value: 0 };
+  await installVoiceSockets(page);
+  await mockDashboard(page, ticketCalls);
+  await page.addInitScript(() => {
+    const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    let attempts = 0;
+    navigator.mediaDevices.getUserMedia = async constraints => {
+      attempts += 1;
+      if (attempts === 1) throw new DOMException("gesture required", "NotAllowedError");
+      return original(constraints);
+    };
+    Object.assign(window, { voiceMediaAttempts: () => attempts });
+  });
+
+  await page.goto("/");
+  await expect(page.locator(".console-error")).toContainText("gesture required");
+  await expect(page.locator(".wake-hint")).toContainText("precisa de atenção");
+
+  await page.getByRole("textbox", { name: "Message DEUS" }).click();
+
+  await expect.poll(() => page.evaluate(() =>
+    (window as unknown as { voiceMediaAttempts: () => number }).voiceMediaAttempts()
+  )).toBeGreaterThanOrEqual(2);
+  await expect.poll(async () =>
+    (await voiceSockets(page))[0]?.sent.some(raw => JSON.parse(raw).type === "audio")
+  ).toBeTruthy();
+  await expect(page.locator(".wake-hint")).toContainText("Pronto");
+  await expect(page.locator(".console-error")).toHaveCount(0);
+});

@@ -73,3 +73,12 @@ def test_cloud_speech_libraries_can_load_without_making_general_tmp_executable()
     assert 'nosuid' in str(speech) and 'nodev' in str(speech)
     assert '/tmp' in mounts
     assert api['read_only'] is True
+
+
+def test_cloud_stf_workers_are_read_only_and_keep_required_networks() -> None:
+    cloud = load(CLOUD)["services"]
+    for name in ("stf-worker", "stf-training-worker"):
+        service = cloud[name]
+        assert service["read_only"] is True
+        assert "/tmp" in service["tmpfs"]
+        assert set(service["networks"]) == {"tco_net", "stf-control"}

@@ -84,6 +84,7 @@ PROBE_RULES = {
     "knowledge-worker": "heartbeat",
     "discovery-worker": "heartbeat",
     "opportunity-worker": "heartbeat",
+    "stf-training-worker": "heartbeat",
 }
 
 
@@ -332,6 +333,8 @@ async def collect() -> dict[str, ProbeResult]:
             probes["discovery-worker"] = partial(worker_probe, "discovery-worker")
         if settings.deus_autonomy_competition_enabled:
             probes["opportunity-worker"] = partial(worker_probe, "opportunity-worker")
+        if settings.stf_auto_training_enabled:
+            probes["stf-training-worker"] = partial(worker_probe, "stf-training-worker")
 
     values = await asyncio.gather(*(bounded(probe) for probe in probes.values()))
     return dict(zip(probes, values))

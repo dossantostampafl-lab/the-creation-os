@@ -37,9 +37,20 @@ class TurnStore:
             if row.owner != owner:
                 if row.state == 'completed':
                     return row
+                # A clean provider failure is known to have produced no committed domain
+                # effects, so the same idempotency key may safely acquire a fresh lease.
+                # Interrupted/expired work remains fenced because its outcome is uncertain.
+                if row.state == 'failed':
+                    row.owner = owner
+                    row.state = 'pending'
+                    row.lease_until = now + timedelta(seconds=120)
+                    row.response = None
+                    await session.flush()
+                    return row
                 if row.state == 'pending' and row.lease_until <= now:
-                    row.state = 'failed'
-                    # Expiration is not permission to repeat reasoning or effects.
+                    # A lost lease has an unknown execution outcome. Keep it fenced from
+                    # the retryable "failed before commit" state.
+                    row.state = 'interrupted'
                     await session.commit()
                 raise TurnConflict('turn_in_progress_or_interrupted; use a new request_id to repeat')
             return row

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
@@ -10,9 +11,12 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import actor
+from app.config import settings
 from app.core.domain import Actor
 from app.db.session import get_session
 from app.diagnostics.context import current_diagnostics
+from app.diagnostics.heartbeat import ServiceHeartbeat
+from app.diagnostics.worker import collect as collect_live_diagnostics
 from app.knowledge.contracts import Candidate, Scope
 from app.knowledge.service import KnowledgeConflict, KnowledgeService
 from app.models.entities import Conversation, ConversationMemory
@@ -144,4 +148,41 @@ async def get_focus(conversation_id: UUID, a: Actor = Depends(actor), session: A
 
 @router.get('/diagnostics/current')
 async def diagnostics(a: Actor = Depends(actor), session: AsyncSession = Depends(get_session)):
-    return {'observations':await current_diagnostics(session, a.id), 'unknown_without_recent_observation':True}
+    observations = await current_diagnostics(session, a.id)
+    now = datetime.now(timezone.utc)
+    observer_fresh = await session.scalar(
+        select(ServiceHeartbeat.service).where(
+            ServiceHeartbeat.service == 'diagnostics-worker',
+            ServiceHeartbeat.valid_until > now,
+        ).limit(1)
+    )
+    source = 'journal'
+    if not observations:
+        # The diagnostic UI must remain useful when its background observer is the
+        # component that failed. Run the same bounded, read-only probes on demand.
+        try:
+            live = await collect_live_diagnostics()
+            observations = [
+                {
+                    'resource': resource,
+                    'status': result.status,
+                    'observed_at': now.isoformat(),
+                    'valid_until': now.isoformat(),
+                    'latency_ms': round(result.latency_ms),
+                    'safe_evidence': result.safe_evidence,
+                }
+                for resource, result in live.items()
+            ]
+            source = 'live_probe'
+        except Exception:
+            source = 'unavailable'
+    return {
+        'observations': observations,
+        'observer_status': (
+            'disabled' if not settings.deus_diagnostics_enabled
+            else 'healthy' if observer_fresh
+            else 'stale'
+        ),
+        'source': source,
+        'unknown_without_recent_observation': not bool(observations),
+    }

@@ -185,11 +185,34 @@ export type DeusConversationReply = {
   correlation_id: string;
 };
 
-export const converseWithDeus = (conversationId: string, content: string, requestId: string = newRequestId()) =>
-  api<DeusConversationReply>(`/conversations/${conversationId}/deus`, {
-    method: "POST",
-    body: JSON.stringify({ content, metadata: {}, request_id: requestId }),
-  });
+export async function converseWithDeus(
+  conversationId: string,
+  content: string,
+  requestId: string = newRequestId(),
+): Promise<DeusConversationReply> {
+  const path = `/conversations/${conversationId}/deus`;
+  const body = JSON.stringify({ content, metadata: {}, request_id: requestId });
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const response = await authorizedFetch(path, { method: "POST", body });
+      if (response.ok) return response.json() as Promise<DeusConversationReply>;
+      if (![502, 503, 504].includes(response.status) || attempt === 1) {
+        throw new Error(`HTTP_${response.status}`);
+      }
+      lastError = new Error(`HTTP_${response.status}`);
+    } catch (error) {
+      if (error instanceof Error && (
+        error.message === "AUTH_REQUIRED"
+        || error.message.startsWith("HTTP_4")
+      )) throw error;
+      lastError = error;
+      if (attempt === 1) break;
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 300));
+  }
+  throw lastError instanceof Error ? lastError : new Error("DEUS_TEMPORARILY_UNAVAILABLE");
+}
 
 
 export type VoiceSessionTicket = {
@@ -200,7 +223,13 @@ export async function issueVoiceSessionTicket(): Promise<VoiceSessionTicket> {
   const response = await authorizedFetch("/voice/session/ticket", {
     method: "POST",
   });
-  if (!response.ok) throw new Error(`HTTP_${response.status}`);
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null) as { detail?: { message?: string; nonretryable?: boolean } } | null;
+    if (payload?.detail?.nonretryable) {
+      throw new VoiceUnavailableError(payload.detail.message ?? "A voz local não está disponível.");
+    }
+    throw new Error(`HTTP_${response.status}`);
+  }
   return response.json() as Promise<VoiceSessionTicket>;
 }
 
@@ -378,4 +407,10 @@ export const fetchKnowledgeProjects = () => api<{id:string;title:string}[]>('/kn
 export const createKnowledgeProject = (title: string) => api<{id:string;title:string}>('/knowledge/projects',{method:'POST',body:JSON.stringify({title})});
 export const setKnowledgeFocus = (conversationId: string, projectId: string | null) => api(`/knowledge/conversations/${conversationId}/focus`,{method:'PUT',body:JSON.stringify({project_id:projectId})});
 
-export const fetchDiagnostics = () => api<{observations:{resource:string;status:string;observed_at:string}[]}>('/knowledge/diagnostics/current');
+export type DiagnosticsSnapshot = {
+  observations: {resource:string;status:string;observed_at:string;latency_ms?:number;safe_evidence?:Record<string,unknown>}[];
+  observer_status: "healthy" | "stale" | "disabled";
+  source: "journal" | "live_probe" | "unavailable";
+  unknown_without_recent_observation: boolean;
+};
+export const fetchDiagnostics = () => api<DiagnosticsSnapshot>('/knowledge/diagnostics/current');

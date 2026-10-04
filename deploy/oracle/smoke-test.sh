@@ -27,6 +27,7 @@ import asyncio
 import json
 import os
 import sys
+import uuid
 from urllib.parse import urlencode
 
 import httpx
@@ -135,6 +136,11 @@ with httpx.Client(base_url=BASE, timeout=45) as client:
     report("a provider is available", available,
            "" if available else "the console stays disabled while this is false")
 
+    if os.getenv("LLM_PROVIDER", "").lower() == "freellmapi" and os.getenv("ANTHROPIC_API_KEY") and os.getenv("ANTHROPIC_MODEL"):
+        reserve = [item.strip().lower() for item in os.getenv("LLM_FALLBACK_PROVIDERS", "").split(",") if item.strip()]
+        report("Anthropic inference reserve configured", "anthropic" in reserve,
+               ",".join(reserve) if reserve else "reserve chain is empty")
+
     if os.getenv("DEUS_CONTEXT_RETRIEVAL_ENABLED", "").lower() == "true":
         print("== Connected DEUS ==")
         for name, path in [("knowledge projects", "/knowledge/projects"),
@@ -146,8 +152,14 @@ with httpx.Client(base_url=BASE, timeout=45) as client:
                 detail = response.json().get("status", "unknown")
             report(name, response.status_code == 200, detail)
             if name == "current diagnostics" and response.status_code == 200 and os.getenv("DEUS_DIAGNOSTICS_ENABLED", "").lower() == "true":
-                observations = response.json().get("observations", [])
-                report("diagnostic observer recent observations", bool(observations), f"{len(observations)} observation(s)")
+                diagnostic_snapshot = response.json()
+                observations = diagnostic_snapshot.get("observations", [])
+                report("diagnostic observations available", bool(observations), f"{len(observations)} observation(s)")
+                report("diagnostic observer heartbeat", diagnostic_snapshot.get("observer_status") == "healthy",
+                       str(diagnostic_snapshot.get("observer_status", "unknown")))
+            if name == "Cyber Range configuration" and response.status_code == 200 and os.getenv("STF_AUTO_TRAINING_ENABLED", "").lower() == "true":
+                report("Cyber Range available for automatic training", response.json().get("status") == "available",
+                       str(response.json().get("status", "unknown")))
         if os.getenv("DEUS_DIAGNOSTICS_ENABLED", "").lower() == "true":
             async def check_worker_heartbeats():
                 from datetime import datetime, timezone
@@ -161,6 +173,8 @@ with httpx.Client(base_url=BASE, timeout=45) as client:
                 # is emitting a fresh heartbeat; code deployment alone is not enough.
                 if os.getenv("DEUS_AUTONOMY_COMPETITION_ENABLED", "").lower() == "true":
                     expected.add("opportunity-worker")
+                if os.getenv("STF_AUTO_TRAINING_ENABLED", "").lower() == "true":
+                    expected.add("stf-training-worker")
                 async with AsyncSessionLocal() as session:
                     services = set(await session.scalars(select(ServiceHeartbeat.service).where(
                         ServiceHeartbeat.valid_until > datetime.now(timezone.utc))))
@@ -171,6 +185,34 @@ with httpx.Client(base_url=BASE, timeout=45) as client:
                 report("connected worker heartbeats", heartbeat_ok, heartbeat_detail)
             except Exception as exc:
                 report("connected worker heartbeats", False, type(exc).__name__)
+
+        if os.getenv("STF_AUTO_TRAINING_ENABLED", "").lower() == "true":
+            async def check_stf_training():
+                from sqlalchemy import func, select
+                from app.db.session import AsyncSessionLocal
+                from app.models.entities import Agent
+                from app.models.security_task_force import StfRun
+                from app.security_task_force.training import TRAINING_AGENT_SPECS, training_mission_id
+                codes = [item.code for item in TRAINING_AGENT_SPECS]
+                missions = [training_mission_id(item.code) for item in TRAINING_AGENT_SPECS]
+                async with AsyncSessionLocal() as session:
+                    agents = int(await session.scalar(
+                        select(func.count()).select_from(Agent).where(
+                            Agent.code.in_(codes), Agent.active.is_(True)
+                        )
+                    ) or 0)
+                    runs = int(await session.scalar(
+                        select(func.count()).select_from(StfRun).where(
+                            StfRun.mission_id.in_(missions)
+                        )
+                    ) or 0)
+                return agents, runs
+            try:
+                training_agents, training_runs = asyncio.run(check_stf_training())
+                report("10 STF Cyber Range training agents active", training_agents == 10, str(training_agents))
+                report("automatic STF training has started", training_runs > 0, f"{training_runs} run(s)")
+            except Exception as exc:
+                report("automatic STF training state", False, type(exc).__name__)
 
     print()
     print("== Voice ==")
@@ -240,19 +282,25 @@ with httpx.Client(base_url=BASE, timeout=45) as client:
             else:
                 report("realtime DEUS voice session", False, f"ticket HTTP {realtime_ticket.status_code}")
 
-            reply = client.post(
-                f"/conversations/{conversation_id}/deus",
-                json={"content": "Responda apenas: estou aqui."},
-            )
-            # The endpoint answers 201: it created a message. Accepting only 200 reported a
-            # working DEUS as broken, which is the one wrong answer a health check must not give.
-            if reply.status_code in (200, 201):
-                text = (reply.json().get("response") or "").strip()
-                report("DEUS replies", bool(text), f"{text[:80]!r}")
-            else:
-                report("DEUS replies", False, f"HTTP {reply.status_code}: {reply.text[:160]}")
+            successful_turns = 0
+            for turn_index in range(1, 4):
+                reply = client.post(
+                    f"/conversations/{conversation_id}/deus",
+                    json={
+                        "content": f"Responda brevemente em português ao turno {turn_index}.",
+                        "request_id": str(uuid.uuid4()),
+                    },
+                )
+                if reply.status_code in (200, 201):
+                    answer = (reply.json().get("response") or "").strip()
+                    ok = bool(answer)
+                    successful_turns += int(ok)
+                    report(f"DEUS turn {turn_index}", ok, f"{answer[:80]!r}")
+                else:
+                    report(f"DEUS turn {turn_index}", False, f"HTTP {reply.status_code}: {reply.text[:160]}")
+            report("DEUS sustained 3 consecutive turns", successful_turns == 3, f"{successful_turns}/3")
             messages = client.get(f"/conversations/{conversation_id}/messages")
-            report("the reply is stored", messages.status_code == 200 and len(messages.json()) >= 2,
+            report("all DEUS turns are stored", messages.status_code == 200 and len(messages.json()) >= 6,
                    f"{len(messages.json())} message(s)" if messages.status_code == 200 else "")
 
 print()

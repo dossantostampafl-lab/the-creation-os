@@ -244,7 +244,13 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
         setMessages((current) => current.filter((message) => message.id !== optimisticId));
       }
       const message = failure instanceof Error ? failure.message : "CONVERSATION_FAILED";
-      setError(message === "HTTP_503" ? "Inference provider is not configured." : message === "AUTH_REQUIRED" ? "Sessão expirada. Entre novamente para continuar." : "DEUS conversation failed.");
+      setError(
+        message === "AUTH_REQUIRED"
+          ? "Sessão expirada. Entre novamente para continuar."
+          : ["HTTP_502", "HTTP_503", "HTTP_504", "DEUS_TEMPORARILY_UNAVAILABLE"].includes(message)
+            ? "DEUS está temporariamente sem resposta dos provedores de inferência. Tente novamente."
+            : "Não foi possível concluir a conversa com DEUS.",
+      );
     } finally {
       setPending(false);
     }
