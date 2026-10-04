@@ -12,7 +12,7 @@ def compose():
 
 def test_stf_control_plane_is_profile_gated():
     services = compose()["services"]
-    names = ("stf-nats", "stf-opa", "stf-temporal", "stf-worker", "stf-gateway")
+    names = ("stf-nats", "stf-opa", "stf-temporal", "stf-worker", "stf-training-worker", "stf-gateway")
     for name in names:
         assert "security-task-force" in services[name].get("profiles", [])
 
@@ -42,7 +42,7 @@ def test_core_stack_starts_without_any_task_force_service():
 
 def test_control_plane_services_publish_no_host_ports():
     services = compose()["services"]
-    for name in ("stf-nats", "stf-opa", "stf-temporal", "stf-worker", "stf-gateway"):
+    for name in ("stf-nats", "stf-opa", "stf-temporal", "stf-worker", "stf-training-worker", "stf-gateway"):
         assert not services[name].get("ports"), name
 
 
@@ -54,11 +54,15 @@ def test_gateway_is_locked_down_and_has_no_way_to_start_without_a_key():
     assert "stf-execution" in gateway["networks"] and "tco_net" not in gateway["networks"]
 
 
-def test_worker_reaches_only_the_control_network_and_shares_state_with_the_api():
+def test_workers_reach_postgres_and_private_control_without_execution_network():
     services = compose()["services"]
-    assert list(services["stf-worker"]["networks"]) == ["stf-control"]
+    assert set(services["stf-worker"]["networks"]) == {"tco_net", "stf-control"}
+    assert set(services["stf-training-worker"]["networks"]) == {"tco_net", "stf-control"}
+    assert "stf-execution" not in services["stf-worker"]["networks"]
+    assert "stf-execution" not in services["stf-training-worker"]["networks"]
     assert any("stf_state" in str(volume) for volume in services["stf-worker"]["volumes"])
     assert any("stf_state" in str(volume) for volume in services["api"]["volumes"])
+    assert services["stf-training-worker"]["command"][-1] == "app.security_task_force.training_worker"
 
 
 def test_range_targets_are_loopback_only_and_never_lan_bound():
