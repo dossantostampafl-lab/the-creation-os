@@ -11,9 +11,9 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import actor
+from app.config import settings
 from app.core.domain import Actor
 from app.db.session import get_session
-from app.config import settings
 from app.diagnostics.context import current_diagnostics
 from app.diagnostics.heartbeat import ServiceHeartbeat
 from app.diagnostics.worker import collect as collect_live_diagnostics
