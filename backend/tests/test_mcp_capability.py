@@ -136,3 +136,13 @@ def test_mcp_server_tool_certification_is_explicit() -> None:
     assert server.read_only_tools == frozenset({"search_code"})
     assert server.idempotent_tools == frozenset({"update_issue"})
     assert "create_pull_request" not in server.read_only_tools
+
+
+def test_mcp_config_rejects_read_only_destructive_overlap() -> None:
+    from app.capabilities.mcp import parse_mcp_servers
+
+    with pytest.raises(ValueError, match="risk certifications overlap"):
+        parse_mcp_servers(
+            '[{"name":"github","endpoint":"https://example.com/mcp",'
+            '"read_only_tools":["danger"],"destructive_tools":["danger"]}]'
+        )
