@@ -83,3 +83,65 @@ export function startPwaUpdatePolling(
     documentLike.removeEventListener("visibilitychange", check);
   };
 }
+
+
+export interface ClientFreshnessPollingOptions {
+  currentAsset?: () => string | null;
+  fetchShell?: () => Promise<string>;
+  reload?: () => void;
+  document?: Pick<Document, "visibilityState" | "querySelector" | "addEventListener" | "removeEventListener">;
+  intervalMs?: number;
+  setInterval?: typeof window.setInterval;
+  clearInterval?: typeof window.clearInterval;
+}
+
+function moduleAssetFromHtml(html: string): string | null {
+  for (const match of html.matchAll(/<script\b[^>]*>/gi)) {
+    const tag = match[0];
+    if (!/\btype\s*=\s*["']module["']/i.test(tag)) continue;
+    const src = tag.match(/\bsrc\s*=\s*["']([^"']+)["']/i)?.[1];
+    if (src) return src;
+  }
+  return null;
+}
+
+export function startClientFreshnessPolling(
+  options: ClientFreshnessPollingOptions = {},
+): () => void {
+  const documentLike = options.document ?? document;
+  const currentAsset = options.currentAsset ?? (() =>
+    documentLike.querySelector<HTMLScriptElement>('script[type="module"][src]')?.getAttribute("src") ?? null);
+  const fetchShell = options.fetchShell ?? (async () => {
+    const response = await fetch("/", { cache: "no-store", credentials: "same-origin" });
+    if (!response.ok) throw new Error(`PWA_SHELL_HTTP_${response.status}`);
+    return response.text();
+  });
+  const reload = options.reload ?? (() => window.location.reload());
+  const intervalMs = options.intervalMs ?? 60_000;
+  const schedule = options.setInterval ?? window.setInterval.bind(window);
+  const cancel = options.clearInterval ?? window.clearInterval.bind(window);
+  let reloadRequested = false;
+
+  const check = async () => {
+    if (reloadRequested || documentLike.visibilityState !== "visible") return;
+    const before = currentAsset();
+    if (!before) return;
+    try {
+      const after = moduleAssetFromHtml(await fetchShell());
+      if (after && after !== before) {
+        reloadRequested = true;
+        reload();
+      }
+    } catch {
+      // Network loss is handled elsewhere; freshness checks must never break the UI.
+    }
+  };
+
+  const onVisible = () => { void check(); };
+  const timer = schedule(() => { void check(); }, intervalMs);
+  documentLike.addEventListener("visibilitychange", onVisible);
+  return () => {
+    cancel(timer);
+    documentLike.removeEventListener("visibilitychange", onVisible);
+  };
+}
