@@ -1,7 +1,14 @@
 import json
 from pathlib import Path
 
-from app.security_task_force.qualification import DEFAULT_RUBRIC, GateResult, evaluate
+from app.security_task_force.qualification import (
+    DEFAULT_RUBRIC,
+    TRUSTED_CAMPAIGNS,
+    TRUSTED_PURPLE_SCENARIOS,
+    TRUSTED_SCENARIO_FAMILIES,
+    GateResult,
+    evaluate,
+)
 
 REF = ("ci://run/1",)
 
@@ -51,3 +58,37 @@ def test_score_below_the_first_level_is_ineligible():
 def test_embedded_rubric_matches_the_range_rubric():
     path = Path(__file__).resolve().parents[2] / "cyber_range" / "qualification" / "rubric.json"
     assert json.loads(path.read_text(encoding="utf-8")) == DEFAULT_RUBRIC
+
+
+def test_trusted_scenario_metadata_matches_range_catalog():
+    path = Path(__file__).resolve().parents[2] / "cyber_range" / "scenarios" / "catalog.json"
+    catalog = json.loads(path.read_text(encoding="utf-8"))
+    declared = {item["id"]: item["family"] for item in catalog["scenarios"]}
+    purple = {item["id"] for item in catalog["scenarios"] if item["purple_required"]}
+    assert declared == TRUSTED_SCENARIO_FAMILIES
+    assert purple == set(TRUSTED_PURPLE_SCENARIOS)
+
+
+def test_sh1_requires_at_least_one_verified_scenario_family():
+    result = evaluate(gates=ok(*ALL_GATES), scenarios={}, score=100)
+    assert not result.eligible
+    assert result.level is None
+
+
+def test_trusted_training_registry_matches_the_range_manifests():
+    root = Path(__file__).resolve().parents[2] / "cyber_range" / "scenarios"
+    catalog = json.loads((root / "catalog.json").read_text(encoding="utf-8"))
+    campaigns = json.loads((root / "campaigns.json").read_text(encoding="utf-8"))
+
+    declared = {item["id"]: item for item in catalog["scenarios"]}
+    assert TRUSTED_SCENARIO_FAMILIES == {
+        scenario_id: item["family"]
+        for scenario_id, item in declared.items()
+    }
+    assert TRUSTED_PURPLE_SCENARIOS == frozenset(
+        scenario_id for scenario_id, item in declared.items() if item["purple_required"]
+    )
+    assert TRUSTED_CAMPAIGNS == {
+        item["id"]: tuple(item["scenario_ids"])
+        for item in campaigns["campaigns"]
+    }

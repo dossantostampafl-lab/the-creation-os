@@ -1,6 +1,7 @@
 use serde_json::{json, Value};
 
 use crate::contracts::{ExecutionEnvelope, RequestedAction};
+use crate::range_control::{RangeControlClient, RangeControlError};
 use crate::sandbox::firecracker::FirecrackerSandbox;
 use crate::sandbox::kata::KataSandbox;
 use crate::sandbox::{Sandbox, SandboxBackend, SandboxError};
@@ -10,6 +11,7 @@ pub struct Gateway {
     pub state: GatewayState,
     pub backend: SandboxBackend,
     pub key: Vec<u8>,
+    pub range_control: Option<RangeControlClient>,
 }
 
 fn reply(decision: &str, reasons: Vec<String>) -> String {
@@ -59,6 +61,27 @@ impl Gateway {
                 }
                 reply("ok", vec![])
             }
+            Some("range_reset") => {
+                let Some(mission_id) = message.get("mission_id").and_then(Value::as_str) else {
+                    return reply("deny", vec!["mission_id_required".into()]);
+                };
+                if !self.state.global_kill && !self.state.killed_missions.contains(mission_id) {
+                    return reply("deny", vec!["kill_required".into()]);
+                }
+                let Some(client) = self.range_control.as_ref() else {
+                    return reply("deny", vec!["RangeControlUnavailable".into()]);
+                };
+                match client.reset() {
+                    Ok(()) => reply("ok", vec![]),
+                    Err(RangeControlError::Unavailable) => {
+                        reply("deny", vec!["RangeControlUnavailable".into()])
+                    }
+                    Err(
+                        RangeControlError::InvalidConfiguration
+                        | RangeControlError::InvalidResponse,
+                    ) => reply("deny", vec!["RangeControlInvalidResponse".into()]),
+                }
+            }
             Some("kill") => {
                 match message.get("mission_id").and_then(Value::as_str) {
                     Some(mission) => {
@@ -84,6 +107,92 @@ impl Gateway {
             evaluate(&mut self.state, &envelope, &requested, &self.key, now_unix)
         {
             return reply_execute("deny", "denied", vec![format!("{reason:?}")], None);
+        }
+        if requested.tool_id != requested.capability {
+            return reply_execute(
+                "deny",
+                "denied",
+                vec!["ToolCapabilityMismatch".into()],
+                None,
+            );
+        }
+        if matches!(
+            requested.tool_id.as_str(),
+            "range.health.verify"
+                | "range.scenario.start"
+                | "range.scenario.verify"
+                | "range.campaign.start"
+                | "range.campaign.advance"
+                | "range.campaign.verify"
+                | "range.reset"
+        ) {
+            if requested.capability != requested.tool_id
+                || !requested.environment.starts_with("cyber_range:")
+                || requested.args_json.trim() != "{}"
+                || (requested.tool_id == "range.reset" && requested.target != "range")
+            {
+                return reply_execute(
+                    "deny",
+                    "denied",
+                    vec!["RangeControlRequestInvalid".into()],
+                    None,
+                );
+            }
+            let Some(client) = self.range_control.as_ref() else {
+                return reply_execute(
+                    "deny",
+                    "denied",
+                    vec!["RangeControlUnavailable".into()],
+                    None,
+                );
+            };
+            let result = match requested.tool_id.as_str() {
+                "range.health.verify" => client.verify_health().map(|()| true),
+                "range.scenario.start" => client.start_scenario(&requested.target).map(|()| true),
+                "range.scenario.verify" => client.verify_scenario(&requested.target),
+                "range.campaign.start" => client.start_campaign(&requested.target).map(|()| true),
+                "range.campaign.advance" => {
+                    client.advance_campaign(&requested.target).map(|()| true)
+                }
+                "range.campaign.verify" => client.campaign_completed(&requested.target),
+                "range.reset" => client.reset().map(|()| true),
+                _ => unreachable!(),
+            };
+            return match result {
+                Ok(true) => reply_execute(
+                    "permit",
+                    "executed",
+                    vec![],
+                    Some(format!(
+                        "range-control:{}:{}:{}",
+                        requested.tool_id, envelope.action_id, envelope.nonce
+                    )),
+                ),
+                Ok(false) => reply_execute(
+                    "deny",
+                    "denied",
+                    vec![if requested.tool_id == "range.campaign.verify" {
+                        "RangeCampaignNotComplete".into()
+                    } else {
+                        "RangeScenarioNotActive".into()
+                    }],
+                    None,
+                ),
+                Err(RangeControlError::Unavailable) => reply_execute(
+                    "deny",
+                    "denied",
+                    vec!["RangeControlUnavailable".into()],
+                    None,
+                ),
+                Err(
+                    RangeControlError::InvalidConfiguration | RangeControlError::InvalidResponse,
+                ) => reply_execute(
+                    "deny",
+                    "denied",
+                    vec!["RangeControlInvalidResponse".into()],
+                    None,
+                ),
+            };
         }
         let outcome = match self.backend {
             SandboxBackend::Kata => KataSandbox { available: true }

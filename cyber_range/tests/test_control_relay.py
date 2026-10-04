@@ -19,6 +19,10 @@ def test_relay_rejects_public_binding_and_missing_secret():
 def test_relay_allows_only_declared_lifecycle_routes():
     assert relay.allowed('GET','/state')
     assert relay.allowed('POST','/scenarios/juice-shop-baseline/start')
+    assert relay.allowed('GET','/campaigns')
+    assert relay.allowed('GET','/campaigns/stf-foundation-v1/state')
+    assert relay.allowed('POST','/campaigns/stf-foundation-v1/start')
+    assert relay.allowed('POST','/campaigns/stf-foundation-v1/advance')
     assert not relay.allowed('POST','/scenarios/../../etc/start')
     assert not relay.allowed('GET','http://remote.example/state')
     assert not relay.allowed('GET','/state?target=remote')

@@ -9,8 +9,8 @@ RUN --mount=type=secret,id=proxy_ca \
 COPY app.py ./app.py
 
 RUN useradd --create-home --uid 10001 range \
-    && mkdir -p /state /snapshots /evidence \
-    && chown -R range:range /app /state /snapshots /evidence
+    && mkdir -p /state /campaign-state /snapshots /evidence \
+    && chown -R range:range /app /state /campaign-state /snapshots /evidence
 USER range
 
 EXPOSE 7070

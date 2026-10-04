@@ -25,16 +25,32 @@ def published_host(port_spec: object) -> str | None:
     return None
 
 
-def test_vulnerable_targets_never_bind_to_lan() -> None:
-    compose = load_compose()
-    services = compose["services"]
-
+def test_vulnerable_targets_are_not_published_at_all() -> None:
+    services = load_compose()["services"]
     for service_name in ("juice-shop", "webgoat"):
+        assert services[service_name].get("ports", []) == []
+        assert services[service_name]["networks"] == ["range_targets"]
+
+
+def test_fixed_target_proxies_are_loopback_only_and_unprivileged() -> None:
+    services = load_compose()["services"]
+    expected = {
+        "controller-proxy": ("controller", "7070"),
+        "juice-shop-proxy": ("juice-shop", "3000"),
+        "webgoat-proxy": ("webgoat", "8080"),
+        "webwolf-proxy": ("webgoat", "9090"),
+    }
+    for service_name, (target, port) in expected.items():
         service = services[service_name]
-        for port_spec in service.get("ports", []):
-            assert published_host(port_spec) == "127.0.0.1", (
-                f"{service_name} must publish only on 127.0.0.1: {port_spec!r}"
-            )
+        assert service["environment"]["TARGET_HOST"] == target
+        assert str(service["environment"]["TARGET_PORT"]) == port
+        expected_internal = "range_control" if service_name == "controller-proxy" else "range_targets"
+        assert set(service["networks"]) == {expected_internal, "range_loopback"}
+        assert service.get("read_only") is True
+        assert "ALL" in service.get("cap_drop", [])
+        assert service.get("privileged") is not True
+        assert service.get("volumes", []) == []
+        assert all(published_host(spec) == "127.0.0.1" for spec in service.get("ports", []))
 
 
 def gives_internet_egress(network: dict) -> bool:
@@ -60,20 +76,21 @@ def test_no_range_network_reaches_the_internet() -> None:
     assert not reachable, f"these range networks would let a target reach the internet: {reachable}"
 
 
-def test_the_targets_stay_on_an_internal_network() -> None:
-    """Containment does not rest on the loopback network alone: the targets also talk to the
-    controller over a network with no gateway of any kind."""
+def test_the_targets_have_only_the_internal_target_network() -> None:
     services = load_compose()["services"]
-    for service_name in ("controller", "juice-shop", "webgoat"):
-        assert "range_targets" in services[service_name]["networks"]
+    for service_name in ("juice-shop", "webgoat"):
+        assert services[service_name]["networks"] == ["range_targets"]
+    assert services["controller"]["networks"] == ["range_control"]
 
 
-def test_controller_is_loopback_only() -> None:
-    compose = load_compose()
-    controller = compose["services"]["controller"]
-    ports = controller.get("ports", [])
-    assert ports, "Range Controller must expose its documented local API"
-    assert all(published_host(port) == "127.0.0.1" for port in ports)
+def test_controller_is_reachable_only_through_its_loopback_proxy() -> None:
+    services = load_compose()["services"]
+    assert services["controller"].get("ports", []) == []
+    proxy = services["controller-proxy"]
+    assert proxy["environment"]["TARGET_HOST"] == "controller"
+    assert str(proxy["environment"]["TARGET_PORT"]) == "7070"
+    assert proxy.get("ports")
+    assert all(published_host(port) == "127.0.0.1" for port in proxy["ports"])
 
 
 def test_required_lifecycle_scripts_exist() -> None:
@@ -102,16 +119,78 @@ def test_controller_has_no_docker_socket_mount() -> None:
     assert all("/var/run/docker.sock" not in str(volume) for volume in volumes)
 
 
-def test_targets_have_no_privileged_mode() -> None:
+def test_range_services_have_no_privileged_mode() -> None:
     compose = load_compose()
-    for service_name in ("controller", "juice-shop", "webgoat"):
+    for service_name in (
+        "controller", "juice-shop", "webgoat",
+        "controller-proxy", "juice-shop-proxy", "webgoat-proxy", "webwolf-proxy",
+    ):
         assert compose["services"][service_name].get("privileged") is not True
 
 
-def test_reset_preserves_evidence_volumes() -> None:
-    """A reset clears scenario state; the evidence journal and the snapshots are proof and stay."""
+def test_reset_preserves_proof_but_clears_all_disposable_state() -> None:
+    """A reset clears scenario/campaign state; evidence and snapshots are proof and stay."""
     for name in ("reset.sh", "reset.ps1"):
         script = (ROOT / "scripts" / name).read_text(encoding="utf-8")
         code = "\n".join(line for line in script.splitlines() if not line.lstrip().startswith(("#",)))
         assert "down -v" not in code and "--volumes" not in code, f"{name} deletes every volume"
         assert "range_evidence" not in code and "range_snapshots" not in code, f"{name} touches the proof volumes"
+        assert "range_state" in code and "range_campaign_state" in code, f"{name} leaves disposable state behind"
+
+
+def test_vulnerable_targets_and_controller_cannot_join_the_host_publication_network() -> None:
+    services = load_compose()["services"]
+    for service_name in ("juice-shop", "webgoat", "controller"):
+        assert "range_loopback" not in services[service_name].get("networks", [])
+    for service_name in ("juice-shop", "webgoat"):
+        assert "range_control" not in services[service_name].get("networks", [])
+    assert "range_targets" not in services["controller"].get("networks", [])
+
+
+def test_proxies_have_no_docker_socket_or_host_network_mode() -> None:
+    services = load_compose()["services"]
+    for service_name in ("controller-proxy", "juice-shop-proxy", "webgoat-proxy", "webwolf-proxy"):
+        service = services[service_name]
+        assert service.get("network_mode") != "host"
+        assert all("/var/run/docker.sock" not in str(volume) for volume in service.get("volumes", []))
+
+
+def test_range_bridges_have_stable_names_for_host_firewall_enforcement() -> None:
+    networks = load_compose()["networks"]
+    assert networks["range_targets"]["driver_opts"]["com.docker.network.bridge.name"] == "tco_rng_tgt"
+    assert networks["range_control"]["driver_opts"]["com.docker.network.bridge.name"] == "tco_rng_ctl"
+    assert networks["range_loopback"]["driver_opts"]["com.docker.network.bridge.name"] == "tco_rng_pub"
+
+
+def test_linux_containment_script_blocks_new_host_and_routed_connections() -> None:
+    script = ROOT / "scripts" / "containment-linux.sh"
+    assert script.is_file()
+    code = script.read_text(encoding="utf-8")
+    assert "table inet tco_range" in code
+    assert "ct state established,related accept" in code
+    for bridge in ("tco_rng_tgt", "tco_rng_ctl", "tco_rng_pub"):
+        assert bridge in code
+    assert "hook input" in code and "hook forward" in code
+    assert "drop" in code
+    assert "CYBER_RANGE_ENFORCE_HOST_FIREWALL" not in code, "the enforcement script itself must not silently no-op"
+
+
+def test_runtime_smoke_applies_host_firewall_and_probes_host_reachability() -> None:
+    workflow = ROOT.parent / ".github" / "workflows" / "cyber-range.yml"
+    text = workflow.read_text(encoding="utf-8")
+    assert "containment-linux.sh apply" in text
+    assert "containment-linux.sh status" in text
+    assert "HOST_GATEWAY" in text
+    assert "host containment failed" in text
+    assert "containment-linux.sh remove" in text
+
+
+def test_compose_bridge_names_match_the_host_containment_firewall() -> None:
+    networks = load_compose()["networks"]
+    expected = {
+        "range_control": "tco_rng_ctl",
+        "range_targets": "tco_rng_tgt",
+        "range_loopback": "tco_rng_pub",
+    }
+    for network_name, bridge_name in expected.items():
+        assert networks[network_name]["driver_opts"]["com.docker.network.bridge.name"] == bridge_name

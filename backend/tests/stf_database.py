@@ -24,7 +24,7 @@ REQUIRED_PREFIX = "test_stf_"
 # Everything the tests write, children first. Chronicle and creator rows are theirs to clear as well,
 # which is exactly why this may only ever run against a guarded database.
 TABLES = (
-    "stf_inbox", "stf_outbox", "stf_approvals", "stf_dispatches", "stf_grants", "stf_runs", "stf_contracts",
+    "stf_inbox", "stf_outbox", "stf_approvals", "stf_evidence", "stf_dispatches", "stf_grants", "stf_runs", "stf_contracts",
     "diagnostic_cause_hypotheses", "diagnostic_incidents", "chronicles", "creator",
 )
 

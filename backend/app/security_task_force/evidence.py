@@ -20,10 +20,11 @@ def redact(value: Any) -> Any:
 
 
 def _digest(*, mission_id: str, action_id: str, task_id: str, environment_id: str, source: str, kind: str,
-            acquired_at: str, payload: dict[str, Any]) -> str:
+            acquired_at: str, payload: dict[str, Any], run_id: str = "", execution_id: str = "") -> str:
     return canonical_hash({
-        "mission_id": mission_id, "action_id": action_id, "task_id": task_id, "environment_id": environment_id,
-        "source": source, "kind": kind, "acquired_at": acquired_at, "payload": payload,
+        "run_id": run_id, "execution_id": execution_id, "mission_id": mission_id, "action_id": action_id,
+        "task_id": task_id, "environment_id": environment_id, "source": source, "kind": kind,
+        "acquired_at": acquired_at, "payload": payload,
     })
 
 
@@ -39,24 +40,33 @@ class EvidenceRecord:
     acquired_at: str
     payload: dict[str, Any]
     sha256: str
+    run_id: str = ""
+    execution_id: str = ""
 
     @classmethod
     def build(cls, *, evidence_id: str, mission_id: str, action_id: str, environment_id: str, source: str,
-              acquired_at: str, payload: dict[str, Any], task_id: str = "task", kind: str = "attack") -> "EvidenceRecord":
+              acquired_at: str, payload: dict[str, Any], task_id: str = "task", kind: str = "attack",
+              run_id: str = "", execution_id: str = "") -> "EvidenceRecord":
         clean = redact(payload)
-        digest = _digest(mission_id=mission_id, action_id=action_id, task_id=task_id, environment_id=environment_id,
-                         source=source, kind=kind, acquired_at=acquired_at, payload=clean)
-        return cls(evidence_id, mission_id, action_id, task_id, environment_id, source, kind, acquired_at, clean, digest)
+        digest = _digest(
+            mission_id=mission_id, action_id=action_id, task_id=task_id, environment_id=environment_id,
+            source=source, kind=kind, acquired_at=acquired_at, payload=clean, run_id=run_id,
+            execution_id=execution_id,
+        )
+        return cls(
+            evidence_id, mission_id, action_id, task_id, environment_id, source, kind, acquired_at,
+            clean, digest, run_id, execution_id,
+        )
 
     def integrity_ok(self) -> bool:
         return self.sha256 == _digest(
             mission_id=self.mission_id, action_id=self.action_id, task_id=self.task_id,
             environment_id=self.environment_id, source=self.source, kind=self.kind,
-            acquired_at=self.acquired_at, payload=self.payload,
+            acquired_at=self.acquired_at, payload=self.payload, run_id=self.run_id, execution_id=self.execution_id,
         )
 
     def chronicle_payload(self) -> dict[str, Any]:
         """What goes to the Chronicle: correlation ids and the hash, not the body."""
-        return {"evidence_id": self.evidence_id, "mission_id": self.mission_id, "action_id": self.action_id,
-                "task_id": self.task_id, "environment_id": self.environment_id, "kind": self.kind,
-                "evidence_sha256": self.sha256}
+        return {"evidence_id": self.evidence_id, "run_id": self.run_id, "execution_id": self.execution_id,
+                "mission_id": self.mission_id, "action_id": self.action_id, "task_id": self.task_id,
+                "environment_id": self.environment_id, "kind": self.kind, "evidence_sha256": self.sha256}

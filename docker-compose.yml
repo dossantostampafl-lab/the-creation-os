@@ -162,6 +162,10 @@ services:
       STF_SANDBOX_BACKEND: ${STF_SANDBOX_BACKEND:-auto}
       STF_ALLOWED_ENVIRONMENTS: ${STF_ALLOWED_ENVIRONMENTS:-cyber_range:}
       STF_GATEWAY_STATE_DIR: /var/lib/stf-gateway
+      CYBER_RANGE_CONTROL_ADDR: ${CYBER_RANGE_CONTROL_ADDR:-}
+      CYBER_RANGE_CONTROL_TOKEN: ${CYBER_RANGE_CONTROL_TOKEN:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - stf_gateway_data:/var/lib/stf-gateway
     networks: [stf-control, stf-execution]

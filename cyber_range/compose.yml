@@ -7,65 +7,155 @@ services:
     profiles: ["cyber-range"]
     environment:
       RANGE_SCENARIO_CATALOG: /app/scenarios/catalog.json
+      RANGE_CAMPAIGN_CATALOG: /app/scenarios/campaigns.json
       RANGE_EVIDENCE_DIR: /evidence
       RANGE_STATE_DIR: /state
+      RANGE_CAMPAIGN_STATE_DIR: /campaign-state
       RANGE_SNAPSHOT_DIR: /snapshots
-    ports:
-      - "127.0.0.1:7070:7070"
     volumes:
       - ./scenarios:/app/scenarios:ro
       - range_evidence:/evidence
       - range_state:/state
+      - range_campaign_state:/campaign-state
       - range_snapshots:/snapshots
     networks:
       - range_control
-      - range_targets
-      - range_loopback
     read_only: true
     tmpfs:
       - /tmp
       - /home/range
+    cap_drop:
+      - ALL
     security_opt:
       - no-new-privileges:true
 
   juice-shop:
     image: bkimminich/juice-shop:latest
     profiles: ["cyber-range"]
-    ports:
-      - "127.0.0.1:3000:3000"
     networks:
       - range_targets
-      - range_loopback
     security_opt:
       - no-new-privileges:true
 
   webgoat:
     image: webgoat/webgoat:latest
     profiles: ["cyber-range"]
+    networks:
+      - range_targets
+    security_opt:
+      - no-new-privileges:true
+
+  controller-proxy:
+    build:
+      context: ./proxy
+    profiles: ["cyber-range"]
+    depends_on:
+      - controller
+    environment:
+      LISTEN_PORT: "7070"
+      TARGET_HOST: controller
+      TARGET_PORT: "7070"
+    ports:
+      - "127.0.0.1:7070:7070"
+    networks:
+      - range_control
+      - range_loopback
+    read_only: true
+    cap_drop:
+      - ALL
+    pids_limit: 64
+    security_opt:
+      - no-new-privileges:true
+
+  juice-shop-proxy:
+    build:
+      context: ./proxy
+    profiles: ["cyber-range"]
+    depends_on:
+      - juice-shop
+    environment:
+      LISTEN_PORT: "3000"
+      TARGET_HOST: juice-shop
+      TARGET_PORT: "3000"
+    ports:
+      - "127.0.0.1:3000:3000"
+    networks:
+      - range_targets
+      - range_loopback
+    read_only: true
+    cap_drop:
+      - ALL
+    pids_limit: 64
+    security_opt:
+      - no-new-privileges:true
+
+  webgoat-proxy:
+    build:
+      context: ./proxy
+    profiles: ["cyber-range"]
+    depends_on:
+      - webgoat
+    environment:
+      LISTEN_PORT: "8080"
+      TARGET_HOST: webgoat
+      TARGET_PORT: "8080"
     ports:
       - "127.0.0.1:18080:8080"
+    networks:
+      - range_targets
+      - range_loopback
+    read_only: true
+    cap_drop:
+      - ALL
+    pids_limit: 64
+    security_opt:
+      - no-new-privileges:true
+
+  webwolf-proxy:
+    build:
+      context: ./proxy
+    profiles: ["cyber-range"]
+    depends_on:
+      - webgoat
+    environment:
+      LISTEN_PORT: "9090"
+      TARGET_HOST: webgoat
+      TARGET_PORT: "9090"
+    ports:
       - "127.0.0.1:9090:9090"
     networks:
       - range_targets
       - range_loopback
+    read_only: true
+    cap_drop:
+      - ALL
+    pids_limit: 64
     security_opt:
       - no-new-privileges:true
 
 networks:
-  # Range traffic between the controller and the targets. Nothing here reaches anything else.
+  # Controller has no routable interface; only its fixed proxy can reach it.
   range_control:
+    driver: bridge
     internal: true
+    driver_opts:
+      com.docker.network.bridge.name: tco_rng_ctl
+  # Vulnerable targets have no routable interface; only fixed proxies can reach them.
   range_targets:
+    driver: bridge
     internal: true
-  # Loopback publication requires a non-internal bridge on this Docker topology.
-  # NAT is disabled, but this is not a firewall against host or routed destinations.
-  # Run on a dedicated/disposable host; see README safety boundary before deployment.
+    driver_opts:
+      com.docker.network.bridge.name: tco_rng_tgt
+  # Host publication exists only on unprivileged fixed-destination proxies.
+  # Masquerading is disabled, so the proxy bridge is not an Internet egress path.
   range_loopback:
     driver: bridge
     driver_opts:
+      com.docker.network.bridge.name: tco_rng_pub
       com.docker.network.bridge.enable_ip_masquerade: "false"
 
 volumes:
   range_state:
+  range_campaign_state:
   range_snapshots:
   range_evidence:

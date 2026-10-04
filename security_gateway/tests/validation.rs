@@ -36,9 +36,19 @@ fn requested() -> RequestedAction {
         capability: "range.validate".into(),
         action_class: "validate".into(),
         parameters_hash: "abc".into(),
-        tool_id: "range.health.verify".into(),
+        tool_id: "sandbox.health.verify".into(),
         args_json: "{}".into(),
     }
+}
+
+fn sandbox_bound() -> (ExecutionEnvelope, RequestedAction) {
+    let mut e = envelope();
+    e.capability = "sandbox.health.verify".into();
+    e.signature = expected_signature(&e, KEY);
+    let mut r = requested();
+    r.capability = "sandbox.health.verify".into();
+    r.tool_id = "sandbox.health.verify".into();
+    (e, r)
 }
 
 fn state() -> GatewayState {
@@ -201,17 +211,26 @@ fn server_denies_when_no_sandbox_and_tightens_on_control_messages() {
         state: state(),
         backend: SandboxBackend::Unavailable,
         key: KEY.to_vec(),
+        range_control: None,
     };
-    let line =
-        serde_json::json!({"op": "execute", "envelope": envelope(), "requested": requested()})
-            .to_string();
+    let (sandbox_envelope, sandbox_requested) = sandbox_bound();
+    let line = serde_json::json!({
+        "op": "execute",
+        "envelope": sandbox_envelope,
+        "requested": sandbox_requested
+    })
+    .to_string();
     assert!(gateway
         .handle_line(&line, 100)
         .contains("SandboxUnavailable"));
     gateway.handle_line(r#"{"op":"kill","mission_id":"m1"}"#, 100);
-    let again =
-        serde_json::json!({"op": "execute", "envelope": envelope(), "requested": requested()})
-            .to_string();
+    let (killed_envelope, killed_requested) = sandbox_bound();
+    let again = serde_json::json!({
+        "op": "execute",
+        "envelope": killed_envelope,
+        "requested": killed_requested
+    })
+    .to_string();
     assert!(gateway.handle_line(&again, 100).contains("KillSwitch"));
     assert!(gateway.handle_line("not json", 100).contains("malformed"));
 }
@@ -224,11 +243,15 @@ fn server_permits_through_an_isolated_backend() {
         state: state(),
         backend: SandboxBackend::Kata,
         key: KEY.to_vec(),
+        range_control: None,
     };
-    let mut r = requested();
-    r.tool_id = "range.health.verify".into();
-    let line =
-        serde_json::json!({"op": "execute", "envelope": envelope(), "requested": r}).to_string();
+    let (sandbox_envelope, sandbox_requested) = sandbox_bound();
+    let line = serde_json::json!({
+        "op": "execute",
+        "envelope": sandbox_envelope,
+        "requested": sandbox_requested
+    })
+    .to_string();
     assert!(gateway.handle_line(&line, 100).contains("\"permit\""));
 }
 
@@ -240,11 +263,15 @@ fn a_permit_is_authorization_not_execution() {
         state: state(),
         backend: SandboxBackend::Kata,
         key: KEY.to_vec(),
+        range_control: None,
     };
-    let mut r = requested();
-    r.tool_id = "range.health.verify".into();
-    let line =
-        serde_json::json!({"op": "execute", "envelope": envelope(), "requested": r}).to_string();
+    let (sandbox_envelope, sandbox_requested) = sandbox_bound();
+    let line = serde_json::json!({
+        "op": "execute",
+        "envelope": sandbox_envelope,
+        "requested": sandbox_requested
+    })
+    .to_string();
     let reply: serde_json::Value = serde_json::from_str(&gateway.handle_line(&line, 100)).unwrap();
     assert_eq!(reply["decision"], "permit");
     assert_eq!(reply["status"], "authorized");
@@ -262,6 +289,7 @@ fn every_reply_to_an_execute_carries_a_status() {
         state: state(),
         backend: SandboxBackend::Unavailable,
         key: KEY.to_vec(),
+        range_control: None,
     };
     let line =
         serde_json::json!({"op": "execute", "envelope": envelope(), "requested": requested()})
