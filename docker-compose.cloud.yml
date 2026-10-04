@@ -60,6 +60,11 @@ services:
     tmpfs: [/tmp]
     networks: [tco_net, tco_internal]
 
+  opportunity-worker:
+    read_only: true
+    tmpfs: [/tmp]
+    networks: [tco_net, tco_internal]
+
   postgres:
     security_opt:
       - no-new-privileges:true
