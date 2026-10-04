@@ -116,7 +116,7 @@ describe("startPwaUpdatePolling", () => {
     const update = vi.fn().mockResolvedValue(undefined);
     const listeners = new Map<string, () => void>();
     const documentLike = {
-      visibilityState: "visible",
+      visibilityState: "visible" as DocumentVisibilityState,
       addEventListener: vi.fn((type: string, listener: () => void) => listeners.set(type, listener)),
       removeEventListener: vi.fn(),
     };
