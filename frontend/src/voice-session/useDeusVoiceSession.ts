@@ -186,7 +186,13 @@ export function useDeusVoiceSession(options: UseDeusVoiceSessionOptions): DeusVo
     };
 
     const ensureCapture = async () => {
-      if (captureReady || disposed || terminalError) return;
+      if (disposed || terminalError) return;
+      if (captureReady) {
+        setError(null);
+        if (model.state === "armed") setStatus("ready");
+        else if (model.state === "listening") setStatus("listening");
+        return;
+      }
       if (captureStart) return captureStart;
       captureStart = (async () => {
         try {
@@ -202,7 +208,14 @@ export function useDeusVoiceSession(options: UseDeusVoiceSessionOptions): DeusVo
         } catch (failure) {
           if (disposed || terminalError) return;
           captureReady = false;
-          setError(failure instanceof Error ? failure.message : "MICROPHONE_UNAVAILABLE");
+          const code = failure instanceof Error ? failure.message : "MICROPHONE_UNAVAILABLE";
+          setError(
+            code === "VOICE_CAPTURE_REQUIRES_USER_GESTURE"
+              ? "Toque uma vez na tela para ativar a escuta contínua; depois diga “Deus”."
+              : code === "NotAllowedError"
+                ? "Permita o acesso ao microfone para ativar a palavra “Deus”."
+                : code,
+          );
           setStatus("error");
         } finally {
           captureStart = null;
@@ -249,6 +262,9 @@ export function useDeusVoiceSession(options: UseDeusVoiceSessionOptions): DeusVo
         reconnectAttempt = 0;
         bargeOpen = false;
         setError(null);
+        // ARMED only means the backend WebSocket is ready. Do not advertise wake-word
+        // readiness until the browser is actually delivering microphone frames.
+        setStatus("connecting");
         void ensureCapture();
         return;
       }

@@ -41,7 +41,7 @@ p.chmod(0o600)
 PY
 # Migration is additive. Backfill imports Creator messages only; model assertions without
 # provenance never become durable evidence. No database downgrade on runtime failures.
-if ! "${COMPOSE[@]}" --profile connected-deus up -d --build api worker knowledge-worker diagnostics-worker discovery-worker opportunity-worker; then
+if ! "${COMPOSE[@]}" --profile connected-deus up -d --build frontend api worker knowledge-worker diagnostics-worker discovery-worker opportunity-worker; then
   rollback
   exit 1
 fi

@@ -22,7 +22,16 @@ if [ -z "$container" ]; then
   exit 1
 fi
 
-docker exec -i -e TCO_WITH_DEUS="$with_deus" "$container" python - <<'PY'
+# Prove the actual local speech models can synthesize Portuguese, transcribe it
+# back through Vosk and recognize the "Deus" wake word before calling the UI ready.
+if docker exec "$container" python -c "from app.config import settings; raise SystemExit(0 if settings.deus_voice_session_enabled else 1)" >/dev/null 2>&1; then
+  echo "== Local wake-word speech self-test =="
+  docker exec "$container" python -m app.voice_session.verify_local
+fi
+
+frontend_source_sha="$(cd frontend && { find src public -type f -print; printf '%s\n' package.json package-lock.json vite.config.ts nginx.conf; } | sort | xargs sha256sum | sha256sum | awk '{print $1}')"
+
+docker exec -i -e TCO_WITH_DEUS="$with_deus" "$container" python - "$frontend_source_sha" <<'PY'
 import asyncio
 import json
 import os
@@ -63,6 +72,17 @@ with httpx.Client(base_url=BASE, timeout=45) as client:
     token = login.json().get("access_token", "")
     report("login", bool(token))
     client.headers["Authorization"] = f"Bearer {token}"
+
+    expected_frontend_source = sys.argv[1].strip() if len(sys.argv) > 1 else ""
+    frontend_source = client.get(f"{FRONTEND}/frontend-source.sha256")
+    deployed_frontend_source = frontend_source.text.strip() if frontend_source.status_code == 200 else ""
+    report(
+        "frontend bundle matches deployed source",
+        bool(expected_frontend_source)
+        and frontend_source.status_code == 200
+        and deployed_frontend_source == expected_frontend_source,
+        deployed_frontend_source[:16] if deployed_frontend_source else f"HTTP {frontend_source.status_code}",
+    )
 
     print()
     print("== Reading the system ==")
@@ -160,59 +180,59 @@ with httpx.Client(base_url=BASE, timeout=45) as client:
             if name == "Cyber Range configuration" and response.status_code == 200 and os.getenv("STF_AUTO_TRAINING_ENABLED", "").lower() == "true":
                 report("Cyber Range available for automatic training", response.json().get("status") == "available",
                        str(response.json().get("status", "unknown")))
-        if os.getenv("DEUS_DIAGNOSTICS_ENABLED", "").lower() == "true":
-            async def check_worker_heartbeats():
+        diagnostics_enabled = os.getenv("DEUS_DIAGNOSTICS_ENABLED", "").lower() == "true"
+        training_enabled = os.getenv("STF_AUTO_TRAINING_ENABLED", "").lower() == "true"
+        if diagnostics_enabled or training_enabled:
+            async def check_connected_runtime():
                 from datetime import datetime, timezone
-                from sqlalchemy import select
-                from app.db.session import AsyncSessionLocal
-                from app.diagnostics.heartbeat import ServiceHeartbeat
-                expected = {"task-worker", "knowledge-worker", "diagnostics-worker"}
-                if os.getenv("DEUS_AUTONOMY_DISCOVERY_ENABLED", "").lower() == "true":
-                    expected.add("discovery-worker")
-                # Production competition is only healthy when its supervised worker
-                # is emitting a fresh heartbeat; code deployment alone is not enough.
-                if os.getenv("DEUS_AUTONOMY_COMPETITION_ENABLED", "").lower() == "true":
-                    expected.add("opportunity-worker")
-                if os.getenv("STF_AUTO_TRAINING_ENABLED", "").lower() == "true":
-                    expected.add("stf-training-worker")
-                async with AsyncSessionLocal() as session:
-                    services = set(await session.scalars(select(ServiceHeartbeat.service).where(
-                        ServiceHeartbeat.valid_until > datetime.now(timezone.utc))))
-                missing = sorted(expected - services)
-                return not missing, "fresh" if not missing else "missing: " + ", ".join(missing)
-            try:
-                heartbeat_ok, heartbeat_detail = asyncio.run(check_worker_heartbeats())
-                report("connected worker heartbeats", heartbeat_ok, heartbeat_detail)
-            except Exception as exc:
-                report("connected worker heartbeats", False, type(exc).__name__)
-
-        if os.getenv("STF_AUTO_TRAINING_ENABLED", "").lower() == "true":
-            async def check_stf_training():
                 from sqlalchemy import func, select
                 from app.db.session import AsyncSessionLocal
+                from app.diagnostics.heartbeat import ServiceHeartbeat
                 from app.models.entities import Agent
                 from app.models.security_task_force import StfRun
                 from app.security_task_force.training import TRAINING_AGENT_SPECS, training_mission_id
-                codes = [item.code for item in TRAINING_AGENT_SPECS]
-                missions = [training_mission_id(item.code) for item in TRAINING_AGENT_SPECS]
+
+                expected = set()
+                if diagnostics_enabled:
+                    expected.update({"task-worker", "knowledge-worker", "diagnostics-worker"})
+                    if os.getenv("DEUS_AUTONOMY_DISCOVERY_ENABLED", "").lower() == "true":
+                        expected.add("discovery-worker")
+                    if os.getenv("DEUS_AUTONOMY_COMPETITION_ENABLED", "").lower() == "true":
+                        expected.add("opportunity-worker")
+                if training_enabled:
+                    expected.add("stf-training-worker")
+
                 async with AsyncSessionLocal() as session:
-                    agents = int(await session.scalar(
-                        select(func.count()).select_from(Agent).where(
-                            Agent.code.in_(codes), Agent.active.is_(True)
-                        )
-                    ) or 0)
-                    runs = int(await session.scalar(
-                        select(func.count()).select_from(StfRun).where(
-                            StfRun.mission_id.in_(missions)
-                        )
-                    ) or 0)
-                return agents, runs
+                    services = set(await session.scalars(select(ServiceHeartbeat.service).where(
+                        ServiceHeartbeat.valid_until > datetime.now(timezone.utc))))
+                    missing = sorted(expected - services)
+                    training_agents = training_runs = None
+                    if training_enabled:
+                        codes = [item.code for item in TRAINING_AGENT_SPECS]
+                        missions = [training_mission_id(item.code) for item in TRAINING_AGENT_SPECS]
+                        training_agents = int(await session.scalar(
+                            select(func.count()).select_from(Agent).where(
+                                Agent.code.in_(codes), Agent.active.is_(True)
+                            )
+                        ) or 0)
+                        training_runs = int(await session.scalar(
+                            select(func.count()).select_from(StfRun).where(
+                                StfRun.mission_id.in_(missions)
+                            )
+                        ) or 0)
+                return missing, training_agents, training_runs
+
             try:
-                training_agents, training_runs = asyncio.run(check_stf_training())
-                report("10 STF Cyber Range training agents active", training_agents == 10, str(training_agents))
-                report("automatic STF training has started", training_runs > 0, f"{training_runs} run(s)")
+                missing, training_agents, training_runs = asyncio.run(check_connected_runtime())
+                report("connected worker heartbeats", not missing,
+                       "fresh" if not missing else "missing: " + ", ".join(missing))
+                if training_enabled:
+                    report("10 STF Cyber Range training agents active",
+                           training_agents == 10, str(training_agents))
+                    report("automatic STF training has started",
+                           bool(training_runs and training_runs > 0), f"{training_runs or 0} run(s)")
             except Exception as exc:
-                report("automatic STF training state", False, type(exc).__name__)
+                report("connected runtime database checks", False, type(exc).__name__)
 
     print()
     print("== Voice ==")
