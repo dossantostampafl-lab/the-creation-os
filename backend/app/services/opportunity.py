@@ -477,10 +477,7 @@ async def resolve_competition(
         (
             await repository.session.scalars(
                 select(OpportunityThesis)
-                .where(
-                    OpportunityThesis.opportunity_id == opportunity.id,
-                    OpportunityThesis.id.in_(list(normalized_scores)),
-                )
+                .where(OpportunityThesis.opportunity_id == opportunity.id)
                 .with_for_update()
             )
         ).all()
@@ -489,11 +486,12 @@ async def resolve_competition(
     unknown = set(normalized_scores) - set(by_id)
     if unknown:
         raise ValueError("competition scores reference unknown theses")
+    candidates = [by_id[thesis_id] for thesis_id in normalized_scores]
 
     # Deterministic tie break: higher policy score, then higher thesis confidence,
     # then stable id. The policy decides the score; storage only makes the result stable.
     winner = max(
-        theses,
+        candidates,
         key=lambda item: (normalized_scores[item.id], item.confidence, item.id),
     )
 
@@ -545,6 +543,7 @@ async def resolve_competition(
         )
         repository.session.add(current)
 
+    await repository.session.flush()
     await repository.add_event(
         "opportunity_competition_resolved",
         "opportunity",
@@ -558,7 +557,6 @@ async def resolve_competition(
             "executive_lease_id": current.id,
         },
     )
-    await repository.session.flush()
     await repository.commit()
     return winner, current
 
