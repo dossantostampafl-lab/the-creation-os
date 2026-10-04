@@ -1,8 +1,8 @@
 import { newRequestId } from './requestId';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { fetchDiagnostics, createKnowledgeProject, fetchKnowledgeProjects, setKnowledgeFocus, CREATOR_CONVERSATION_KEY, changeCyberRange, fetchCyberRange, revokeKnowledge, saveKnowledge, searchKnowledge } from './api';
-import type { CyberRangeState, KnowledgeEvidence } from './api';
+import type { CyberRangeState, DiagnosticsSnapshot, KnowledgeEvidence } from './api';
 
 export function ConnectedPanel() {
   const [projects, setProjects] = useState<{id:string;title:string}[]>([]);
@@ -13,7 +13,7 @@ export function ConnectedPanel() {
   const [content, setContent] = useState('');
   const [requestId, setRequestId] = useState(() => newRequestId());
   const [evidence, setEvidence] = useState<KnowledgeEvidence[]>([]);
-  const [diagnostics, setDiagnostics] = useState<{resource:string;status:string;observed_at:string}[] | null>(null);
+  const [diagnostics, setDiagnostics] = useState<DiagnosticsSnapshot | null>(null);
   const [range, setRange] = useState<CyberRangeState | null>(null);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
@@ -39,6 +39,20 @@ export function ConnectedPanel() {
     });
   }
   async function refreshRange() { setRange(await fetchCyberRange()); }
+  useEffect(() => {
+    let disposed = false;
+    const refresh = async () => {
+      try {
+        const snapshot = await fetchDiagnostics();
+        if (!disposed) setDiagnostics(snapshot);
+      } catch {
+        if (!disposed) setDiagnostics(null);
+      }
+    };
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 15_000);
+    return () => { disposed = true; window.clearInterval(timer); };
+  }, []);
   return <section className="connected-tools" aria-label="Memória e Cyber Range">
     <h3>Memória de Deus</h3>
     <button disabled={busy} onClick={()=>void run(async()=>{setProjects(await fetchKnowledgeProjects());})}>Carregar projetos</button>
@@ -49,8 +63,9 @@ export function ConnectedPanel() {
     <form onSubmit={save}><label>Título<input value={title} onChange={e=>{setTitle(e.target.value);setRequestId(newRequestId());}} required maxLength={200}/></label><label>Informação<textarea value={content} onChange={e=>{setContent(e.target.value);setRequestId(newRequestId());}} required maxLength={262144}/></label><button disabled={busy}>Guardar na memória</button></form>
     <div className="stack">{evidence.map(item=><article className="decision" key={item.revision_id}><div><strong>{item.title}</strong><small>{item.epistemic_state}</small><p>{item.content}</p></div><button disabled={busy} onClick={()=>{if(window.confirm('Revogar esta informação e suas notas dependentes?')) void run(async()=>{await revokeKnowledge(item);setEvidence(rows=>rows.filter(row=>row.item_id!==item.item_id));setMessage('Informação revogada.');});}}>Revogar</button></article>)}</div>
     <h3>Diagnóstico do OS</h3>
-    <button disabled={busy} onClick={()=>void run(async()=>{setDiagnostics((await fetchDiagnostics()).observations);})}>Consultar observações atuais</button>
-    {diagnostics && (diagnostics.length ? <ul>{diagnostics.map(row=><li key={row.resource}>{row.resource}: {row.status} · {row.observed_at}</li>)}</ul> : <p>Sem observações recentes. Estado desconhecido; verifique o observador.</p>)}
+    <button disabled={busy} onClick={()=>void run(async()=>{setDiagnostics(await fetchDiagnostics());})}>Atualizar diagnóstico</button>
+    {diagnostics && <p>Observador: {diagnostics.observer_status} · fonte: {diagnostics.source}</p>}
+    {diagnostics && (diagnostics.observations.length ? <ul>{diagnostics.observations.map(row=><li key={row.resource}>{row.resource}: {row.status} · {row.observed_at}</li>)}</ul> : <p>Sem observações recentes. Estado desconhecido; verifique o observador.</p>)}
     <h3>Cyber Range</h3>
     <button disabled={busy} onClick={()=>void run(refreshRange)}>Verificar laboratório</button>
     {range && <p>{range.message ?? 'Laboratório disponível. Cenários isolados de treinamento.'}</p>}
