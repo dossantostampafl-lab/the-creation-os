@@ -3,7 +3,7 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import { Capacitor } from "@capacitor/core";
 import { installNativeRuntime } from "./native";
-import { PWA_CONTROLLER_EVENT, PWA_UPDATE_EVENT, registerPwa, startPwaUpdatePolling } from "./pwa";
+import { PWA_CONTROLLER_EVENT, PWA_UPDATE_EVENT, registerPwa, startClientFreshnessPolling, startPwaUpdatePolling } from "./pwa";
 import "./styles.css";
 
 class RootErrorBoundary extends React.Component<
@@ -55,6 +55,7 @@ if (import.meta.env.PROD && !Capacitor.isNativePlatform()) {
     },
   }).then((registration) => {
     if (registration) startPwaUpdatePolling(registration);
+    startClientFreshnessPolling();
   });
 }
 
