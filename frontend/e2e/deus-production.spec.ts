@@ -60,7 +60,7 @@ test(`typed DEUS chat refreshes authentication and ${validReply ? "renders the c
   if (validReply) {
     await expect(page.getByText("Estou aqui.", { exact: true })).toBeVisible();
   } else {
-    await expect(page.getByRole("alert")).toHaveText("DEUS conversation failed.");
+    await expect(page.getByRole("alert")).toHaveText("Não foi possível concluir a conversa com DEUS.");
     await expect(page.getByText("Deus, está me ouvindo?", { exact: true })).toHaveCount(0);
   }
   expect(historyReads).toBe(initialHistoryReads);
