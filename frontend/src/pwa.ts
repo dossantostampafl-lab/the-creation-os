@@ -108,9 +108,10 @@ function moduleAssetFromHtml(html: string): string | null {
 export function startClientFreshnessPolling(
   options: ClientFreshnessPollingOptions = {},
 ): () => void {
-  const documentLike = options.document ?? document;
+  const documentLike = options.document
+    ?? (typeof document !== "undefined" ? document : null);
   const currentAsset = options.currentAsset ?? (() =>
-    documentLike.querySelector<HTMLScriptElement>('script[type="module"][src]')?.getAttribute("src") ?? null);
+    documentLike?.querySelector<HTMLScriptElement>('script[type="module"][src]')?.getAttribute("src") ?? null);
   const fetchShell = options.fetchShell ?? (async () => {
     const response = await fetch("/", { cache: "no-store", credentials: "same-origin" });
     if (!response.ok) throw new Error(`PWA_SHELL_HTTP_${response.status}`);
@@ -123,7 +124,7 @@ export function startClientFreshnessPolling(
   let reloadRequested = false;
 
   const check = async () => {
-    if (reloadRequested || documentLike.visibilityState !== "visible") return;
+    if (reloadRequested || (documentLike && documentLike.visibilityState !== "visible")) return;
     const before = currentAsset();
     if (!before) return;
     try {
@@ -139,9 +140,9 @@ export function startClientFreshnessPolling(
 
   const onVisible = () => { void check(); };
   const timer = schedule(() => { void check(); }, intervalMs);
-  documentLike.addEventListener("visibilitychange", onVisible);
+  documentLike?.addEventListener("visibilitychange", onVisible);
   return () => {
     cancel(timer);
-    documentLike.removeEventListener("visibilitychange", onVisible);
+    documentLike?.removeEventListener("visibilitychange", onVisible);
   };
 }
