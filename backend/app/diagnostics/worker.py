@@ -83,6 +83,7 @@ PROBE_RULES = {
     "task-worker": "heartbeat",
     "knowledge-worker": "heartbeat",
     "discovery-worker": "heartbeat",
+    "opportunity-worker": "heartbeat",
 }
 
 
@@ -329,6 +330,8 @@ async def collect() -> dict[str, ProbeResult]:
             probes[resource] = partial(worker_probe, resource)
         if settings.deus_autonomy_discovery_enabled:
             probes["discovery-worker"] = partial(worker_probe, "discovery-worker")
+        if settings.deus_autonomy_competition_enabled:
+            probes["opportunity-worker"] = partial(worker_probe, "opportunity-worker")
 
     values = await asyncio.gather(*(bounded(probe) for probe in probes.values()))
     return dict(zip(probes, values))
