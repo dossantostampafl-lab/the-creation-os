@@ -61,6 +61,15 @@ export type MicrophoneFrame = {
 
 export type MicrophoneFrameHandler = (frame: MicrophoneFrame) => void;
 
+export async function ensureAudioContextRunning(
+  context: Pick<AudioContext, "state" | "resume">,
+): Promise<void> {
+  if (context.state !== "running") await context.resume();
+  if (context.state !== "running") {
+    throw new Error("VOICE_CAPTURE_REQUIRES_USER_GESTURE");
+  }
+}
+
 export class MicrophonePcmCapture {
   private startGeneration = 0;
   private stream: MediaStream | null = null;
@@ -131,13 +140,11 @@ export class MicrophonePcmCapture {
         this.processor = processor;
       }
 
+      await ensureAudioContextRunning(context);
       this.stream = stream;
       this.context = context;
       this.source = source;
       this.silentGain = silentGain;
-      if (context.state === "suspended") {
-        await context.resume().catch(() => undefined);
-      }
     } catch (error) {
       stream.getTracks().forEach((track) => track.stop());
       await context.close().catch(() => undefined);
