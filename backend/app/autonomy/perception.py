@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -128,3 +129,44 @@ class PerceptionFabric:
                     )
                 )
         return observations
+
+
+def parse_sensor_bindings(raw: str) -> dict[str, SensorBinding]:
+    if not raw.strip():
+        return {}
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError("PERCEPTION_SENSOR_BINDINGS_JSON must be valid JSON") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("PERCEPTION_SENSOR_BINDINGS_JSON must contain an object")
+
+    bindings: dict[str, SensorBinding] = {}
+    for sensor, value in payload.items():
+        if not isinstance(sensor, str) or not sensor.strip() or not isinstance(value, dict):
+            raise ValueError("each perception sensor binding must be an object")
+        capability = str(value.get("capability", "")).strip()
+        action = str(value.get("action", "")).strip()
+        if not capability or not action:
+            raise ValueError(f"perception sensor binding requires capability and action: {sensor}")
+        bindings[sensor.strip()] = SensorBinding(capability=capability, action=action)
+    return bindings
+
+
+def parse_sensor_allowlist(raw: str) -> set[str]:
+    return {item.strip() for item in raw.split(",") if item.strip()}
+
+
+def build_perception_fabric(
+    gateway: CapabilityGateway,
+    *,
+    bindings_json: str,
+    allowlist: str,
+    max_sensors_per_cycle: int,
+) -> PerceptionFabric:
+    return PerceptionFabric(
+        gateway,
+        bindings=parse_sensor_bindings(bindings_json),
+        allowed_sensors=parse_sensor_allowlist(allowlist),
+        max_sensors_per_cycle=max_sensors_per_cycle,
+    )
