@@ -22,6 +22,13 @@ if [ -z "$container" ]; then
   exit 1
 fi
 
+# Prove the actual local speech models can synthesize Portuguese, transcribe it
+# back through Vosk and recognize the "Deus" wake word before calling the UI ready.
+if docker exec "$container" python -c "from app.config import settings; raise SystemExit(0 if settings.deus_voice_session_enabled else 1)" >/dev/null 2>&1; then
+  echo "== Local wake-word speech self-test =="
+  docker exec "$container" python -m app.voice_session.verify_local
+fi
+
 frontend_source_sha="$(cat frontend/src/CreatorConsole.tsx frontend/src/voice-session/useDeusVoiceSession.ts | sha256sum | awk '{print $1}')"
 
 docker exec -i -e TCO_WITH_DEUS="$with_deus" -e TCO_FRONTEND_SOURCE_SHA="$frontend_source_sha" "$container" python - <<'PY'
