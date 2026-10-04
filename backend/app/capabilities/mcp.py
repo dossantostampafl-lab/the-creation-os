@@ -193,7 +193,12 @@ class RemoteMcpClient:
             for raw in raw_tools:
                 if not isinstance(raw, dict) or not isinstance(raw.get("name"), str):
                     continue
-                annotations = raw.get("annotations") if isinstance(raw.get("annotations"), dict) else {}
+                raw_annotations = raw.get("annotations")
+                annotations: dict[str, object] = (
+                    {str(key): value for key, value in raw_annotations.items()}
+                    if isinstance(raw_annotations, dict)
+                    else {}
+                )
                 descriptors.append(McpToolDescriptor(
                     server=server,
                     tool=raw["name"],
