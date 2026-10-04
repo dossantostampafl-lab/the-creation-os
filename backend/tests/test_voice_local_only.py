@@ -47,3 +47,11 @@ async def test_startup_warms_local_audio_only_after_activation(monkeypatch, enab
     monkeypatch.setattr(voice_session, "_voice_acknowledgement_cache", lambda: Cache())
     async with lifespan(app):
         assert calls == (["warm"] if enabled else [])
+
+
+def test_local_voice_activation_preserves_or_restores_anthropic_reserve():
+    script = (ROOT / "deploy" / "oracle" / "set-local-voice.sh").read_text(encoding="utf-8")
+    assert 'env_set LLM_FALLBACK_PROVIDERS ""' not in script
+    assert 'ANTHROPIC_API_KEY' in script
+    assert 'ANTHROPIC_MODEL' in script
+    assert 'fallback="anthropic"' in script
