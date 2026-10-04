@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createUpdateController } from "./PwaStatus";
-import { registerPwa, startPwaUpdatePolling } from "./pwa";
+import { registerPwa, startClientFreshnessPolling, startPwaUpdatePolling } from "./pwa";
 
 function registration(overrides: Record<string, unknown> = {}) {
   const listeners = new Map<string, () => void>();
@@ -133,6 +133,31 @@ describe("startPwaUpdatePolling", () => {
     listeners.get("visibilitychange")?.();
     await Promise.resolve();
     expect(update).toHaveBeenCalledTimes(2);
+
+    stop();
+    vi.useRealTimers();
+  });
+});
+
+
+describe("startClientFreshnessPolling", () => {
+  it("reloads an open app when the deployed module asset changes", async () => {
+    vi.useFakeTimers();
+    const reload = vi.fn();
+    const fetchShell = vi.fn().mockResolvedValue('<script type="module" crossorigin src="/assets/index-new.js"></script>');
+
+    const stop = startClientFreshnessPolling({
+      currentAsset: () => "/assets/index-old.js",
+      fetchShell,
+      reload,
+      intervalMs: 60_000,
+      setInterval: setInterval as unknown as typeof window.setInterval,
+      clearInterval: clearInterval as unknown as typeof window.clearInterval,
+    });
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetchShell).toHaveBeenCalledOnce();
+    expect(reload).toHaveBeenCalledOnce();
 
     stop();
     vi.useRealTimers();
