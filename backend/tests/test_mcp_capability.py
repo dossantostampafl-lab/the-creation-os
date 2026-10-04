@@ -124,3 +124,15 @@ async def test_untrusted_mcp_write_tool_defaults_to_at_most_once_and_external_ef
             ),
         )
     assert client.calls == []
+
+
+def test_mcp_server_tool_certification_is_explicit() -> None:
+    from app.capabilities.mcp import parse_mcp_servers
+
+    [server] = parse_mcp_servers(
+        '[{"name":"github","endpoint":"https://example.com/mcp",'
+        '"read_only_tools":["search_code"],"idempotent_tools":["update_issue"]}]'
+    )
+    assert server.read_only_tools == frozenset({"search_code"})
+    assert server.idempotent_tools == frozenset({"update_issue"})
+    assert "create_pull_request" not in server.read_only_tools
