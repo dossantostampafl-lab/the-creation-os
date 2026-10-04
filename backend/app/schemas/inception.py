@@ -14,6 +14,7 @@ class InceptionCreateRequest(BaseModel):
 
 
 class InceptionResponse(BaseModel):
+    source_message_id: str
     id: str
     conversation_id: str
     title: str

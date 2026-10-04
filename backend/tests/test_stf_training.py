@@ -159,3 +159,87 @@ async def test_auto_training_queues_one_serialized_range_run_and_does_not_duplic
     assert len(runs[0].plan_json) == 5
     assert runs[0].plan_json[0]["capability"] == "range.campaign.start"
     assert runs[0].plan_json[-1]["capability"] == "range.campaign.verify"
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_training_seed_does_not_undo_a_creator_pause(stf_db) -> None:  # noqa: F811
+    _, factory = stf_db
+    async with factory() as session:
+        if await session.scalar(select(Universe).where(Universe.code == "security")) is None:
+            session.add(Universe(id=str(uuid.uuid4()), code="security", name="Segurança", active=True))
+            await session.flush()
+        agents = await ensure_training_agents(session)
+        agent = agents[0]
+        agent.active = False
+        await session.commit()
+    try:
+        async with factory() as session:
+            await ensure_training_agents(session)
+            await session.commit()
+        async with factory() as session:
+            paused = await session.scalar(select(Agent).where(Agent.id == agent.id))
+            assert paused is not None and paused.active is False
+    finally:
+        async with factory() as session:
+            restored = await session.get(Agent, agent.id)
+            if restored is not None:
+                restored.active = True
+            await session.commit()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_manual_training_selects_agent_and_serializes_competing_requests(stf_db) -> None:  # noqa: F811
+    import asyncio
+
+    _, factory = stf_db
+    creator_id = str(uuid.uuid4())
+    async with factory() as session:
+        if await session.scalar(select(Universe).where(Universe.code == "security")) is None:
+            session.add(Universe(id=str(uuid.uuid4()), code="security", name="Segurança", active=True))
+        session.add(Creator(id=creator_id, username="creator-manual-train", password_hash="unused", is_active=True))
+        await session.commit()
+    coordinator = AutomaticRangeTraining(factory)
+    selected = TRAINING_AGENT_SPECS[4].code
+    results = await asyncio.gather(
+        coordinator.run_once(creator_id, agent_code=selected),
+        coordinator.run_once(creator_id, agent_code=TRAINING_AGENT_SPECS[5].code),
+    )
+    assert sorted(str(result["status"]) for result in results) == ["busy", "queued"]
+    queued = next(result for result in results if result["status"] == "queued")
+    assert queued["agent_code"] in {selected, TRAINING_AGENT_SPECS[5].code}
+    async with factory() as session:
+        count = await session.scalar(select(func.count()).select_from(StfRun).where(StfRun.creator_id == creator_id))
+        assert count == 1
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_paused_roster_never_queues_and_manual_paused_agent_is_rejected(stf_db) -> None:  # noqa: F811
+    _, factory = stf_db
+    creator_id = str(uuid.uuid4())
+    async with factory() as session:
+        if await session.scalar(select(Universe).where(Universe.code == "security")) is None:
+            session.add(Universe(id=str(uuid.uuid4()), code="security", name="Segurança", active=True))
+            await session.flush()
+        agents = await ensure_training_agents(session)
+        original = {agent.id: agent.active for agent in agents}
+        for agent in agents:
+            agent.active = False
+        session.add(Creator(id=creator_id, username="creator-paused-train", password_hash="unused", is_active=True))
+        await session.commit()
+    try:
+        coordinator = AutomaticRangeTraining(factory)
+        assert await coordinator.run_once(creator_id) == {"status": "paused", "agents_ready": 0}
+        with pytest.raises(ValueError, match="paused"):
+            await coordinator.run_once(creator_id, agent_code=TRAINING_AGENT_SPECS[0].code)
+        with pytest.raises(ValueError, match="Unknown"):
+            await coordinator.run_once(creator_id, agent_code="external-target")
+        async with factory() as session:
+            assert not (await session.scalars(select(StfRun).where(StfRun.creator_id == creator_id))).all()
+    finally:
+        async with factory() as session:
+            for agent in (await session.scalars(select(Agent).where(Agent.id.in_(original)))).all():
+                agent.active = original[agent.id]
+            await session.commit()

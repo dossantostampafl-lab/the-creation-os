@@ -43,6 +43,7 @@ def conversation_response(item) -> ConversationResponse:
 
 def inception_response(item) -> InceptionResponse:
     return InceptionResponse(
+        source_message_id=item.source_message_id,
         id=item.id,
         conversation_id=item.conversation_id,
         title=item.title,

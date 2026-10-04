@@ -29,6 +29,7 @@ services:
     volumes:
       # Compiled Task Force contracts, grants and kill switch: shared with stf-worker so a revoke
       # or a cancel made through the API is seen by the worker.
+      - ./releases:/var/lib/creation/releases:ro
       - stf_state:/var/lib/creation/stf
       - voice_models:/var/lib/creation/voice
       - deus_diagnostics:/var/lib/creation/diagnostics

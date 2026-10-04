@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Sequence
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import settings
@@ -174,7 +174,7 @@ async def ensure_training_agents(session: AsyncSession) -> list[Agent]:
     existing = {
         item.code: item
         for item in (
-            await session.scalars(select(Agent).where(Agent.code.in_(codes)))
+            await session.scalars(select(Agent).where(Agent.code.in_(codes)).with_for_update())
         ).all()
     }
     ready: list[Agent] = []
@@ -193,7 +193,6 @@ async def ensure_training_agents(session: AsyncSession) -> list[Agent]:
         else:
             agent.name = spec.name
             agent.universe_id = security.id
-            agent.active = True
             agent.capabilities_json = expected
         ready.append(agent)
     await session.flush()
@@ -211,14 +210,20 @@ class AutomaticRangeTraining:
     def __init__(self, factory: async_sessionmaker[AsyncSession]) -> None:
         self.factory = factory
 
-    async def run_once(self, creator_id: str) -> dict[str, object]:
+    async def run_once(self, creator_id: str, *, agent_code: str | None = None) -> dict[str, object]:
+        if agent_code is not None and agent_code not in {spec.code for spec in TRAINING_AGENT_SPECS}:
+            raise ValueError("Unknown training agent")
         mission_ids = [training_mission_id(item.code) for item in TRAINING_AGENT_SPECS]
         async with self.factory() as session:
+            # The campaign has shared state; serialize manual requests and worker ticks.
+            await session.execute(text("SELECT pg_advisory_xact_lock(hashtext('creation:stf-training'))"))
             agents = await ensure_training_agents(session)
+            available_codes = {agent.code for agent in agents if agent.active}
+            if agent_code is not None and agent_code not in available_codes:
+                raise ValueError("Training agent is paused")
             active = await session.scalar(
                 select(StfRun)
                 .where(
-                    StfRun.creator_id == creator_id,
                     StfRun.mission_id.in_(mission_ids),
                     StfRun.state.notin_(("COMPLETED", "ABORTED")),
                 )
@@ -231,7 +236,7 @@ class AutomaticRangeTraining:
                     "status": "busy",
                     "run_id": active.id,
                     "mission_id": active.mission_id,
-                    "agents_ready": len(agents),
+                    "agents_ready": len(available_codes),
                 }
 
             rows = (
@@ -259,7 +264,11 @@ class AutomaticRangeTraining:
                 spec.code: by_mission.get(training_mission_id(spec.code), TrainingHistory())
                 for spec in TRAINING_AGENT_SPECS
             }
-            spec = select_next_training_agent(TRAINING_AGENT_SPECS, history)
+            if not available_codes:
+                await session.commit()
+                return {"status": "paused", "agents_ready": 0}
+            eligible = [spec for spec in TRAINING_AGENT_SPECS if spec.code in available_codes]
+            spec = next(spec for spec in eligible if spec.code == agent_code) if agent_code else select_next_training_agent(eligible, history)
             cycle = history[spec.code].cycles + 1
 
             repository = StfRepository(session)
@@ -287,5 +296,5 @@ class AutomaticRangeTraining:
                 "mission_id": view.mission_id,
                 "agent_code": spec.code,
                 "cycle": cycle,
-                "agents_ready": len(agents),
+                "agents_ready": len(available_codes),
             }
