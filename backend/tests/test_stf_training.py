@@ -13,8 +13,6 @@ from app.security_task_force.training import (
     select_next_training_agent,
 )
 
-from app.security_task_force.contracts import RiskClass
-
 
 def test_training_roster_has_exactly_ten_distinct_security_specialists() -> None:
     assert len(TRAINING_AGENT_SPECS) == 10
