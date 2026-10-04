@@ -145,6 +145,12 @@ jobs:
         run: |
           cp .env.example .env
           docker compose config --quiet
+      - name: Validate Oracle shell scripts
+        shell: bash
+        run: |
+          bash -n deploy/oracle/install.sh
+          bash -n deploy/oracle/enable-connected-deus.sh
+          bash -n deploy/oracle/smoke-test.sh
       - name: Validate Windows operations scripts
         shell: pwsh
         run: |

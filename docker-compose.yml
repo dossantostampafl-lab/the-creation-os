@@ -322,6 +322,56 @@ services:
     security_opt:
     - no-new-privileges:true
 
+
+  opportunity-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    profiles:
+    - connected-deus
+    environment:
+      <<: *observer_environment
+      DEUS_AUTONOMY_COMPETITION_ENABLED: ${DEUS_AUTONOMY_COMPETITION_ENABLED:-false}
+      OPPORTUNITY_COMPETITOR_LIMIT: ${OPPORTUNITY_COMPETITOR_LIMIT:-3}
+      OPPORTUNITY_COMPOSITION_ENABLED: ${OPPORTUNITY_COMPOSITION_ENABLED:-true}
+      OPPORTUNITY_MAX_PER_CYCLE: ${OPPORTUNITY_MAX_PER_CYCLE:-2}
+      OPPORTUNITY_RESEARCH_LEASE_SECONDS: ${OPPORTUNITY_RESEARCH_LEASE_SECONDS:-600}
+      OPPORTUNITY_EXECUTIVE_LEASE_SECONDS: ${OPPORTUNITY_EXECUTIVE_LEASE_SECONDS:-1800}
+      OPPORTUNITY_STALE_CLAIM_SECONDS: ${OPPORTUNITY_STALE_CLAIM_SECONDS:-900}
+      OPPORTUNITY_COMPETITION_CYCLE_SECONDS: ${OPPORTUNITY_COMPETITION_CYCLE_SECONDS:-60}
+      LLM_PROVIDER: ${LLM_PROVIDER:-freellmapi}
+      LLM_FALLBACK_PROVIDERS: ${LLM_FALLBACK_PROVIDERS:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-}
+      ANTHROPIC_WORKSPACE_ID: ${ANTHROPIC_WORKSPACE_ID:-}
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-https://api.anthropic.com/v1}
+      ANTHROPIC_TIMEOUT_SECONDS: ${ANTHROPIC_TIMEOUT_SECONDS:-60}
+      ANTHROPIC_MAX_OUTPUT_TOKENS: ${ANTHROPIC_MAX_OUTPUT_TOKENS:-4096}
+      FREELLMAPI_API_KEY: ${FREELLMAPI_API_KEY:-}
+      FREELLMAPI_MODEL: ${FREELLMAPI_MODEL:-}
+      FREELLMAPI_BASE_URL: ${FREELLMAPI_BASE_URL:-http://host.docker.internal:3001/v1}
+      FREELLMAPI_TIMEOUT_SECONDS: ${FREELLMAPI_TIMEOUT_SECONDS:-60}
+      OPENAI_COMPATIBLE_API_KEY: ${OPENAI_COMPATIBLE_API_KEY:-}
+      OPENAI_COMPATIBLE_MODEL: ${OPENAI_COMPATIBLE_MODEL:-}
+      OPENAI_COMPATIBLE_BASE_URL: ${OPENAI_COMPATIBLE_BASE_URL:-http://host.docker.internal:11434/v1}
+      OPENAI_COMPATIBLE_TIMEOUT_SECONDS: ${OPENAI_COMPATIBLE_TIMEOUT_SECONDS:-60}
+    extra_hosts:
+    - "host.docker.internal:host-gateway"
+    command:
+    - python
+    - -m
+    - app.autonomy.competition
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+    - tco_net
+    security_opt:
+    - no-new-privileges:true
+
 volumes:
   deus_diagnostics:
   deus_obsidian:
