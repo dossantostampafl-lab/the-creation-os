@@ -1,4 +1,5 @@
-FROM rust:1.82-bookworm AS build
+# time 0.3.55 in Cargo.lock declares rust-version = 1.88.0 and uses edition 2024.
+FROM rust:1.88-bookworm AS build
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY src src
