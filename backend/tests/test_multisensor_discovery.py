@@ -17,6 +17,8 @@ class FakePerceptionFabric:
         query: str,
         explore: bool,
     ) -> list[PerceptionObservation]:
+        if universe_code != "engineering":
+            return []
         return [
             PerceptionObservation(
                 sensor="web.search",
