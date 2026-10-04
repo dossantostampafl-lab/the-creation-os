@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createUpdateController } from "./PwaStatus";
-import { registerPwa } from "./pwa";
+import { registerPwa, startPwaUpdatePolling } from "./pwa";
 
 function registration(overrides: Record<string, unknown> = {}) {
   const listeners = new Map<string, () => void>();
@@ -106,5 +106,35 @@ describe("createUpdateController", () => {
     expect(controller.request({ waiting: null, addEventListener: vi.fn() })).toBe(false);
     controller.controllerChanged();
     expect(reload).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("startPwaUpdatePolling", () => {
+  it("checks for a newer worker on an interval and when the app becomes visible", async () => {
+    vi.useFakeTimers();
+    const update = vi.fn().mockResolvedValue(undefined);
+    const listeners = new Map<string, () => void>();
+    const documentLike = {
+      visibilityState: "visible",
+      addEventListener: vi.fn((type: string, listener: () => void) => listeners.set(type, listener)),
+      removeEventListener: vi.fn(),
+    };
+
+    const stop = startPwaUpdatePolling({ update }, {
+      document: documentLike,
+      intervalMs: 60_000,
+      setInterval: window.setInterval.bind(window),
+      clearInterval: window.clearInterval.bind(window),
+    });
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(update).toHaveBeenCalledTimes(1);
+    listeners.get("visibilitychange")?.();
+    await Promise.resolve();
+    expect(update).toHaveBeenCalledTimes(2);
+
+    stop();
+    vi.useRealTimers();
   });
 });
