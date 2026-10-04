@@ -73,7 +73,7 @@ async def converse_with_deus(
     )
     turn = None
     store = TurnStore(AsyncSessionLocal)
-    if body.request_id is not None and settings.deus_context_retrieval_enabled:
+    if body.request_id is not None:
         try:
             turn = await store.claim(a.id, str(entity_id), str(body.request_id), body.content)
         except TurnConflict as exc:
