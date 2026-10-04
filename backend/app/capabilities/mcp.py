@@ -56,10 +56,21 @@ class McpServerConfig:
     endpoint: str
     token_env: str | None = None
     protocol_version: str = DEFAULT_PROTOCOL_VERSION
+    read_only_tools: frozenset[str] = frozenset()
+    idempotent_tools: frozenset[str] = frozenset()
+    destructive_tools: frozenset[str] = frozenset()
 
 
 def _normalize_name(value: str) -> str:
     return _SAFE_NAME.sub("_", value.strip().lower()).strip("._-")
+
+
+def _tool_names(value: object, *, field: str) -> frozenset[str]:
+    if value is None:
+        return frozenset()
+    if not isinstance(value, list) or not all(isinstance(item, str) and item.strip() for item in value):
+        raise ValueError(f"{field} must be a list of non-empty tool names")
+    return frozenset(item.strip() for item in value)
 
 
 class RemoteMcpClient:
@@ -268,6 +279,9 @@ def parse_mcp_servers(raw: str) -> list[McpServerConfig]:
             endpoint=endpoint,
             token_env=token_env,
             protocol_version=str(item.get("protocol_version", DEFAULT_PROTOCOL_VERSION)),
+            read_only_tools=_tool_names(item.get("read_only_tools"), field="read_only_tools"),
+            idempotent_tools=_tool_names(item.get("idempotent_tools"), field="idempotent_tools"),
+            destructive_tools=_tool_names(item.get("destructive_tools"), field="destructive_tools"),
         ))
     return servers
 
@@ -291,12 +305,14 @@ async def discover_mcp_adapters(
         )
         discovered = await client.list_tools()
         for descriptor in discovered:
+            # Remote annotations are discovery metadata, not authority. Risk can only be
+            # lowered by local certification in MCP_SERVERS_JSON.
             named = McpToolDescriptor(
                 server=server.name,
                 tool=descriptor.tool,
-                read_only=descriptor.read_only,
-                idempotent=descriptor.idempotent,
-                destructive=descriptor.destructive,
+                read_only=descriptor.tool in server.read_only_tools,
+                idempotent=descriptor.tool in server.idempotent_tools,
+                destructive=descriptor.tool in server.destructive_tools,
             )
             adapter = McpToolAdapter(client=client, descriptor=named)
             if adapter.name in seen:
