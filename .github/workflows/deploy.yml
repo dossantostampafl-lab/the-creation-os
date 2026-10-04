@@ -24,6 +24,7 @@ on:
           - smoke-test
           - stf-host-check
           - enable-connected-deus
+          - enable-cyber-range-training
           - seed
       ref:
         description: "Branch or tag to take the code from. Empty means the default branch."
@@ -200,11 +201,96 @@ jobs:
               ;;
             update)
               sudo git merge --ff-only "origin/$target"
-              sudo "${COMPOSE[@]}" up -d --build --remove-orphans
+              # Do not silently drop the reserve after a voice/deploy cycle.
+              sudo bash -c '
+                source ./deploy/oracle/env-file.sh
+                if [ "$(env_get LLM_PROVIDER)" = "freellmapi" ] \
+                   && [ -z "$(env_get LLM_FALLBACK_PROVIDERS)" ] \
+                   && [ -n "$(env_get ANTHROPIC_API_KEY)" ] \
+                   && [ -n "$(env_get ANTHROPIC_MODEL)" ]; then
+                  env_set LLM_FALLBACK_PROVIDERS anthropic
+                fi
+              '
+              # Connected-DEUS workers live behind a profile. A normal update must preserve
+              # them instead of recreating only the base stack and leaving diagnostics stale.
+              if sudo grep -qE '^DEUS_(CONTEXT_RETRIEVAL|DIAGNOSTICS|AUTONOMY_DISCOVERY|AUTONOMY_COMPETITION)_ENABLED=true
+            enable-connected-deus)
+              sudo git merge --ff-only "origin/$target"
+              sudo ./deploy/oracle/enable-connected-deus.sh
+              sudo ./deploy/oracle/smoke-test.sh --deus
+              ;;
+            enable-cyber-range-training)
+              sudo git merge --ff-only "origin/$target"
+              sudo ./deploy/oracle/enable-cyber-range-training.sh
+              sudo ./deploy/oracle/smoke-test.sh --deus
+              ;;
+            set-inference)
+              sudo -E ./deploy/oracle/set-inference.sh anthropic "${ANTHROPIC_MODEL:-claude-sonnet-5}"
+              ;;
+            set-inference-freellmapi)
+              # FreeLLMAPI first, Claude as the reserve. The script refuses, and changes nothing,
+              # unless the reserve is already fully configured in .env.
+              FALLBACK_PROVIDERS=anthropic sudo -E ./deploy/oracle/set-inference.sh freellmapi "${FREELLMAPI_MODEL:-auto}"
+              ;;
+            set-creator-password)
+              sudo -E ./deploy/oracle/set-creator-password.sh
+              ;;
+            tidy)
+              sudo ./deploy/oracle/tidy-server.sh
+              ;;
+            logs)
+              sudo ./deploy/oracle/show-logs.sh 150
+              ;;
+            set-local-voice)
+              sudo git merge --ff-only "origin/$target"
+              sudo ./deploy/oracle/set-local-voice.sh
+              sudo ./deploy/oracle/smoke-test.sh --deus
+              ;;
+            seed)
+              # Idempotent: it reconciles the canonical Universes and their Agents rather than
+              # inserting. A deploy brings new code, never new rows, so this is its own step.
+              api="$(sudo docker ps --filter 'label=com.docker.compose.service=api' --format '{{.ID}}' | head -1)"
+              sudo docker exec -i "$api" seed-universes
+              sudo ./deploy/oracle/smoke-test.sh --deus
+              ;;
+            stf-host-check)
+              # Read-only: reports whether this server could run privileged Task Force work
+              # (KVM, Kata, Firecracker). It installs and changes nothing.
+              sudo ./deploy/oracle/stf-host-check.sh
+              ;;
+            smoke-test)
+              # --deus sends one short message, so the report covers the path that matters
+              # most and the one nothing else exercises.
+              sudo ./deploy/oracle/smoke-test.sh --deus
+              ;;
+            *)
+              echo "Unknown task: $TASK" >&2
+              exit 1
+              ;;
+          esac
+          REMOTE
+          } | ssh -i ~/.ssh/id_deploy -o BatchMode=yes -o ConnectTimeout=20 \
+                "${USERNAME:-ubuntu}@$HOST" \
+                "export REPO_DIR='${REPO_DIR:-}' TASK='$TASK' REF='$REF' \
+                        ANTHROPIC_MODEL='${ANTHROPIC_MODEL:-}' \
+                        ANTHROPIC_WORKSPACE_ID='${ANTHROPIC_WORKSPACE_ID:-}' \
+                        FREELLMAPI_MODEL='${FREELLMAPI_MODEL:-}' \
+                        FREELLMAPI_BASE_URL='${FREELLMAPI_BASE_URL:-}'; \
+                 IFS= read -r ANTHROPIC_API_KEY; IFS= read -r CREATOR_PASSWORD; \
+                 IFS= read -r FREELLMAPI_API_KEY; \
+                 export ANTHROPIC_API_KEY CREATOR_PASSWORD FREELLMAPI_API_KEY; exec bash -s"
+
+      - name: Remove the key from the runner
+        if: always()
+        run: rm -f ~/.ssh/id_deploy
+ .env; then
+                sudo "${COMPOSE[@]}" --profile connected-deus up -d --build --remove-orphans
+              else
+                sudo "${COMPOSE[@]}" up -d --build --remove-orphans
+              fi
               sleep 30
               sudo ./deploy/oracle/check-inference.sh
               # A green deploy must prove the Creator-facing path, not just provider health.
-              # This exercises login, the interface dependencies, local voice, and one real DEUS turn.
               sudo ./deploy/oracle/smoke-test.sh --deus
               ;;
             enable-connected-deus)
