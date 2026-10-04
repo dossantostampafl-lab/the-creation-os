@@ -58,3 +58,25 @@ it('filters knowledge searches by the selected project and reuses write identifi
   await saveKnowledge('Voz','Kokoro','stable-id','project');
   expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({request_id:'stable-id',candidate:{title:'Voz',content:'Kokoro',project_id:'project'}});
 });
+
+
+it("retries one transient DEUS failure with the exact same idempotency key", async () => {
+  vi.useFakeTimers();
+  const { converseWithDeus } = await import("./api");
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(new Response(JSON.stringify({ detail: "temporary" }), { status: 503, headers: { "Content-Type": "application/json" } }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({
+      message_id: "m1", conversation_id: "conversation", route: "deus",
+      response: "Recuperei.", inception: null, correlation_id: "c1",
+    }), { status: 201, headers: { "Content-Type": "application/json" } }));
+  vi.stubGlobal("fetch", fetchMock);
+
+  const promise = converseWithDeus("conversation", "Continue", "22222222-2222-4222-8222-222222222222");
+  await vi.advanceTimersByTimeAsync(350);
+  await expect(promise).resolves.toMatchObject({ response: "Recuperei." });
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  const first = JSON.parse(fetchMock.mock.calls[0][1].body);
+  const second = JSON.parse(fetchMock.mock.calls[1][1].body);
+  expect(first.request_id).toBe("22222222-2222-4222-8222-222222222222");
+  expect(second).toEqual(first);
+});
