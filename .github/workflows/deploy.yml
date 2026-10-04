@@ -211,9 +211,19 @@ jobs:
                   env_set LLM_FALLBACK_PROVIDERS anthropic
                 fi
               '
-              # Connected-DEUS workers live behind a profile. A normal update must preserve
-              # them instead of recreating only the base stack and leaving diagnostics stale.
-              if sudo grep -qE '^DEUS_(CONTEXT_RETRIEVAL|DIAGNOSTICS|AUTONOMY_DISCOVERY|AUTONOMY_COMPETITION)_ENABLED=true
+              # Preserve every optional runtime profile already enabled on this host.
+              profile_args=()
+              if sudo grep -qE '^DEUS_(CONTEXT_RETRIEVAL|DIAGNOSTICS|AUTONOMY_DISCOVERY|AUTONOMY_COMPETITION)_ENABLED=true$' .env; then
+                profile_args+=(--profile connected-deus)
+              fi
+              if sudo grep -q '^STF_AUTO_TRAINING_ENABLED=true$' .env; then
+                profile_args+=(--profile security-task-force)
+              fi
+              sudo "${COMPOSE[@]}" "${profile_args[@]}" up -d --build --remove-orphans
+              sleep 30
+              sudo ./deploy/oracle/check-inference.sh
+              sudo ./deploy/oracle/smoke-test.sh --deus
+              ;;
             enable-connected-deus)
               sudo git merge --ff-only "origin/$target"
               sudo ./deploy/oracle/enable-connected-deus.sh
