@@ -8,6 +8,7 @@ from loguru import logger
 from sqlalchemy import select
 
 from app.capabilities.gateway import CapabilityGateway
+from app.capabilities.mcp import discover_mcp_adapters
 from app.capabilities.proto import ProtoCapabilityAdapter
 from app.capabilities.runtime import CapabilityRuntime
 from app.capabilities.web import WebCapabilityAdapter
@@ -86,7 +87,7 @@ def build_web_providers() -> list[RemoteContractWebProvider]:
     return providers
 
 
-def build_capability_gateway() -> CapabilityGateway:
+async def build_capability_gateway() -> CapabilityGateway:
     gateway = CapabilityGateway()
     # Registering an adapter only makes it reachable; a Mission still executes nothing
     # until the Creator's authorization names the capability.
@@ -105,6 +106,12 @@ def build_capability_gateway() -> CapabilityGateway:
                 preferred_providers=settings.web_provider_preferences,
             )
         )
+    for adapter in await discover_mcp_adapters(
+        settings.mcp_servers_json,
+        timeout_seconds=settings.mcp_timeout_seconds,
+    ):
+        gateway.register(adapter)
+
     if settings.proto_bridge_configured:
         assert settings.proto_base_url is not None
         assert settings.proto_creation_shared_secret is not None
@@ -127,7 +134,7 @@ async def run_worker() -> None:
             await asyncio.sleep(POLL_INTERVAL_SECONDS)
 
     router = build_model_router()
-    capability_gateway = build_capability_gateway()
+    capability_gateway = await build_capability_gateway()
     capability_runtime = CapabilityRuntime(AsyncSessionLocal, capability_gateway)
     completion_engine = MissionCompletionEngine(AsyncSessionLocal)
     runtime = AgentRuntime(
