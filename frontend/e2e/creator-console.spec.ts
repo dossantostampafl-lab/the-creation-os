@@ -209,3 +209,92 @@ test("voice session stays closed when no inference provider is available", async
       .filter((url) => url.includes("/api/v1/voice/session")));
   expect(urls).toEqual([]);
 });
+
+
+test('optional projection failure keeps DEUS and system controls usable', async ({ page }) => {
+  await installVoiceSocket(page);
+  await mockDashboard(page);
+  await page.route('**/api/v1/system/projections', route => route.fulfill({status:503,body:'unavailable'}));
+  await page.goto('/');
+  await expect(page.getByRole('textbox', {name:'Message DEUS'})).toBeEnabled();
+  await expect(page.getByRole('button', {name:'Vitals System vitals'})).toBeVisible();
+});
+
+test('failed text delivery preserves the question for retry', async ({ page }) => {
+  await installVoiceSocket(page);
+  await mockDashboard(page);
+  await page.route('**/api/v1/conversations/conversation-1/deus', route => route.fulfill({status:503,body:'unavailable'}));
+  await page.goto('/');
+  const input = page.getByRole('textbox', {name:'Message DEUS'});
+  await input.fill('Como está o sistema?');
+  await page.getByRole('button', {name:'Send to DEUS'}).click();
+  await expect(input).toHaveValue('Como está o sistema?');
+});
+
+test('temporary history failure retains the existing conversation', async ({ page }) => {
+  await installVoiceSocket(page);
+  await mockDashboard(page);
+  await page.route('**/api/v1/conversations/conversation-1/messages', route => route.fulfill({status:503,body:'unavailable'}));
+  await page.goto('/');
+  await expect(page.getByRole('alert')).toContainText('histórico');
+  expect(await page.evaluate(() => localStorage.getItem('creation_conversation_id'))).toBe('conversation-1');
+});
+
+test('late history cannot erase a new voice question', async ({ page }) => {
+  await installVoiceSocket(page);
+  await mockDashboard(page);
+  let release!: () => void;
+  const barrier = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/api/v1/conversations/conversation-1/messages', async route => {
+    await barrier;
+    await route.fulfill({status:200,contentType:'application/json',body:'[]'});
+  });
+  await page.goto('/');
+  await expect(page.getByText('Pronto · diga “Deus”', {exact:true})).toBeVisible();
+  await page.evaluate(() => (window as unknown as {__voiceServer:(event:object)=>boolean}).__voiceServer({
+    type:'transcript_commit',session_id:'voice-session-1',turn_id:1,text:'Minha pergunta mais recente',
+  }));
+  await expect(page.getByText('Minha pergunta mais recente', {exact:true})).toBeVisible();
+  release();
+  await expect.poll(() => page.evaluate(() => performance.getEntriesByType('resource').filter(item => item.name.endsWith('/messages')).length)).toBeGreaterThan(0);
+  await expect(page.getByText('Minha pergunta mais recente', {exact:true})).toBeVisible();
+});
+
+
+test('late persisted voice history reconciles the visible question', async ({ page }) => {
+  await installVoiceSocket(page);
+  await mockDashboard(page);
+  let release!: () => void;
+  const barrier = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/api/v1/conversations/conversation-1/messages', async route => {
+    await barrier;
+    await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify([{
+      id:'persisted-voice-question', conversation_id:'conversation-1', actor_id:'creator',role:'creator',
+      content:'Pergunta já persistida',route:'deus',metadata_json:{voice:true,voice_session_id:'voice-session-1',voice_turn_id:1},
+      correlation_id:'voice-correlation',created_at:new Date().toISOString(),
+    }])});
+  });
+  await page.goto('/');
+  await expect(page.getByText('Pronto · diga “Deus”', {exact:true})).toBeVisible();
+  await page.evaluate(() => (window as unknown as {__voiceServer:(event:object)=>boolean}).__voiceServer({
+    type:'transcript_commit',session_id:'voice-session-1',turn_id:1,text:'Pergunta já persistida',
+  }));
+  release();
+  await expect.poll(() => page.evaluate(() => performance.getEntriesByType('resource').filter(item => item.name.endsWith('/messages')).length)).toBeGreaterThan(0);
+  await expect(page.getByText('Pergunta já persistida', {exact:true})).toHaveCount(1);
+});
+
+test('mission decisions can recover after a temporary list failure', async ({ page }) => {
+  await installVoiceSocket(page);
+  await mockDashboard(page);
+  let recovered = false;
+  await page.route('**/api/v1/inceptions', route => route.fulfill(recovered
+    ? {status:200,contentType:'application/json',body:'[]'}
+    : {status:503,body:'unavailable'}));
+  await page.goto('/');
+  await page.getByRole('button', {name:'Decisions Creator decisions',exact:true}).click();
+  await expect(page.getByText('Inception list unavailable.', {exact:true})).toBeVisible();
+  recovered = true;
+  await page.getByRole('button', {name:'Atualizar decisões',exact:true}).click();
+  await expect(page.getByText('Nothing is waiting for the Creator.', {exact:true})).toBeVisible();
+});

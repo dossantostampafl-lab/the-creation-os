@@ -69,7 +69,7 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
           role: "creator",
           content: text,
           route: "deus",
-          metadata_json: { voice: true, optimistic: true },
+          metadata_json: { voice: true, optimistic: true, voice_session_id: sessionId, voice_turn_id: turnId },
           correlation_id: "",
           created_at: new Date().toISOString(),
         }];
@@ -87,7 +87,7 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
             role: "deus",
             content: delta,
             route: "deus",
-            metadata_json: { voice: true, provider, streaming: true },
+            metadata_json: { voice: true, provider, streaming: true, voice_session_id: sessionId, voice_turn_id: turnId },
             correlation_id: "",
             created_at: new Date().toISOString(),
           }];
@@ -100,7 +100,7 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
     onReply: ({ sessionId, turnId, text, provider }) => {
       const localId = `local-deus-voice-${sessionId}-${turnId}`;
       setMessages((current) => current.map((message) => message.id === localId
-        ? { ...message, content: text, metadata_json: { voice: true, provider, streaming: false } }
+        ? { ...message, content: text, metadata_json: { voice: true, provider, streaming: false, voice_session_id: sessionId, voice_turn_id: turnId } }
         : message));
     },
   });
@@ -128,13 +128,32 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
 
   useEffect(() => {
     if (!conversationId) return;
+    let active = true;
     void fetchConversationMessages(conversationId)
-      .then(setMessages)
-      .catch(() => {
-        window.localStorage.removeItem(CONVERSATION_KEY);
-        setConversationId(null);
-        setMessages([]);
+      .then((history) => {
+        if (!active) return;
+        setMessages((current) => {
+          const live = current.filter((message) => message.conversation_id === conversationId);
+          return [...history.filter((persisted) => !live.some((message) =>
+            message.id === persisted.id ||
+            (message.role === persisted.role && message.correlation_id && message.correlation_id === persisted.correlation_id) ||
+            (message.role === persisted.role && message.metadata_json.voice_session_id &&
+              message.metadata_json.voice_session_id === persisted.metadata_json.voice_session_id &&
+              message.metadata_json.voice_turn_id === persisted.metadata_json.voice_turn_id)
+          )), ...live];
+        });
+      })
+      .catch((failure: unknown) => {
+        if (!active) return;
+        if (failure instanceof Error && failure.message === "HTTP_404") {
+          window.localStorage.removeItem(CONVERSATION_KEY);
+          setConversationId(null);
+          setMessages([]);
+        } else {
+          setError("Não foi possível carregar o histórico. A conversa foi preservada.");
+        }
       });
+    return () => { active = false; };
   }, [conversationId]);
 
   useEffect(() => {
@@ -230,7 +249,7 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
         created_at: new Date().toISOString(),
       };
       setMessages((current) => [
-        ...current.filter((message) => message.id !== optimistic.id),
+        ...current.filter((message) => message.id !== optimistic.id && message.id !== creatorMessage.id && (!reply.correlation_id || message.correlation_id !== reply.correlation_id)),
         creatorMessage,
         deusMessage,
       ]);
@@ -243,6 +262,7 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
       if (optimisticId) {
         setMessages((current) => current.filter((message) => message.id !== optimisticId));
       }
+      setInput((current) => current || content);
       const message = failure instanceof Error ? failure.message : "CONVERSATION_FAILED";
       setError(
         message === "AUTH_REQUIRED"

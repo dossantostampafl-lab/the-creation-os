@@ -422,3 +422,21 @@ test("surfaces a diagnostic observer failure instead of silently hiding it", asy
   const vitals = page.getByRole("complementary", { name: "System vitals" });
   await expect(vitals.getByText(/Diagnóstico indisponível/i)).toBeVisible();
 });
+
+test('late chronicle history preserves the newer streamed event', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('creation_access_token', 'e2e-token'));
+  await mockOperationalApi(page);
+  let release!: () => void;
+  const barrier = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/api/v1/chronicles?limit=40&offset=0', async route => {
+    await barrier;
+    await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(chronicle)});
+  });
+  await page.goto('/');
+  await page.getByRole('button', {name:'Vitals System vitals'}).click();
+  const historyPanel = page.locator('.panel').filter({has:page.getByText('CHRONICLE',{exact:true})});
+  await expect(historyPanel.getByText('task_progressed', {exact:true})).toBeVisible();
+  release();
+  await expect(historyPanel.getByText('mission_distributed', {exact:true})).toBeVisible();
+  await expect(historyPanel.getByText('task_progressed', {exact:true})).toBeVisible();
+});
