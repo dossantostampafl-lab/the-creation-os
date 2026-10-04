@@ -26,6 +26,15 @@ origins=[value.strip() for value in existing.get('CORS_ALLOW_ORIGINS','').strip(
 for origin in ['https://localhost','capacitor://localhost']:
     if origin not in origins: origins.append(origin)
 values['CORS_ALLOW_ORIGINS']=','.join(origins)
+# A connected DEUS deployment must not silently lose its configured reserve.
+# Preserve FreeLLMAPI as primary, but restore Anthropic when the server already
+# has a valid Anthropic configuration and the fallback chain is accidentally empty.
+primary=existing.get('LLM_PROVIDER','').strip('"\'').strip().lower()
+fallbacks=existing.get('LLM_FALLBACK_PROVIDERS','').strip('"\'').strip()
+anthropic_key=existing.get('ANTHROPIC_API_KEY','').strip('"\'').strip()
+anthropic_model=existing.get('ANTHROPIC_MODEL','').strip('"\'').strip()
+if primary == 'freellmapi' and not fallbacks and anthropic_key and anthropic_model:
+    values['LLM_FALLBACK_PROVIDERS']='anthropic'
 lines=[line for line in lines if not any(line.startswith(key+'=') for key in values)]
 p.write_text('\n'.join(lines+[key+'='+value for key,value in values.items()])+'\n')
 p.chmod(0o600)
