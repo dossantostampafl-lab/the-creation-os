@@ -298,3 +298,53 @@ test('mission decisions can recover after a temporary list failure', async ({ pa
   await page.getByRole('button', {name:'Atualizar decisões',exact:true}).click();
   await expect(page.getByText('Nothing is waiting for the Creator.', {exact:true})).toBeVisible();
 });
+
+test('persisted complete voice answer survives missing completion and later deltas', async ({ page }) => {
+  await installVoiceSocket(page);
+  await mockDashboard(page);
+  let release!: () => void;
+  const barrier = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/api/v1/conversations/conversation-1/messages', async route => {
+    await barrier;
+    await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify([{
+      id:'persisted-voice-answer', conversation_id:'conversation-1', actor_id:'deus',role:'deus',
+      content:'Estou aqui, pronto para ajudar.',route:'deus',metadata_json:{voice:true,voice_session_id:'voice-session-1',voice_turn_id:1},
+      correlation_id:'voice-correlation',created_at:new Date().toISOString(),
+    }])});
+  });
+  await page.goto('/');
+  await expect(page.getByText('Pronto · diga “Deus”', {exact:true})).toBeVisible();
+  await page.evaluate(() => (window as unknown as {__voiceServer:(event:object)=>boolean}).__voiceServer({
+    type:'text_delta',session_id:'voice-session-1',turn_id:1,text:'Estou aqui,',provider:'freellmapi',
+  }));
+  await expect(page.getByText('Estou aqui,', {exact:true})).toBeVisible();
+  release();
+  await expect(page.getByText('Estou aqui, pronto para ajudar.', {exact:true})).toBeVisible();
+  await page.evaluate(() => (window as unknown as {__voiceServer:(event:object)=>boolean}).__voiceServer({
+    type:'text_delta',session_id:'voice-session-1',turn_id:1,text:' pronto para ajudar.',provider:'freellmapi',
+  }));
+  await expect(page.locator('.deus-message p')).toHaveText('Estou aqui, pronto para ajudar.');
+});
+
+test('voice history arriving first cannot duplicate later transcripts or deltas', async ({ page }) => {
+  await installVoiceSocket(page);
+  await mockDashboard(page);
+  const metadata = {voice:true,voice_session_id:'voice-session-1',voice_turn_id:1};
+  await page.route('**/api/v1/conversations/conversation-1/messages', route => route.fulfill({
+    status:200,contentType:'application/json',body:JSON.stringify([
+      {id:'saved-question',conversation_id:'conversation-1',actor_id:'creator',role:'creator',content:'Minha pergunta salva',route:'deus',metadata_json:metadata,correlation_id:'saved-turn',created_at:new Date().toISOString()},
+      {id:'saved-answer',conversation_id:'conversation-1',actor_id:'deus',role:'deus',content:'Resposta completa salva.',route:'deus',metadata_json:metadata,correlation_id:'saved-turn',created_at:new Date().toISOString()},
+    ]),
+  }));
+  await page.goto('/');
+  await expect(page.getByText('Resposta completa salva.', {exact:true})).toBeVisible();
+  await expect(page.getByText('Pronto · diga “Deus”', {exact:true})).toBeVisible();
+  await page.evaluate(() => (window as unknown as {__voiceServer:(event:object)=>boolean}).__voiceServer({
+    type:'transcript_commit',session_id:'voice-session-1',turn_id:1,text:'Minha pergunta salva',
+  }));
+  await page.evaluate(() => (window as unknown as {__voiceServer:(event:object)=>boolean}).__voiceServer({
+    type:'text_delta',session_id:'voice-session-1',turn_id:1,text:'Resposta ',provider:'freellmapi',
+  }));
+  await expect(page.locator('.creator-message p')).toHaveText(['Minha pergunta salva']);
+  await expect(page.locator('.deus-message p')).toHaveText(['Resposta completa salva.']);
+});
