@@ -31,7 +31,7 @@ fi
 
 frontend_source_sha="$(cd frontend && { find src public -type f -print; printf '%s\n' package.json package-lock.json vite.config.ts nginx.conf; } | sort | xargs sha256sum | sha256sum | awk '{print $1}')"
 
-docker exec -i -e TCO_WITH_DEUS="$with_deus" -e TCO_FRONTEND_SOURCE_SHA="$frontend_source_sha" "$container" python - <<'PY'
+docker exec -i -e TCO_WITH_DEUS="$with_deus" "$container" python - "$frontend_source_sha" <<'PY'
 import asyncio
 import json
 import os
@@ -73,7 +73,7 @@ with httpx.Client(base_url=BASE, timeout=45) as client:
     report("login", bool(token))
     client.headers["Authorization"] = f"Bearer {token}"
 
-    expected_frontend_source = os.getenv("TCO_FRONTEND_SOURCE_SHA", "").strip()
+    expected_frontend_source = sys.argv[1].strip() if len(sys.argv) > 1 else ""
     frontend_source = client.get(f"{FRONTEND}/frontend-source.sha256")
     deployed_frontend_source = frontend_source.text.strip() if frontend_source.status_code == 200 else ""
     report(
