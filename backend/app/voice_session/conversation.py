@@ -90,6 +90,7 @@ class VoiceConversationBridge:
                 metadata_json={
                     "voice": True,
                     "voice_turn_id": turn_id,
+                    "voice_session_id": self.session_id,
                 },
                 correlation_id=correlation_id,
             )
@@ -151,6 +152,7 @@ class VoiceConversationBridge:
                     "provider": provider,
                     "voice": True,
                     "voice_turn_id": turn_id,
+                    "voice_session_id": self.session_id,
                     **({'context_trace_id': self._trace_ids.pop(turn_id)} if turn_id in self._trace_ids else {}),
                 },
                 correlation_id=pending.correlation_id,

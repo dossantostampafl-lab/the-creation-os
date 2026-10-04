@@ -69,7 +69,7 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
           role: "creator",
           content: text,
           route: "deus",
-          metadata_json: { voice: true, optimistic: true },
+          metadata_json: { voice: true, optimistic: true, voice_session_id: sessionId, voice_turn_id: turnId },
           correlation_id: "",
           created_at: new Date().toISOString(),
         }];
@@ -87,11 +87,12 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
             role: "deus",
             content: delta,
             route: "deus",
-            metadata_json: { voice: true, provider, streaming: true },
+            metadata_json: { voice: true, provider, streaming: true, voice_session_id: sessionId, voice_turn_id: turnId },
             correlation_id: "",
             created_at: new Date().toISOString(),
           }];
         }
+        if (existing.metadata_json.history_complete) return current;
         return current.map((message) => message.id === localId
           ? { ...message, content: message.content + delta, metadata_json: { ...message.metadata_json, provider } }
           : message);
@@ -99,8 +100,8 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
     },
     onReply: ({ sessionId, turnId, text, provider }) => {
       const localId = `local-deus-voice-${sessionId}-${turnId}`;
-      setMessages((current) => current.map((message) => message.id === localId
-        ? { ...message, content: text, metadata_json: { voice: true, provider, streaming: false } }
+      setMessages((current) => current.map((message) => message.id === localId && !message.metadata_json.history_complete
+        ? { ...message, content: text, metadata_json: { voice: true, provider, streaming: false, voice_session_id: sessionId, voice_turn_id: turnId } }
         : message));
     },
   });
@@ -128,13 +129,47 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
 
   useEffect(() => {
     if (!conversationId) return;
+    let active = true;
     void fetchConversationMessages(conversationId)
-      .then(setMessages)
-      .catch(() => {
-        window.localStorage.removeItem(CONVERSATION_KEY);
-        setConversationId(null);
-        setMessages([]);
+      .then((records) => {
+        if (!active) return;
+        const history = records.map((message) => {
+          const session = message.metadata_json.voice_session_id;
+          const turn = message.metadata_json.voice_turn_id;
+          if (typeof session !== "string" || !session || typeof turn !== "number"
+            || !["creator", "deus"].includes(message.role)) return message;
+          return { ...message, id: `local-${message.role}-voice-${session}-${turn}`,
+            metadata_json: { ...message.metadata_json, history_complete: true } };
+        });
+        setMessages((current) => {
+          const live = current.filter((message) => message.conversation_id === conversationId);
+          const matches = (message: ConversationMessage, persisted: ConversationMessage) =>
+            message.id === persisted.id ||
+            (message.role === persisted.role && message.correlation_id && message.correlation_id === persisted.correlation_id) ||
+            (message.role === persisted.role && message.metadata_json.voice_session_id &&
+              message.metadata_json.voice_session_id === persisted.metadata_json.voice_session_id &&
+              message.metadata_json.voice_turn_id === persisted.metadata_json.voice_turn_id);
+          const reconciled = live.map((message) => {
+            const persisted = history.find((record) => matches(message, record));
+            // A saved answer is complete even when playback never delivers its final callback.
+            // Keep the local identity so repeated transcripts/deltas reconcile the same entry.
+            return persisted ? { ...persisted, id: message.id,
+              metadata_json: { ...persisted.metadata_json, history_complete: true } } : message;
+          });
+          return [...history.filter((persisted) => !live.some((message) => matches(message, persisted))), ...reconciled];
+        });
+      })
+      .catch((failure: unknown) => {
+        if (!active) return;
+        if (failure instanceof Error && failure.message === "HTTP_404") {
+          window.localStorage.removeItem(CONVERSATION_KEY);
+          setConversationId(null);
+          setMessages([]);
+        } else {
+          setError("Não foi possível carregar o histórico. A conversa foi preservada.");
+        }
       });
+    return () => { active = false; };
   }, [conversationId]);
 
   useEffect(() => {
@@ -230,7 +265,7 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
         created_at: new Date().toISOString(),
       };
       setMessages((current) => [
-        ...current.filter((message) => message.id !== optimistic.id),
+        ...current.filter((message) => message.id !== optimistic.id && message.id !== creatorMessage.id && (!reply.correlation_id || message.correlation_id !== reply.correlation_id)),
         creatorMessage,
         deusMessage,
       ]);
@@ -243,6 +278,7 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
       if (optimisticId) {
         setMessages((current) => current.filter((message) => message.id !== optimisticId));
       }
+      setInput((current) => current || content);
       const message = failure instanceof Error ? failure.message : "CONVERSATION_FAILED";
       setError(
         message === "AUTH_REQUIRED"

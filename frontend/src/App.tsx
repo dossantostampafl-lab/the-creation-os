@@ -26,6 +26,7 @@ function App() {
   const [events, setEvents] = useState<ChronicleEvent[]>([]);
   const [connection, setConnection] = useState<"CONNECTING" | "LIVE" | "RESYNCING" | "AUTH_REQUIRED" | "ERROR">("CONNECTING");
   const [error, setError] = useState<string | null>(null);
+  const [panelErrors, setPanelErrors] = useState<Record<string, string>>({});
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -78,21 +79,55 @@ function App() {
     let active = true;
     let controller = new AbortController();
 
+    function panelFailure(name: string, failure: unknown) {
+      if (!active) return;
+      const message = failure instanceof Error ? failure.message : "LOAD_ERROR";
+      if (message === "AUTH_REQUIRED") {
+        controller.abort();
+        setConnection("AUTH_REQUIRED");
+      } else {
+        setPanelErrors((current) => ({ ...current, [name]: message }));
+      }
+    }
+
+    function clearPanelFailure(name: string) {
+      if (!active) return;
+      setPanelErrors((current) => {
+        const next = { ...current };
+        delete next[name];
+        return next;
+      });
+    }
+
+    function refreshPanels(includeHistory = false) {
+      // Secondary panels must never hold the system snapshot or the conversation hostage.
+      void fetchProjectionStatus().then((value) => {
+        if (active) { setProjections(value); clearPanelFailure("Projeções"); }
+      }).catch((failure: unknown) => panelFailure("Projeções", failure));
+      void fetchInferenceStatus().then((value) => {
+        if (active) { setInference(value); clearPanelFailure("Inferência"); }
+      }).catch((failure: unknown) => panelFailure("Inferência", failure));
+      if (includeHistory) void fetchChronicleHistory().then((value) => {
+        if (active) {
+          setChronicle((current) => {
+            const liveIds = new Set(current.map((record) => record.event_id));
+            return [...current, ...value.filter((record) => !liveIds.has(record.event_id))]
+              .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at)).slice(0, 40);
+          });
+          clearPanelFailure("Histórico do sistema");
+        }
+      }).catch((failure: unknown) => panelFailure("Histórico do sistema", failure));
+    }
+
     async function hydrate() {
       try {
         setConnection("CONNECTING");
         setError(null);
-        const [snapshot, projectionStatus, inferenceStatus, history] = await Promise.all([
-          fetchSystemState(systemPage, systemPageSize),
-          fetchProjectionStatus(),
-          fetchInferenceStatus(),
-          fetchChronicleHistory(),
-        ]);
+        setPanelErrors({});
+        const snapshot = await fetchSystemState(systemPage, systemPageSize);
         if (!active) return;
         setState(snapshot);
-        setProjections(projectionStatus);
-        setInference(inferenceStatus);
-        setChronicle(history);
+        refreshPanels(true);
         cursor.current = snapshot.position;
         setConnection("LIVE");
         controller.abort();
@@ -122,15 +157,9 @@ function App() {
               previous_hash: null,
               created_at: event.created_at,
             }, ...current].slice(0, 40));
-            void Promise.all([
-              fetchSystemState(systemPage, systemPageSize),
-              fetchProjectionStatus(),
-              fetchInferenceStatus(),
-            ]).then(([next, nextProjections, nextInference]) => {
-              if (!active) return;
-              setState(next);
-              setProjections(nextProjections);
-              setInference(nextInference);
+            refreshPanels();
+            void fetchSystemState(systemPage, systemPageSize).then((next) => {
+              if (active) setState(next);
             }).catch((refreshError: unknown) => {
               if (!active) return;
               controller.abort();
@@ -261,6 +290,8 @@ function App() {
         </section>
       )}
       {connection === "CONNECTING" && !state && <section className="loading-shell" role="status" aria-live="polite"><span className="loading-orb" />Loading live system state…</section>}
+      {connection !== "AUTH_REQUIRED" && Object.keys(panelErrors).length > 0 && <section className="error-banner" role="alert">Alguns painéis estão indisponíveis: {Object.keys(panelErrors).join(", ")}. <button type="button" className="retry-button" onClick={() => setRetryVersion((version) => version + 1)}>Tentar novamente</button></section>}
+
       {error && connection === "ERROR" && <section className="error-banner" role="alert">Live state unavailable: {error} <button type="button" className="retry-button" onClick={() => setRetryVersion((version) => version + 1)}>Retry</button></section>}
 
       {connection !== "AUTH_REQUIRED" && (

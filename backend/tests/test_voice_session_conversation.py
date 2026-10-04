@@ -77,6 +77,7 @@ async def test_voice_bridge_persists_committed_creator_and_final_deus_reply():
     assert [message.role for message in repo.messages] == ["creator", "deus"]
     assert repo.messages[-1].content == "Está operacional."
     assert repo.messages[-1].metadata_json["provider"] == "freellmapi"
+    assert all(message.metadata_json["voice_session_id"] == bridge.session_id for message in repo.messages)
     assert repo.commits == 2
     assert repo.events[-1][0] == "deus_voice_response_generated"
 

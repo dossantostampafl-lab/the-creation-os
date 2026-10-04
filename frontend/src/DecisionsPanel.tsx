@@ -28,12 +28,16 @@ export function DecisionsPanel({ id, hidden, missions, onClose, onChanged }: Pro
   const [confirming, setConfirming] = useState<Pending>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   const refresh = useCallback(async () => {
+    setRefreshing(true);
     try {
       setInceptions(await fetchInceptions());
     } catch {
       setInceptions(null);
+    } finally {
+      setRefreshing(false);
     }
   }, []);
 
@@ -63,7 +67,9 @@ export function DecisionsPanel({ id, hidden, missions, onClose, onChanged }: Pro
   return (
     <aside className="decisions-panel" id={id} aria-label="Creator decisions" hidden={hidden}>
       <header className="drawer-header"><div><span className="eyebrow">SOVEREIGN CONTROL</span><h2>Creator decisions</h2></div>{onClose && <button type="button" className="drawer-close" aria-label="Close decisions" onClick={onClose}>×</button>}</header>
-      {inceptions === null && <div className="empty">Inception list unavailable.</div>}
+      <button type="button" disabled={refreshing || busy !== null} onClick={() => { setError(null); void refresh(); }}>Atualizar decisões</button>
+      {refreshing && <div className="empty" role="status">Carregando decisões…</div>}
+      {!refreshing && inceptions === null && <div className="empty">Inception list unavailable.</div>}
       <div className="stack" aria-live="polite">
         {waiting.map((inception) => (
           <div className="decision" key={inception.id}>
