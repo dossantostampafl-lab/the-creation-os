@@ -22,7 +22,9 @@ if [ -z "$container" ]; then
   exit 1
 fi
 
-docker exec -i -e TCO_WITH_DEUS="$with_deus" "$container" python - <<'PY'
+frontend_source_sha="$(cat frontend/src/CreatorConsole.tsx frontend/src/voice-session/useDeusVoiceSession.ts | sha256sum | awk '{print $1}')"
+
+docker exec -i -e TCO_WITH_DEUS="$with_deus" -e TCO_FRONTEND_SOURCE_SHA="$frontend_source_sha" "$container" python - <<'PY'
 import asyncio
 import json
 import os
@@ -63,6 +65,17 @@ with httpx.Client(base_url=BASE, timeout=45) as client:
     token = login.json().get("access_token", "")
     report("login", bool(token))
     client.headers["Authorization"] = f"Bearer {token}"
+
+    expected_frontend_source = os.getenv("TCO_FRONTEND_SOURCE_SHA", "").strip()
+    frontend_source = client.get(f"{FRONTEND}/frontend-source.sha256")
+    deployed_frontend_source = frontend_source.text.strip() if frontend_source.status_code == 200 else ""
+    report(
+        "frontend bundle matches deployed source",
+        bool(expected_frontend_source)
+        and frontend_source.status_code == 200
+        and deployed_frontend_source == expected_frontend_source,
+        deployed_frontend_source[:16] if deployed_frontend_source else f"HTTP {frontend_source.status_code}",
+    )
 
     print()
     print("== Reading the system ==")
