@@ -86,6 +86,17 @@ EOF
 systemctl daemon-reload
 systemctl enable --now the-creation-cyber-range-relay.service
 
+# Oracle's host INPUT chain rejects unsolicited traffic. Permit only Docker-originated
+# traffic to the private authenticated relay; the service itself is bound to a private IP.
+if ! iptables -C INPUT -s 172.16.0.0/12 -p tcp --dport 7071 -j ACCEPT 2>/dev/null; then
+  reject_line="$(iptables -L INPUT --line-numbers -n | awk '$2 == "REJECT" {print $1; exit}')"
+  if [ -n "$reject_line" ]; then
+    iptables -I INPUT "$reject_line" -s 172.16.0.0/12 -p tcp --dport 7071 -j ACCEPT
+  else
+    iptables -A INPUT -s 172.16.0.0/12 -p tcp --dport 7071 -j ACCEPT
+  fi
+fi
+
 for _ in $(seq 1 30); do
   if curl -fsS -H "Authorization: Bearer $token" "http://$docker_host_ip:7071/health" >/dev/null 2>&1; then
     break
