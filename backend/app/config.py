@@ -81,6 +81,8 @@ class Settings(BaseSettings):
     web_remote_security_review: str = Field("pending", env="WEB_REMOTE_SECURITY_REVIEW")
     web_remote_shadow_enabled: bool = Field(True, env="WEB_REMOTE_SHADOW_ENABLED")
     web_remote_production_enabled: bool = Field(False, env="WEB_REMOTE_PRODUCTION_ENABLED")
+    mcp_servers_json: str = Field("", env="MCP_SERVERS_JSON")
+    mcp_timeout_seconds: float = Field(15.0, gt=0.0, le=60.0, env="MCP_TIMEOUT_SECONDS")
     real_economic_mode_enabled: bool = Field(False, env="REAL_ECONOMIC_MODE_ENABLED")
     economic_currency: str = Field("BRL", env="ECONOMIC_CURRENCY")
     economic_genesis_amount: float = Field(10.0, ge=0.0, env="ECONOMIC_GENESIS_AMOUNT")

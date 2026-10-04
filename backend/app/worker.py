@@ -8,6 +8,7 @@ from loguru import logger
 from sqlalchemy import select
 
 from app.capabilities.gateway import CapabilityGateway
+from app.capabilities.mcp import discover_mcp_adapters
 from app.capabilities.proto import ProtoCapabilityAdapter
 from app.capabilities.runtime import CapabilityRuntime
 from app.capabilities.web import WebCapabilityAdapter
@@ -118,6 +119,15 @@ def build_capability_gateway() -> CapabilityGateway:
     return gateway
 
 
+async def register_mcp_capabilities(gateway: CapabilityGateway) -> None:
+    """Discover configured MCP tools at startup and register them without changing the sync base builder."""
+    for adapter in await discover_mcp_adapters(
+        settings.mcp_servers_json,
+        timeout_seconds=settings.mcp_timeout_seconds,
+    ):
+        gateway.register(adapter)
+
+
 async def run_worker() -> None:
     if settings.llm_provider.strip().lower() == "fake":
         if settings.app_env == "production":
@@ -128,6 +138,7 @@ async def run_worker() -> None:
 
     router = build_model_router()
     capability_gateway = build_capability_gateway()
+    await register_mcp_capabilities(capability_gateway)
     capability_runtime = CapabilityRuntime(AsyncSessionLocal, capability_gateway)
     completion_engine = MissionCompletionEngine(AsyncSessionLocal)
     runtime = AgentRuntime(

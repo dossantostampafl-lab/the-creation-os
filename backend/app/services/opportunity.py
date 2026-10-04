@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from datetime import datetime, timezone
 from typing import Any
 
@@ -442,6 +443,122 @@ async def select_thesis(
     )
     await repository.commit()
     return thesis
+
+
+async def resolve_competition(
+    repository: DomainRepository,
+    *,
+    opportunity_id: str,
+    scores: dict[str, float],
+    expires_at: datetime,
+    correlation_id: str,
+) -> tuple[OpportunityThesis, OpportunityLease]:
+    """Select one thesis and grant one executive lease in a single transaction.
+
+    Scores are supplied by the competition policy; this function only enforces the
+    transactional invariants. The Opportunity row serializes competing resolutions.
+    """
+    if not scores:
+        raise ValueError("competition scores are required")
+    normalized_scores: dict[str, float] = {}
+    for thesis_id, raw_score in scores.items():
+        score = float(raw_score)
+        if not math.isfinite(score):
+            raise ValueError("competition scores must be finite")
+        normalized_scores[str(thesis_id)] = score
+    if expires_at <= _utcnow():
+        raise ValueError("lease expires_at must be in the future")
+
+    opportunity = await repository.get_for_update(Opportunity, opportunity_id)
+    if opportunity is None:
+        raise NotFoundError("Opportunity not found")
+
+    theses = list(
+        (
+            await repository.session.scalars(
+                select(OpportunityThesis)
+                .where(OpportunityThesis.opportunity_id == opportunity.id)
+                .with_for_update()
+            )
+        ).all()
+    )
+    by_id = {item.id: item for item in theses}
+    unknown = set(normalized_scores) - set(by_id)
+    if unknown:
+        raise ValueError("competition scores reference unknown theses")
+    candidates = [by_id[thesis_id] for thesis_id in normalized_scores]
+
+    # Deterministic tie break: higher policy score, then higher thesis confidence,
+    # then stable id. The policy decides the score; storage only makes the result stable.
+    winner = max(
+        candidates,
+        key=lambda item: (normalized_scores[item.id], item.confidence, item.id),
+    )
+
+    now = _utcnow()
+    active_leases = list(
+        (
+            await repository.session.scalars(
+                select(OpportunityLease)
+                .where(
+                    OpportunityLease.opportunity_id == opportunity.id,
+                    OpportunityLease.lease_type == "EXECUTIVE",
+                    OpportunityLease.status == "ACTIVE",
+                )
+                .with_for_update()
+            )
+        ).all()
+    )
+    current: OpportunityLease | None = None
+    for lease in active_leases:
+        if lease.expires_at <= now:
+            lease.status = "EXPIRED"
+            lease.released_at = now
+            await repository.add_event(
+                "opportunity_lease_expired",
+                "opportunity",
+                opportunity.id,
+                lease.universe_id,
+                "universe",
+                correlation_id,
+                {"lease_id": lease.id, "thesis_id": lease.thesis_id},
+            )
+        elif lease.thesis_id == winner.id and lease.universe_id == winner.universe_id:
+            current = lease
+        else:
+            raise LeaseConflictError("an active executive lease already exists")
+
+    for thesis in theses:
+        thesis.status = "SELECTED" if thesis.id == winner.id else "PROPOSED"
+    opportunity.status = "SELECTED"
+
+    if current is None:
+        current = OpportunityLease(
+            opportunity_id=opportunity.id,
+            thesis_id=winner.id,
+            universe_id=winner.universe_id,
+            lease_type="EXECUTIVE",
+            status="ACTIVE",
+            expires_at=expires_at,
+        )
+        repository.session.add(current)
+
+    await repository.session.flush()
+    await repository.add_event(
+        "opportunity_competition_resolved",
+        "opportunity",
+        opportunity.id,
+        winner.universe_id,
+        "universe",
+        correlation_id,
+        {
+            "winner_thesis_id": winner.id,
+            "scores": normalized_scores,
+            "executive_lease_id": current.id,
+        },
+    )
+    await repository.commit()
+    return winner, current
 
 
 async def create_mission_from_opportunity(
