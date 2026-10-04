@@ -186,7 +186,13 @@ export function useDeusVoiceSession(options: UseDeusVoiceSessionOptions): DeusVo
     };
 
     const ensureCapture = async () => {
-      if (captureReady || disposed || terminalError) return;
+      if (disposed || terminalError) return;
+      if (captureReady) {
+        setError(null);
+        if (model.state === "armed") setStatus("ready");
+        else if (model.state === "listening") setStatus("listening");
+        return;
+      }
       if (captureStart) return captureStart;
       captureStart = (async () => {
         try {
