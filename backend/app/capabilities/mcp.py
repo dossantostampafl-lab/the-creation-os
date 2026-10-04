@@ -10,7 +10,7 @@ import json
 import os
 import re
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Protocol
 
 import httpx
 
