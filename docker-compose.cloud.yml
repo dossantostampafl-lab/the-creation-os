@@ -65,6 +65,16 @@ services:
     tmpfs: [/tmp]
     networks: [tco_net, tco_internal]
 
+  stf-worker:
+    read_only: true
+    tmpfs: [/tmp]
+    networks: [tco_net, stf-control]
+
+  stf-training-worker:
+    read_only: true
+    tmpfs: [/tmp]
+    networks: [tco_net, stf-control]
+
   postgres:
     security_opt:
       - no-new-privileges:true
