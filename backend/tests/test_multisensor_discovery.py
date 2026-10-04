@@ -39,20 +39,30 @@ async def test_discovery_worker_turns_multisensor_observation_into_opportunity_w
     from app.models.opportunity import Opportunity
 
     factory, creator_id, _ = knowledge_db
-    universe_id = "10000000-0000-0000-0000-000000000002"
     async with factory() as session:
-        session.add(Universe(id=universe_id, code="engineering", name="Engenharia", active=True))
-        await session.flush()
-        session.add(Agent(
-            code="engineering-agent",
-            name="Engineering Agent",
-            universe_id=universe_id,
-            active=True,
-            capabilities_json={
-                "preferred_sensors": ["web.search"],
-                "exploration_strategy": {"mode": "cross_sector"},
-            },
-        ))
+        universe = await session.scalar(select(Universe).where(Universe.code == "engineering"))
+        assert universe is not None
+        universe_id = universe.id
+
+        agent = await session.scalar(
+            select(Agent)
+            .where(Agent.universe_id == universe_id, Agent.active.is_(True))
+            .limit(1)
+        )
+        if agent is None:
+            agent = Agent(
+                code="engineering-agent-perception-test",
+                name="Engineering Perception Test Agent",
+                universe_id=universe_id,
+                active=True,
+                capabilities_json={},
+            )
+            session.add(agent)
+
+        agent.capabilities_json = {
+            "preferred_sensors": ["web.search"],
+            "exploration_strategy": {"mode": "cross_sector"},
+        }
         await session.commit()
 
     worker = DiscoveryWorker(factory, perception=FakePerceptionFabric())
