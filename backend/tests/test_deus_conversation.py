@@ -332,5 +332,7 @@ async def test_deus_reply_survives_stale_knowledge_projection(monkeypatch) -> No
     assert result.response == "DEUS response"
     assert [message.role for message in repo.messages] == ["creator", "deus"]
     assert len(calls) == 2
-    assert repo.commits == 1
+    # Context-backed turns commit the Creator message before the independent
+    # retrieval transaction, then commit the completed reply at the end.
+    assert repo.commits == 2
 
