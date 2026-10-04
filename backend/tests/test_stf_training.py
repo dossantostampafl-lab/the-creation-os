@@ -1,15 +1,24 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import uuid
 
+import pytest
+from sqlalchemy import func, select
+from stf_database import stf_db  # noqa: F401
+
+from app.models.entities import Agent, Creator, Universe
+from app.models.security_task_force import StfRun
 from app.security_task_force.contracts import RiskClass
 from app.security_task_force.training import (
     ADVANCED_CAMPAIGN_ID,
     RANGE_ENVIRONMENT_ID,
     TRAINING_AGENT_SPECS,
+    AutomaticRangeTraining,
     TrainingHistory,
     build_training_actions,
     compile_training_contract,
+    ensure_training_agents,
     select_next_training_agent,
 )
 
@@ -80,3 +89,73 @@ def test_round_robin_prefers_untrained_then_least_recent_agent() -> None:
         },
     )
     assert second.code == specs[2].code
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_training_agents_are_seeded_idempotently_under_security_universe(stf_db) -> None:  # noqa: F811
+    _, factory = stf_db
+    creator_id = str(uuid.uuid4())
+    async with factory() as session:
+        security = await session.scalar(select(Universe).where(Universe.code == "security"))
+        if security is None:
+            security = Universe(id=str(uuid.uuid4()), code="security", name="Segurança", active=True)
+            session.add(security)
+        session.add(Creator(id=creator_id, username="creator-training", password_hash="unused", is_active=True))
+        await session.commit()
+
+    async with factory() as session:
+        first = await ensure_training_agents(session)
+        await session.commit()
+    async with factory() as session:
+        second = await ensure_training_agents(session)
+        await session.commit()
+        rows = list(
+            (
+                await session.scalars(
+                    select(Agent).where(Agent.code.in_([item.code for item in TRAINING_AGENT_SPECS]))
+                )
+            ).all()
+        )
+
+    assert len(first) == len(second) == len(rows) == 10
+    assert {item.code for item in rows} == {item.code for item in TRAINING_AGENT_SPECS}
+    assert all(item.active for item in rows)
+    assert all(item.capabilities_json["training_profile"] == "stf-cyber-range-v1" for item in rows)
+    assert all(item.capabilities_json["real_target_authority"] is False for item in rows)
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_auto_training_queues_one_serialized_range_run_and_does_not_duplicate_active_run(stf_db) -> None:  # noqa: F811
+    _, factory = stf_db
+    creator_id = str(uuid.uuid4())
+    async with factory() as session:
+        security = await session.scalar(select(Universe).where(Universe.code == "security"))
+        if security is None:
+            session.add(Universe(id=str(uuid.uuid4()), code="security", name="Segurança", active=True))
+        session.add(Creator(id=creator_id, username="creator-autotrain", password_hash="unused", is_active=True))
+        await session.commit()
+
+    coordinator = AutomaticRangeTraining(factory)
+    first = await coordinator.run_once(creator_id)
+    second = await coordinator.run_once(creator_id)
+
+    assert first["status"] == "queued"
+    assert second["status"] == "busy"
+    async with factory() as session:
+        runs = list((await session.scalars(select(StfRun).where(StfRun.creator_id == creator_id))).all())
+        agent_count = int(
+            await session.scalar(
+                select(func.count()).select_from(Agent).where(
+                    Agent.code.in_([item.code for item in TRAINING_AGENT_SPECS])
+                )
+            )
+            or 0
+        )
+
+    assert len(runs) == 1
+    assert agent_count == 10
+    assert len(runs[0].plan_json) == 5
+    assert runs[0].plan_json[0]["capability"] == "range.campaign.start"
+    assert runs[0].plan_json[-1]["capability"] == "range.campaign.verify"
