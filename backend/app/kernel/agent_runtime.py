@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.capabilities.contracts import CapabilityIntent, MissionAuthorization
 from app.capabilities.runtime import CapabilityRuntime
 from app.config import settings
+from app.inference.agent_config import effective_agent_capabilities
 from app.inference.contracts import InferenceRequest, ModelRequirements, ProviderUnavailable
 from app.inference.router import ModelRouter
 from app.kernel.completion_engine import MissionCompletionEngine
@@ -48,7 +49,7 @@ class AgentRuntime:
             task_id = task.id
             execution_id = execution.id
             input_payload = dict(task.input_json or {})
-            capabilities = dict(agent.capabilities_json or {})
+            capabilities = effective_agent_capabilities(dict(agent.capabilities_json or {}))
             creator_id = mission.creator_id
             mission_correlation_id = correlation_id or str(
                 (mission.authorization_json or {}).get("correlation_id") or uuid.uuid4()

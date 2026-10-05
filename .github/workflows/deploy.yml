@@ -14,6 +14,7 @@ on:
         options:
           - check
           - check-universe-inference
+          - repair-universe-inference
           - restart
           - update
           - set-inference
@@ -304,6 +305,9 @@ jobs:
               ;;
             check-universe-inference)
               sudo env UNIVERSE_INFERENCE_DIAGNOSTIC=true ./deploy/oracle/check-inference.sh
+              ;;
+            repair-universe-inference)
+              sudo "${COMPOSE[@]}" exec -T api python -m app.admin.seed --repair-inference-only
               ;;
             restart)
               sudo "${COMPOSE[@]}" up -d --force-recreate api worker

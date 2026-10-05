@@ -169,3 +169,26 @@ async def test_agent_runtime_executes_dependency_order_and_allows_manifestation(
         mission = await service.transition_mission(creator, mission_id, MissionStatus.MANIFESTED, cid)
         assert mission.status == "manifested"
         assert mission.completed_at is not None
+
+
+@pytest.mark.asyncio
+async def test_configured_agent_executes_after_primary_provider_changes(database, creator, monkeypatch):
+    from app.config import settings
+    from app.models.entities import Agent
+
+    monkeypatch.setattr(settings, "llm_provider", "stub")
+    monkeypatch.setattr(settings, "llm_fallback_providers", "")
+    mission_id, cid = await authorized_mission(database, creator)
+    async with database() as session:
+        agent = await session.scalar(select(Agent).where(Agent.code == "engineer"))
+        agent.capabilities_json = {"inference_provider": "anthropic", "inference_routing": "configured"}
+        service = LivingCoreService(DomainRepository(session))
+        await service.transition_mission(creator, mission_id, MissionStatus.DISTRIBUTED, cid)
+        await service.transition_mission(creator, mission_id, MissionStatus.EXECUTING, cid)
+    registry = ProviderRegistry()
+    registry.register(StubProvider())
+    runtime = AgentRuntime(database, ModelRouter(registry))
+    assert await runtime.run_next(mission_id)
+    async with database() as session:
+        task = await session.scalar(select(Task).where(Task.mission_id == mission_id, Task.attempt_count > 0))
+        assert task.status == "SUCCEEDED", task.error_json

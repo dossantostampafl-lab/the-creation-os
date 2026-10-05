@@ -16,6 +16,7 @@ from app.config import settings
 from app.db.session import AsyncSessionLocal
 from app.diagnostics.heartbeat import supervised
 from app.diagnostics.worker import creator_scope
+from app.inference.agent_config import effective_agent_capabilities
 from app.inference.bootstrap import build_model_router
 from app.inference.contracts import InferenceRequest, ModelRequirements
 from app.inference.router import ModelRouter
@@ -114,7 +115,7 @@ class InferenceThesisGenerator:
 
     @staticmethod
     def _requirements(agent: Agent) -> tuple[str, list[str], str | None]:
-        capabilities = dict(agent.capabilities_json or {})
+        capabilities = effective_agent_capabilities(dict(agent.capabilities_json or {}))
         preferred = str(
             capabilities.get("inference_provider") or settings.llm_provider
         ).strip().lower()

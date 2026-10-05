@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import uuid
 
@@ -14,6 +15,87 @@ from app.config import settings
 from app.models.entities import Agent, Chronicle, Creator, Universe
 
 pytestmark = pytest.mark.integration
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("legacy", [False, True])
+async def test_inference_repair_preserves_paused_and_custom_agents(database, monkeypatch, legacy, capsys):
+    creator_id = await add_creator(database)
+    monkeypatch.setattr(settings, "sovereign_creator_id", creator_id)
+    monkeypatch.setattr(settings, "llm_provider", "anthropic")
+    assert await seed_universes() == 0
+    async with database() as session:
+        agents = list(await session.scalars(select(Agent).order_by(Agent.code)))
+        paused = agents[0]
+        paused.active = False
+        paused.capabilities_json = {k: v for k, v in paused.capabilities_json.items() if k != "inference_routing"}
+        if legacy:
+            paused.capabilities_json = {"description": paused.capabilities_json["description"],
+                                       "inference_provider": "anthropic"}
+        custom = agents[1]
+        custom.capabilities_json = {**custom.capabilities_json, "model": "custom-model"}
+        universe = await session.get(Universe, paused.universe_id)
+        universe.active = False
+        paused_id, custom_id, universe_id = paused.id, custom.id, universe.id
+        await session.commit()
+    monkeypatch.setattr(settings, "llm_provider", "freellmapi")
+    assert await seed.repair_generated_inference_profiles() == 0
+    async with database() as session:
+        paused = await session.get(Agent, paused_id)
+        custom = await session.get(Agent, custom_id)
+        universe = await session.get(Universe, universe_id)
+        assert paused.capabilities_json["inference_routing"] == "configured"
+        assert paused.capabilities_json["inference_provider"] == "freellmapi"
+        assert paused.active is False
+        assert universe.active is False
+        assert custom.capabilities_json["inference_provider"] == "anthropic"
+        assert custom.capabilities_json["model"] == "custom-model"
+        count = len(list(await session.scalars(select(Chronicle))))
+    assert await seed.repair_generated_inference_profiles() == 0
+    async with database() as session:
+        assert len(list(await session.scalars(select(Chronicle)))) == count
+    report = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert report["agents_changed"] == 0
+    assert report["custom_profiles_preserved"] == 1
+
+
+@pytest.mark.asyncio
+async def test_inference_repair_preserves_explicit_routing_policy(database, monkeypatch):
+    creator_id = await add_creator(database)
+    monkeypatch.setattr(settings, "sovereign_creator_id", creator_id)
+    monkeypatch.setattr(settings, "llm_provider", "anthropic")
+    assert await seed_universes() == 0
+    async with database() as session:
+        agent = await session.scalar(select(Agent).where(Agent.code == "engineering-agent"))
+        agent.capabilities_json = {**agent.capabilities_json, "inference_routing": "pinned"}
+        original = dict(agent.capabilities_json)
+        agent_id = agent.id
+        await session.commit()
+    monkeypatch.setattr(settings, "llm_provider", "freellmapi")
+    assert await seed.repair_generated_inference_profiles() == 0
+    async with database() as session:
+        assert (await session.get(Agent, agent_id)).capabilities_json == original
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field", ["inference_provider", "inference_routing"])
+async def test_inference_repair_preserves_malformed_custom_profile(database, monkeypatch, field):
+    creator_id = await add_creator(database)
+    monkeypatch.setattr(settings, "sovereign_creator_id", creator_id)
+    monkeypatch.setattr(settings, "llm_provider", "anthropic")
+    assert await seed_universes() == 0
+    async with database() as session:
+        agent = await session.scalar(select(Agent).where(Agent.code == "engineering-agent"))
+        agent.capabilities_json = {**agent.capabilities_json, field: ["custom-value"]}
+        original = dict(agent.capabilities_json)
+        agent_id = agent.id
+        await session.commit()
+    monkeypatch.setattr(settings, "llm_provider", "freellmapi")
+    assert await seed.repair_generated_inference_profiles() == 0
+    async with database() as session:
+        assert (await session.get(Agent, agent_id)).capabilities_json == original
+        repaired = await session.scalar(select(Agent).where(Agent.code == "knowledge-agent"))
+        assert repaired.capabilities_json["inference_provider"] == "freellmapi"
 
 
 @pytest.fixture

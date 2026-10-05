@@ -8,14 +8,14 @@ import os
 import re
 from collections import Counter
 
-from sqlalchemy import select, text
-
+import httpx
 from app.admin.seed import CANONICAL_UNIVERSES
 from app.config import settings
 from app.db.session import AsyncSessionLocal
 from app.inference.bootstrap import build_model_router
 from app.inference.contracts import InferenceRequest, ModelRequirements
 from app.models.entities import Agent, Task
+from sqlalchemy import select, text
 
 
 def label(value: object) -> str:
@@ -87,7 +87,7 @@ async def main() -> None:
             emit(check="generation", tools=tools, status=response.status_code,
                  has_choices=isinstance(choices, list) and bool(choices),
                  has_text=isinstance(message, dict) and isinstance(message.get("content"), str))
-        except Exception as error:
+        except (httpx.HTTPError, TimeoutError) as error:
             emit(check="generation", tools=tools, error_type=type(error).__name__)
 
 
