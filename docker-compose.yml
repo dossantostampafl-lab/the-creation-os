@@ -125,6 +125,10 @@ services:
     image: temporalio/auto-setup:1.25.2
     profiles: ["security-task-force"]
     environment:
+      # Docker DNS may select either private interface. auto-setup otherwise
+      # binds only one hostname address, rejecting clients on the other network.
+      # No host ports are published for this service.
+      BIND_ON_IP: 0.0.0.0
       DB: postgres12
       DB_PORT: 5432
       POSTGRES_USER: postgres

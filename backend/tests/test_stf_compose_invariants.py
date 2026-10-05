@@ -65,6 +65,15 @@ def test_workers_reach_postgres_and_private_control_without_execution_network():
     assert services["stf-training-worker"]["command"][-1] == "app.security_task_force.training_worker"
 
 
+def test_temporal_accepts_clients_on_both_private_network_interfaces():
+    temporal = compose()["services"]["stf-temporal"]
+    assert set(temporal["networks"]) == {"tco_net", "stf-control"}
+    # auto-setup otherwise chooses one hostname address; Docker DNS can return
+    # the other interface, producing ConnectionRefused despite a running server.
+    assert temporal["environment"].get("BIND_ON_IP") == "0.0.0.0"
+    assert not temporal.get("ports")
+
+
 def test_range_targets_are_loopback_only_and_never_lan_bound():
     range_compose = yaml.safe_load((ROOT / "cyber_range" / "compose.yml").read_text(encoding="utf-8"))
     for name, service in range_compose["services"].items():

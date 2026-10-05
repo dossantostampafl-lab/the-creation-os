@@ -215,7 +215,7 @@ with httpx.Client(base_url=BASE, timeout=45) as client:
         training_enabled = os.getenv("STF_AUTO_TRAINING_ENABLED", "").lower() == "true"
         if diagnostics_enabled or training_enabled:
             async def check_connected_runtime():
-                from datetime import datetime, timezone
+                from datetime import datetime, timedelta, timezone
                 from sqlalchemy import func, select
                 from app.db.session import AsyncSessionLocal
                 from app.diagnostics.heartbeat import ServiceHeartbeat
@@ -238,6 +238,7 @@ with httpx.Client(base_url=BASE, timeout=45) as client:
                         ServiceHeartbeat.valid_until > datetime.now(timezone.utc))))
                     missing = sorted(expected - services)
                     training_agents = training_runs = None
+                    stalled_training = 0
                     if training_enabled:
                         codes = [item.code for item in TRAINING_AGENT_SPECS]
                         missions = [training_mission_id(item.code) for item in TRAINING_AGENT_SPECS]
@@ -251,17 +252,40 @@ with httpx.Client(base_url=BASE, timeout=45) as client:
                                 StfRun.mission_id.in_(missions)
                             )
                         ) or 0)
-                return missing, training_agents, training_runs
+                        stalled_training = int(await session.scalar(
+                            select(func.count()).select_from(StfRun).where(
+                                StfRun.mission_id.in_(missions),
+                                StfRun.state == 'QUEUED',
+                                StfRun.created_at < datetime.now(timezone.utc) - timedelta(minutes=5),
+                            )
+                        ) or 0)
+                return missing, training_agents, training_runs, stalled_training
 
             try:
-                missing, training_agents, training_runs = asyncio.run(check_connected_runtime())
+                missing, training_agents, training_runs, stalled_training = asyncio.run(check_connected_runtime())
                 report("connected worker heartbeats", not missing,
                        "fresh" if not missing else "missing: " + ", ".join(missing))
                 if training_enabled:
                     report("10 STF Cyber Range training agents registered",
                            training_agents == 10, str(training_agents))
-                    report("automatic STF training has started",
+                    report("automatic STF training registered",
                            bool(training_runs and training_runs > 0), f"{training_runs or 0} run(s)")
+                    report("training queue advances within five minutes", stalled_training == 0,
+                           f"{stalled_training} stalled queued run(s)")
+                    async def check_temporal():
+                        from datetime import timedelta
+                        from temporalio.client import Client
+                        from temporalio.api.workflowservice.v1 import DescribeNamespaceRequest
+                        temporal = await Client.connect('stf-temporal:7233')
+                        await temporal.workflow_service.describe_namespace(
+                            DescribeNamespaceRequest(namespace=temporal.namespace),
+                            timeout=timedelta(seconds=5),
+                        )
+                    try:
+                        asyncio.run(asyncio.wait_for(check_temporal(), timeout=10))
+                        report("Temporal accepts private workflow clients", True)
+                    except Exception as exc:
+                        report("Temporal accepts private workflow clients", False, type(exc).__name__)
             except Exception as exc:
                 report("connected runtime database checks", False, type(exc).__name__)
 
