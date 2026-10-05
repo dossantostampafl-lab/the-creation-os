@@ -74,6 +74,7 @@ async def _authorized_mission(factory) -> tuple[str, str, str]:
             "completion_criteria": {"confirmed": True},
         })
         await service.transition_mission(actor, mission.id, MissionStatus.VALIDATED, cid)
+        await service.create_agent(actor, f"economic-{universe_id[:8]}", "Economic Agent", universe_id, {}, cid)
         await service.transition_mission(actor, mission.id, MissionStatus.AUTHORIZED, cid)
         return creator_id, universe_id, mission.id
 

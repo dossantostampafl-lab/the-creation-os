@@ -43,6 +43,7 @@ def conversation_response(item) -> ConversationResponse:
 
 def inception_response(item) -> InceptionResponse:
     return InceptionResponse(
+        source_message_id=item.source_message_id,
         id=item.id,
         conversation_id=item.conversation_id,
         title=item.title,
@@ -112,7 +113,8 @@ async def add_message(
     cid: str = Depends(correlation_id),
     s: LivingCoreService = Depends(service),
 ):
-    item = await s.add_message(a, str(entity_id), body.content, body.metadata, cid)
+    item = await s.add_message(a, str(entity_id), body.content, body.metadata, cid,
+                               client_message_id=body.client_message_id or (str(body.request_id) if body.request_id else None))
     return ConversationMessageResponse(**{name: getattr(item, name) for name in ConversationMessageResponse.model_fields})
 
 

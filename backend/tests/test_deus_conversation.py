@@ -85,6 +85,65 @@ class FakeRepository:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("content, expected_reads", [
+    ("Responda brevemente em português ao turno 1", []),
+    ("Implemente um novo sistema", ["agents", "universes", "missions"]),
+])
+async def test_context_backed_turn_fetches_extra_snapshot_only_for_trinity(monkeypatch, content, expected_reads):
+    from types import SimpleNamespace
+
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "deus_knowledge_ingestion_enabled", False)
+    actor = Actor(str(uuid.uuid4()), "creator")
+    reads = []
+
+    class Repository(FakeRepository):
+        async def list_agents(self, universe_id):
+            reads.append("agents")
+            return await super().list_agents(universe_id)
+
+        async def list_all(self, model):
+            reads.append("universes")
+            return await super().list_all(model)
+
+        async def list_for_creator(self, model, creator_id):
+            reads.append("missions")
+            return await super().list_for_creator(model, creator_id)
+
+    class ContextBuilder:
+        async def build(self, creator_id, conversation_id, content, channel, history):
+            return SimpleNamespace(
+                messages=[{"role": "system", "content": SYSTEM_PROMPT},
+                          {"role": "user", "content": content}],
+                trace={"project_id": None, "knowledge_epoch": 1,
+                       "retrieval_fingerprint": "test"},
+                trace_id="context-trace",
+            )
+
+    perceptions = []
+
+    class Trinity:
+        async def perceive(self, command, recent, *, creator_id):
+            perceptions.append(command)
+            return None
+
+        def calls_for_deliberation(self, intent):
+            return False
+
+    repo = Repository(actor)
+    router = StubRouter()
+    service = DeusConversationService(repo, router, provider="stub", model="stub-model",
+                                     context_builder=ContextBuilder(), trinity=Trinity())
+    reply = await service.respond(actor, repo.conversation.id, content, "turn")
+
+    assert reply.response == "DEUS response"
+    assert router.requests[0].messages[-1]["content"] == content
+    assert reads == expected_reads
+    assert perceptions == ([content] if expected_reads else [])
+
+
+@pytest.mark.asyncio
 async def test_deus_uses_model_router_and_persists_both_sides_of_conversation() -> None:
     actor = Actor(str(uuid.uuid4()), "creator")
     repo = FakeRepository(actor)
@@ -335,4 +394,3 @@ async def test_deus_reply_survives_stale_knowledge_projection(monkeypatch) -> No
     # Context-backed turns commit the Creator message before the independent
     # retrieval transaction, then commit the completed reply at the end.
     assert repo.commits == 2
-

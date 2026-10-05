@@ -1,3 +1,4 @@
+import { MissionWorkbench } from "./MissionWorkbench";
 import { useCallback, useEffect, useState } from "react";
 import { decideInception, fetchInceptions, startMission } from "./api";
 import type { Inception } from "./api";
@@ -24,6 +25,7 @@ function errorText(failure: unknown): string {
 }
 
 export function DecisionsPanel({ id, hidden, missions, onClose, onChanged }: Props) {
+  const [creating, setCreating] = useState(false);
   const [inceptions, setInceptions] = useState<Inception[] | null>(null);
   const [confirming, setConfirming] = useState<Pending>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -67,6 +69,8 @@ export function DecisionsPanel({ id, hidden, missions, onClose, onChanged }: Pro
   return (
     <aside className="decisions-panel" id={id} aria-label="Creator decisions" hidden={hidden}>
       <header className="drawer-header"><div><span className="eyebrow">SOVEREIGN CONTROL</span><h2>Creator decisions</h2></div>{onClose && <button type="button" className="drawer-close" aria-label="Close decisions" onClick={onClose}>×</button>}</header>
+      <button type="button" onClick={() => setCreating(value => !value)}>Criar missão</button>
+      {creating && !hidden && <MissionWorkbench onChanged={() => { void refresh(); onChanged(); }}/>}
       <button type="button" disabled={refreshing || busy !== null} onClick={() => { setError(null); void refresh(); }}>Atualizar decisões</button>
       {refreshing && <div className="empty" role="status">Carregando decisões…</div>}
       {!refreshing && inceptions === null && <div className="empty">Inception list unavailable.</div>}

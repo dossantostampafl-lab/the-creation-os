@@ -63,6 +63,7 @@ class Settings(BaseSettings):
     perception_max_sensors_per_cycle: int = Field(4, ge=1, le=32, env="PERCEPTION_MAX_SENSORS_PER_CYCLE")
     deus_diagnostics_enabled: bool = Field(False, env="DEUS_DIAGNOSTICS_ENABLED")
     deus_obsidian_export_enabled: bool = Field(False, env="DEUS_OBSIDIAN_EXPORT_ENABLED")
+    release_artifacts_dir: str = Field("/var/lib/creation/releases", env="RELEASE_ARTIFACTS_DIR")
     cyber_range_controller_url: str = Field("", env="CYBER_RANGE_CONTROLLER_URL")
     cyber_range_control_token: SecretStr | None = Field(None, env="CYBER_RANGE_CONTROL_TOKEN")
     stf_auto_training_enabled: bool = Field(False, env="STF_AUTO_TRAINING_ENABLED")

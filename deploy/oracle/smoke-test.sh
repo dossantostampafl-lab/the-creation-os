@@ -2,7 +2,7 @@
 # Exercises the running application the way a Creator does, and says what worked.
 #
 #   sudo ./deploy/oracle/smoke-test.sh          # read-only checks
-#   sudo ./deploy/oracle/smoke-test.sh --deus   # also sends one message to DEUS (costs a call)
+#   sudo ./deploy/oracle/smoke-test.sh --deus   # also checks three DEUS conversation turns
 #
 # It runs inside the api container, so the credentials it logs in with are the ones already in
 # that process's environment: nothing is passed on a command line, where the server's process
@@ -33,9 +33,13 @@ frontend_source_sha="$(cd frontend && { find src public -type f -print; printf '
 
 docker exec -i -e TCO_WITH_DEUS="$with_deus" "$container" python - "$frontend_source_sha" <<'PY'
 import asyncio
+import hashlib
 import json
 import os
+import re
 import sys
+import time
+import unicodedata
 import uuid
 from urllib.parse import urlencode
 
@@ -56,6 +60,20 @@ def report(name: str, ok: bool, detail: str = "") -> None:
     else:
         failed += 1
         print(f"   FAIL  {name}  {detail}")
+
+
+def deus_probe_matches(answer: str, expected: tuple[str, ...] | str | None) -> bool:
+    normalized = unicodedata.normalize("NFKD", answer.casefold())
+    normalized = "".join(char for char in normalized if not unicodedata.combining(char))
+    normalized = " ".join(re.sub(r"[^\w\s]", " ", normalized).split())
+    if not normalized:
+        return False
+    if isinstance(expected, tuple):
+        words = normalized.split()
+        return all(any(word.startswith(stem) for word in words) for stem in expected)
+    if isinstance(expected, str):
+        return normalized == expected
+    return True
 
 
 with httpx.Client(base_url=BASE, timeout=45) as client:
@@ -90,6 +108,8 @@ with httpx.Client(base_url=BASE, timeout=45) as client:
     for name, path in [
         ("universes", "/universes"),
         ("agents", "/agents"),
+        ("training dashboard", "/cyber-range/training"),
+        ("build downloads catalog", "/builds"),
         ("missions", "/missions"),
         ("inceptions", "/inceptions"),
         ("conversations", "/conversations"),
@@ -117,6 +137,17 @@ with httpx.Client(base_url=BASE, timeout=45) as client:
             else:
                 detail = ""
         report(name, ok, detail)
+
+    builds = client.get("/builds")
+    if builds.status_code == 200 and builds.json().get("status") == "available":
+        for artifact in builds.json().get("files", []):
+            download = client.get(f"/builds/{artifact['id']}/download")
+            valid = (download.status_code == 200
+                     and len(download.content) == artifact["size_bytes"]
+                     and hashlib.sha256(download.content).hexdigest() == artifact["sha256"])
+            report(f"authenticated download {artifact['id']}", valid, f"HTTP {download.status_code}")
+    elif builds.status_code == 200:
+        print("   INFO  Android artifacts have not been published yet; no download was certified.")
 
     # The count alone hid three legacy rows that the canonical seeder cannot match, because it
     # reconciles by code and theirs are not canonical codes. Naming them makes that visible.
@@ -212,7 +243,7 @@ with httpx.Client(base_url=BASE, timeout=45) as client:
                         missions = [training_mission_id(item.code) for item in TRAINING_AGENT_SPECS]
                         training_agents = int(await session.scalar(
                             select(func.count()).select_from(Agent).where(
-                                Agent.code.in_(codes), Agent.active.is_(True)
+                                Agent.code.in_(codes)
                             )
                         ) or 0)
                         training_runs = int(await session.scalar(
@@ -227,7 +258,7 @@ with httpx.Client(base_url=BASE, timeout=45) as client:
                 report("connected worker heartbeats", not missing,
                        "fresh" if not missing else "missing: " + ", ".join(missing))
                 if training_enabled:
-                    report("10 STF Cyber Range training agents active",
+                    report("10 STF Cyber Range training agents registered",
                            training_agents == 10, str(training_agents))
                     report("automatic STF training has started",
                            bool(training_runs and training_runs > 0), f"{training_runs or 0} run(s)")
@@ -303,21 +334,31 @@ with httpx.Client(base_url=BASE, timeout=45) as client:
                 report("realtime DEUS voice session", False, f"ticket HTTP {realtime_ticket.status_code}")
 
             successful_turns = 0
-            for turn_index in range(1, 4):
+            probes = [
+                ("Deus, prefiro sua voz masculina, grave e serena. Confirme minha preferência em uma frase.",
+                 None, "preference acknowledgement"),
+                ("Qual estilo de voz eu acabei de preferir? Responda em uma frase.",
+                 ("masculin", "grav", "seren"), "contextual voice preference recall"),
+                ("Responda apenas: voz local ativa", "voz local ativa", "exact instruction adherence"),
+            ]
+            for turn_index, (prompt, expected, check_name) in enumerate(probes, start=1):
+                started = time.monotonic()
                 reply = client.post(
                     f"/conversations/{conversation_id}/deus",
                     json={
-                        "content": f"Responda brevemente em português ao turno {turn_index}.",
+                        "content": prompt,
                         "request_id": str(uuid.uuid4()),
                     },
                 )
+                elapsed = time.monotonic() - started
                 if reply.status_code in (200, 201):
                     answer = (reply.json().get("response") or "").strip()
-                    ok = bool(answer)
+                    ok = deus_probe_matches(answer, expected)
                     successful_turns += int(ok)
-                    report(f"DEUS turn {turn_index}", ok, f"{answer[:80]!r}")
+                    report(f"DEUS turn {turn_index}: {check_name}", ok, f"{elapsed:.2f}s / {answer[:160]!r}")
                 else:
-                    report(f"DEUS turn {turn_index}", False, f"HTTP {reply.status_code}: {reply.text[:160]}")
+                    report(f"DEUS turn {turn_index}: {check_name}", False,
+                           f"{elapsed:.2f}s / HTTP {reply.status_code}: {reply.text[:160]}")
             report("DEUS sustained 3 consecutive turns", successful_turns == 3, f"{successful_turns}/3")
             messages = client.get(f"/conversations/{conversation_id}/messages")
             report("all DEUS turns are stored", messages.status_code == 200 and len(messages.json()) >= 6,

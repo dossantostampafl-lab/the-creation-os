@@ -126,6 +126,15 @@ async def test_all_living_core_http_actions(client, http_database):
     assert (await client.post(f"/api/v1/missions/{mission_id}/plan", headers=headers,
                               json=executable_plan())).status_code == 200
     assert (await client.post(f"/api/v1/missions/{mission_id}/validate", headers=headers)).status_code == 200
+    universe = await client.post("/api/v1/universes", headers=headers, json={"code": "engineering", "name": "Engineering"})
+    assert universe.status_code == 201
+    universe_id = universe.json()["id"]
+    assert (await client.post(f"/api/v1/universes/{universe_id}/activate", headers=headers)).status_code == 200
+    agent = await client.post("/api/v1/agents", headers=headers, json={
+        "code": "engineer", "name": "Engineer", "universe_id": universe_id, "capabilities": {},
+    })
+    assert agent.status_code == 201
+    assert agent.json()["active"] is True
     assert (await client.post(f"/api/v1/missions/{mission_id}/authorize", headers=headers)).status_code == 200
     assert (await client.post(f"/api/v1/missions/{mission_id}/cancel", headers=headers)).status_code == 200
     assert (await client.post(f"/api/v1/conversations/{conversation_id}/close", headers=headers)).status_code == 200

@@ -1,3 +1,5 @@
+import { BuildsPanel } from './BuildsPanel';
+import { TrainingPanel } from './TrainingPanel';
 import { newRequestId } from './requestId';
 import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
@@ -86,6 +88,8 @@ export function ConnectedPanel() {
     <button disabled={busy} onClick={()=>void run(refreshRange)}>Verificar laboratório</button>
     {range && <p>{range.message ?? 'Laboratório disponível. Cenários isolados de treinamento.'}</p>}
     {range?.status==='available' && <><div className="stack">{range.catalog?.map(scenario=><article key={scenario.id}><strong>{scenario.id}</strong><p>{scenario.description}</p><span>{range.scenarios.find(row=>row.scenario_id===scenario.id)?.status ?? 'inativo'}</span><button disabled={busy} onClick={()=>void run(async()=>{await changeCyberRange('start',scenario.id);await refreshRange();})}>Ativar cenário</button></article>)}</div><button disabled={busy} onClick={()=>void run(async()=>{await changeCyberRange('snapshots');setMessage('Snapshot criado no laboratório.');})}>Salvar snapshot</button><button disabled={busy} onClick={()=>{if(window.confirm('Limpar o estado dos cenários do laboratório?')) void run(async()=>{await changeCyberRange('reset');await refreshRange();});}}>Limpar cenários</button></>}
+    <TrainingPanel/>
+    <BuildsPanel/>
     <p role="status" aria-live="polite">{message}</p>
   </section>;
 }

@@ -1,0 +1,12 @@
+.mission-workbench { margin-top: 18px; padding-top: 12px; border-top: 1px solid rgba(102,223,243,.2); overflow-wrap: anywhere; }
+.mission-workbench h3 { font-size: 16px; font-weight: 500; }
+.mission-workbench p, .mission-workbench small { font-size: 13px; color: #a5bac1; }
+.mission-workbench form, .mission-workbench label { display: grid; gap: 8px; }
+.mission-workbench fieldset { min-width: 0; margin: 0; padding: 0; border: 0; display: grid; gap: 12px; }
+.mission-workbench .mission-step { margin: 8px 0; padding: 10px; border: 1px solid rgba(102,223,243,.18); border-radius: 8px; }
+.mission-workbench input, .mission-workbench textarea, .mission-workbench select { width: 100%; min-height: 44px; padding: 10px; color: #e5f1f5; background: #0c1c24; border: 1px solid #39535f; border-radius: 6px; font: inherit; box-sizing: border-box; }
+.mission-workbench textarea { resize: vertical; min-height: 80px; }
+.mission-workbench button { min-height: 44px; min-width: 44px; padding: 8px 12px; margin: 4px 0; }
+.mission-workbench .decision-confirm { margin: 10px 0; }
+.mission-workbench :focus-visible { outline: 2px solid #6de0f0; outline-offset: 3px; }
+.mission-workbench :disabled { opacity: .65; }

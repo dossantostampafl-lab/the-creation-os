@@ -376,16 +376,20 @@ class DeusConversationService:
             # Make the turn visible to the builder's independent, short read transaction.
             await self.repo.commit()
         history = await self.repo.list_messages(conversation_id, limit=20)
-        # The snapshot's DB reads overlap SOPHIA's model call; nothing else touches the session meanwhile.
-        snapshot_task = asyncio.ensure_future(system_snapshot(self.repo, actor.id))
-        outcome = await self._reason(actor, content, history, snapshot_task)
         system_notes: list[str] = []
-        try:
-            system_notes.append(live_context_note(await snapshot_task))
-        except Exception as exc:
-            logger.bind(component="deus", error_type=exc.__class__.__name__).warning(
-                "live system context unavailable"
-            )
+        outcome = TrinityOutcome()
+        # The builder already reads live state for text and voice. Only fetch an
+        # additional snapshot here when Trinity needs readiness or no builder exists.
+        if self.context_builder is None or (self.trinity is not None and needs_trinity(content)):
+            # These DB reads overlap SOPHIA's model call; nothing else touches the session meanwhile.
+            snapshot_task = asyncio.ensure_future(system_snapshot(self.repo, actor.id))
+            outcome = await self._reason(actor, content, history, snapshot_task)
+            try:
+                system_notes.append(live_context_note(await snapshot_task))
+            except Exception as exc:
+                logger.bind(component="deus", error_type=exc.__class__.__name__).warning(
+                    "live system context unavailable"
+                )
         context_packet = None
         if self.context_builder is not None:
             context_packet = await self.context_builder.build(actor.id, conversation_id, content, 'text', history)

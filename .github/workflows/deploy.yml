@@ -26,6 +26,7 @@ on:
           - enable-connected-deus
           - enable-cyber-range-training
           - seed
+          - publish-builds
       ref:
         description: "Branch or tag to take the code from. Empty means the default branch."
         type: string
@@ -44,7 +45,7 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: ${{ inputs.task == 'publish-builds' && 45 || 20 }}
     steps:
       - name: Get the repository
         uses: actions/checkout@v5
@@ -88,6 +89,56 @@ jobs:
             exit 1
           fi
 
+      - name: Get the selected ref for Android builds
+        if: inputs.task == 'publish-builds'
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.event.repository.default_branch }}
+
+      - name: Set up Node for Android builds
+        if: inputs.task == 'publish-builds'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Set up Java for Android builds
+        if: inputs.task == 'publish-builds'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Use the runner's preinstalled Android SDK
+        if: inputs.task == 'publish-builds'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk_root="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          sdkmanager_path="$sdk_root/cmdline-tools/latest/bin/sdkmanager"
+          if [ -z "$sdk_root" ] || [ ! -x "$sdkmanager_path" ]; then
+            echo "::error::The Ubuntu runner must provide ANDROID_HOME and cmdline-tools/latest/bin/sdkmanager."
+            exit 1
+          fi
+          printf 'ANDROID_HOME=%s\nANDROID_SDK_ROOT=%s\n' "$sdk_root" "$sdk_root" >> "$GITHUB_ENV"
+          printf '%s\n' "$sdk_root/cmdline-tools/latest/bin" "$sdk_root/platform-tools" >> "$GITHUB_PATH"
+
+      - name: Build the three Android files and their verified manifest
+        if: inputs.task == 'publish-builds'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager "platforms;android-36" "build-tools;36.0.0"
+          npm ci --prefix frontend
+          chmod +x frontend/android/gradlew
+          npm run mobile:android --prefix frontend
+          mkdir -p build-staging
+          cp frontend/android/app/build/outputs/apk/debug/app-debug.apk build-staging/creation-debug.apk
+          cp frontend/android/app/build/outputs/apk/release/app-release-unsigned.apk build-staging/creation-release-unsigned.apk
+          cp frontend/android/app/build/outputs/bundle/release/app-release.aab build-staging/creation-release.aab
+          node frontend/scripts/create-build-manifest.mjs build-staging "$(git rev-parse HEAD)"
+
       - name: Open an SSH session to the server
         env:
           SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
@@ -117,7 +168,52 @@ jobs:
           fi
           chmod 600 ~/.ssh/known_hosts
 
+      - name: Publish verified Android files on the server
+        if: inputs.task == 'publish-builds'
+        shell: bash
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          USERNAME: ${{ secrets.DEPLOY_USER }}
+          REPO_DIR: ${{ secrets.DEPLOY_REPO_DIR }}
+        run: |
+          set -euo pipefail
+          # This directory travels in a quoted remote command, so reject shell syntax.
+          if ! [[ "${REPO_DIR:-}" =~ ^(/[A-Za-z0-9._/-]+)?$ ]]; then
+            echo "::error::DEPLOY_REPO_DIR must be an absolute path without spaces or shell syntax."
+            exit 1
+          fi
+          server="${USERNAME:-ubuntu}@$HOST"
+          SSH=(ssh -i ~/.ssh/id_deploy -o BatchMode=yes -o ConnectTimeout=20)
+          staging="$("${SSH[@]}" "$server" 'mktemp -d /tmp/creation-builds.XXXXXXXXXX')"
+          if ! [[ "$staging" =~ ^/tmp/creation-builds\.[A-Za-z0-9]+$ ]]; then
+            echo "::error::The host did not return a valid staging directory."
+            exit 1
+          fi
+          cleanup() { "${SSH[@]}" "$server" "sudo rm -rf -- '$staging'" || true; }
+          trap cleanup EXIT
+          scp -i ~/.ssh/id_deploy -o BatchMode=yes -o ConnectTimeout=20 \
+            build-staging/manifest.json build-staging/creation-debug.apk \
+            build-staging/creation-release-unsigned.apk build-staging/creation-release.aab \
+            deploy/oracle/publish-builds.sh "$server:$staging/"
+          "${SSH[@]}" "$server" "bash -s -- '$staging' '${REPO_DIR:-}'" <<'REMOTE'
+          set -euo pipefail
+          staging="$1"
+          REPO_DIR="$2"
+          live_dir=""
+          api_container="$(sudo docker ps --filter 'label=com.docker.compose.service=api' --format '{{.ID}}' | head -1)"
+          if [ -n "$api_container" ]; then
+            live_dir="$(sudo docker inspect -f '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$api_container" 2>/dev/null || true)"
+          fi
+          REPO_DIR="${REPO_DIR:-${live_dir:-$HOME/the-creation-os}}"
+          cd "$REPO_DIR"
+          sudo git rev-parse --git-dir >/dev/null
+          REPO_DIR="$(pwd -P)"
+          # Publish local immutable files only; this never rebuilds/restarts runtime profiles.
+          sudo bash "$staging/publish-builds.sh" "$staging" "$REPO_DIR/releases"
+          REMOTE
+
       - name: Run the task on the server
+        if: inputs.task != 'publish-builds'
         env:
           HOST: ${{ secrets.DEPLOY_HOST }}
           USERNAME: ${{ secrets.DEPLOY_USER }}

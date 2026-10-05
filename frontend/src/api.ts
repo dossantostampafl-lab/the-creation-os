@@ -32,6 +32,7 @@ function refreshToken(): string {
 
 /** Forget the session. A token the API no longer accepts is only a liability if it stays here. */
 export function clearSession(): void {
+  window.sessionStorage.removeItem("creation_manual_mission_draft");
   window.localStorage.removeItem(ACCESS_TOKEN_KEY);
   window.sessionStorage.removeItem(REFRESH_TOKEN_KEY);
   // Older versions kept the refresh token in localStorage. Remove that legacy credential too.
@@ -73,7 +74,7 @@ async function refreshAccessToken(): Promise<string> {
   return refreshInFlight;
 }
 
-async function authorizedFetch(path: string, init?: RequestInit): Promise<Response> {
+export async function authorizedFetch(path: string, init?: RequestInit): Promise<Response> {
   const request = (accessToken: string) => requestApi(path, {
     ...init,
     headers: {
@@ -132,7 +133,7 @@ export async function loginCreator(username: string, password: string): Promise<
   storeTokens(await response.json() as TokenResponse);
 }
 
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
+export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const method = (init?.method ?? "GET").toUpperCase();
   const attempts = method === "GET" ? 3 : 1;
   let lastError: unknown;
@@ -272,6 +273,7 @@ export type TrinityAssessment = {
 };
 
 export type Inception = {
+  source_message_id?: string;
   id: string;
   conversation_id: string;
   title: string;
