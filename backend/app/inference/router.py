@@ -18,6 +18,7 @@ from app.inference.contracts import (
 )
 from app.inference.health import ProviderCircuitBreaker, ProviderRateLimitCooldown
 from app.inference.registry import ProviderRegistry
+from app.observability.telemetry import operation, traced
 
 
 class ModelRouter:
@@ -119,6 +120,7 @@ class ModelRouter:
             return request
         return request.model_copy(update={"model": None})
 
+    @traced("llm.generate")
     async def generate(self, request: InferenceRequest) -> InferenceResponse:
         candidates = self._candidate_names(request)
         if not candidates:
@@ -143,14 +145,15 @@ class ModelRouter:
                 continue
 
             try:
-                # Interactive DEUS turns skip the redundant preflight network call. Provider
-                # generation already reports timeout/rate-limit/unavailable failures and the
-                # circuit-breaker/fallback path below handles them without a second round trip.
-                if not bool(attempt.metadata.get("skip_health_probe")):
-                    health = await provider.health()
-                    if not health.available:
-                        raise ProviderUnavailable(provider_name, health.detail or "provider unavailable")
-                response = await provider.generate(attempt)
+                with operation("llm.attempt", {"creation.provider": provider_name}):
+                    # Interactive DEUS turns skip the redundant preflight network call. Provider
+                    # generation already reports timeout/rate-limit/unavailable failures and the
+                    # circuit-breaker/fallback path below handles them without a second round trip.
+                    if not bool(attempt.metadata.get("skip_health_probe")):
+                        health = await provider.health()
+                        if not health.available:
+                            raise ProviderUnavailable(provider_name, health.detail or "provider unavailable")
+                    response = await provider.generate(attempt)
             except InferenceRateLimitError as exc:
                 self._rate_limit_cooldown.register(
                     provider_name,

@@ -4,8 +4,10 @@ from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.models.knowledge import KnowledgeOutbox, KnowledgeReceipt
+from app.observability.telemetry import traced
 
 
+@traced("workers.knowledge")
 async def process_batch(factory: async_sessionmaker[AsyncSession], consumer: str = "knowledge", limit: int = 100) -> int:
     async with factory() as session, session.begin():
         # PostgreSQL sequences do not order commits. Discover unreceipted events, not a watermark.

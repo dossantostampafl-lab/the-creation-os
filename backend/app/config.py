@@ -17,6 +17,17 @@ def _split_providers(value: str) -> list[str]:
 
 
 class Settings(BaseSettings):
+    telemetry_enabled: bool = Field(False, env="TELEMETRY_ENABLED")
+    telemetry_otlp_endpoint: str = Field("http://otel-collector:4318", env="TELEMETRY_OTLP_ENDPOINT")
+    telemetry_sample_ratio: float = Field(1.0, ge=0.0, le=1.0, env="TELEMETRY_SAMPLE_RATIO")
+
+    @validator("telemetry_otlp_endpoint")
+    def validate_telemetry_endpoint(cls, value: str) -> str:
+        parsed = urlsplit(value)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment or parsed.path not in {"", "/"}:
+            raise ValueError("telemetry endpoint must be an HTTP(S) origin without credentials")
+        return value.rstrip("/")
+
     app_env: str = Field(..., env="APP_ENV")
     secret_key: SecretStr = Field(..., env="APP_SECRET_KEY")
     creator_bootstrap_username: str = Field(..., env="CREATOR_BOOTSTRAP_USERNAME")

@@ -15,6 +15,7 @@ from app.db.session import AsyncSessionLocal, get_session
 from app.inference.bootstrap import build_model_router, resolve_configured_model
 from app.inference.contracts import InferenceError
 from app.models.entities import Conversation
+from app.observability.telemetry import traced
 from app.repositories.domain import DomainRepository
 from app.schemas.conversation import ConversationMessageResponse, MessageRequest, MessageResponse
 from app.services.deus import DeusConversationService
@@ -44,6 +45,7 @@ async def list_messages(
 
 
 @router.post("/conversations/{entity_id}/deus", response_model=MessageResponse, status_code=status.HTTP_201_CREATED)
+@traced("deus.turn")
 async def converse_with_deus(
     entity_id: uuid.UUID,
     body: MessageRequest,

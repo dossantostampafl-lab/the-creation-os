@@ -8,6 +8,8 @@ from uuid import uuid4
 
 from temporalio import activity
 
+from app.observability.telemetry import traced
+
 from .authorization import authorize_and_grant, authorize_decision
 from .contract_store import ContractStore
 from .contracts import ActionRequest, AuthorizationDecision, MissionContract
@@ -64,6 +66,7 @@ class StfActivities:
         self._d = deps
 
     @activity.defn(name="stf_authorize_action")
+    @traced("cyber_range.authorize_action")
     async def authorize_action(
         self, mission_id: str, action: dict[str, Any], approval: str | None, run_id: str | None = None
     ) -> dict[str, Any]:
@@ -138,6 +141,7 @@ class StfActivities:
             })
 
     @activity.defn(name="stf_check_approval")
+    @traced("cyber_range.check_approval")
     async def check_approval(self, run_id: str, approval_id: str, action: dict[str, Any]) -> bool:
         """The signal carries only an id. It unblocks the run only if that stored approval is for this run,
         this action and these exact parameters, unexpired and an approve. Anything else fails closed."""
@@ -149,6 +153,7 @@ class StfActivities:
             return await StfRepository(session).approval_matches(approval_id, run_id, action)
 
     @activity.defn(name="stf_verify_mission")
+    @traced("cyber_range.verify_mission")
     async def verify_mission(self, mission_id: str, run_id: str | None = None) -> bool:
         if run_id is not None:
             if self._d.session_factory is None:
@@ -170,6 +175,7 @@ class StfActivities:
         return bool(self._d.verify(mission_id))
 
     @activity.defn(name="stf_record_state")
+    @traced("cyber_range.record_state")
     async def record_state(self, mission_id: str, state: str, run_id: str | None = None) -> None:
         self._d.states.append((mission_id, state))
         if run_id and self._d.session_factory:
@@ -182,6 +188,7 @@ class StfActivities:
         emit("mission.state_changed", mission_id=mission_id, state=state)
 
     @activity.defn(name="stf_revoke_grants")
+    @traced("cyber_range.revoke_grants")
     async def revoke_grants(self, mission_id: str, run_id: str | None = None) -> int:
         """Stop new dispatch, revoke authority, then clean disposable Range state after the kill."""
         cleanup_range = False
@@ -218,6 +225,7 @@ class StfActivities:
         return count
 
     @activity.defn(name="stf_dispatch_action")
+    @traced("cyber_range.dispatch_action")
     async def dispatch_action(
         self, action: dict[str, Any], decision: dict[str, Any], run_id: str | None = None
     ) -> dict[str, Any]:

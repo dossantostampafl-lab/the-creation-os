@@ -5,3 +5,24 @@ datasources:
     access: proxy
     url: http://stf-loki:3100
     isDefault: true
+    uid: loki
+    jsonData:
+      derivedFields:
+        - name: TraceID
+          matcherRegex: '"trace_id":"([a-f0-9]{32})"'
+          datasourceUid: tempo
+          url: '${__value.raw}'
+  - name: Tempo
+    uid: tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    jsonData:
+      tracesToLogsV2:
+        datasourceUid: loki
+        filterByTraceID: true
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090

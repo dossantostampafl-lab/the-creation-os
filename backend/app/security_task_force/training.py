@@ -12,6 +12,7 @@ from app.config import settings
 from app.core.domain import Actor
 from app.models.entities import Agent, Universe
 from app.models.security_task_force import StfRun
+from app.observability.telemetry import traced
 from app.security_task_force.contracts import ActionRequest, MissionContract, RiskClass
 from app.security_task_force.mission_compiler import CompilationResult, compile_verified_contract
 from app.security_task_force.repository import StfRepository
@@ -223,6 +224,7 @@ class AutomaticRangeTraining:
     def __init__(self, factory: async_sessionmaker[AsyncSession]) -> None:
         self.factory = factory
 
+    @traced("cyber_range.training")
     async def run_once(self, creator_id: str, *, agent_code: str | None = None) -> dict[str, object]:
         if agent_code is not None and agent_code not in {spec.code for spec in TRAINING_AGENT_SPECS}:
             raise ValueError("Unknown training agent")

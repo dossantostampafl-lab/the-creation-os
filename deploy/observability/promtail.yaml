@@ -4,27 +4,29 @@ server:
 positions:
   filename: /positions/positions.yaml
 clients:
-  - url: http://stf-loki:3100/loki/api/v1/push
+- url: http://stf-loki:3100/loki/api/v1/push
 scrape_configs:
-  # Reads the JSON log files Docker writes for every container (mounted read-only). Only the
-  # Task Force's own structured lines are kept, so nothing else in the stack is shipped.
-  - job_name: stf-telemetry
-    static_configs:
-      - targets: [localhost]
-        labels:
-          job: stf
-          __path__: /var/lib/docker/containers/*/*-json.log
-    pipeline_stages:
-      - docker: {}
-      # Keep only lines that carry an "event" key: the Task Force's own structured telemetry.
-      - match:
-          selector: '{job="stf"} !~ ".*\"event\":.*"'
-          action: drop
-      - json:
-          expressions:
-            event: event
-            environment_id: environment_id
-      # Low-cardinality labels only; mission and action ids stay in the log line.
-      - labels:
-          event:
-          environment_id:
+- job_name: creation-operations
+  static_configs:
+  - targets:
+    - localhost
+    labels:
+      job: creation-operations
+      __path__: /var/lib/docker/containers/*/*-json.log
+  pipeline_stages:
+  - docker: {}
+  - match:
+      selector: '{job="creation-operations"} !~ "^.*app\\.observability\\.telemetry:operation:[0-9]+ - (\\{\"telemetry_version\":1,\"operation\":\"[a-z_.]+\",\"outcome\":\"(ok|error|cancelled)\",\"error_type\":\"[A-Za-z0-9_]*\",\"duration_seconds\":[0-9.e-]+,\"trace_id\":\"[a-f0-9]{32}\",\"span_id\":\"[a-f0-9]{16}\"\\})\\n?$"'
+      action: drop
+  - regex:
+      expression: ^.*app\.observability\.telemetry:operation:[0-9]+ - (?P<payload>\{"telemetry_version":1,"operation":"[a-z_.]+","outcome":"(ok|error|cancelled)","error_type":"[A-Za-z0-9_]*","duration_seconds":[0-9.e-]+,"trace_id":"[a-f0-9]{32}","span_id":"[a-f0-9]{16}"\})\n?$
+  - json:
+      source: payload
+      expressions:
+        operation: operation
+        outcome: outcome
+  - labels:
+      operation: null
+      outcome: null
+  - output:
+      source: payload

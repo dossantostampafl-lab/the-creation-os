@@ -19,6 +19,7 @@ from app.knowledge.contracts import Scope
 from app.knowledge.service import KnowledgeService
 from app.models.entities import Agent, Universe
 from app.models.opportunity import Opportunity
+from app.observability.telemetry import traced
 from app.repositories.domain import DomainRepository
 from app.services.opportunity import create_or_get_opportunity, normalize_opportunity_fingerprint
 
@@ -60,6 +61,7 @@ class DiscoveryWorker:
         strategy = (agent.capabilities_json or {}).get("exploration_strategy", {})
         return isinstance(strategy, dict) and strategy.get("mode") == "cross_sector"
 
+    @traced("opportunity.discovery")
     async def run_once(self, creator_id: str) -> dict[str, int]:
         checked = 0
         discovered = 0

@@ -10,6 +10,7 @@ from enum import StrEnum
 from typing import Protocol
 
 from app.inference.contracts import InferenceError, InferenceRequest
+from app.observability.telemetry import operation, traced
 from app.voice_session.inference import StreamingProvider, stream_response
 from app.voice_session.metrics import VoiceTurnMetrics
 from app.voice_session.stt import STTTranscript
@@ -94,6 +95,7 @@ class VoiceSession:
             turn_id=self.turn_id,
         )
 
+    @traced("voice.wake.check")
     def on_transcript(self, transcript: STTTranscript) -> TranscriptDecision:
         text = transcript.text.strip()
         if not text or self.state not in {
@@ -269,12 +271,16 @@ class VoiceSessionGateway:
         async for event in self.process_transcript(transcript):
             yield event
 
+    @traced("voice.turn.step")
     async def process_transcript(
         self,
         transcript: STTTranscript,
     ) -> AsyncIterator[dict[str, object]]:
         decision = self.session.on_transcript(transcript)
 
+        if decision.wake_detected and decision.acknowledge:
+            with operation("voice.wake.detected"):
+                pass
         if decision.wake_detected:
             yield {
                 "type": "wake_detected",

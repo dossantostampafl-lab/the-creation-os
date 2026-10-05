@@ -16,6 +16,7 @@ from temporalio.client import Client
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from app.observability.telemetry import traced
 from app.security_task_force.repository import StfRepository
 from app.security_task_force.runtime_contracts import OutboxLease
 from app.security_task_force.telemetry import emit
@@ -35,6 +36,7 @@ class TemporalDispatcher:
         self._factory, self._client = session_factory, client
         self._batch, self._max_attempts, self._queue = batch, max_attempts, task_queue
 
+    @traced("workers.stf.dispatch")
     async def dispatch_once(self) -> int:
         """Deliver what is due (starts before signals). Returns how many items were acknowledged."""
         acknowledged = 0
