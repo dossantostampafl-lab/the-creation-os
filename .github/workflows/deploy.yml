@@ -13,6 +13,8 @@ on:
         default: check
         options:
           - check
+          - check-universe-inference
+          - repair-universe-inference
           - restart
           - update
           - set-inference
@@ -300,6 +302,12 @@ jobs:
           case "$TASK" in
             check)
               sudo ./deploy/oracle/check-inference.sh
+              ;;
+            check-universe-inference)
+              sudo env UNIVERSE_INFERENCE_DIAGNOSTIC=true ./deploy/oracle/check-inference.sh
+              ;;
+            repair-universe-inference)
+              sudo "${COMPOSE[@]}" exec -T api python -m app.admin.seed --repair-inference-only
               ;;
             restart)
               sudo "${COMPOSE[@]}" up -d --force-recreate api worker

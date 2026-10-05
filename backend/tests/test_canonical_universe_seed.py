@@ -40,3 +40,8 @@ def test_seed_identity_is_deterministic_across_repeated_catalog_reads() -> None:
     first = tuple((item.id, item.code, item.agent_code) for item in seed.CANONICAL_UNIVERSES)
     second = tuple((item.id, item.code, item.agent_code) for item in seed.CANONICAL_UNIVERSES)
     assert first == second
+
+
+def test_generated_agents_follow_the_configured_provider_chain() -> None:
+    for item in seed.CANONICAL_UNIVERSES:
+        assert item.capabilities.get("inference_routing") == "configured"

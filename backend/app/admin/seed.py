@@ -68,6 +68,7 @@ class CanonicalUniverse:
     def capabilities(self) -> dict[str, Any]:
         return {
             "inference_provider": settings.llm_provider,
+            "inference_routing": "configured",
             "description": self.description,
             **canonical_perception_profile(self.code),
         }
@@ -266,8 +267,66 @@ async def seed_universes() -> int:
         return 0
 
 
+async def repair_generated_inference_profiles() -> int:
+    """Repair only recognizable generated routing; preserve pauses, pins and custom profiles."""
+    from app.config import SUPPORTED_LLM_PROVIDERS
+
+    async with AsyncSessionLocal() as session:
+        query = select(Creator).where(Creator.is_active.is_(True))
+        if settings.sovereign_creator_id:
+            query = query.where(Creator.id == settings.sovereign_creator_id)
+        creators = list(await session.scalars(query.limit(2)))
+        if len(creators) != 1:
+            print(json.dumps({"repaired": False, "reason": "sovereign_creator_unresolved"}))
+            return 1
+        actor = Actor(creators[0].id, "creator")
+        repository = DomainRepository(session)
+        changed = 0
+        custom = 0
+        for spec in CANONICAL_UNIVERSES:
+            agent = await session.scalar(
+                select(Agent).join(Universe, Agent.universe_id == Universe.id)
+                .where(Agent.code == spec.agent_code, Universe.code == spec.code)
+                .with_for_update(of=Agent)
+            )
+            if agent is None:
+                continue
+            actual = dict(agent.capabilities_json or {})
+            previous = actual.get("inference_provider")
+            if (not isinstance(previous, str) or previous not in SUPPORTED_LLM_PROVIDERS
+                    or actual.get("inference_routing") not in (None, "configured")):
+                custom += 1
+                continue
+            expected = spec.capabilities
+            normalized = {**actual, "inference_provider": settings.llm_provider,
+                          "inference_routing": "configured"}
+            legacy = {"description": spec.description, "inference_provider": settings.llm_provider,
+                      "inference_routing": "configured"}
+            if normalized != expected and normalized != legacy:
+                custom += 1
+                continue
+            if normalized == actual:
+                continue
+            agent.capabilities_json = normalized
+            await repository.add_event(
+                "agent_inference_routing_repaired", "agent", agent.id, actor.id, actor.role,
+                str(uuid.uuid4()), {"routing": "configured", "previous_provider": previous,
+                                   "configured_provider": settings.llm_provider},
+            )
+            changed += 1
+        await repository.commit()
+        print(json.dumps({"repaired": True, "agents_changed": changed, "custom_profiles_preserved": custom}))
+        return 0
+
+
 def main() -> None:
-    raise SystemExit(asyncio.run(seed_universes()))
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--repair-inference-only", action="store_true")
+    args = parser.parse_args()
+    action = repair_generated_inference_profiles if args.repair_inference_only else seed_universes
+    raise SystemExit(asyncio.run(action()))
 
 
 if __name__ == "__main__":
