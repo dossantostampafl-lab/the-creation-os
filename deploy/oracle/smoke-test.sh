@@ -221,7 +221,7 @@ with httpx.Client(base_url=BASE, timeout=45) as client:
             from app.diagnostics.heartbeat import ServiceHeartbeat
             from app.models.entities import Agent
             from app.models.security_task_force import StfRun
-            from app.security_task_force.training import TRAINING_AGENT_SPECS, training_mission_id
+            from app.security_task_force.training import TRAINING_AGENT_SPECS, training_run_filter
 
             expected = set()
             if diagnostics_enabled:
@@ -241,7 +241,6 @@ with httpx.Client(base_url=BASE, timeout=45) as client:
                 stalled_training = 0
                 if training_enabled:
                     codes = [item.code for item in TRAINING_AGENT_SPECS]
-                    missions = [training_mission_id(item.code) for item in TRAINING_AGENT_SPECS]
                     training_agents = int(await session.scalar(
                         select(func.count()).select_from(Agent).where(
                             Agent.code.in_(codes)
@@ -249,12 +248,12 @@ with httpx.Client(base_url=BASE, timeout=45) as client:
                     ) or 0)
                     training_runs = int(await session.scalar(
                         select(func.count()).select_from(StfRun).where(
-                            StfRun.mission_id.in_(missions)
+                            training_run_filter()
                         )
                     ) or 0)
                     stalled_training = int(await session.scalar(
                         select(func.count()).select_from(StfRun).where(
-                            StfRun.mission_id.in_(missions),
+                            training_run_filter(),
                             StfRun.state == 'QUEUED',
                             StfRun.created_at < datetime.now(timezone.utc) - timedelta(minutes=5),
                         )

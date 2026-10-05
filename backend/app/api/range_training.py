@@ -16,7 +16,7 @@ from app.models.security_task_force import StfRun
 from app.security_task_force.training import (
     TRAINING_AGENT_SPECS,
     AutomaticRangeTraining,
-    training_mission_id,
+    training_run_filter,
 )
 
 router = APIRouter(prefix='/cyber-range/training', tags=['cyber-range'])
@@ -39,11 +39,11 @@ async def training_status(a: Actor = Depends(actor), session: AsyncSession = Dep
     agents = {agent.code: agent for agent in (await session.scalars(select(Agent).where(Agent.code.in_(codes)))).all()}
     runs = (await session.scalars(select(StfRun).where(
         StfRun.creator_id == a.id,
-        StfRun.mission_id.in_([training_mission_id(code) for code in codes]),
+        training_run_filter(),
     ).order_by(StfRun.created_at.desc()).limit(50))).all()
     # The scheduler considers every unfinished run, independently of recent history.
     active = await session.scalar(select(StfRun).where(
-        StfRun.mission_id.in_([training_mission_id(code) for code in codes]),
+        training_run_filter(),
         StfRun.state.notin_(('COMPLETED', 'ABORTED')),
     ).order_by(StfRun.created_at.asc()).limit(1))
     def run_view(run: StfRun):
