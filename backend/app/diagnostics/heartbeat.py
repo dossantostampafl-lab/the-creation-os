@@ -26,6 +26,8 @@ class ServiceHeartbeat(Base):
 
 async def supervised(service: str, run: Callable[[], Awaitable[None]]) -> None:
     from app.config import settings
+    from app.observability.telemetry import configure_telemetry
+    configure_telemetry(service)
     if not settings.deus_diagnostics_enabled:
         await run()
         return

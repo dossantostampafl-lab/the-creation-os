@@ -22,6 +22,7 @@ from app.models.knowledge import (
     KnowledgeRelation,
     KnowledgeRevision,
 )
+from app.observability.telemetry import traced
 
 
 class KnowledgeConflict(ValueError):
@@ -171,6 +172,7 @@ class KnowledgeService:
         await self.session.flush()
         return Written(item_id=item.id, revision_id=tombstone.id)
 
+    @traced("deus.knowledge.search")
     async def search(self, scope: Scope, query: str) -> RetrievalResult:
         started = time.perf_counter()
         if not query.strip() or len(query) > 2048:

@@ -85,12 +85,12 @@ def test_range_targets_are_loopback_only_and_never_lan_bound():
 
 def test_observability_is_optional_read_only_and_loopback_only():
     services = compose()["services"]
-    names = ("stf-loki", "stf-promtail", "stf-grafana")
+    names = ("stf-loki", "stf-promtail", "stf-grafana", "otel-collector", "tempo", "prometheus", "node-exporter")
     for name in names:
         assert services[name]["profiles"] == ["observability"], name
         assert not any("docker.sock" in str(volume) for volume in services[name].get("volumes", [])), name
-    assert not services["stf-loki"].get("ports") and not services["stf-promtail"].get("ports")
-    assert services["stf-grafana"]["ports"] == ['127.0.0.1:${STF_GRAFANA_PORT:-3001}:3000']
+    assert all(not services[name].get("ports") for name in names if name != "stf-grafana")
+    assert services["stf-grafana"]["ports"] == ['127.0.0.1:${STF_GRAFANA_PORT:-3300}:3000']
     logs = [v for v in services["stf-promtail"]["volumes"] if "/var/lib/docker/containers" in str(v)]
     assert logs and all(str(v).endswith(":ro") for v in logs)
     assert compose()["networks"]["obs-backend"]["internal"] is True

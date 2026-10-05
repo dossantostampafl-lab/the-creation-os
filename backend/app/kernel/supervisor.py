@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.domain import MissionStatus, transition
 from app.models.entities import Mission
+from app.observability.telemetry import traced
 from app.repositories.domain import DomainRepository
 
 
@@ -13,6 +14,7 @@ class MissionRuntimeSupervisor:
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self.session_factory = session_factory
 
+    @traced("missions.start")
     async def start_execution(self, mission_id: str, correlation_id: str) -> bool:
         async with self.session_factory() as session:
             repository = DomainRepository(session)

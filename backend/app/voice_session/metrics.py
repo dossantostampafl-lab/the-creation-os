@@ -40,6 +40,8 @@ class VoiceTurnMetrics:
                 "completed",
             ),
         }
+        from app.observability.telemetry import record_voice_latency
+        record_voice_latency(latency_ms)
         return {
             "session_id": self.session_id,
             "turn_id": self.turn_id,

@@ -44,6 +44,8 @@ def build_dependencies() -> StfDependencies:
 
 
 async def main() -> None:
+    from app.observability.telemetry import configure_telemetry
+    configure_telemetry("stf-worker")
     # Telemetry lines are one JSON object each; without a handler the stf logger drops them.
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     client = await Client.connect(os.getenv("TEMPORAL_ADDRESS", "temporal:7233"))

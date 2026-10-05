@@ -13,6 +13,7 @@ from app.inference.router import ModelRouter
 from app.kernel.completion_engine import MissionCompletionEngine
 from app.kernel.orchestrator import claim_next_ready_task, finish_task_attempt
 from app.models.entities import Agent, Mission
+from app.observability.telemetry import traced
 
 
 class AgentRuntime:
@@ -28,6 +29,7 @@ class AgentRuntime:
         self.capability_runtime = capability_runtime
         self.completion_engine = completion_engine
 
+    @traced("agents.task")
     async def run_next(self, mission_id: str, correlation_id: str | None = None) -> bool:
         async with self.session_factory() as session:
             claimed = await claim_next_ready_task(session, mission_id)

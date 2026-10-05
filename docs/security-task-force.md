@@ -53,11 +53,12 @@ The core stack (`docker compose up`) never depends on any Task Force service.
 docker compose --profile security-task-force --profile observability up -d
 ```
 
-Task Force workers write one JSON line per transition, decision, grant, dispatch and revocation (secrets redacted).
-Promtail reads Docker's container log files (read-only, no Docker socket), keeps only lines carrying an `event` key,
-and ships them to Loki; Grafana is published on `127.0.0.1:${STF_GRAFANA_PORT:-3001}` only and needs
-`STF_GRAFANA_ADMIN_PASSWORD`. The compose files and invariants are tested; the Loki/Promtail/Grafana containers
-themselves have not been run in the development sandbox.
+Task Force activities, dispatch and training cycles emit sanitized OpenTelemetry spans and operational JSON when
+`TELEMETRY_ENABLED=true`. The old wildcard `event` log collector was removed: Promtail now accepts only the closed
+operational schema, using read-only container logs without a Docker socket. Collector, Tempo, Prometheus and Loki
+remain private; Grafana is published on `127.0.0.1:${STF_GRAFANA_PORT:-3300}` with authentication. Activate via
+**Deploy → enable-observability** and consult [operations](observability/operations.md) for the SSH tunnel,
+retention, validation and pause procedure. Local validation covers real traces, metrics, logs and provisioned dashboards.
 
 ### Checking a host for privileged execution
 

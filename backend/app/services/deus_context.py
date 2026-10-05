@@ -16,6 +16,7 @@ from app.knowledge.contracts import RetrievalResult, Scope
 from app.knowledge.service import KnowledgeService
 from app.models.entities import Conversation, ConversationMemory, uuid_string
 from app.models.knowledge import ContextTrace, KnowledgeProject, KnowledgeRevision
+from app.observability.telemetry import traced
 from app.repositories.domain import DomainRepository
 from app.services.conversation_context import conversation_messages
 
@@ -31,6 +32,7 @@ class DeusContextBuilder:
         self.factory = factory
         self.deadline_seconds = deadline_seconds
 
+    @traced("deus.context")
     async def build(self, creator_id: str, conversation_id: str, query: str, channel: str, history: list | None = None) -> ContextPacket:
         from app.services.deus import live_context_note, system_snapshot
         if len(json.dumps(query, ensure_ascii=False).encode()) > 8192:

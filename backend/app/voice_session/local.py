@@ -11,10 +11,12 @@ import re
 import threading
 from array import array
 from collections.abc import Callable
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
 from app.config import settings
+from app.observability.telemetry import operation, traced
 from app.voice_session.stt import STTTranscript
 from app.voice_session.tts import VoiceSynthesisError
 
@@ -57,6 +59,7 @@ class LocalSpeechEngine:
         SetLogLevel(-1)
         self.vosk = Model(str(root / 'vosk-pt'))
 
+    @traced("voice.tts")
     async def synthesize(self, text: str) -> bytes:
         def run() -> bytes:
             import numpy as np
@@ -174,7 +177,7 @@ class VoskRealtimeSTT:
         self._has_speech = self._has_speech or voiced
         self._utterance_samples = self._utterance_samples + len(samples) if self._has_speech else 0
         self._silence_samples = 0 if voiced else self._silence_samples + len(samples)
-        with self._recognition_lock:
+        with (operation("voice.stt") if self._has_speech else nullcontext()), self._recognition_lock:
             endpoint = self._recognizer.AcceptWaveform(audio) if audio else False
             if endpoint:
                 result = json.loads(self._recognizer.Result())

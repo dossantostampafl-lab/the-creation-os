@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from app.inference.contracts import InferenceError, InferenceRequest, InferenceTimeoutError
+from app.observability.telemetry import operation, traced
 
 
 class StreamingProvider(Protocol):
@@ -20,6 +21,7 @@ class StreamChunk:
     text: str
 
 
+@traced("llm.stream.step")
 async def stream_response(
     request: InferenceRequest,
     *,
@@ -34,10 +36,11 @@ async def stream_response(
     for attempt in range(2):
         primary_stream = primary.stream(request).__aiter__()
         try:
-            first_text = await asyncio.wait_for(
-                primary_stream.__anext__(),
-                timeout=first_token_timeout_seconds,
-            )
+            with operation("llm.stream.attempt", {"creation.provider": primary.name}):
+                first_text = await asyncio.wait_for(
+                    primary_stream.__anext__(),
+                    timeout=first_token_timeout_seconds,
+                )
             break
         except (TimeoutError, InferenceTimeoutError) as exc:
             if attempt == 0:

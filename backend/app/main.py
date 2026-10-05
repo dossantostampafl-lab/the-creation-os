@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import uuid
 from contextlib import asynccontextmanager
 
@@ -13,6 +14,7 @@ from app.api import router as api_router
 from app.auth.routes import router as auth_router
 from app.config import settings
 from app.core.domain import AuthorizationDenied, DomainError
+from app.observability.telemetry import configure_telemetry, operation
 from app.services.domain import NotFoundError
 
 
@@ -22,7 +24,13 @@ async def lifespan(app: FastAPI):
         from app.api.voice_session import _voice_acknowledgement_cache
         # Load once and warm the approved voice before advertising readiness.
         await _voice_acknowledgement_cache().get()
-    yield
+    from app.observability.state import monitor_state
+    monitor = asyncio.create_task(monitor_state())
+    try:
+        yield
+    finally:
+        monitor.cancel()
+        await asyncio.gather(monitor, return_exceptions=True)
 
 
 app = FastAPI(title="The Creation OS", version="0.1.0", lifespan=lifespan)
@@ -43,7 +51,8 @@ app.include_router(api_router, prefix="/api/v1")
 async def add_correlation_id(request: Request, call_next):
     correlation_id = request.headers.get("X-Correlation-ID") or str(uuid.uuid4())
     request.state.correlation_id = correlation_id
-    response = await call_next(request)
+    with operation("http.server"):
+        response = await call_next(request)
     response.headers["X-Correlation-ID"] = correlation_id
     return response
 
@@ -68,3 +77,6 @@ async def global_exception_handler(request: Request, exc: Exception):
         error_type=exc.__class__.__name__,
     ).exception("unhandled server error")
     return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+
+
+configure_telemetry("api", app)

@@ -21,6 +21,7 @@ from app.inference.contracts import InferenceRequest, ModelRequirements
 from app.inference.router import ModelRouter
 from app.models.entities import Agent, Universe
 from app.models.opportunity import Opportunity, OpportunityLease, OpportunityThesis
+from app.observability.telemetry import traced
 from app.repositories.domain import DomainRepository
 from app.schemas.opportunity import OpportunityThesisCreate
 from app.services.opportunity import (
@@ -626,6 +627,7 @@ class OpportunityCompetitionWorker:
 
             return theses_created, True
 
+    @traced("opportunity.competition")
     async def run_once(self, creator_id: str) -> dict[str, int]:
         claimed = await self._claim(creator_id)
         theses_created = 0

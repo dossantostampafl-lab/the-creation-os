@@ -24,6 +24,7 @@ on:
           - smoke-test
           - stf-host-check
           - enable-connected-deus
+          - enable-observability
           - enable-public-discovery
           - enable-cyber-range-training
           - seed
@@ -325,10 +326,17 @@ jobs:
               if sudo grep -q '^STF_AUTO_TRAINING_ENABLED=true$' .env; then
                 profile_args+=(--profile security-task-force)
               fi
+              if sudo grep -q '^TELEMETRY_ENABLED=true$' .env; then
+                profile_args+=(--profile observability)
+              fi
               sudo "${COMPOSE[@]}" "${profile_args[@]}" up -d --build --remove-orphans
               sleep 30
               sudo ./deploy/oracle/check-inference.sh
               sudo ./deploy/oracle/smoke-test.sh --deus
+              ;;
+            enable-observability)
+              sudo git merge --ff-only "origin/$target"
+              sudo ./deploy/oracle/enable-observability.sh
               ;;
             enable-public-discovery)
               sudo git merge --ff-only "origin/$target"

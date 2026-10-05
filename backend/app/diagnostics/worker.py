@@ -35,6 +35,7 @@ from app.models.knowledge import (
     KnowledgeRevision,
 )
 from app.models.projection import ProjectionCheckpoint
+from app.observability.telemetry import traced
 from app.projections.system import (
     AGENT_PROJECTION,
     MEMORY_PROJECTION,
@@ -125,6 +126,7 @@ def local_voice_health(root: Path, enabled: bool) -> bool | None:
     )
 
 
+@traced("workers.diagnostics")
 async def collect() -> dict[str, ProbeResult]:
     async def db_probe() -> bool:
         async with AsyncSessionLocal() as session:
