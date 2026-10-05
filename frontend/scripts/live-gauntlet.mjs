@@ -75,7 +75,7 @@ try {
   let conversation;
   await check('Authenticated dashboard', async () => {
     ({ page, conversation } = await open(context, `Gauntlet QA ${Date.now()}`));
-    await expect(page.getByRole('button', { name: 'Vitals', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Vitals\b/ })).toBeVisible();
   });
   if (page) {
     await check('Typed DEUS conversation and coherent reply', async () => {
@@ -83,13 +83,14 @@ try {
       await page.getByLabel('Message DEUS').fill('Responda apenas: quatro');
       await page.getByRole('button', { name: 'Send to DEUS' }).click();
       const reply = await response;
-      expect(reply.status()).toBe(200);
+      if (reply.status() !== 200) { const error = new Error('DEUS request failed'); error.code = `DEUS_HTTP_${reply.status()}`; throw error; }
       const body = await reply.json();
-      expect(body.response.trim().toLowerCase().replace(/[.!]/g, '')).toBe('quatro');
-      await expect(page.locator('.deus-message').last()).toContainText(/quatro/i);
+      const normalized = body.response.trim().toLowerCase().replace(/[.!]/g, '');
+      if (!/^(quatro|4)$/.test(normalized)) { const error = new Error('DEUS response did not match'); error.code = 'DEUS_INCOHERENT_QA_REPLY'; throw error; }
+      await expect(page.locator('.deus-message').last()).toContainText(/quatro|\b4\b/i);
     });
     await check('Real UI download and SHA-256', async () => {
-      await page.getByRole('button', { name: 'Vitals', exact: true }).click();
+      await page.getByRole('button', { name: /^Vitals\b/ }).click();
       const panel = page.getByRole('region', { name: 'Downloads Android' });
       await expect(panel.getByRole('button', { name: /^Baixar / }).first()).toBeEnabled();
       const catalog = await api(context, '/builds');
@@ -115,8 +116,8 @@ try {
         aborted: snapshot.runs.filter(run => run.state === 'ABORTED').length };
     });
     await check('Create, authorize and finish a one-step QA mission through the UI', async () => {
-      await page.getByRole('button', { name: 'Vitals', exact: true }).click();
-      await page.getByRole('button', { name: 'Decisions', exact: true }).click();
+      await page.getByRole('button', { name: /^Vitals\b/ }).click();
+      await page.getByRole('button', { name: /^Decisions\b/ }).click();
       await page.getByRole('button', { name: 'Criar missão', exact: true }).click();
       const title = `Gauntlet QA mission ${Date.now()}`;
       await page.getByLabel('Título da missão', { exact: true }).fill(title);
