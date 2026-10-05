@@ -1,7 +1,7 @@
 // Manual, authenticated production QA. Only the named QA records are created.
 // Never log credentials, request headers, private conversation contents or screenshots.
 import { chromium, expect } from '@playwright/test';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { readFile, writeFile, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -48,6 +48,21 @@ async function open(context, title) {
   await page.goto(root, { waitUntil: 'domcontentloaded' });
   await expect(page.getByLabel('Message DEUS')).toBeEnabled();
   return { page, conversation };
+}
+async function waitForMission(context, id) {
+  const deadline = Date.now() + 120000;
+  while (Date.now() < deadline) {
+    const state = (await api(context, `/missions/${id}`)).status;
+    if (state === 'manifested') return;
+    if (state === 'failed') {
+      const tasks = await api(context, `/missions/${id}/tasks`);
+      const error = new Error('QA mission failed'); error.name = 'MissionFailed';
+      error.code = tasks.find(task => task.status === 'FAILED')?.error_json?.code;
+      throw error;
+    }
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+  const error = new Error('QA mission timed out'); error.code = 'MISSION_TIMEOUT'; throw error;
 }
 function wav(pcm) {
   const header = Buffer.alloc(44);
@@ -148,20 +163,37 @@ try {
       const mission = (await api(context, '/missions')).find(m => m.title === title);
       expect(mission).toBeTruthy();
       stage = 'EXECUTE_MISSION';
-      await expect.poll(async () => {
-        const state = (await api(context, `/missions/${mission.id}`)).status;
-        if (state === 'failed') {
-          const items = await api(context, `/missions/${mission.id}/tasks`);
-          const failure = new Error('QA mission failed'); failure.name = 'MissionFailed';
-          failure.code = items.find(t => t.status === 'FAILED')?.error_json?.code;
-          throw failure;
-        }
-        return state;
-      },
-        { timeout: 90000, intervals: [1000, 2000, 4000] }).toBe('manifested');
+      await waitForMission(context, mission.id);
       const tasks = await api(context, `/missions/${mission.id}/tasks`);
       expect(tasks.every(task => task.status === 'SUCCEEDED')).toBe(true);
       return { tasks: tasks.length };
+    });
+    await check('Twelve Universes execute sequential internal text tasks', async () => {
+      const universes = (await api(context, '/universes')).filter(u => u.active);
+      expect(universes.length).toBe(12);
+      const title = `Gauntlet QA twelve Universes ${Date.now()}`;
+      const objective = 'Validação interna e textual dos doze Universes. Cada etapa deve responder apenas quatro, sem ferramentas, capacidades, redes públicas ou efeitos externos.';
+      const source = await api(context, `/conversations/${conversation.id}/messages`, 'POST',
+        { content: `${title}\n${objective}`, client_message_id: randomUUID(), metadata: {} });
+      const inception = await api(context, '/inceptions', 'POST',
+        { conversation_id: conversation.id, source_message_id: source.id, title, description: objective });
+      await api(context, `/inceptions/${inception.id}/submit`, 'POST');
+      await api(context, `/inceptions/${inception.id}/approve`, 'POST');
+      const mission = await api(context, '/missions', 'POST', { inception_id: inception.id, title, objective });
+      await api(context, `/missions/${mission.id}/plan`, 'POST', {
+        strategy: 'Doze etapas textuais em sequência, sem efeitos externos.', completion_criteria: {},
+        steps: universes.map((u, i) => ({ step_key: `qa_${i + 1}`, title: `QA ${u.code}`,
+          description: 'Responda apenas: quatro. Não use ferramentas ou capacidades e não realize ações externas.',
+          universe: u.code, position: i + 1, depends_on: i ? [`qa_${i}`] : [], completion_criteria: {} })),
+      });
+      await api(context, `/missions/${mission.id}/validate`, 'POST');
+      await api(context, `/missions/${mission.id}/start`, 'POST');
+      await waitForMission(context, mission.id);
+      const tasks = await api(context, `/missions/${mission.id}/tasks`);
+      expect(tasks.length).toBe(12);
+      expect(new Set(tasks.map(t => t.universe_id)).size).toBe(12);
+      expect(tasks.every(t => t.status === 'SUCCEEDED')).toBe(true);
+      return { universes: 12, succeeded_tasks: tasks.length, external_actions: false };
     });
   }
   await check('Secondary service failure preserves real DEUS chat', async () => {
@@ -178,7 +210,7 @@ try {
   await context.close();
   await browser.close();
   browser = null;
-  await check('Synthetic microphone → wake word → STT → DEUS → audible PCM', async () => {
+  await check('Synthetic microphone → wake word → STT → DEUS → returned PCM', async () => {
     const audioPath = join(workspace, 'qa-microphone.wav');
     await writeFile(audioPath, wav(Buffer.from(credentials.audio_base64, 'base64')));
     const voiceBrowser = await chromium.launch({ args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream',

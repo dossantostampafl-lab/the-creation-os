@@ -11,6 +11,7 @@ O roteiro verifica:
 - Downloads Android iniciados pelos botões e verificados por tamanho e SHA-256.
 - Treinamento com ao menos uma campanha realmente `COMPLETED`.
 - Criação, validação, autorização, execução e conclusão de uma missão textual de QA.
+- Uma missão adicional com doze etapas sequenciais, uma por Universe ativo, sem efeitos externos. Confere doze tarefas bem-sucedidas em doze Universes distintos; não certifica autonomia em redes públicas.
 - Chat após uma falha de rede simulada somente no serviço de projeções.
 - Áudio sintético entrando pelo microfone do Chromium, wake word, transcrição, resposta textual e PCM retornado.
 
