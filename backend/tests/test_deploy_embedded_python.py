@@ -10,6 +10,7 @@ Compiling the source is cheap and does not need a container, a stub, or a server
 
 from __future__ import annotations
 
+import ast
 import py_compile
 import re
 import tempfile
@@ -40,6 +41,26 @@ def _blocks() -> list[tuple[str, int, str]]:
 def test_there_is_python_to_check() -> None:
     """A regex that matches nothing would make every assertion below vacuous."""
     assert len(_blocks()) >= 4, [b[:2] for b in _blocks()]
+
+
+def test_temporal_probe_runs_with_training_without_context_retrieval(monkeypatch) -> None:
+    import os
+    monkeypatch.setenv('DEUS_CONTEXT_RETRIEVAL_ENABLED', 'false')
+    monkeypatch.setenv('STF_AUTO_TRAINING_ENABLED', 'true')
+    source = (DEPLOY / 'smoke-test.sh').read_text().split("<<'PY'\n", 1)[1].rsplit('\nPY', 1)[0]
+    tree = ast.parse(source)
+    gates = []
+
+    def visit(node, ancestors):
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == 'check_temporal':
+            gates.extend(ancestors)
+        for child in ast.iter_child_nodes(node):
+            visit(child, ancestors + ([node.test] if isinstance(node, ast.If) else []))
+
+    visit(tree, [])
+    assert gates, 'Temporal probe must be guarded by runtime configuration'
+    scope = {'os': os, 'training_enabled': True, 'diagnostics_enabled': False}
+    assert all(eval(compile(ast.Expression(gate), '<gate>', 'eval'), scope) for gate in gates)
 
 
 @pytest.mark.parametrize("name,index,code", _blocks(), ids=lambda v: v if isinstance(v, str) else None)
