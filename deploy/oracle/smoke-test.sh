@@ -33,6 +33,7 @@ frontend_source_sha="$(cd frontend && { find src public -type f -print; printf '
 
 docker exec -i -e TCO_WITH_DEUS="$with_deus" "$container" python - "$frontend_source_sha" <<'PY'
 import asyncio
+import hashlib
 import json
 import os
 import re
@@ -107,6 +108,8 @@ with httpx.Client(base_url=BASE, timeout=45) as client:
     for name, path in [
         ("universes", "/universes"),
         ("agents", "/agents"),
+        ("training dashboard", "/cyber-range/training"),
+        ("build downloads catalog", "/builds"),
         ("missions", "/missions"),
         ("inceptions", "/inceptions"),
         ("conversations", "/conversations"),
@@ -134,6 +137,17 @@ with httpx.Client(base_url=BASE, timeout=45) as client:
             else:
                 detail = ""
         report(name, ok, detail)
+
+    builds = client.get("/builds")
+    if builds.status_code == 200 and builds.json().get("status") == "available":
+        for artifact in builds.json().get("files", []):
+            download = client.get(f"/builds/{artifact['id']}/download")
+            valid = (download.status_code == 200
+                     and len(download.content) == artifact["size_bytes"]
+                     and hashlib.sha256(download.content).hexdigest() == artifact["sha256"])
+            report(f"authenticated download {artifact['id']}", valid, f"HTTP {download.status_code}")
+    elif builds.status_code == 200:
+        print("   INFO  Android artifacts have not been published yet; no download was certified.")
 
     # The count alone hid three legacy rows that the canonical seeder cannot match, because it
     # reconciles by code and theirs are not canonical codes. Naming them makes that visible.

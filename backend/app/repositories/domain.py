@@ -95,6 +95,14 @@ class DomainRepository:
             Message.id == message_id, Message.conversation_id == conversation_id
         ))
 
+    async def creator_message_by_client_id(self, conversation_id: str, actor_id: str, client_message_id: str) -> Message | None:
+        return await self.session.scalar(select(Message).where(
+            Message.conversation_id == conversation_id,
+            Message.actor_id == actor_id,
+            Message.role == "creator",
+            Message.metadata_json["client_message_id"].as_string() == client_message_id,
+        ))
+
     async def list_messages(self, conversation_id: str, limit: int = 20) -> list[Message]:
         stmt = (
             select(Message)

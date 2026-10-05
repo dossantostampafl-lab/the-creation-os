@@ -41,7 +41,17 @@ async def training_status(a: Actor = Depends(actor), session: AsyncSession = Dep
         StfRun.creator_id == a.id,
         StfRun.mission_id.in_([training_mission_id(code) for code in codes]),
     ).order_by(StfRun.created_at.desc()).limit(50))).all()
+    # The scheduler considers every unfinished run, independently of recent history.
+    active = await session.scalar(select(StfRun).where(
+        StfRun.mission_id.in_([training_mission_id(code) for code in codes]),
+        StfRun.state.notin_(('COMPLETED', 'ABORTED')),
+    ).order_by(StfRun.created_at.asc()).limit(1))
+    def run_view(run: StfRun):
+        return {'id': run.id, 'mission_id': run.mission_id, 'state': run.state,
+                'desired_state': run.desired_state, 'created_at': run.created_at.isoformat()}
     return {
+        'range_busy': active is not None,
+        'active_run': run_view(active) if active is not None and active.creator_id == a.id else None,
         'worker_enabled': settings.stf_auto_training_enabled,
         'controller_configured': bool(settings.cyber_range_controller_url),
         'environment': 'cyber_range:lab-a',
@@ -51,8 +61,7 @@ async def training_status(a: Actor = Depends(actor), session: AsyncSession = Dep
             'active': agents[spec.code].active if spec.code in agents else False,
             'registered': spec.code in agents,
         } for spec in TRAINING_AGENT_SPECS],
-        'runs': [{'id': run.id, 'mission_id': run.mission_id, 'state': run.state,
-                  'desired_state': run.desired_state, 'created_at': run.created_at.isoformat()} for run in runs],
+        'runs': [run_view(run) for run in runs],
     }
 
 

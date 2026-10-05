@@ -104,14 +104,26 @@ class LivingCoreService:
         require_creator(actor, "control DEUS")
         return await self._owned(Conversation, entity_id, actor)
 
-    async def add_message(self, actor: Actor, entity_id: str, content: str, metadata: dict[str, Any], correlation_id: str):
+    async def add_message(self, actor: Actor, entity_id: str, content: str, metadata: dict[str, Any], correlation_id: str,
+                          client_message_id: str | None = None):
         require_creator(actor, "speak directly with DEUS")
         conversation = await self._owned(Conversation, entity_id, actor, lock=True)
+        if client_message_id:
+            # The Conversation row lock serializes concurrent replays across independent sessions.
+            existing = await self.repo.creator_message_by_client_id(entity_id, actor.id, client_message_id)
+            if existing is not None:
+                if existing.content != content:
+                    raise InvalidOrigin("Client message ID was already used with different content")
+                await self.repo.commit()
+                return existing
         if conversation.status != ConversationStatus.ACTIVE.value:
             transition("conversation", ConversationStatus(conversation.status), ConversationStatus.ACTIVE)
+        message_metadata = {key: value for key, value in metadata.items() if key != "client_message_id"}
+        if client_message_id:
+            message_metadata["client_message_id"] = client_message_id
         message = await self.repo.add(Message(
             conversation_id=entity_id, actor_id=actor.id, role=actor.role, content=content,
-            route="deus", metadata_json=metadata, correlation_id=correlation_id,
+            route="deus", metadata_json=message_metadata, correlation_id=correlation_id,
         ))
         await self.repo.add_event("conversation_message_added", "conversation", entity_id, actor.id, actor.role,
                                   correlation_id, {"message_id": message.id})
@@ -354,16 +366,20 @@ class LivingCoreService:
             raise InvalidOrigin("Mission plan requires executable steps")
         return plan, steps
 
+    async def _ready_universe_agent(self, code: str) -> tuple[Universe, Agent]:
+        universe = await self.repo.get_by_code(Universe, code)
+        if universe is None or not universe.active:
+            raise InvalidOrigin(f"Universe {code} is unavailable for distribution")
+        agents = [agent for agent in await self.repo.list_agents(universe.id) if agent.active]
+        if not agents:
+            raise InvalidOrigin(f"Universe {code} has no active Agent")
+        return universe, agents[0]
+
     async def _distribute(self, item: Mission, actor: Actor, correlation_id: str) -> None:
         _, steps = await self._plan_for_mission(item.id)
         validate_distribution(mission_status=item.status, step_count=len(steps))
         for step in steps:
-            universe = await self.repo.get_by_code(Universe, step.universe)
-            if universe is None or not universe.active:
-                raise InvalidOrigin(f"Universe {step.universe} is unavailable for distribution")
-            agents = [agent for agent in await self.repo.list_agents(universe.id) if agent.active]
-            if not agents:
-                raise InvalidOrigin(f"Universe {step.universe} has no active Agent")
+            universe, agent = await self._ready_universe_agent(step.universe)
             idempotency_key = f"{item.id}:{step.step_key}"
             existing = await self.repo.session.scalar(select(Task).where(Task.idempotency_key == idempotency_key))
             if existing is not None:
@@ -373,7 +389,7 @@ class LivingCoreService:
                 mission_id=item.id,
                 step_id=step.id,
                 universe_id=universe.id,
-                agent_id=agents[0].id,
+                agent_id=agent.id,
                 status=task_status,
                 input_json={
                     "mission_objective": item.objective,
@@ -410,7 +426,10 @@ class LivingCoreService:
             item.status = transition("mission", current, target)
             event = "mission_validated"
         elif target == MissionStatus.AUTHORIZED:
-            await self._plan_for_mission(item.id)
+            _, executable_steps = await self._plan_for_mission(item.id)
+            # Reject missing executors before persisting authorization or its Chronicle event.
+            for code in dict.fromkeys(step.universe for step in executable_steps):
+                await self._ready_universe_agent(code)
             item.status = transition("mission", current, target)
             item.authorization_json = {
                 "authorized_by": actor.id,

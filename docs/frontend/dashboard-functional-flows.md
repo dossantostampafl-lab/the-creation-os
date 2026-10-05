@@ -10,9 +10,9 @@ Endpoints: `GET /api/v1/cyber-range/training`, `POST /api/v1/cyber-range/trainin
 
 ## Missões
 
-No painel de decisões, “Criar missão” abre o planejamento manual. O Criador fornece título, objetivo, estratégia e etapas sequenciais atribuídas aos universos ativos. O fluxo guarda a mensagem de origem, cria e aprova a inception, cria a missão, salva o plano e o valida. O início requer confirmação separada e mantém as verificações de autorização existentes.
+No painel de decisões, “Criar missão” abre o planejamento manual. O Criador fornece título, objetivo, estratégia e etapas sequenciais atribuídas aos universos ativos. O fluxo guarda a mensagem de origem, cria e aprova a inception, cria a missão, salva o plano e o valida. O início requer confirmação separada. O servidor verifica que cada Universe está ativo e possui um agente ativo antes de gravar a autorização; a interface identifica os Universes sem executor.
 
-A lista permite consultar missões e tarefas reais, incluindo tentativas e erros. O rascunho e os identificadores persistem em `sessionStorage` para retomar falhas temporárias. O logout remove o rascunho. Não se usa geração de plano por provedor pago.
+A lista permite consultar missões e tarefas reais, incluindo tentativas e erros. O rascunho e os identificadores persistem em `sessionStorage` para retomar falhas temporárias. A mensagem de origem recebe uma chave persistida antes do envio; tentativas repetidas recuperam o mesmo registro no servidor, e conteúdo diferente com a mesma chave é recusado. Objetivos longos preservam o texto completo na proposta e na missão, usando um trecho seguro em UTF-8 na mensagem de origem. O logout remove o rascunho. Não se usa geração de plano por provedor pago.
 
 ## Downloads Android
 
@@ -30,7 +30,7 @@ node frontend/scripts/create-build-manifest.mjs staging COMMIT_SHA
 bash deploy/oracle/publish-builds.sh staging /caminho/do/checkout/releases
 ```
 
-Versões são imutáveis; uma versão já publicada não é sobrescrita. O manifesto atual é trocado atomicamente depois da cópia e validação. Arquivos ausentes ou corrompidos geram erro explícito, sem link de download. Os endpoints exigem sessão do Criador: `GET /api/v1/builds` e `GET /api/v1/builds/{artifact_id}/download`.
+Versões são imutáveis; uma versão já publicada não é sobrescrita. Reexecutar a mesma versão retoma a publicação do manifesto apenas quando todos os arquivos instalados coincidem exatamente com o inventário, tamanho e SHA-256 declarados; qualquer diferença é recusada. O manifesto atual é trocado atomicamente depois da cópia e validação. Arquivos ausentes ou corrompidos geram erro explícito, sem link de download. Os endpoints exigem sessão do Criador: `GET /api/v1/builds` e `GET /api/v1/builds/{artifact_id}/download`.
 
 ## DEUS e validação
 
@@ -38,4 +38,4 @@ Turnos conversacionais com o construtor de contexto reutilizam sua leitura de ag
 
 O smoke do deploy verifica três turnos com conteúdo: preferência de voz, recuperação dessa preferência no contexto e obediência a uma resposta curta especificada. Registra a duração de cada turno e falha em incoerência; apenas receber texto não basta. A qualidade do timbre e a captura do microfone precisam também de avaliação no dispositivo real.
 
-Validação local desta implementação: 902 testes backend passaram, com oito skips por capacidades ausentes no ambiente; 63 testes Chromium, 43 testes unitários frontend, Ruff, mypy em 199 módulos, build frontend e Android, assinatura do APK debug e configuração Compose passaram. A publicação e a medição no servidor são etapas distintas destes checks locais.
+Validação local desta implementação: 925 testes backend passaram, com oito skips por capacidades ausentes no ambiente; 68 testes Chromium, 43 testes unitários frontend, Ruff, mypy em 199 módulos, build frontend e Android, assinatura do APK debug e configuração Compose passaram. A publicação e a medição no servidor são etapas distintas destes checks locais.

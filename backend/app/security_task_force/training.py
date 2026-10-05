@@ -232,12 +232,10 @@ class AutomaticRangeTraining:
             )
             if active is not None:
                 await session.commit()
-                return {
-                    "status": "busy",
-                    "run_id": active.id,
-                    "mission_id": active.mission_id,
-                    "agents_ready": len(available_codes),
-                }
+                result: dict[str, object] = {"status": "busy", "agents_ready": len(available_codes)}
+                if active.creator_id == creator_id:
+                    result.update(run_id=active.id, mission_id=active.mission_id)
+                return result
 
             rows = (
                 await session.execute(

@@ -51,22 +51,40 @@ for entry in files:
     path = source / entry['filename']
     if path.is_symlink() or not path.is_file() or path.stat().st_size != entry['size_bytes'] or digest(path) != entry['sha256']:
         raise SystemExit('Missing, unsafe or corrupt artifact')
+def verify_version(directory):
+    # A retry may reuse exactly these immutable bytes, never an incomplete or different release.
+    if directory.is_symlink() or not directory.is_dir():
+        raise SystemExit('Existing version must be a regular directory without symlinks')
+    expected = {entry['filename'] for entry in files}
+    if {path.name for path in directory.iterdir()} != expected:
+        raise SystemExit('Existing version artifact inventory differs from the manifest')
+    for entry in files:
+        artifact = directory / entry['filename']
+        if artifact.is_symlink() or not artifact.is_file():
+            raise SystemExit('Existing version contains an unsafe artifact')
+        if artifact.stat().st_size != entry['size_bytes'] or digest(artifact) != entry['sha256']:
+            raise SystemExit('Existing version artifact integrity differs from the manifest')
+
+
 destination = root / version
 if destination.exists() or destination.is_symlink():
-    raise SystemExit('Version already exists; choose a new immutable version')
-temporary = Path(tempfile.mkdtemp(prefix='.publish-', dir=root))
-try:
-    for entry in files:
-        output = temporary / entry['filename']
-        shutil.copyfile(source / entry['filename'], output)
-        if output.stat().st_size != entry['size_bytes'] or digest(output) != entry['sha256']:
-            raise SystemExit('Artifact changed during publication')
-        output.chmod(0o644)
-    temporary.chmod(0o755)
-    os.rename(temporary, destination)
-finally:
-    if temporary.exists():
-        shutil.rmtree(temporary)
+    # A previous run may have installed this directory before its manifest replace failed.
+    # Verify the whole inventory and leave every existing file untouched before resuming.
+    verify_version(destination)
+else:
+    temporary = Path(tempfile.mkdtemp(prefix='.publish-', dir=root))
+    try:
+        for entry in files:
+            output = temporary / entry['filename']
+            shutil.copyfile(source / entry['filename'], output)
+            if output.stat().st_size != entry['size_bytes'] or digest(output) != entry['sha256']:
+                raise SystemExit('Artifact changed during publication')
+            output.chmod(0o644)
+        temporary.chmod(0o755)
+        os.rename(temporary, destination)
+    finally:
+        if temporary.exists():
+            shutil.rmtree(temporary)
 fd, current = tempfile.mkstemp(prefix='.manifest-', dir=root)
 try:
     with os.fdopen(fd, 'w') as stream:

@@ -56,6 +56,12 @@ def executable_plan(strategy: str = "central plan") -> dict:
     }
 
 
+async def prepare_execution_universe(service, actor, correlation_id):
+    universe = await service.create_universe(actor, "engineering", "Engineering", correlation_id)
+    await service.set_universe_active(actor, universe.id, True, correlation_id)
+    await service.create_agent(actor, "engineer", "Engineer", universe.id, {}, correlation_id)
+
+
 async def build_approved(service, actor, correlation_id):
     conversation = await service.create_conversation(actor, "PostgreSQL integration", correlation_id)
     message = await service.add_message(actor, conversation.id, "Explicit intention", {"channel": "test"}, correlation_id)
@@ -74,6 +80,7 @@ async def test_complete_persistence_flow_and_session_restart(database, creator):
         mission = await service.create_mission(creator, inception.id, "Mission", "Objective", cid)
         await service.transition_mission(creator, mission.id, MissionStatus.PLANNED, cid, executable_plan())
         await service.transition_mission(creator, mission.id, MissionStatus.VALIDATED, cid)
+        await prepare_execution_universe(service, creator, cid)
         await service.transition_mission(creator, mission.id, MissionStatus.AUTHORIZED, cid)
         await service.close_conversation(creator, conversation.id, cid)
         await service.archive_conversation(creator, conversation.id, cid)
@@ -145,6 +152,7 @@ async def test_authorized_mission_blocks_inception_cancel(database, creator):
         mission = await service.create_mission(creator, inception.id, "Mission", "Objective", cid)
         await service.transition_mission(creator, mission.id, MissionStatus.PLANNED, cid, executable_plan("p"))
         await service.transition_mission(creator, mission.id, MissionStatus.VALIDATED, cid)
+        await prepare_execution_universe(service, creator, cid)
         await service.transition_mission(creator, mission.id, MissionStatus.AUTHORIZED, cid)
         with pytest.raises(InvalidOrigin):
             await service.transition_inception(creator, inception.id, InceptionStatus.CANCELLED, cid)

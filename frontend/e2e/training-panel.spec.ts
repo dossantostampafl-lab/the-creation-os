@@ -35,3 +35,9 @@ test('unavailable roster has a recovery control',async({page})=>{
   await expect(panel.getByRole('alert')).toBeVisible();failed=false;await panel.getByRole('button',{name:'Atualizar treinamento'}).click();
   await expect(panel.getByRole('alert')).toHaveCount(0);await expect(panel.getByRole('button',{name:'Treinar STF Red Recon'})).toBeDisabled();
 });
+test('unfinished cycle outside recent history still blocks a new training request',async({page})=>{
+  await page.route('**/api/v1/cyber-range/training',route=>route.fulfill({json:{worker_enabled:true,controller_configured:true,environment:'cyber_range:lab-a',agents:[agent],runs:[],range_busy:true,active_run:{id:'older-run',mission_id:'stf-training:stf-red-recon',state:'QUEUED',desired_state:'RUN',created_at:new Date().toISOString()}}}));
+  await show(page);const panel=page.getByRole('region',{name:'Treinamento Cyber Range'}).last();
+  await expect(panel.getByText('Ciclo older-run: QUEUED')).toBeVisible();
+  await expect(panel.getByRole('button',{name:'Treinar STF Red Recon'})).toBeDisabled();
+});

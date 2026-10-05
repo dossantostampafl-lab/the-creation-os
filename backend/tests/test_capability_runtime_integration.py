@@ -83,6 +83,9 @@ async def authorized_mission(database) -> tuple[Actor, str]:
             "completion_criteria": {"done": True},
         })
         await service.transition_mission(actor, mission.id, MissionStatus.VALIDATED, cid)
+        universe = await service.create_universe(actor, "engineering", "Engineering", cid)
+        await service.set_universe_active(actor, universe.id, True, cid)
+        await service.create_agent(actor, "engineer", "Engineer", universe.id, {}, cid)
         await service.transition_mission(actor, mission.id, MissionStatus.AUTHORIZED, cid)
         await set_mission_authorization(
             service.repo,

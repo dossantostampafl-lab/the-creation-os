@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CREATOR_CONVERSATION_KEY, createConversation, decideInception, fetchInception, fetchInceptions, fetchMission, startMission } from './api';
 import type { Mission } from './api';
-import { createManualInception, createManualMission, createMissionSource, fetchAllMissions, fetchMissionTasks, fetchMissionUniverses, saveManualMissionPlan, submitManualInception, validateManualMission } from './missionApi';
+import { newRequestId } from './requestId';
+import { createManualInception, createManualMission, createMissionSource, missionSourceContent, fetchAllMissions, fetchMissionTasks, fetchMissionUniverses, fetchMissionAgents, saveManualMissionPlan, submitManualInception, validateManualMission } from './missionApi';
 import type { MissionTask } from './missionApi';
-import type { UniverseView } from './types';
+import type { AgentView, UniverseView } from './types';
 import './MissionWorkbench.css';
 
 type Step = {title:string;description:string;universe:string};
 type Draft = {
   title:string;objective:string;strategy:string;steps:Step[];
-  conversationId?:string;sourceId?:string;inceptionId?:string;missionId?:string;planSaved?:boolean;planSubmitted?:boolean;
+  conversationId?:string;sourceId?:string;sourceRequestId?:string;inceptionId?:string;missionId?:string;planSaved?:boolean;planSubmitted?:boolean;
 };
 const DRAFT_KEY = 'creation_manual_mission_draft';
 const emptyDraft = (): Draft => ({title:'',objective:'',strategy:'',steps:[{title:'',description:'',universe:''}]});
@@ -30,6 +31,7 @@ export function MissionWorkbench({onChanged}: {onChanged:()=>void}) {
   const [draft,setDraft] = useState<Draft>(loadDraft);
   const draftRef = useRef(draft);
   const [universes,setUniverses] = useState<UniverseView[]>([]);
+  const [agents,setAgents] = useState<AgentView[]>([]);
   const [missions,setMissions] = useState<Mission[]>([]);
   const [selected,setSelected] = useState<Mission|null>(null);
   const [tasks,setTasks] = useState<MissionTask[]|null>(null);
@@ -46,8 +48,8 @@ export function MissionWorkbench({onChanged}: {onChanged:()=>void}) {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [all,available] = await Promise.all([fetchAllMissions(),fetchMissionUniverses()]);
-      setMissions(all); setUniverses(available); setError('');
+      const [all,available,executors] = await Promise.all([fetchAllMissions(),fetchMissionUniverses(),fetchMissionAgents()]);
+      setMissions(all); setUniverses(available); setAgents(executors); setError('');
     } catch (failure) { setError(`Não foi possível carregar missões e Universes. ${readableError(failure)}`); }
     finally { setLoading(false); }
   },[]);
@@ -73,7 +75,10 @@ export function MissionWorkbench({onChanged}: {onChanged:()=>void}) {
         const id = existing ?? (await createConversation('Planejamento de missão')).id;
         localStorage.setItem(CREATOR_CONVERSATION_KEY,id); remember({conversationId:id});
       }
-      if (!current.sourceId) remember({sourceId:(await createMissionSource(current.conversationId!,`${current.title}\n${current.objective}`)).id});
+      if (!current.sourceId) {
+        if (!current.sourceRequestId) remember({sourceRequestId:newRequestId()});
+        remember({sourceId:(await createMissionSource(current.conversationId!,missionSourceContent(current.title,current.objective),current.sourceRequestId!)).id});
+      }
       if (!current.inceptionId) {
         // The Conversation/source pair is unique; recover a committed creation before retrying POST.
         const existing = (await fetchInceptions()).find(item => item.conversation_id === current.conversationId && item.source_message_id === current.sourceId);
@@ -103,6 +108,10 @@ export function MissionWorkbench({onChanged}: {onChanged:()=>void}) {
       setSelected(mission); setTasks(null); setConfirm(null); setNotice('Missão validada. Aguardando sua autorização.');
       setMissions(await fetchAllMissions()); onChanged();
     } catch (failure) {
+      if (!current.sourceId && failure instanceof Error && failure.message === 'HTTP_422') {
+        // A rejected request created no message; allow correcting the source with a new key.
+        remember({sourceRequestId:undefined});
+      }
       if (current.missionId && current.planSubmitted) {
         try {
           const persisted = await fetchMission(current.missionId);
@@ -123,7 +132,10 @@ export function MissionWorkbench({onChanged}: {onChanged:()=>void}) {
     } catch (failure) { setError(readableError(failure)); setConfirm(null); onChanged(); }
     finally { setBusy(false); }
   }
-  const locked = Boolean(draft.sourceId);
+  const locked = Boolean(draft.sourceId || draft.sourceRequestId);
+  const hasExecutor = (universe:UniverseView) => agents.some(agent=>agent.active && agent.universe_id===universe.id);
+  const unavailable = universes.filter(universe=>!universe.active || !hasExecutor(universe));
+  const selectedUnavailable = draft.steps.some(step=>step.universe && !universes.some(universe=>universe.code===step.universe && universe.active && hasExecutor(universe)));
   const completed = Boolean(selected && draft.missionId && selected.id === draft.missionId && !['drafted','planned'].includes(selected.status));
   return <section className="mission-workbench" aria-label="Planejamento e acompanhamento de missões">
     <h3>Criar e planejar missão</h3>
@@ -131,25 +143,26 @@ export function MissionWorkbench({onChanged}: {onChanged:()=>void}) {
     <form onSubmit={event => {event.preventDefault();setConfirm('create');setError('');}}>
       <fieldset disabled={busy}>
         <label>Título da missão<input disabled={locked} value={draft.title} minLength={3} maxLength={256} required onChange={event=>change('title',event.target.value)}/></label>
-        <label>Objetivo da missão<textarea disabled={locked} value={draft.objective} maxLength={3700} required onChange={event=>change('objective',event.target.value)}/></label>
+        <label>Objetivo da missão<textarea disabled={locked} value={draft.objective} maxLength={8000} required onChange={event=>change('objective',event.target.value)}/></label>
         <label>Estratégia<textarea disabled={draft.planSaved || draft.planSubmitted} value={draft.strategy} maxLength={12000} required onChange={event=>change('strategy',event.target.value)}/></label>
         {draft.steps.map((step,index) => <fieldset disabled={draft.planSaved || draft.planSubmitted} key={index} className="mission-step"><legend>Etapa {index+1}</legend>
           <label>Título da etapa {index+1}<input value={step.title} maxLength={256} required onChange={event=>changeStep(index,'title',event.target.value)}/></label>
           <label>Descrição da etapa {index+1}<textarea value={step.description} maxLength={8000} required onChange={event=>changeStep(index,'description',event.target.value)}/></label>
-          <label>Universe da etapa {index+1}<select value={step.universe} required onChange={event=>changeStep(index,'universe',event.target.value)}><option value="">Selecione um Universe</option>{universes.map(item=><option key={item.id} value={item.code} disabled={!item.active}>{item.name}{item.active?'':' (inativo)'}</option>)}</select></label>
+          <label>Universe da etapa {index+1}<select value={step.universe} required onChange={event=>changeStep(index,'universe',event.target.value)}><option value="">Selecione um Universe</option>{universes.map(item=><option key={item.id} value={item.code} disabled={!item.active || !hasExecutor(item)}>{item.name}{!item.active?' (inativo)':hasExecutor(item)?'':' (sem agente ativo)'}</option>)}</select></label>
           {index>0 && <small>Depende da etapa {index}.</small>}
           {draft.steps.length>1 && <button type="button" onClick={()=>save({...draftRef.current,steps:draftRef.current.steps.filter((_,i)=>i!==index)})}>Remover etapa {index+1}</button>}
         </fieldset>)}
         <button type="button" disabled={draft.planSaved || draft.planSubmitted} onClick={()=>save({...draftRef.current,steps:[...draftRef.current.steps,{title:'',description:'',universe:''}]})}>Adicionar etapa</button>
       </fieldset>
-      {!completed && <button type="submit" disabled={busy || loading || !universes.length}>{locked?'Continuar criação e plano':'Revisar criação e plano'}</button>}
+      {!completed && <button type="submit" disabled={busy || loading || !universes.length || selectedUnavailable}>{locked?'Continuar criação e plano':'Revisar criação e plano'}</button>}
     </form>
-    {confirm === 'create' && <div className="decision-confirm"><p>Confirmar aprovação da proposta e salvar o plano de “{draft.title}” com {draft.steps.length} etapa(s)?</p><button type="button" disabled={busy} onClick={()=>void createAndPlan()}>Confirmar criação e validação</button><button type="button" disabled={busy} onClick={()=>setConfirm(null)}>Voltar ao plano</button></div>}
+    {confirm === 'create' && <div className="decision-confirm"><p>Confirmar aprovação da proposta e salvar o plano de “{draft.title}” com {draft.steps.length} etapa(s)?</p><button type="button" disabled={busy || selectedUnavailable} onClick={()=>void createAndPlan()}>Confirmar criação e validação</button><button type="button" disabled={busy} onClick={()=>setConfirm(null)}>Voltar ao plano</button></div>}
     {notice && <p role="status">{notice}</p>}
     {busy && <p role="status">Salvando ou atualizando missão…</p>}
     {error && <p className="console-error" role="alert">{error}</p>}
     {locked && <p>Os dados estão preservados para continuar esta missão.</p>}
     {completed && <button type="button" disabled={busy} onClick={()=>{save(emptyDraft());setNotice('');}}>Planejar outra missão</button>}
+    {unavailable.map(universe=><p key={universe.id}>{universe.name}: {universe.active?'sem agente ativo.':'Universe inativo.'}</p>)}
     <h3>Acompanhar missões</h3>
     <button type="button" disabled={busy || loading} onClick={()=>void refresh()}>Atualizar missões e Universes</button>
     {loading && <p role="status">Carregando missões…</p>}

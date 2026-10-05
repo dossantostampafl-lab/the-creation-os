@@ -113,7 +113,8 @@ async def add_message(
     cid: str = Depends(correlation_id),
     s: LivingCoreService = Depends(service),
 ):
-    item = await s.add_message(a, str(entity_id), body.content, body.metadata, cid)
+    item = await s.add_message(a, str(entity_id), body.content, body.metadata, cid,
+                               client_message_id=body.client_message_id or (str(body.request_id) if body.request_id else None))
     return ConversationMessageResponse(**{name: getattr(item, name) for name in ConversationMessageResponse.model_fields})
 
 
