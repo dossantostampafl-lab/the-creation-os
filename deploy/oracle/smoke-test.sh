@@ -211,83 +211,83 @@ with httpx.Client(base_url=BASE, timeout=45) as client:
             if name == "Cyber Range configuration" and response.status_code == 200 and os.getenv("STF_AUTO_TRAINING_ENABLED", "").lower() == "true":
                 report("Cyber Range available for automatic training", response.json().get("status") == "available",
                        str(response.json().get("status", "unknown")))
-        diagnostics_enabled = os.getenv("DEUS_DIAGNOSTICS_ENABLED", "").lower() == "true"
-        training_enabled = os.getenv("STF_AUTO_TRAINING_ENABLED", "").lower() == "true"
-        if diagnostics_enabled or training_enabled:
-            async def check_connected_runtime():
-                from datetime import datetime, timedelta, timezone
-                from sqlalchemy import func, select
-                from app.db.session import AsyncSessionLocal
-                from app.diagnostics.heartbeat import ServiceHeartbeat
-                from app.models.entities import Agent
-                from app.models.security_task_force import StfRun
-                from app.security_task_force.training import TRAINING_AGENT_SPECS, training_mission_id
+    diagnostics_enabled = os.getenv("DEUS_DIAGNOSTICS_ENABLED", "").lower() == "true"
+    training_enabled = os.getenv("STF_AUTO_TRAINING_ENABLED", "").lower() == "true"
+    if diagnostics_enabled or training_enabled:
+        async def check_connected_runtime():
+            from datetime import datetime, timedelta, timezone
+            from sqlalchemy import func, select
+            from app.db.session import AsyncSessionLocal
+            from app.diagnostics.heartbeat import ServiceHeartbeat
+            from app.models.entities import Agent
+            from app.models.security_task_force import StfRun
+            from app.security_task_force.training import TRAINING_AGENT_SPECS, training_mission_id
 
-                expected = set()
-                if diagnostics_enabled:
-                    expected.update({"task-worker", "knowledge-worker", "diagnostics-worker"})
-                    if os.getenv("DEUS_AUTONOMY_DISCOVERY_ENABLED", "").lower() == "true":
-                        expected.add("discovery-worker")
-                    if os.getenv("DEUS_AUTONOMY_COMPETITION_ENABLED", "").lower() == "true":
-                        expected.add("opportunity-worker")
+            expected = set()
+            if diagnostics_enabled:
+                expected.update({"task-worker", "knowledge-worker", "diagnostics-worker"})
+                if os.getenv("DEUS_AUTONOMY_DISCOVERY_ENABLED", "").lower() == "true":
+                    expected.add("discovery-worker")
+                if os.getenv("DEUS_AUTONOMY_COMPETITION_ENABLED", "").lower() == "true":
+                    expected.add("opportunity-worker")
+            if training_enabled:
+                expected.add("stf-training-worker")
+
+            async with AsyncSessionLocal() as session:
+                services = set(await session.scalars(select(ServiceHeartbeat.service).where(
+                    ServiceHeartbeat.valid_until > datetime.now(timezone.utc))))
+                missing = sorted(expected - services)
+                training_agents = training_runs = None
+                stalled_training = 0
                 if training_enabled:
-                    expected.add("stf-training-worker")
-
-                async with AsyncSessionLocal() as session:
-                    services = set(await session.scalars(select(ServiceHeartbeat.service).where(
-                        ServiceHeartbeat.valid_until > datetime.now(timezone.utc))))
-                    missing = sorted(expected - services)
-                    training_agents = training_runs = None
-                    stalled_training = 0
-                    if training_enabled:
-                        codes = [item.code for item in TRAINING_AGENT_SPECS]
-                        missions = [training_mission_id(item.code) for item in TRAINING_AGENT_SPECS]
-                        training_agents = int(await session.scalar(
-                            select(func.count()).select_from(Agent).where(
-                                Agent.code.in_(codes)
-                            )
-                        ) or 0)
-                        training_runs = int(await session.scalar(
-                            select(func.count()).select_from(StfRun).where(
-                                StfRun.mission_id.in_(missions)
-                            )
-                        ) or 0)
-                        stalled_training = int(await session.scalar(
-                            select(func.count()).select_from(StfRun).where(
-                                StfRun.mission_id.in_(missions),
-                                StfRun.state == 'QUEUED',
-                                StfRun.created_at < datetime.now(timezone.utc) - timedelta(minutes=5),
-                            )
-                        ) or 0)
-                return missing, training_agents, training_runs, stalled_training
-
-            try:
-                missing, training_agents, training_runs, stalled_training = asyncio.run(check_connected_runtime())
-                report("connected worker heartbeats", not missing,
-                       "fresh" if not missing else "missing: " + ", ".join(missing))
-                if training_enabled:
-                    report("10 STF Cyber Range training agents registered",
-                           training_agents == 10, str(training_agents))
-                    report("automatic STF training registered",
-                           bool(training_runs and training_runs > 0), f"{training_runs or 0} run(s)")
-                    report("training queue advances within five minutes", stalled_training == 0,
-                           f"{stalled_training} stalled queued run(s)")
-                    async def check_temporal():
-                        from datetime import timedelta
-                        from temporalio.client import Client
-                        from temporalio.api.workflowservice.v1 import DescribeNamespaceRequest
-                        temporal = await Client.connect('stf-temporal:7233')
-                        await temporal.workflow_service.describe_namespace(
-                            DescribeNamespaceRequest(namespace=temporal.namespace),
-                            timeout=timedelta(seconds=5),
+                    codes = [item.code for item in TRAINING_AGENT_SPECS]
+                    missions = [training_mission_id(item.code) for item in TRAINING_AGENT_SPECS]
+                    training_agents = int(await session.scalar(
+                        select(func.count()).select_from(Agent).where(
+                            Agent.code.in_(codes)
                         )
-                    try:
-                        asyncio.run(asyncio.wait_for(check_temporal(), timeout=10))
-                        report("Temporal accepts private workflow clients", True)
-                    except Exception as exc:
-                        report("Temporal accepts private workflow clients", False, type(exc).__name__)
-            except Exception as exc:
-                report("connected runtime database checks", False, type(exc).__name__)
+                    ) or 0)
+                    training_runs = int(await session.scalar(
+                        select(func.count()).select_from(StfRun).where(
+                            StfRun.mission_id.in_(missions)
+                        )
+                    ) or 0)
+                    stalled_training = int(await session.scalar(
+                        select(func.count()).select_from(StfRun).where(
+                            StfRun.mission_id.in_(missions),
+                            StfRun.state == 'QUEUED',
+                            StfRun.created_at < datetime.now(timezone.utc) - timedelta(minutes=5),
+                        )
+                    ) or 0)
+            return missing, training_agents, training_runs, stalled_training
+
+        try:
+            missing, training_agents, training_runs, stalled_training = asyncio.run(check_connected_runtime())
+            report("connected worker heartbeats", not missing,
+                   "fresh" if not missing else "missing: " + ", ".join(missing))
+            if training_enabled:
+                report("10 STF Cyber Range training agents registered",
+                       training_agents == 10, str(training_agents))
+                report("automatic STF training registered",
+                       bool(training_runs and training_runs > 0), f"{training_runs or 0} run(s)")
+                report("training queue advances within five minutes", stalled_training == 0,
+                       f"{stalled_training} stalled queued run(s)")
+                async def check_temporal():
+                    from datetime import timedelta
+                    from temporalio.client import Client
+                    from temporalio.api.workflowservice.v1 import DescribeNamespaceRequest
+                    temporal = await Client.connect('stf-temporal:7233')
+                    await temporal.workflow_service.describe_namespace(
+                        DescribeNamespaceRequest(namespace=temporal.namespace),
+                        timeout=timedelta(seconds=5),
+                    )
+                try:
+                    asyncio.run(asyncio.wait_for(check_temporal(), timeout=10))
+                    report("Temporal accepts private workflow clients", True)
+                except Exception as exc:
+                    report("Temporal accepts private workflow clients", False, type(exc).__name__)
+        except Exception as exc:
+            report("connected runtime database checks", False, type(exc).__name__)
 
     print()
     print("== Voice ==")
