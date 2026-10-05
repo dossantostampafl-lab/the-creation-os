@@ -331,7 +331,7 @@
       "options": {}
     },
     {
-      "id": 11,
+      "id": 12,
       "title": "Memória máxima dos processos",
       "type": "timeseries",
       "datasource": {
@@ -360,7 +360,7 @@
       "options": {}
     },
     {
-      "id": 12,
+      "id": 13,
       "title": "Tempo de execução dos processos",
       "type": "timeseries",
       "datasource": {

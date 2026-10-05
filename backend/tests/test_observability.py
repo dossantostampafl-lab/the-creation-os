@@ -103,3 +103,17 @@ assert result == 42 and time.monotonic() - started < 0.25
     result = subprocess.run([sys.executable, '-c', code], env=env,
                             capture_output=True, text=True, timeout=10)
     assert result.returncode == 0, result.stderr
+
+
+def test_dashboard_panels_and_datasources_are_unambiguous():
+    import json
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[2] / 'deploy/observability/grafana/dashboards'
+    dashboards = [json.loads(path.read_text()) for path in root.glob('*.json')]
+    assert len(dashboards) == 8
+    assert len({dashboard['uid'] for dashboard in dashboards}) == 8
+    for dashboard in dashboards:
+        ids = [panel['id'] for panel in dashboard['panels']]
+        assert len(ids) == len(set(ids)), dashboard['title']
+        for panel in dashboard['panels']:
+            assert panel['datasource']['uid'] in {'prometheus', 'loki', 'tempo'}
