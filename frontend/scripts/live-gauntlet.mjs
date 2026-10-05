@@ -120,7 +120,7 @@ try {
     });
     await check('Create, authorize and finish a one-step QA mission through the UI', async () => {
       stage = 'CLOSE_VITALS';
-      await page.getByRole('button', { name: 'Close vitals', exact: true }).click();
+      await page.getByRole('button', { name: 'Close system vitals', exact: true }).click();
       stage = 'OPEN_MISSION_FORM';
       await page.getByRole('button', { name: /^Decisions\b/ }).click();
       await page.getByRole('button', { name: 'Criar missão', exact: true }).click();
