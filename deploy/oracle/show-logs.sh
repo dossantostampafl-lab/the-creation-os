@@ -17,7 +17,7 @@ case "$lines" in
 esac
 [ "$lines" -gt 500 ] && lines=500
 
-for service in api worker; do
+for service in api worker stf-worker stf-training-worker; do
   container="$(docker ps --filter "label=com.docker.compose.service=$service" --format '{{.ID}}' | head -1)"
   echo "== $service =="
   if [ -z "$container" ]; then
@@ -37,3 +37,30 @@ for line in sys.stdin:
 '
   echo
 done
+
+# State summaries contain no conversation text, credentials, or outbox payloads.
+# Reachability alone cannot show whether a queued campaign actually executes.
+api="$(docker ps --filter 'label=com.docker.compose.service=api' --format '{{.ID}}' | head -1)"
+if [ -n "$api" ]; then
+  echo '== Runtime execution state (read-only) =='
+  docker exec -i "$api" python - <<'PY'
+import asyncio
+import json
+from sqlalchemy import text
+from app.db.session import AsyncSessionLocal
+
+async def main():
+    async with AsyncSessionLocal() as session:
+        await session.execute(text('SET TRANSACTION READ ONLY'))
+        for table, column in [('stf_runs', 'state'), ('stf_outbox', 'status'),
+                              ('stf_dispatches', 'status'), ('missions', 'status'), ('tasks', 'status')]:
+            rows = await session.execute(text(f'SELECT {column}, count(*) FROM {table} GROUP BY {column}'))
+            print(table, json.dumps(dict(rows.all())))
+        rows = await session.execute(text("SELECT state, desired_state, extract(epoch from (now()-created_at))::int AS age_seconds, extract(epoch from (now()-updated_at))::int AS unchanged_seconds FROM stf_runs WHERE state NOT IN ('COMPLETED','ABORTED') ORDER BY created_at LIMIT 10"))
+        print('unfinished_training', json.dumps([dict(row._mapping) for row in rows]))
+        rows = await session.execute(text("SELECT destination, status, max(attempts) AS max_attempts, count(*) FROM stf_outbox GROUP BY destination, status"))
+        print('outbox_delivery', json.dumps([dict(row._mapping) for row in rows]))
+
+asyncio.run(main())
+PY
+fi
