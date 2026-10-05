@@ -10,7 +10,7 @@ A ativação é explícita e o padrão desativado. Endpoint, sampling e serviço
 
 O exporter remove atributos não permitidos, URLs completas/query, cabeçalhos, corpos, prompts, transcrições, áudio, respostas, SQL e detalhes/stack de exceções antes do OTLP. Exportar somente operações/rotas templadas, método/status HTTP, serviço, provedor, tipo de erro e medidas numéricas. O Collector tem uma segunda camada de filtragem. Logs próprios de telemetria são JSON com esquema fechado e correlação trace_id/span_id; não coletar indiscriminadamente os logs de conversas existentes.
 
-Collector e Tempo não publicam portas no host. Grafana continua autenticado em loopback; usar porta 3300 como padrão para evitar conflito com a porta 3001 usada por instalações de FreeLLM. Preservar senha/porta configuradas. Tempo possui retenção limitada e volume privado. Se a coleta falhar, spans podem ser descartados, mas o aplicativo continua funcionando.
+Collector e Tempo não publicam portas no host. Grafana continua autenticado em loopback; usar porta 3300 como padrão para evitar conflito com a porta 3001 usada por instalações de FreeLLM. Preservar senha e porta do Grafana em execução; resolver configurações inativas que conflitem com outros serviços. Tempo possui retenção limitada e volume privado. Se a coleta falhar, spans podem ser descartados, mas o aplicativo continua funcionando.
 
 ## P1 — métricas, logs e dashboards
 

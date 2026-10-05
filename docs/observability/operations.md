@@ -4,7 +4,7 @@ P0 e P1 usam serviços locais e não exigem créditos de provedores. A telemetri
 
 ## Acesso privado
 
-Grafana é o único serviço com porta publicada: `127.0.0.1:3300` por padrão. Para acessar a instalação Oracle, use `ssh -L 3300:127.0.0.1:3300 usuario@servidor` e abra `http://localhost:3300`. Se `STF_GRAFANA_PORT` já estiver definido, substitua a porta de destino por esse valor. Usuário inicial: `admin`. A senha fica em `STF_GRAFANA_ADMIN_PASSWORD` no `.env` protegido do servidor; o script preserva a existente e gera uma senha forte somente quando ausente. Não publique essa senha ou o Grafana no domínio do aplicativo.
+Grafana é o único serviço com porta publicada: `127.0.0.1:3300` por padrão. Para acessar a instalação Oracle, use `ssh -L 3300:127.0.0.1:3300 usuario@servidor` e abra `http://localhost:3300`. Se `STF_GRAFANA_PORT` já estiver definido, substitua a porta de destino por esse valor. A ativação preserva a porta de um Grafana já em execução; se uma configuração inativa conflitar com outro serviço, escolhe uma porta livre entre 3300 e 3309 e registra a mudança. Usuário inicial: `admin`. A senha fica em `STF_GRAFANA_ADMIN_PASSWORD` no `.env` protegido do servidor; o script preserva a existente e gera uma senha forte somente quando ausente. Não publique essa senha ou o Grafana no domínio do aplicativo.
 
 Collector, Tempo, Prometheus, Loki e node-exporter não publicam portas. Não há rota pública para `/metrics`, logs ou traces. Tempo, Prometheus, Loki e Grafana possuem volumes próprios. A instalação precisa de espaço para imagens, volumes e retenção; reserve capacidade adicional antes de habilitar o perfil. Prometheus mantém até sete dias/2 GB de blocos (WAL requer espaço adicional); Tempo e Loki possuem retenção de sete dias.
 

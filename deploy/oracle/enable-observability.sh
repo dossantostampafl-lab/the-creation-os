@@ -12,11 +12,34 @@ cp .env "$backup"
 if [ -z "$(env_get STF_GRAFANA_ADMIN_PASSWORD)" ]; then
   env_set STF_GRAFANA_ADMIN_PASSWORD "$(python3 -c 'import secrets;print(secrets.token_hex(24))')"
 fi
+COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.cloud.yml)
 [ -n "$(env_get STF_GRAFANA_PORT)" ] || env_set STF_GRAFANA_PORT 3300
+# A dormant installation may still carry the old 3001 default used by FreeLLM.
+# Preserve a running Grafana's port; relocate only an inactive, conflicting setting.
+if [ -z "$("${COMPOSE[@]}" --profile observability ps -q stf-grafana)" ]; then
+  selected_port="$(python3 - "$(env_get STF_GRAFANA_PORT)" <<'PYPORT'
+import socket, sys
+configured = int(sys.argv[1])
+for candidate in [configured, *range(3300, 3310)]:
+    try:
+        with socket.socket() as connection:
+            connection.bind(('127.0.0.1', candidate))
+        print(candidate)
+        break
+    except OSError:
+        continue
+else:
+    raise SystemExit('No free loopback port for Grafana')
+PYPORT
+)"
+  if [ "$selected_port" != "$(env_get STF_GRAFANA_PORT)" ]; then
+    echo "Inactive Grafana port is occupied; selecting loopback port $selected_port."
+    env_set STF_GRAFANA_PORT "$selected_port"
+  fi
+fi
 env_set TELEMETRY_ENABLED true
 env_set TELEMETRY_OTLP_ENDPOINT http://otel-collector:4318
 [ -n "$(env_get TELEMETRY_SAMPLE_RATIO)" ] || env_set TELEMETRY_SAMPLE_RATIO 1.0
-COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.cloud.yml)
 profiles=(--profile observability)
 if grep -qE '^DEUS_(CONTEXT_RETRIEVAL|DIAGNOSTICS|AUTONOMY_DISCOVERY|AUTONOMY_COMPETITION)_ENABLED=true$' .env; then
   profiles+=(--profile connected-deus)

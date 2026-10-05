@@ -205,8 +205,56 @@ services:
   # Optional, read-only telemetry for the Security Task Force: docker logs -> Promtail -> Loki -> Grafana.
   # No Docker socket is mounted; Promtail only reads container log files, read-only. Grafana is the only
   # published port and is bound to loopback.
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.123.0
+    profiles: ["observability"]
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./deploy/observability/collector.yaml:/etc/otelcol/config.yaml:ro
+    networks: [tco_net, obs-backend]
+    environment:
+      NO_PROXY: "tempo,otel-collector,localhost,127.0.0.1"
+      no_proxy: "tempo,otel-collector,localhost,127.0.0.1"
+    mem_limit: 256m
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.2.1
+    profiles: ["observability"]
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=7d", "--storage.tsdb.retention.size=2GB"]
+    volumes:
+      - ./deploy/observability/prometheus.yaml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks: [obs-backend]
+    restart: unless-stopped
+
+  node-exporter:
+    image: prom/node-exporter:v1.9.0
+    profiles: ["observability"]
+    command: ["--path.procfs=/host/proc", "--path.sysfs=/host/sys", "--collector.disable-defaults", "--collector.cpu", "--collector.meminfo", "--collector.loadavg", "--collector.stat"]
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+    networks: [obs-backend]
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+
+  tempo:
+    image: grafana/tempo:2.7.2
+    profiles: ["observability"]
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./deploy/observability/tempo.yaml:/etc/tempo.yaml:ro
+      - tempo_data:/var/tempo
+    networks: [obs-backend]
+    restart: unless-stopped
+
   stf-loki:
     image: grafana/loki:3.1.1
+    environment:
+      NO_PROXY: "*"
+      no_proxy: "*"
     profiles: ["observability"]
     command: ["-config.file=/etc/loki/loki.yaml"]
     volumes:
@@ -217,6 +265,9 @@ services:
 
   stf-promtail:
     image: grafana/promtail:3.1.1
+    environment:
+      NO_PROXY: "*"
+      no_proxy: "*"
     profiles: ["observability"]
     command: ["-config.file=/etc/promtail/promtail.yaml"]
     volumes:
@@ -234,11 +285,18 @@ services:
       GF_AUTH_ANONYMOUS_ENABLED: "false"
       GF_SECURITY_ADMIN_PASSWORD: ${STF_GRAFANA_ADMIN_PASSWORD:-}
       GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_PLUGINS_CHECK_FOR_UPDATES: "false"
+      NO_PROXY: "stf-loki,tempo,prometheus,localhost,127.0.0.1"
+      no_proxy: "stf-loki,tempo,prometheus,localhost,127.0.0.1"
     volumes:
       - ./deploy/observability/grafana/datasource.yaml:/etc/grafana/provisioning/datasources/datasource.yaml:ro
+      - ./deploy/observability/grafana/dashboard-provider.yaml:/etc/grafana/provisioning/dashboards/creation.yaml:ro
+      - ./deploy/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - stf_grafana_data:/var/lib/grafana
     ports:
-      - "127.0.0.1:${STF_GRAFANA_PORT:-3001}:3000"
+      - "127.0.0.1:${STF_GRAFANA_PORT:-3300}:3000"
     depends_on: [stf-loki]
     networks: [obs-backend, obs-frontend]
     restart: unless-stopped
@@ -257,6 +315,9 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL}
       SOVEREIGN_CREATOR_ID: ${SOVEREIGN_CREATOR_ID:-}
+      TELEMETRY_ENABLED: ${TELEMETRY_ENABLED:-false}
+      TELEMETRY_OTLP_ENDPOINT: ${TELEMETRY_OTLP_ENDPOINT:-http://otel-collector:4318}
+      TELEMETRY_SAMPLE_RATIO: ${TELEMETRY_SAMPLE_RATIO:-1.0}
       DEUS_DIAGNOSTICS_ENABLED: ${DEUS_DIAGNOSTICS_ENABLED:-false}
       DEUS_DIAGNOSTICS_TASK_STALL_SECONDS: ${DEUS_DIAGNOSTICS_TASK_STALL_SECONDS:-900}
       DEUS_DIAGNOSTICS_PROJECTION_MAX_LAG: ${DEUS_DIAGNOSTICS_PROJECTION_MAX_LAG:-100}
@@ -415,6 +476,8 @@ volumes:
   stf_loki_data:
   stf_promtail_positions:
   stf_grafana_data:
+  tempo_data:
+  prometheus_data:
 
 networks:
   tco_net:
