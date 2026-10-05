@@ -4,8 +4,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Sequence
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.config import settings
 from app.core.domain import Actor
@@ -49,8 +50,19 @@ class TrainingHistory:
     last_started_at: datetime | None = None
 
 
-def training_mission_id(agent_code: str) -> str:
-    return f"stf-training:{agent_code}"
+def training_mission_id(agent_code: str, *, creator_id: str | None = None, cycle: int | None = None) -> str:
+    base = f"stf-training:{agent_code}"
+    if cycle is None:
+        return base
+    if cycle < 1 or not creator_id:
+        raise ValueError('A cycle requires a positive number and Creator scope')
+    return f"{base}:{creator_id}:cycle-{cycle}"
+
+
+def training_run_filter() -> ColumnElement[bool]:
+    """Recognize historical shared missions and new per-Creator, per-cycle authority."""
+    bases = [training_mission_id(spec.code) for spec in TRAINING_AGENT_SPECS]
+    return or_(StfRun.mission_id.in_(bases), *[StfRun.mission_id.like(f'{base}:%') for base in bases])
 
 
 def compile_training_contract(
@@ -59,6 +71,7 @@ def compile_training_contract(
     *,
     environment_id: str = RANGE_ENVIRONMENT_ID,
     campaign_id: str = ADVANCED_CAMPAIGN_ID,
+    cycle: int | None = None,
 ) -> CompilationResult:
     if not environment_id.startswith("cyber_range:"):
         raise ValueError("automatic STF training is restricted to cyber_range:*")
@@ -67,7 +80,7 @@ def compile_training_contract(
     return compile_verified_contract(
         intent=f"Train {spec.name} in the isolated Cyber Range advanced campaign.",
         candidate={
-            "mission_id": training_mission_id(spec.code),
+            "mission_id": training_mission_id(spec.code, creator_id=creator_id, cycle=cycle),
             "creator_id": creator_id,
             "success_criteria": [
                 "campaign lifecycle completed",
@@ -213,7 +226,6 @@ class AutomaticRangeTraining:
     async def run_once(self, creator_id: str, *, agent_code: str | None = None) -> dict[str, object]:
         if agent_code is not None and agent_code not in {spec.code for spec in TRAINING_AGENT_SPECS}:
             raise ValueError("Unknown training agent")
-        mission_ids = [training_mission_id(item.code) for item in TRAINING_AGENT_SPECS]
         async with self.factory() as session:
             # The campaign has shared state; serialize manual requests and worker ticks.
             await session.execute(text("SELECT pg_advisory_xact_lock(hashtext('creation:stf-training'))"))
@@ -224,7 +236,7 @@ class AutomaticRangeTraining:
             active = await session.scalar(
                 select(StfRun)
                 .where(
-                    StfRun.mission_id.in_(mission_ids),
+                    training_run_filter(),
                     StfRun.state.notin_(("COMPLETED", "ABORTED")),
                 )
                 .order_by(StfRun.created_at.asc())
@@ -246,18 +258,18 @@ class AutomaticRangeTraining:
                     )
                     .where(
                         StfRun.creator_id == creator_id,
-                        StfRun.mission_id.in_(mission_ids),
+                        training_run_filter(),
                     )
                     .group_by(StfRun.mission_id)
                 )
             ).all()
-            by_mission = {
-                str(mission_id): TrainingHistory(
-                    cycles=int(cycles),
-                    last_started_at=last_started_at,
-                )
-                for mission_id, cycles, last_started_at in rows
-            }
+            by_mission: dict[str, TrainingHistory] = {}
+            for mission_id, cycles, last_started_at in rows:
+                base = ':'.join(str(mission_id).split(':')[:2])
+                previous = by_mission.get(base, TrainingHistory())
+                dates = [date for date in (previous.last_started_at, last_started_at) if date is not None]
+                by_mission[base] = TrainingHistory(cycles=previous.cycles + int(cycles),
+                                                   last_started_at=max(dates) if dates else None)
             history = {
                 spec.code: by_mission.get(training_mission_id(spec.code), TrainingHistory())
                 for spec in TRAINING_AGENT_SPECS
@@ -270,9 +282,9 @@ class AutomaticRangeTraining:
             cycle = history[spec.code].cycles + 1
 
             repository = StfRepository(session)
-            stored = await repository.get_contract(creator_id, training_mission_id(spec.code))
+            stored = await repository.get_contract(creator_id, training_mission_id(spec.code, creator_id=creator_id, cycle=cycle))
             if stored is None:
-                compiled = compile_training_contract(creator_id, spec)
+                compiled = compile_training_contract(creator_id, spec, cycle=cycle)
                 if compiled.status != "COMPILED" or compiled.contract is None:
                     raise RuntimeError("automatic training contract compilation failed")
                 await repository.save_contract(compiled)

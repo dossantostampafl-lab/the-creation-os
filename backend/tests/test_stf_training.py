@@ -163,6 +163,44 @@ async def test_auto_training_queues_one_serialized_range_run_and_does_not_duplic
 
 @pytest.mark.integration
 @pytest.mark.asyncio
+async def test_a_new_training_cycle_keeps_the_aborted_mission_revoked(stf_db) -> None:  # noqa: F811
+    from app.security_task_force.kill_switch import KillSwitch
+
+    _, factory = stf_db
+    creator_id = str(uuid.uuid4())
+    async with factory() as session:
+        if await session.scalar(select(Universe).where(Universe.code == 'security')) is None:
+            session.add(Universe(id=str(uuid.uuid4()), code='security', name='Segurança', active=True))
+        session.add(Creator(id=creator_id, username='creator-cycle-recovery', password_hash='unused', is_active=True))
+        await session.commit()
+    coordinator = AutomaticRangeTraining(factory)
+    code = TRAINING_AGENT_SPECS[0].code
+    first = await coordinator.run_once(creator_id, agent_code=code)
+    stopped = KillSwitch()
+    stopped.kill_mission(str(first['mission_id']))
+    async with factory() as session:
+        run = await session.get(StfRun, first['run_id'])
+        run.state = 'ABORTED'
+        await session.commit()
+    second = await coordinator.run_once(creator_id, agent_code=code)
+    assert second['status'] == 'queued'
+    assert first['mission_id'] != second['mission_id']
+    assert not stopped.dispatch_allowed(str(first['mission_id']))
+    assert stopped.dispatch_allowed(str(second['mission_id']))
+    assert second['cycle'] == 2
+    assert (await coordinator.run_once(creator_id, agent_code=code))['status'] == 'busy'
+    async with factory() as session:
+        run = await session.get(StfRun, second['run_id'])
+        run.state = 'ABORTED'
+        await session.commit()
+    third = await coordinator.run_once(creator_id, agent_code=code)
+    assert third['cycle'] == 3
+    assert len({first['mission_id'], second['mission_id'], third['mission_id']}) == 3
+    assert creator_id in str(third['mission_id'])
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
 async def test_training_seed_does_not_undo_a_creator_pause(stf_db) -> None:  # noqa: F811
     _, factory = stf_db
     async with factory() as session:

@@ -15,9 +15,11 @@ if (origin.protocol !== 'https:' || origin.username || origin.password) throw ne
 const root = origin.origin;
 const headers = { Authorization: `Bearer ${credentials.access_token}` };
 const results = [];
+let stage = '';
 const workspace = await mkdtemp(join(tmpdir(), 'creation-gauntlet-'));
 let browser;
 async function check(name, action) {
+  stage = 'START';
   const started = Date.now();
   try {
     const detail = await action();
@@ -25,13 +27,14 @@ async function check(name, action) {
   } catch (error) {
     // Playwright assertions can embed the whole DOM or private responses. Emit only a class.
     results.push({ name, ok: false, elapsed_ms: Date.now() - started, error: error.name,
+      stage,
       ...(typeof error.code === 'string' && /^[A-Z0-9_]{1,96}$/.test(error.code) ? { code: error.code } : {}) });
   }
   console.log(JSON.stringify(results.at(-1)));
 }
 async function api(context, path, method = 'GET', data) {
   const response = await context.request.fetch(`${root}/api/v1${path}`, { method, headers, data, timeout: 45000 });
-  if (!response.ok()) throw new Error(`HTTP_${response.status()}`);
+  if (!response.ok()) { const error = new Error('API request failed'); error.code = `HTTP_${response.status()}`; throw error; }
   return response.json();
 }
 async function open(context, title) {
@@ -83,7 +86,7 @@ try {
       await page.getByLabel('Message DEUS').fill('Responda apenas: quatro');
       await page.getByRole('button', { name: 'Send to DEUS' }).click();
       const reply = await response;
-      if (reply.status() !== 200) { const error = new Error('DEUS request failed'); error.code = `DEUS_HTTP_${reply.status()}`; throw error; }
+      if (!reply.ok()) { const error = new Error('DEUS request failed'); error.code = `DEUS_HTTP_${reply.status()}`; throw error; }
       const body = await reply.json();
       const normalized = body.response.trim().toLowerCase().replace(/[.!]/g, '');
       if (!/^(quatro|4)$/.test(normalized)) { const error = new Error('DEUS response did not match'); error.code = 'DEUS_INCOHERENT_QA_REPLY'; throw error; }
@@ -116,9 +119,12 @@ try {
         aborted: snapshot.runs.filter(run => run.state === 'ABORTED').length };
     });
     await check('Create, authorize and finish a one-step QA mission through the UI', async () => {
-      await page.getByRole('button', { name: /^Vitals\b/ }).click();
+      stage = 'CLOSE_VITALS';
+      await page.getByRole('button', { name: 'Close vitals', exact: true }).click();
+      stage = 'OPEN_MISSION_FORM';
       await page.getByRole('button', { name: /^Decisions\b/ }).click();
       await page.getByRole('button', { name: 'Criar missão', exact: true }).click();
+      stage = 'FILL_MISSION_PLAN';
       const title = `Gauntlet QA mission ${Date.now()}`;
       await page.getByLabel('Título da missão', { exact: true }).fill(title);
       await page.getByLabel('Objetivo da missão', { exact: true }).fill('Validação interna: responder em texto que dois mais dois é quatro. Não solicitar ferramentas, capacidades ou ações externas.');
@@ -131,14 +137,17 @@ try {
         ?? universes.find(u => u.active && agents.some(a => a.active && a.universe_id === u.id));
       expect(universe).toBeTruthy();
       await page.getByLabel('Universe da etapa 1').selectOption(universe.code);
+      stage = 'CREATE_AND_VALIDATE_MISSION';
       await page.getByRole('button', { name: 'Revisar criação e plano' }).click();
       await page.getByRole('button', { name: 'Confirmar criação e validação' }).click();
       await expect(page.getByText('Missão validada. Aguardando sua autorização.', { exact: true })).toBeVisible();
       const article = page.locator('article').filter({ has: page.getByText(title, { exact: true }) });
+      stage = 'AUTHORIZE_MISSION';
       await article.getByRole('button', { name: 'Autorizar e iniciar' }).click();
       await article.getByRole('button', { name: 'Confirmar início' }).click();
       const mission = (await api(context, '/missions')).find(m => m.title === title);
       expect(mission).toBeTruthy();
+      stage = 'EXECUTE_MISSION';
       await expect.poll(async () => {
         const state = (await api(context, `/missions/${mission.id}`)).status;
         if (state === 'failed') {
@@ -162,7 +171,7 @@ try {
     const response = degraded.waitForResponse(r => r.url().endsWith(`/conversations/${c.id}/deus`) && r.request().method() === 'POST');
     await degraded.getByLabel('Message DEUS').fill('Responda apenas: teste concluído');
     await degraded.getByRole('button', { name: 'Send to DEUS' }).click();
-    expect((await response).status()).toBe(200);
+    expect((await response).ok()).toBe(true);
     await expect(degraded.locator('.deus-message').last()).toContainText(/teste conclu[ií]do/i);
     await isolated.close();
   });

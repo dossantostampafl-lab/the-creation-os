@@ -68,7 +68,7 @@ async def test_training_roster_and_manual_start_use_private_campaign(stf_db, mon
             assert started.status_code == 200 and started.json()['status'] == 'queued'
             roster = (await client.get('/cyber-range/training')).json()
             assert roster['runs'][0]['state'] == 'QUEUED'
-            assert roster['runs'][0]['mission_id'] == 'stf-training:stf-red-recon'
+            assert roster['runs'][0]['mission_id'] == f'stf-training:stf-red-recon:{creator_id}:cycle-1'
     finally:
         async with factory() as session:
             agents = await ensure_training_agents(session)
