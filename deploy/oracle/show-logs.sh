@@ -17,7 +17,7 @@ case "$lines" in
 esac
 [ "$lines" -gt 500 ] && lines=500
 
-for service in api worker stf-worker stf-training-worker; do
+for service in api worker stf-temporal stf-worker stf-training-worker stf-gateway; do
   container="$(docker ps --filter "label=com.docker.compose.service=$service" --format '{{.ID}}' | head -1)"
   echo "== $service =="
   if [ -z "$container" ]; then
