@@ -191,12 +191,18 @@ fi
 # Compare synthetic generation inside the API and task worker. No task is created or
 # authorized, no external capability is invoked, and reply text is never printed.
 if [ "${UNIVERSE_INFERENCE_DIAGNOSTIC:-false}" = "true" ]; then
+  diagnostic_failed=0
   for diagnostic_service in api worker; do
     diagnostic_container="$(docker ps --filter "label=com.docker.compose.service=$diagnostic_service" --format '{{.ID}}' | head -1)"
     if [ -n "$diagnostic_container" ]; then
-      docker exec -i -e "DIAGNOSTIC_SERVICE=$diagnostic_service" "$diagnostic_container" python - \
-        < "$REPO_DIR/deploy/oracle/check-universe-inference.py"
+      if ! docker exec -i -e "DIAGNOSTIC_SERVICE=$diagnostic_service" "$diagnostic_container" python - \
+        < "$REPO_DIR/deploy/oracle/check-universe-inference.py"; then
+        diagnostic_failed=1
+      fi
+    else
+      echo "Required diagnostic container missing: $diagnostic_service" >&2
+      diagnostic_failed=1
     fi
   done
+  exit "$diagnostic_failed"
 fi
-

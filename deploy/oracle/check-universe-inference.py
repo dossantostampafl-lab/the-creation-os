@@ -10,7 +10,7 @@ from collections import Counter
 
 import httpx
 from app.admin.seed import CANONICAL_UNIVERSES
-from app.config import settings
+from app.config import SUPPORTED_LLM_PROVIDERS, settings
 from app.db.session import AsyncSessionLocal
 from app.inference.bootstrap import build_model_router
 from app.inference.contracts import InferenceRequest, ModelRequirements
@@ -25,6 +25,16 @@ def label(value: object) -> str:
 
 def emit(**values: object) -> None:
     print(json.dumps({"service": label(os.getenv("DIAGNOSTIC_SERVICE")), **values}), flush=True)
+
+
+def canonical_profile_shape(spec, capabilities):
+    provider = capabilities.get("inference_provider")
+    if (not isinstance(provider, str) or provider not in SUPPORTED_LLM_PROVIDERS
+            or capabilities.get("inference_routing") not in (None, "configured")):
+        return "custom"
+    actual = {k: v for k, v in capabilities.items() if k not in {"inference_provider", "inference_routing"}}
+    expected = {k: v for k, v in spec.capabilities.items() if k not in {"inference_provider", "inference_routing"}}
+    return "generated-current" if actual == expected else "generated-legacy" if actual == {"description": spec.description} else "custom"
 
 
 async def main() -> None:
@@ -48,9 +58,7 @@ async def main() -> None:
             if agent.code not in specs:
                 continue
             spec = specs[agent.code]
-            actual = {k: v for k, v in (agent.capabilities_json or {}).items() if k not in {"inference_provider", "inference_routing"}}
-            expected = {k: v for k, v in spec.capabilities.items() if k not in {"inference_provider", "inference_routing"}}
-            canonical["generated-current" if actual == expected else "generated-legacy" if actual == {"description": spec.description} else "custom"] += 1
+            canonical[canonical_profile_shape(spec, agent.capabilities_json or {})] += 1
         emit(check="canonical_profile_shapes", counts=dict(canonical))
         errors = (await session.scalars(select(Task.error_json).where(Task.status == "FAILED")
                                        .order_by(Task.created_at.desc()).limit(10))).all()
@@ -91,4 +99,5 @@ async def main() -> None:
             emit(check="generation", tools=tools, error_type=type(error).__name__)
 
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())
