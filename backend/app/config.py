@@ -76,6 +76,7 @@ class Settings(BaseSettings):
     trinity_min_confidence: float = Field(0.7, ge=0.0, le=1.0, env="TRINITY_MIN_CONFIDENCE")
     workspace_root: str = Field("/var/lib/creation/workspaces", env="WORKSPACE_ROOT")
     workspace_max_bytes: int = Field(1_000_000, ge=1, env="WORKSPACE_MAX_BYTES")
+    public_news_search_enabled: bool = Field(False, env="PUBLIC_NEWS_SEARCH_ENABLED")
     web_capability_enabled: bool = Field(True, env="WEB_CAPABILITY_ENABLED")
     web_timeout_seconds: float = Field(15.0, gt=0.0, env="WEB_TIMEOUT_SECONDS")
     web_max_bytes: int = Field(500_000, ge=1, env="WEB_MAX_BYTES")

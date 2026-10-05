@@ -17,7 +17,7 @@ case "$lines" in
 esac
 [ "$lines" -gt 500 ] && lines=500
 
-for service in api worker stf-temporal stf-worker stf-training-worker stf-gateway; do
+for service in discovery-worker opportunity-worker api worker stf-temporal stf-worker stf-training-worker stf-gateway; do
   container="$(docker ps --filter "label=com.docker.compose.service=$service" --format '{{.ID}}' | head -1)"
   echo "== $service =="
   if [ -z "$container" ]; then
@@ -96,6 +96,10 @@ async def main():
         print('outbox_delivery', json.dumps([dict(row._mapping) for row in rows]))
         rows = await session.execute(text("SELECT status, reason_codes FROM stf_dispatches ORDER BY created_at DESC LIMIT 10"))
         print('dispatch_reasons', json.dumps([{'status': row.status, 'reasons': [code for code in (row.reason_codes or []) if isinstance(code,str) and re.fullmatch('[A-Za-z0-9_]{1,96}',code)]} for row in rows]))
+        rows = await session.execute(text("SELECT sector, status, count(*) FROM opportunities WHERE EXISTS (SELECT 1 FROM json_array_elements_text(evidence_refs_json) ref WHERE ref LIKE 'public:https://news.google.com/%') GROUP BY sector,status"))
+        print('public_opportunities', json.dumps([dict(row._mapping) for row in rows]))
+        rows = await session.execute(text("SELECT o.sector, count(*) FROM opportunity_theses t JOIN opportunities o ON o.id=t.opportunity_id WHERE EXISTS (SELECT 1 FROM json_array_elements_text(o.evidence_refs_json) ref WHERE ref LIKE 'public:https://news.google.com/%') GROUP BY o.sector"))
+        print('public_theses', json.dumps([dict(row._mapping) for row in rows]))
         rows = await session.execute(text("SELECT status, error_json->>'code' AS code, attempt_count FROM tasks WHERE status IN ('FAILED','BLOCKED') LIMIT 20"))
         print('task_failures', json.dumps([{'status': row.status, 'code': row.code if re.fullmatch('[A-Z0-9_]{1,96}', row.code or '') else 'UNCLASSIFIED', 'attempts': row.attempt_count} for row in rows]))
 

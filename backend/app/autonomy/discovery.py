@@ -10,6 +10,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.autonomy.perception import PerceptionFabric, build_perception_fabric
+from app.capabilities.gateway import CapabilityGateway
 from app.config import settings
 from app.db.session import AsyncSessionLocal
 from app.diagnostics.heartbeat import supervised
@@ -130,7 +131,7 @@ class DiscoveryWorker:
                         creator_id=creator_id,
                         universe_code=universe.code,
                         preferred_sensors=self._preferred_sensors(agent),
-                        query=query,
+                        query=" OR ".join(KEYWORDS[universe.code]),
                         explore=self._exploration_enabled(agent),
                     )
                     sensor_observations += len(observations)
@@ -176,7 +177,10 @@ class DiscoveryWorker:
                             problem_or_gap=gap,
                             capture_mechanism=mechanism,
                             evidence_refs=[
-                                "sensor:" + observation.sensor + ":" + evidence_hash
+                                "sensor:" + observation.sensor + ":" + evidence_hash,
+                                *["public:" + item["url"] for item in observation.data.get("items", [])
+                                  if observation.data.get("source") == "public-news"
+                                  and isinstance(item, dict) and isinstance(item.get("url"), str)],
                             ],
                             time_window=window,
                             correlation_id=str(uuid.uuid4()),
@@ -192,6 +196,23 @@ class DiscoveryWorker:
         }
 
 
+def build_discovery_gateway() -> CapabilityGateway:
+    from app.capabilities.public_news import PublicNewsProvider
+    from app.capabilities.web import WebCapabilityAdapter
+    from app.worker import build_capability_gateway
+
+    if not settings.public_news_search_enabled:
+        return build_capability_gateway()
+    gateway = CapabilityGateway()
+    if settings.web_capability_enabled:
+        reader = WebCapabilityAdapter(timeout_seconds=min(10, settings.web_timeout_seconds),
+                                      max_bytes=min(500000, settings.web_max_bytes))
+        gateway.register(WebCapabilityAdapter(timeout_seconds=settings.web_timeout_seconds,
+                                              max_bytes=settings.web_max_bytes,
+                                              providers=[PublicNewsProvider(reader=reader)]))
+    return gateway
+
+
 async def run() -> None:
     if not settings.deus_autonomy_discovery_enabled:
         logger.info("autonomous discovery disabled by configuration")
@@ -199,10 +220,11 @@ async def run() -> None:
 
     # Reuse the same centrally governed capability construction as Mission execution.
     # Import lazily to keep the discovery module independent from the task-worker startup.
-    from app.worker import build_capability_gateway, register_mcp_capabilities
+    from app.worker import register_mcp_capabilities
 
-    gateway = build_capability_gateway()
-    await register_mcp_capabilities(gateway)
+    gateway = build_discovery_gateway()
+    if not settings.public_news_search_enabled:
+        await register_mcp_capabilities(gateway)
     perception = build_perception_fabric(
         gateway,
         bindings_json=settings.perception_sensor_bindings_json,
