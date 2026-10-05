@@ -10,6 +10,7 @@ from collections import Counter
 
 from sqlalchemy import select, text
 
+from app.admin.seed import CANONICAL_UNIVERSES
 from app.config import settings
 from app.db.session import AsyncSessionLocal
 from app.inference.bootstrap import build_model_router
@@ -41,6 +42,16 @@ async def main() -> None:
                          for a in agents)
         emit(check="agent_configuration", groups=[{"provider": p, "model": m, "count": n}
                                                   for (p, m), n in sorted(groups.items())])
+        specs = {spec.agent_code: spec for spec in CANONICAL_UNIVERSES}
+        canonical = Counter()
+        for agent in await session.scalars(select(Agent)):
+            if agent.code not in specs:
+                continue
+            spec = specs[agent.code]
+            actual = {k: v for k, v in (agent.capabilities_json or {}).items() if k not in {"inference_provider", "inference_routing"}}
+            expected = {k: v for k, v in spec.capabilities.items() if k not in {"inference_provider", "inference_routing"}}
+            canonical["generated-current" if actual == expected else "generated-legacy" if actual == {"description": spec.description} else "custom"] += 1
+        emit(check="canonical_profile_shapes", counts=dict(canonical))
         errors = (await session.scalars(select(Task.error_json).where(Task.status == "FAILED")
                                        .order_by(Task.created_at.desc()).limit(10))).all()
         for error in errors:
