@@ -122,16 +122,49 @@ try {
       }
       return { files: catalog.files.length };
     });
-    await check('Training controls and actual campaign outcomes', async () => {
+    await check('Training controls start and complete a fresh private campaign', async () => {
       const panel = page.getByRole('region', { name: 'Treinamento Cyber Range' });
-      await expect(panel.getByRole('button', { name: 'Atualizar treinamento' })).toBeVisible();
-      await panel.getByRole('button', { name: 'Atualizar treinamento' }).click();
-      const snapshot = await api(context, '/cyber-range/training');
-      expect(snapshot.worker_enabled).toBe(true);
-      expect(snapshot.controller_configured).toBe(true);
-      expect(snapshot.runs.some(run => run.state === 'COMPLETED')).toBe(true);
-      return { completed: snapshot.runs.filter(run => run.state === 'COMPLETED').length,
-        aborted: snapshot.runs.filter(run => run.state === 'ABORTED').length };
+      const refresh = panel.getByRole('button', { name: 'Atualizar treinamento' });
+      const queueDeadline = Date.now() + 120000;
+      let runId;
+      while (Date.now() < queueDeadline && !runId) {
+        stage = 'TRAINING_REFRESH';
+        const refreshed = page.waitForResponse(r => r.url().endsWith('/cyber-range/training') && r.request().method() === 'GET');
+        await refresh.click();
+        const response = await refreshed;
+        expect(response.ok()).toBe(true);
+        const snapshot = await response.json();
+        expect(snapshot.worker_enabled).toBe(true);
+        expect(snapshot.controller_configured).toBe(true);
+        if (snapshot.range_busy) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          continue;
+        }
+        const agent = snapshot.agents.find(a => a.registered && a.active);
+        expect(agent).toBeTruthy();
+        stage = 'TRAINING_START';
+        const started = page.waitForResponse(r => r.url().endsWith('/cyber-range/training/start') && r.request().method() === 'POST');
+        await panel.getByRole('button', { name: `Treinar ${agent.name}`, exact: true }).click();
+        // Never retry a lost/unknown start response. Only a confirmed busy race is retryable.
+        const result = await started;
+        expect(result.ok()).toBe(true);
+        const body = await result.json();
+        if (body.status === 'busy') continue;
+        expect(body.status).toBe('queued');
+        expect(typeof body.run_id).toBe('string');
+        runId = body.run_id;
+      }
+      if (!runId) { const error = new Error('Laboratory remained busy'); error.code = 'TRAINING_BUSY_TIMEOUT'; throw error; }
+      stage = 'TRAINING_FRESH_CYCLE';
+      const deadline = Date.now() + 180000;
+      while (Date.now() < deadline) {
+        const snapshot = await api(context, '/cyber-range/training');
+        const run = snapshot.active_run?.id === runId ? snapshot.active_run : snapshot.runs.find(r => r.id === runId);
+        if (run?.state === 'COMPLETED') return { fresh_cycle: true, completed: 1 };
+        if (run?.state === 'ABORTED') { const error = new Error('New campaign aborted'); error.code = 'TRAINING_FRESH_CYCLE_ABORTED'; throw error; }
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+      const error = new Error('New campaign timed out'); error.code = 'TRAINING_FRESH_CYCLE_TIMEOUT'; throw error;
     });
     await check('Create, authorize and finish a one-step QA mission through the UI', async () => {
       stage = 'CLOSE_VITALS';
@@ -178,7 +211,7 @@ try {
       const inception = await api(context, '/inceptions', 'POST',
         { conversation_id: conversation.id, source_message_id: source.id, title, description: objective });
       await api(context, `/inceptions/${inception.id}/submit`, 'POST');
-      await api(context, `/inceptions/${inception.id}/approve`, 'POST');
+      await api(context, `/inceptions/${inception.id}/approve`, 'POST', {});
       const mission = await api(context, '/missions', 'POST', { inception_id: inception.id, title, objective });
       await api(context, `/missions/${mission.id}/plan`, 'POST', {
         strategy: 'Doze etapas textuais em sequência, sem efeitos externos.', completion_criteria: {},

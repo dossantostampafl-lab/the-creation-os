@@ -24,3 +24,5 @@ O teste sintético não certifica permissões, microfone, saída de áudio ou la
 3. Um ciclo abortado revogava a missão que os ciclos seguintes reutilizavam. Cada novo ciclo agora recebe sua própria missão, incluindo escopo do Creator e número do ciclo. O histórico antigo continua reconhecido. A revogação anterior, o kill switch global, pausas e exclusividade do laboratório permanecem aplicados; não há limpeza de revogações para retomar um ciclo.
 
 Campanhas com estado não terminal, inclusive resultado desconhecido, continuam bloqueando novas campanhas. Não se repete um efeito cujo resultado seja incerto. As execuções continuam limitadas a `cyber_range:lab-a`, campanha `stf-advanced-v1`, risco máximo R2 e exclusão de `real:*`.
+
+O teste de treinamento inicia um ciclo novo pelo botão do dashboard e acompanha exatamente o run retornado até COMPLETED. Sucessos históricos não aprovam o teste. Um laboratório ocupado só permite nova tentativa após uma resposta busy confirmada; uma resposta de início perdida não é repetida. Agentes pausados não são reativados.
