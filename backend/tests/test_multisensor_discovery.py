@@ -26,7 +26,8 @@ class FakePerceptionFabric:
                 action="search",
                 data={
                     "provider": "test-web",
-                    "items": [{"title": "External signal", "content": "Recurring paid demand"}],
+                    "source": "public-news",
+                    "items": [{"title": "External signal", "content": "Recurring paid demand", "url": "https://news.google.com/rss/articles/qa-signal"}],
                 },
             )
         ]
@@ -78,4 +79,6 @@ async def test_discovery_worker_turns_multisensor_observation_into_opportunity_w
         ))).all())
         assert len(rows) == 1
         assert any(ref.startswith("sensor:web.search:") for ref in rows[0].evidence_refs_json)
+        assert "public:https://news.google.com/rss/articles/qa-signal" in rows[0].evidence_refs_json
         assert not list((await session.scalars(select(Mission))).all())
+    assert (await worker.run_once(creator_id))["discoveries"] == 0

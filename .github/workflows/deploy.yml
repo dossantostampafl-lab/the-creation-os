@@ -24,6 +24,7 @@ on:
           - smoke-test
           - stf-host-check
           - enable-connected-deus
+          - enable-public-discovery
           - enable-cyber-range-training
           - seed
           - publish-builds
@@ -327,6 +328,11 @@ jobs:
               sudo "${COMPOSE[@]}" "${profile_args[@]}" up -d --build --remove-orphans
               sleep 30
               sudo ./deploy/oracle/check-inference.sh
+              sudo ./deploy/oracle/smoke-test.sh --deus
+              ;;
+            enable-public-discovery)
+              sudo git merge --ff-only "origin/$target"
+              sudo ./deploy/oracle/enable-public-discovery.sh
               sudo ./deploy/oracle/smoke-test.sh --deus
               ;;
             enable-connected-deus)

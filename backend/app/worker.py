@@ -10,9 +10,10 @@ from sqlalchemy import select
 from app.capabilities.gateway import CapabilityGateway
 from app.capabilities.mcp import discover_mcp_adapters
 from app.capabilities.proto import ProtoCapabilityAdapter
+from app.capabilities.public_news import PublicNewsProvider
 from app.capabilities.runtime import CapabilityRuntime
 from app.capabilities.web import WebCapabilityAdapter
-from app.capabilities.web_providers import RemoteContractWebProvider, WebProviderMetadata
+from app.capabilities.web_providers import RemoteContractWebProvider, WebProvider, WebProviderMetadata
 from app.capabilities.workspace import WorkspaceCapabilityAdapter
 from app.config import settings
 from app.db.session import AsyncSessionLocal
@@ -32,8 +33,8 @@ def _secret_value(value) -> str | None:
     return value.get_secret_value() if value is not None else None
 
 
-def build_web_providers() -> list[RemoteContractWebProvider]:
-    providers: list[RemoteContractWebProvider] = []
+def build_web_providers() -> list[WebProvider]:
+    providers: list[WebProvider] = []
 
     local_specs = [
         ("crawlee", settings.web_crawlee_endpoint, ("crawl",), "local:crawlee"),
@@ -84,6 +85,11 @@ def build_web_providers() -> list[RemoteContractWebProvider]:
                 ),
             )
         )
+    if settings.public_news_search_enabled:
+        providers.append(PublicNewsProvider(reader=WebCapabilityAdapter(
+            timeout_seconds=min(10, settings.web_timeout_seconds),
+            max_bytes=min(500000, settings.web_max_bytes),
+        )))
     return providers
 
 
