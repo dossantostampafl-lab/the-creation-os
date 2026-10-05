@@ -27,6 +27,7 @@ on:
           - enable-cyber-range-training
           - seed
           - publish-builds
+          - browser-gauntlet
       ref:
         description: "Branch or tag to take the code from. Empty means the default branch."
         type: string
@@ -90,18 +91,26 @@ jobs:
           fi
 
       - name: Get the selected ref for Android builds
-        if: inputs.task == 'publish-builds'
+        if: inputs.task == 'publish-builds' || inputs.task == 'browser-gauntlet'
         uses: actions/checkout@v5
         with:
           ref: ${{ inputs.ref || github.event.repository.default_branch }}
 
       - name: Set up Node for Android builds
-        if: inputs.task == 'publish-builds'
+        if: inputs.task == 'publish-builds' || inputs.task == 'browser-gauntlet'
         uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+
+      - name: Prepare the real browser gauntlet
+        if: inputs.task == 'browser-gauntlet'
+        shell: bash
+        run: |
+          npm ci --prefix frontend --ignore-scripts
+          cd frontend
+          npx playwright install --with-deps chromium
 
       - name: Set up Java for Android builds
         if: inputs.task == 'publish-builds'
@@ -213,7 +222,7 @@ jobs:
           REMOTE
 
       - name: Run the task on the server
-        if: inputs.task != 'publish-builds'
+        if: inputs.task != 'publish-builds' && inputs.task != 'browser-gauntlet'
         env:
           HOST: ${{ secrets.DEPLOY_HOST }}
           USERNAME: ${{ secrets.DEPLOY_USER }}
@@ -385,6 +394,44 @@ jobs:
                  IFS= read -r ANTHROPIC_API_KEY; IFS= read -r CREATOR_PASSWORD; \
                  IFS= read -r FREELLMAPI_API_KEY; \
                  export ANTHROPIC_API_KEY CREATOR_PASSWORD FREELLMAPI_API_KEY; exec bash -s"
+
+      - name: Run authenticated gauntlet in a real browser
+        if: inputs.task == 'browser-gauntlet'
+        shell: bash
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          USERNAME: ${{ secrets.DEPLOY_USER }}
+        run: |
+          set -euo pipefail
+          # Only an ephemeral access token and synthetic QA audio travel through stdin.
+          # No Creator password, refresh token, browser profile or private chat is exported.
+          ssh -i ~/.ssh/id_deploy -o BatchMode=yes -o ConnectTimeout=20 \
+            "${USERNAME:-ubuntu}@$HOST" 'bash -s' <<'REMOTE' | node frontend/scripts/live-gauntlet.mjs
+          set -euo pipefail
+          api="$(sudo docker ps --filter 'label=com.docker.compose.service=api' --format '{{.ID}}' | head -1)"
+          minio_count="$(sudo docker ps -a --format '{{.Image}} {{.Names}}' | awk 'tolower($0) ~ /minio/ {count++} END {print count+0}')"
+          sudo docker exec -i -e QA_MINIO_COUNT="$minio_count" "$api" python - <<'PY'
+          import asyncio, base64, json, os, httpx
+          from app.voice_session.local import get_local_engine
+          async def main():
+              with httpx.Client(timeout=15) as client:
+                  response = client.post('http://127.0.0.1:8000/api/v1/auth/login', json={
+                      'username': os.environ['CREATOR_BOOTSTRAP_USERNAME'],
+                      'password': os.environ['CREATOR_BOOTSTRAP_PASSWORD'],
+                  })
+                  if response.status_code != 200:
+                      raise RuntimeError('QA login failed: HTTP ' + str(response.status_code))
+                  access = response.json()['access_token']
+              engine = await get_local_engine()
+              wake = await engine.synthesize('Deus.')
+              question = await engine.synthesize('Quanto é dois mais dois?')
+              audio = bytes(24000 * 2 * 4) + wake + bytes(24000 * 2) + question + bytes(24000 * 2 * 6)
+              print(json.dumps({'access_token': access, 'origin': 'https://' + os.environ['CREATION_DOMAIN'],
+                                'audio_base64': base64.b64encode(audio).decode(),
+                                'minio_containers': int(os.environ['QA_MINIO_COUNT'])}))
+          asyncio.run(main())
+          PY
+          REMOTE
 
       - name: Remove the key from the runner
         if: always()

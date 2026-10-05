@@ -24,8 +24,6 @@ if [ "${#signing_key}" -lt 32 ]; then
 fi
 
 env_set CYBER_RANGE_CONTROL_TOKEN "$token"
-env_set CYBER_RANGE_CONTROL_ADDR "host.docker.internal:7071"
-env_set CYBER_RANGE_CONTROLLER_URL "http://host.docker.internal:7071"
 env_set STF_GATEWAY_SIGNING_KEY "$signing_key"
 env_set STF_ALLOWED_ENVIRONMENTS "cyber_range:"
 env_set STF_AUTO_TRAINING_ENABLED "true"
@@ -35,17 +33,25 @@ chmod 600 .env
 echo "== Starting isolated Cyber Range =="
 ./cyber_range/scripts/start.sh
 
-docker_host_ip="$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}' 2>/dev/null || true)"
+# The gateway has no default route: the relay must live on its attached
+# private control network, rather than Docker's unrelated default bridge.
+"${COMPOSE[@]}" --profile security-task-force up -d --build stf-nats stf-opa stf-temporal
+control_container="$(docker ps --filter 'label=com.docker.compose.service=stf-nats' --format '{{.ID}}' | head -1)"
+control_network="$(docker inspect -f '{{range $name, $net := .NetworkSettings.Networks}}{{$name}}{{println}}{{end}}' "$control_container")"
+docker_host_ip="$(docker network inspect "$control_network" --format '{{(index .IPAM.Config 0).Gateway}}' 2>/dev/null || true)"
 if [ -z "$docker_host_ip" ]; then
-  echo "Could not determine the private Docker host gateway for the Cyber Range relay." >&2
+  echo "Could not determine the private STF control gateway for the Cyber Range relay." >&2
   exit 1
 fi
 python3 - "$docker_host_ip" <<'PY'
 import ipaddress, sys
 address = ipaddress.ip_address(sys.argv[1])
-if not address.is_private:
-    raise SystemExit("Docker host gateway is not private")
+if not address.is_private or address.is_unspecified or address.is_loopback or address.is_multicast:
+    raise SystemExit("STF control gateway must be an explicit private interface")
 PY
+
+env_set CYBER_RANGE_CONTROL_ADDR "$docker_host_ip:7071"
+env_set CYBER_RANGE_CONTROLLER_URL "http://$docker_host_ip:7071"
 
 relay_user="tco-range-relay"
 if ! id "$relay_user" >/dev/null 2>&1; then
@@ -84,7 +90,9 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable --now the-creation-cyber-range-relay.service
+systemctl enable the-creation-cyber-range-relay.service
+# enable --now does not restart an existing relay after its bind address changed.
+systemctl restart the-creation-cyber-range-relay.service
 
 # Oracle's host INPUT chain rejects unsolicited traffic. Permit only Docker-originated
 # traffic to the private authenticated relay; the service itself is bound to a private IP.
