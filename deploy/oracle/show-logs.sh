@@ -41,15 +41,39 @@ done
 # State summaries contain no conversation text, credentials, or outbox payloads.
 # Reachability alone cannot show whether a queued campaign actually executes.
 api="$(docker ps --filter 'label=com.docker.compose.service=api' --format '{{.ID}}' | head -1)"
+temporal="$(docker ps --filter 'label=com.docker.compose.service=stf-temporal' --format '{{.ID}}' | head -1)"
+if [ -n "$temporal" ]; then
+  echo '== Temporal private listeners =='
+  docker inspect -f '{{range $name, $net := .NetworkSettings.Networks}}{{$name}} {{$net.IPAddress}}{{println}}{{end}}' "$temporal"
+  docker exec "$temporal" cat /proc/net/tcp | python3 -c '
+import socket, struct, sys
+for line in sys.stdin:
+    fields = line.split()
+    if len(fields) > 3 and fields[3] == "0A" and fields[1].endswith(":1C41"):
+        print("Listening on", socket.inet_ntoa(struct.pack("<I", int(fields[1].split(":")[0], 16))), "port 7233")
+'
+fi
 if [ -n "$api" ]; then
   echo '== Runtime execution state (read-only) =='
   docker exec -i "$api" python - <<'PY'
 import asyncio
 import json
+import re
+import socket
 from sqlalchemy import text
 from app.db.session import AsyncSessionLocal
 
 async def main():
+    try:
+        addresses = sorted({item[4][0] for item in socket.getaddrinfo('stf-temporal', 7233, type=socket.SOCK_STREAM)})
+        for address in addresses:
+            try:
+                with socket.create_connection((address, 7233), timeout=3):
+                    print('temporal_connection', address, 'reachable')
+            except OSError as error:
+                print('temporal_connection', address, type(error).__name__)
+    except OSError as error:
+        print('temporal_resolution', type(error).__name__)
     async with AsyncSessionLocal() as session:
         await session.execute(text('SET TRANSACTION READ ONLY'))
         for table, column in [('stf_runs', 'state'), ('stf_outbox', 'status'),
@@ -60,6 +84,8 @@ async def main():
         print('unfinished_training', json.dumps([dict(row._mapping) for row in rows]))
         rows = await session.execute(text("SELECT destination, status, max(attempts) AS max_attempts, count(*) FROM stf_outbox GROUP BY destination, status"))
         print('outbox_delivery', json.dumps([dict(row._mapping) for row in rows]))
+        rows = await session.execute(text("SELECT status, error_json->>'code' AS code, attempt_count FROM tasks WHERE status IN ('FAILED','BLOCKED') LIMIT 20"))
+        print('task_failures', json.dumps([{'status': row.status, 'code': row.code if re.fullmatch('[A-Z0-9_]{1,96}', row.code or '') else 'UNCLASSIFIED', 'attempts': row.attempt_count} for row in rows]))
 
 asyncio.run(main())
 PY
