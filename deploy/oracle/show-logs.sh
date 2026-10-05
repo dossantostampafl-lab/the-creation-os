@@ -38,6 +38,16 @@ for line in sys.stdin:
   echo
 done
 
+echo '== MinIO inventory (read-only) =='
+docker ps -a --format '{{.Names}} {{.Image}} {{.Status}}' | awk 'tolower($0) ~ /minio/ {print}'
+gateway="$(docker ps --filter 'label=com.docker.compose.service=stf-gateway' --format '{{.ID}}' | head -1)"
+if [ -n "$gateway" ]; then
+  echo '== Gateway private network routes =='
+  docker exec "$gateway" cat /proc/net/route
+  docker exec "$gateway" cat /etc/hosts | awk '/host.docker.internal/ {print}'
+  docker inspect -f '{{range $name, $net := .NetworkSettings.Networks}}{{$name}} {{$net.IPAddress}}{{println}}{{end}}' "$gateway"
+fi
+
 # State summaries contain no conversation text, credentials, or outbox payloads.
 # Reachability alone cannot show whether a queued campaign actually executes.
 api="$(docker ps --filter 'label=com.docker.compose.service=api' --format '{{.ID}}' | head -1)"
@@ -84,6 +94,8 @@ async def main():
         print('unfinished_training', json.dumps([dict(row._mapping) for row in rows]))
         rows = await session.execute(text("SELECT destination, status, max(attempts) AS max_attempts, count(*) FROM stf_outbox GROUP BY destination, status"))
         print('outbox_delivery', json.dumps([dict(row._mapping) for row in rows]))
+        rows = await session.execute(text("SELECT status, reason_codes FROM stf_dispatches ORDER BY created_at DESC LIMIT 10"))
+        print('dispatch_reasons', json.dumps([{'status': row.status, 'reasons': [code for code in (row.reason_codes or []) if isinstance(code,str) and re.fullmatch('[A-Za-z0-9_]{1,96}',code)]} for row in rows]))
         rows = await session.execute(text("SELECT status, error_json->>'code' AS code, attempt_count FROM tasks WHERE status IN ('FAILED','BLOCKED') LIMIT 20"))
         print('task_failures', json.dumps([{'status': row.status, 'code': row.code if re.fullmatch('[A-Z0-9_]{1,96}', row.code or '') else 'UNCLASSIFIED', 'attempts': row.attempt_count} for row in rows]))
 
