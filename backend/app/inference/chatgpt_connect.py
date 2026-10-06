@@ -231,6 +231,12 @@ def connect(*, output: Path, port: int, no_browser: bool, force_new: bool) -> No
         raise RuntimeError("ChatGPT plan usage permission was not granted")
 
     claims = _validate_id_token(id_token, client_id=issued_client_id, nonce=nonce)
+    existing_subject = str(existing.get("subject") or "").strip()
+    if existing_subject and str(claims.get("sub") or "") != existing_subject:
+        raise RuntimeError(
+            "ChatGPT reauthorization returned a different account identity; "
+            "the saved registration was not replaced"
+        )
     document: dict[str, object] = {
         "email": claims.get("email"),
         "issuer": ISSUER,
