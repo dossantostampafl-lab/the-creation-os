@@ -24,7 +24,7 @@ _DURATION = _METER.create_histogram('creation.operation.duration', unit='s')
 _COUNT = _METER.create_counter('creation.operation.count')
 _ALLOWED = frozenset({'http.route', 'http.request.method', 'http.method',
     'http.response.status_code', 'http.status_code', 'server.address', 'server.port',
-    'creation.operation', 'creation.provider', 'creation.stage', 'creation.outcome',
+    'creation.operation', 'creation.provider', 'creation.model', 'creation.stage', 'creation.outcome',
     'creation.error_type', 'creation.worker', 'service.name', 'service.namespace',
     'deployment.environment', 'telemetry.sdk.name', 'telemetry.sdk.language', 'telemetry.sdk.version'})
 
