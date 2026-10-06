@@ -14,11 +14,18 @@ from app.voice_session.inference import StreamChunk, stream_response
 
 
 class StubProvider:
-    def __init__(self, name: str, events: list[str | Exception]) -> None:
+    def __init__(
+        self,
+        name: str,
+        events: list[str | Exception],
+        *,
+        default_model: str | None = None,
+    ) -> None:
         self.name = name
         self.events = events
         self.calls = 0
         self.requests: list[InferenceRequest] = []
+        self.default_model = default_model
 
     async def stream(self, request: InferenceRequest) -> AsyncIterator[str]:
         self.calls += 1
@@ -261,7 +268,11 @@ async def test_provider_fallback_uses_its_own_default_after_pool_is_exhausted():
             ],
         }
     )
-    fallback = StubProvider("anthropic", ["reserva"])
+    fallback = StubProvider(
+        "anthropic",
+        ["reserva"],
+        default_model="claude-model",
+    )
 
     chunks = [
         chunk
@@ -274,7 +285,7 @@ async def test_provider_fallback_uses_its_own_default_after_pool_is_exhausted():
     ]
 
     assert chunks == [
-        StreamChunk(provider="anthropic", text="reserva", model=None)
+        StreamChunk(provider="anthropic", text="reserva", model="claude-model")
     ]
     assert primary.models == ["model-a", "model-b"]
     assert fallback.calls == 1
