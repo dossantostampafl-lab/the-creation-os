@@ -85,6 +85,18 @@ class Settings(BaseSettings):
     deus_diagnostics_projection_max_lag: int = Field(100, ge=0, env="DEUS_DIAGNOSTICS_PROJECTION_MAX_LAG")
     trinity_enabled: bool = Field(True, env="TRINITY_ENABLED")
     trinity_min_confidence: float = Field(0.7, ge=0.0, le=1.0, env="TRINITY_MIN_CONFIDENCE")
+    deus_chat_provider_timeout_seconds: float = Field(
+        5.0,
+        gt=0.0,
+        le=10.0,
+        env="DEUS_CHAT_PROVIDER_TIMEOUT_SECONDS",
+    )
+    deus_chat_total_timeout_seconds: float = Field(
+        15.0,
+        gt=0.0,
+        le=30.0,
+        env="DEUS_CHAT_TOTAL_TIMEOUT_SECONDS",
+    )
     workspace_root: str = Field("/var/lib/creation/workspaces", env="WORKSPACE_ROOT")
     workspace_max_bytes: int = Field(1_000_000, ge=1, env="WORKSPACE_MAX_BYTES")
     public_news_search_enabled: bool = Field(False, env="PUBLIC_NEWS_SEARCH_ENABLED")
@@ -210,6 +222,15 @@ class Settings(BaseSettings):
         if primary in names:
             raise ValueError("LLM_FALLBACK_PROVIDERS must not repeat LLM_PROVIDER")
         return ",".join(names)
+
+    @validator("deus_chat_total_timeout_seconds")
+    def validate_deus_chat_deadlines(cls, value: float, values: dict[str, object]) -> float:
+        per_provider = float(values.get("deus_chat_provider_timeout_seconds", 5.0))
+        if value <= per_provider:
+            raise ValueError(
+                "DEUS_CHAT_TOTAL_TIMEOUT_SECONDS must be greater than DEUS_CHAT_PROVIDER_TIMEOUT_SECONDS"
+            )
+        return value
 
     @validator("deus_voice_primary_provider")
     def validate_deus_voice_primary_provider(cls, value: str) -> str:
