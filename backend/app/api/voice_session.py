@@ -21,7 +21,7 @@ from app.voice_session.acknowledgement import VoiceAcknowledgementCache
 from app.voice_session.conversation import VoiceConversationBridge
 from app.voice_session.local import KokoroRealtimeTTS, VoskRealtimeSTT, get_local_engine
 from app.voice_session.protocol import ClientEvent
-from app.voice_session.runtime import build_primary_provider
+from app.voice_session.runtime import build_voice_inference_runtime
 from app.voice_session.session import VoiceSession, VoiceSessionGateway
 from app.voice_session.tickets import consume_voice_ticket, issue_voice_ticket
 from app.voice_session.tts import VoiceSynthesisError
@@ -155,7 +155,7 @@ async def voice_session_socket(
             await websocket.send_json(payload)
 
     try:
-        primary = build_primary_provider()
+        inference_runtime = build_voice_inference_runtime()
     except (RuntimeError, ValueError):
         await websocket.accept()
         await websocket.send_json(
@@ -213,7 +213,9 @@ async def voice_session_socket(
                 gateway = VoiceSessionGateway(
                     session=session,
                     stt=stt,
-                    primary=primary,
+                    primary=inference_runtime.primary,
+                    fallbacks=inference_runtime.fallbacks,
+                    primary_models=inference_runtime.primary_models,
                     tts_factory=tts_factory,
                     request_builder=bridge.build_request,
                     on_turn_completed=bridge.complete_turn,
