@@ -7,12 +7,15 @@ def test_exported_attributes_cannot_contain_private_payloads():
                'exception.message': 'PRIVATE', 'http.request.header.authorization': 'Bearer SECRET',
                'http.route': '/api/v1/missions/{id}', 'http.request.method': 'GET',
                'http.response.status_code': 200, 'creation.operation': 'llm.attempt',
+               'creation.provider': 'freellmapi', 'creation.model': 'model-fast',
                'creation.error_type': 'ReadTimeout'}
     clean = safe_attributes(private)
     assert 'PRIVATE' not in str(clean) and 'SECRET' not in str(clean)
     assert clean['http.route'] == '/api/v1/missions/{id}'
     assert clean['http.response.status_code'] == 200
     assert clean['creation.error_type'] == 'ReadTimeout'
+    assert clean['creation.provider'] == 'freellmapi'
+    assert clean['creation.model'] == 'model-fast'
 
 
 def test_disabled_telemetry_preserves_application_result():
