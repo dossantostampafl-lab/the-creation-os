@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import time
 from collections.abc import Callable, Sequence
 
@@ -153,7 +154,23 @@ class ModelRouter:
                         health = await provider.health()
                         if not health.available:
                             raise ProviderUnavailable(provider_name, health.detail or "provider unavailable")
-                    response = await provider.generate(attempt)
+                    timeout_value = attempt.metadata.get("attempt_timeout_seconds")
+                    timeout_seconds = (
+                        float(timeout_value)
+                        if isinstance(timeout_value, (int, float)) and not isinstance(timeout_value, bool)
+                        else None
+                    )
+                    if timeout_seconds is not None and timeout_seconds > 0:
+                        try:
+                            async with asyncio.timeout(timeout_seconds):
+                                response = await provider.generate(attempt)
+                        except TimeoutError as exc:
+                            raise InferenceTimeoutError(
+                                provider_name,
+                                f"{provider_name} exceeded the interactive attempt deadline",
+                            ) from exc
+                    else:
+                        response = await provider.generate(attempt)
             except InferenceRateLimitError as exc:
                 self._rate_limit_cooldown.register(
                     provider_name,

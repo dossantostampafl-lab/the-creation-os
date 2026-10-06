@@ -13,7 +13,7 @@ from app.config import settings
 from app.core.domain import Actor
 from app.db.session import AsyncSessionLocal, get_session
 from app.inference.bootstrap import build_model_router, resolve_configured_model
-from app.inference.contracts import InferenceError
+from app.inference.contracts import InferenceError, InferenceTimeoutError
 from app.models.entities import Conversation
 from app.observability.telemetry import traced
 from app.repositories.domain import DomainRepository
@@ -72,6 +72,8 @@ async def converse_with_deus(
         model=model,
         trinity=trinity,
         context_builder=DeusContextBuilder(AsyncSessionLocal) if settings.deus_context_retrieval_enabled else None,
+        provider_timeout_seconds=settings.deus_chat_provider_timeout_seconds,
+        total_timeout_seconds=settings.deus_chat_total_timeout_seconds,
     )
     turn = None
     store = TurnStore(AsyncSessionLocal)
@@ -93,11 +95,24 @@ async def converse_with_deus(
         await store.finish_in_session(session, turn, response_for(result).model_dump(mode='json'), 'completed')
 
     try:
-        if turn is not None:
-            async with store.renewing(turn):
-                result = await service.respond(a, str(entity_id), body.content, cid, commit_guard=commit_guard)
-        else:
-            result = await service.respond(a, str(entity_id), body.content, cid)
+        try:
+            async with asyncio.timeout(settings.deus_chat_total_timeout_seconds):
+                if turn is not None:
+                    async with store.renewing(turn):
+                        result = await service.respond(
+                            a,
+                            str(entity_id),
+                            body.content,
+                            cid,
+                            commit_guard=commit_guard,
+                        )
+                else:
+                    result = await service.respond(a, str(entity_id), body.content, cid)
+        except TimeoutError as exc:
+            raise InferenceTimeoutError(
+                "router",
+                "DEUS chat exceeded the total interactive deadline",
+            ) from exc
     except TurnConflict as exc:
         await session.rollback()
         raise HTTPException(409, 'Generation ownership expired; use a new request_id') from exc

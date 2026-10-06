@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from app.config import settings
@@ -78,6 +80,27 @@ async def test_the_fallback_answers_only_when_the_primary_is_unavailable(failure
     # The fallback does not know FreeLLMAPI's "auto" model, so it serves its own default.
     assert fallback.requests[0].model is None
     assert response.model == "anthropic-default"
+
+
+@pytest.mark.asyncio
+async def test_interactive_attempt_deadline_advances_to_the_fallback() -> None:
+    class SlowPrimary(StubProvider):
+        async def generate(self, request: InferenceRequest) -> InferenceResponse:
+            self.requests.append(request)
+            await asyncio.sleep(0.05)
+            return InferenceResponse(provider=self.name, model="auto", content="late")
+
+    primary = SlowPrimary("freellmapi")
+    fallback = StubProvider("anthropic")
+    bounded_request = request().model_copy(
+        update={"metadata": {"attempt_timeout_seconds": 0.01}}
+    )
+
+    response = await router_with(primary, fallback).generate(bounded_request)
+
+    assert response.provider == "anthropic"
+    assert len(primary.requests) == 1
+    assert len(fallback.requests) == 1
 
 
 @pytest.mark.asyncio

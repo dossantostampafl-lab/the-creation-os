@@ -19,7 +19,7 @@ from app.core.domain import (
     require_creator,
     transition,
 )
-from app.inference.contracts import InferenceRequest, ModelRequirements
+from app.inference.contracts import InferenceRequest, InferenceTimeoutError, ModelRequirements
 from app.inference.router import ModelRouter
 from app.models.entities import Agent, Conversation, Inception, Message, Mission, Universe
 from app.repositories.domain import DomainRepository
@@ -222,6 +222,8 @@ class DeusConversationService:
         model: str,
         trinity: TrinityEngine | None = None,
         context_builder=None,
+        provider_timeout_seconds: float | None = None,
+        total_timeout_seconds: float | None = None,
     ) -> None:
         self.repo = repository
         self.router = router
@@ -229,6 +231,8 @@ class DeusConversationService:
         self.model = model
         self.trinity = trinity
         self.context_builder = context_builder
+        self.provider_timeout_seconds = provider_timeout_seconds
+        self.total_timeout_seconds = total_timeout_seconds
 
     async def _reason(
         self, actor: Actor, content: str, history: list[Message], snapshot: Awaitable[SystemSnapshot],
@@ -406,6 +410,8 @@ class DeusConversationService:
             "latency_class": "interactive",
             "skip_health_probe": True,
         }
+        if self.provider_timeout_seconds is not None:
+            metadata["attempt_timeout_seconds"] = self.provider_timeout_seconds
         if context_packet is not None:
             creator_message.metadata_json = {**creator_message.metadata_json, 'knowledge_project_id':context_packet.trace['project_id']}
             metadata.update({'cache_policy': 'bypass', 'knowledge_version': str(context_packet.trace['knowledge_epoch']), 'retrieval_fingerprint': context_packet.trace['retrieval_fingerprint'], 'context_trace_id': context_packet.trace_id})
@@ -414,12 +420,23 @@ class DeusConversationService:
             # The reply presents this one proposal; a cached reply would present a stale one.
             metadata["cache_policy"] = "bypass"
 
-        inference = await self.router.generate(InferenceRequest(
+        request = InferenceRequest(
             messages=messages,
             model=self.model,
             requirements=ModelRequirements(preferred_provider=self.provider),
             metadata=metadata,
-        ))
+        )
+        if self.total_timeout_seconds is None:
+            inference = await self.router.generate(request)
+        else:
+            try:
+                async with asyncio.timeout(self.total_timeout_seconds):
+                    inference = await self.router.generate(request)
+            except TimeoutError as exc:
+                raise InferenceTimeoutError(
+                    "router",
+                    "DEUS chat exceeded the total interactive deadline",
+                ) from exc
         deus_message = await self.repo.add(Message(
             conversation_id=conversation_id,
             actor_id="deus",
