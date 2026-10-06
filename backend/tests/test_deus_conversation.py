@@ -230,7 +230,7 @@ def test_deus_system_prompt_preserves_recent_dialogue_context() -> None:
 def test_deus_system_prompt_shapes_short_spoken_prose() -> None:
     lowered = SYSTEM_PROMPT.lower()
     assert "one to three short sentences" in lowered
-    assert "never use lists" in lowered
+    assert "by default use flowing prose" in lowered
     assert "sober" in lowered
     assert "live system state" in lowered
 

@@ -13,6 +13,7 @@ on:
         default: check
         options:
           - check
+          - check-chat-instructions
           - check-universe-inference
           - repair-universe-inference
           - restart
@@ -302,6 +303,9 @@ jobs:
           case "$TASK" in
             check)
               sudo ./deploy/oracle/check-inference.sh
+              ;;
+            check-chat-instructions)
+              sudo "${COMPOSE[@]}" exec -T api python - < deploy/oracle/check-chat-instructions.py
               ;;
             check-universe-inference)
               sudo env UNIVERSE_INFERENCE_DIAGNOSTIC=true ./deploy/oracle/check-inference.sh
