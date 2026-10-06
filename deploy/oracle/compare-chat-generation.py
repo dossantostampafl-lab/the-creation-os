@@ -26,16 +26,24 @@ async def main():
     packet = await DeusContextBuilder(AsyncSessionLocal).build(me.json()["id"], created.json()["id"], query, "text")
     router = build_model_router()
     provider = router.registry.get("freellmapi")
-    for name in ["gemini-3.5-flash-lite", "gemini-2.5-flash-lite", "gemma-4-26b-a4b", "gpt-oss-20b"]:
-        messages = packet.messages
+    cases = [
+        ("literal", "Responda apenas: voz local ativa", "voz local ativa"),
+        ("punctuation", "Responda exatamente com este texto, sem aspas: SINAL-73: pronto!", "SINAL-73: pronto!"),
+        ("json", 'Responda somente com este JSON, sem bloco de código: {"estado":"pronto","passo":2}', '{"estado":"pronto","passo":2}'),
+        ("list", "Responda exatamente com estas duas linhas, mantendo os marcadores de hífen, sem introdução:\n- alfa\n- beta", "- alfa\n- beta"),
+        ("arithmetic", "Quanto é dois mais dois? Responda apenas com o número.", "4"),
+        ("context", "Qual estilo de voz eu acabei de preferir? Responda em uma frase.", ("masculin", "grav", "seren")),
+    ]
+    for name, question, expected in cases * 2:
+        messages = packet.messages[:-2] + [{"role": "user", "content": "Prefiro sua voz masculina, grave e serena."}] + [packet.messages[-2], {"role": "user", "content": question}]
         budget = 512
         started = time.monotonic()
         try:
             response = await asyncio.wait_for(provider.generate(InferenceRequest(messages=messages,
-                model=name,
+                model="gemini-3.5-flash-lite",
                 requirements=ModelRequirements(preferred_provider="freellmapi", max_output_tokens=budget))), 25)
             print(json.dumps({"case": name, "ms": round((time.monotonic()-started)*1000),
-                "input_bytes": len(json.dumps(messages).encode()), "exact": response.content == "voz local ativa",
+                "input_bytes": len(json.dumps(messages).encode()), "exact": (all(word in response.content.casefold() for word in expected) if isinstance(expected, tuple) else response.content == expected),
                 "model": response.model, "finish": response.finish_reason, "usage": response.usage}), flush=True)
         except Exception as exc:
             print(json.dumps({"case": name, "error": type(exc).__name__}), flush=True)
