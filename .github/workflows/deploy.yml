@@ -38,6 +38,11 @@ on:
         type: string
         required: false
         default: ""
+      voice_models:
+        description: "Optional DEUS voice FreeLLM model pool, comma-separated."
+        type: string
+        required: false
+        default: ""
 
 # Reading the repository is all this needs; it must not be able to write to it.
 permissions:
@@ -62,6 +67,7 @@ jobs:
           SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           HOST: ${{ secrets.DEPLOY_HOST }}
           REF: ${{ inputs.ref }}
+          DEUS_VOICE_CONVERSATION_MODELS: ${{ inputs.voice_models }}
           FREELLMAPI_MODEL: ${{ secrets.FREELLMAPI_MODEL }}
           FREELLMAPI_BASE_URL: ${{ secrets.FREELLMAPI_BASE_URL }}
         run: |
@@ -92,6 +98,10 @@ jobs:
           fi
           if ! [[ "${FREELLMAPI_BASE_URL:-}" =~ ^(https?://[A-Za-z0-9._:/-]+)?$ ]]; then
             echo "::error::FREELLMAPI_BASE_URL must be an http(s) address without spaces, quotes or credentials."
+            exit 1
+          fi
+          if ! [[ "${DEUS_VOICE_CONVERSATION_MODELS:-}" =~ ^([A-Za-z0-9._:/-]+(,[A-Za-z0-9._:/-]+)*)?$ ]]; then
+            echo "::error::voice_models must be an optional comma-separated list of model names."
             exit 1
           fi
 
@@ -241,6 +251,7 @@ jobs:
           FREELLMAPI_API_KEY: ${{ secrets.FREELLMAPI_API_KEY }}
           FREELLMAPI_MODEL: ${{ secrets.FREELLMAPI_MODEL }}
           FREELLMAPI_BASE_URL: ${{ secrets.FREELLMAPI_BASE_URL }}
+          DEUS_VOICE_CONVERSATION_MODELS: ${{ inputs.voice_models }}
         run: |
           set -euo pipefail
 
@@ -384,7 +395,7 @@ jobs:
               ;;
             set-local-voice)
               sudo git merge --ff-only "origin/$target"
-              sudo ./deploy/oracle/set-local-voice.sh
+              DEUS_VOICE_CONVERSATION_MODELS="${DEUS_VOICE_CONVERSATION_MODELS:-}" sudo -E ./deploy/oracle/set-local-voice.sh
               sudo ./deploy/oracle/smoke-test.sh --deus
               ;;
             seed)
@@ -416,7 +427,8 @@ jobs:
                         ANTHROPIC_MODEL='${ANTHROPIC_MODEL:-}' \
                         ANTHROPIC_WORKSPACE_ID='${ANTHROPIC_WORKSPACE_ID:-}' \
                         FREELLMAPI_MODEL='${FREELLMAPI_MODEL:-}' \
-                        FREELLMAPI_BASE_URL='${FREELLMAPI_BASE_URL:-}'; \
+                        FREELLMAPI_BASE_URL='${FREELLMAPI_BASE_URL:-}' \
+                        DEUS_VOICE_CONVERSATION_MODELS='${DEUS_VOICE_CONVERSATION_MODELS:-}'; \
                  IFS= read -r ANTHROPIC_API_KEY; IFS= read -r CREATOR_PASSWORD; \
                  IFS= read -r FREELLMAPI_API_KEY; \
                  export ANTHROPIC_API_KEY CREATOR_PASSWORD FREELLMAPI_API_KEY; exec bash -s"

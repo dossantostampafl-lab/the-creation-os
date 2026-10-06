@@ -16,6 +16,7 @@ from app.inference.contracts import InferenceRequest, InferenceTimeoutError
 from app.main import app
 from app.schemas.auth import TokenPayload
 from app.voice_session.metrics import VoiceTurnMetrics
+from app.voice_session.runtime import VoiceInferenceRuntime
 from app.voice_session.session import SessionState, VoiceSession, VoiceSessionGateway
 from app.voice_session.stt import STTTranscript
 
@@ -167,7 +168,11 @@ async def test_barge_in_cancels_stalled_turn_and_processes_followup(voice_client
 
     monkeypatch.setattr(voice_session_api, "VoskRealtimeSTT", lambda *_args, **_kwargs: TranscriptSTT())
     monkeypatch.setattr(voice_session_api, "KokoroRealtimeTTS", make_tts)
-    monkeypatch.setattr(voice_session_api, "build_primary_provider", lambda: provider)
+    monkeypatch.setattr(
+        voice_session_api,
+        "build_voice_inference_runtime",
+        lambda: VoiceInferenceRuntime(primary=provider, fallbacks=(), primary_models=()),
+    )
     await asyncio.wait_for(voice_session_api.voice_session_socket(Socket(), ticket="ticket-1", conversation_id="conversation-1"), timeout=1)
     assert completed.is_set()
     assert cancelled.is_set()
@@ -272,8 +277,12 @@ def voice_client(monkeypatch):
     )
     monkeypatch.setattr(
         voice_session_api,
-        "build_primary_provider",
-        lambda: StubStreamingProvider("freellmapi", []),
+        "build_voice_inference_runtime",
+        lambda: VoiceInferenceRuntime(
+            primary=StubStreamingProvider("freellmapi", []),
+            fallbacks=(),
+            primary_models=(),
+        ),
     )
     class FakeEngine:
         def recognizer(self):
@@ -662,7 +671,15 @@ async def test_websocket_reports_local_synthesis_failure(voice_client, monkeypat
 
     monkeypatch.setattr(voice_session_api, "VoskRealtimeSTT", lambda *_a, **_k: QuestionSTT())
     monkeypatch.setattr(voice_session_api, "KokoroRealtimeTTS", lambda *_a, **_k: FailingTTS([]))
-    monkeypatch.setattr(voice_session_api, "build_primary_provider", lambda: StubStreamingProvider("freellmapi", ["Quatro."]))
+    monkeypatch.setattr(
+        voice_session_api,
+        "build_voice_inference_runtime",
+        lambda: VoiceInferenceRuntime(
+            primary=StubStreamingProvider("freellmapi", ["Quatro."]),
+            fallbacks=(),
+            primary_models=(),
+        ),
+    )
     socket = QuietSocket()
     await asyncio.wait_for(voice_session_api.voice_session_socket(socket, ticket="ticket-1", conversation_id="conversation-1"), timeout=1)
     assert socket.events[-1]["code"] == "VOICE_TTS_UNAVAILABLE"
