@@ -225,7 +225,12 @@ class Settings(BaseSettings):
 
     @validator("deus_chat_total_timeout_seconds")
     def validate_deus_chat_deadlines(cls, value: float, values: dict[str, object]) -> float:
-        per_provider = float(values.get("deus_chat_provider_timeout_seconds", 5.0))
+        raw_per_provider = values.get("deus_chat_provider_timeout_seconds", 5.0)
+        per_provider = (
+            float(raw_per_provider)
+            if isinstance(raw_per_provider, (int, float, str))
+            else 5.0
+        )
         if value <= per_provider:
             raise ValueError(
                 "DEUS_CHAT_TOTAL_TIMEOUT_SECONDS must be greater than DEUS_CHAT_PROVIDER_TIMEOUT_SECONDS"
