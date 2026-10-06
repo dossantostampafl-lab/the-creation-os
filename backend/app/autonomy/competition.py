@@ -356,16 +356,29 @@ class OpportunityCompetitionWorker:
         self.research_lease_seconds = research_lease_seconds
         self.executive_lease_seconds = executive_lease_seconds
         self.stale_claim_seconds = stale_claim_seconds
-        # Set when a generation fails because no inference provider answered. The rest of
-        # the cycle then stops calling the model instead of repeating the same failure.
-        self._inference_unavailable = False
+        # Provider chains that answered no request this cycle. Agents can pin different
+        # chains, so one exhausted chain only stops the calls that would use it again.
+        self._unavailable_chains: set[tuple[str, tuple[str, ...], str | None]] = set()
+        self._inference_answered = False
         self._inference_rate_limited = False
 
-    def _note_inference_failure(self, exc: Exception) -> None:
+    @staticmethod
+    def _chain(agent: Agent) -> tuple[str, tuple[str, ...], str | None]:
+        preferred, fallbacks, model = InferenceThesisGenerator._requirements(agent)
+        return preferred, tuple(fallbacks), model
+
+    def _note_inference_failure(self, agent: Agent, exc: Exception) -> None:
         if isinstance(exc, InferenceError):
-            self._inference_unavailable = True
+            self._unavailable_chains.add(self._chain(agent))
             if isinstance(exc, InferenceRateLimitError):
                 self._inference_rate_limited = True
+
+    @staticmethod
+    def _composer(competitors: list[tuple[Universe, Agent]]) -> tuple[Universe, Agent]:
+        return next(
+            (pair for pair in competitors if pair[0].code == "evolution"),
+            competitors[0],
+        )
 
     async def _claim(self, creator_id: str) -> list[str]:
         stale_before = _utcnow() - timedelta(seconds=self.stale_claim_seconds)
@@ -498,14 +511,14 @@ class OpportunityCompetitionWorker:
             for universe, agent in competitors:
                 if universe.id in existing_universe_ids:
                     continue
-                if self._inference_unavailable:
-                    break
+                if self._chain(agent) in self._unavailable_chains:
+                    continue
                 try:
                     thesis_payload = await self.generator.generate(
                         opportunity, universe, agent
                     )
                 except Exception as exc:
-                    self._note_inference_failure(exc)
+                    self._note_inference_failure(agent, exc)
                     logger.bind(
                         component="opportunity-competition",
                         opportunity_id=opportunity.id,
@@ -513,6 +526,7 @@ class OpportunityCompetitionWorker:
                         error_type=type(exc).__name__,
                     ).warning("opportunity thesis generation failed")
                     continue
+                self._inference_answered = True
 
                 thesis = await submit_thesis(
                     repository,
@@ -532,6 +546,23 @@ class OpportunityCompetitionWorker:
                     await session.commit()
                 return theses_created, False
 
+            composition_marker = f"composition:{opportunity.id}"
+            composer_universe, composer_agent = self._composer(competitors)
+            if (
+                self.composition_enabled
+                and self._chain(composer_agent) in self._unavailable_chains
+                and not any(
+                    composition_marker in list(item.evidence_refs_json or [])
+                    for item in existing
+                )
+            ):
+                # The composer's chain did not answer this cycle. Resolving now would select
+                # without the composition for good, so the theses wait for a later cycle.
+                opportunity.status = "DETECTED"
+                opportunity.updated_at = _utcnow()
+                await session.commit()
+                return theses_created, False
+
             for thesis in existing:
                 research_leases.append(
                     await self._research_lease(
@@ -539,8 +570,7 @@ class OpportunityCompetitionWorker:
                     )
                 )
 
-            if self.composition_enabled and not self._inference_unavailable:
-                composition_marker = f"composition:{opportunity.id}"
+            if self.composition_enabled:
                 composed = next(
                     (
                         item
@@ -550,14 +580,6 @@ class OpportunityCompetitionWorker:
                     None,
                 )
                 if composed is None:
-                    composer_universe, composer_agent = next(
-                        (
-                            pair
-                            for pair in competitors
-                            if pair[0].code == "evolution"
-                        ),
-                        competitors[0],
-                    )
                     try:
                         critique = await self.generator.critique(
                             opportunity,
@@ -565,6 +587,7 @@ class OpportunityCompetitionWorker:
                             composer_universe,
                             composer_agent,
                         )
+                        self._inference_answered = True
                         await repository.add_event(
                             "opportunity_theses_critiqued",
                             "opportunity",
@@ -633,7 +656,7 @@ class OpportunityCompetitionWorker:
                         )
                         await repository.commit()
                     except Exception as exc:
-                        self._note_inference_failure(exc)
+                        self._note_inference_failure(composer_agent, exc)
                         logger.bind(
                             component="opportunity-competition",
                             opportunity_id=opportunity.id,
@@ -662,7 +685,8 @@ class OpportunityCompetitionWorker:
 
     @traced("opportunity.competition")
     async def run_once(self, creator_id: str) -> dict[str, int]:
-        self._inference_unavailable = False
+        self._unavailable_chains = set()
+        self._inference_answered = False
         self._inference_rate_limited = False
         claimed = await self._claim(creator_id)
         theses_created = 0
@@ -685,7 +709,11 @@ class OpportunityCompetitionWorker:
             "opportunities_processed": competitions_resolved,
             "theses_created": theses_created,
             "competitions_resolved": competitions_resolved,
-            "inference_unavailable": int(self._inference_unavailable),
+            # Back off only when inference was needed and nothing answered: a cycle in which
+            # some chain still generated keeps the normal interval.
+            "inference_unavailable": int(
+                bool(self._unavailable_chains) and not self._inference_answered
+            ),
             "inference_rate_limited": int(self._inference_rate_limited),
         }
 

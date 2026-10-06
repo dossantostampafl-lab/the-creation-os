@@ -189,14 +189,17 @@ else:
         print("   " + json.dumps(body)[:400])
     else:
         # One line per model, so an exhausted free tier is named instead of cut off mid-list.
+        # The reason is upstream error text, so any long token that could be a key is hidden.
+        import re
+        opaque = re.compile(r"(?=[A-Za-z0-9_+/=]*[0-9])(?=[A-Za-z0-9_+/=]*[A-Za-z])[A-Za-z0-9_+/=]{20,}")
         available = sum(1 for item in models if isinstance(item, dict) and item.get("available"))
         print(f"   {available} of {len(models)} model(s) available")
         for item in models:
             if not isinstance(item, dict):
                 continue
-            reason = " ".join(str(item.get("unavailable_reason") or "").split())[:200]
+            reason = opaque.sub("<redacted>", " ".join(str(item.get("unavailable_reason") or "").split()))[:200]
             state = "available" if item.get("available") else "UNAVAILABLE"
-            model_id = str(item.get("id"))[:80]
+            model_id = opaque.sub("<redacted>", str(item.get("id")))[:80]
             print(f"   - {model_id:<40} {state}" + (f"  {reason}" if reason else ""))
 ' || echo "   Could not run the FreeLLMAPI probe inside the container."
 fi

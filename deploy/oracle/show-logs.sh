@@ -18,8 +18,9 @@ esac
 [ "$lines" -gt 500 ] && lines=500
 
 # A log line can carry whatever an error put in it, so anything that looks like a key is
-# replaced before it reaches a workflow log that others can read. FreeLLMAPI holds the keys of
-# every free tier it routes to (Google, Groq, Cohere, OpenRouter...), so their shapes are covered too.
+# replaced before it reaches a workflow log that others can read. With --strict, used for
+# FreeLLMAPI (another project, holding the keys of every free tier it routes to), any long
+# token that mixes letters and digits is replaced as well, whatever its format.
 redact() {
   python3 -c '
 import re
@@ -31,9 +32,14 @@ SECRET = re.compile(
     r"|\b[A-Za-z0-9]{40}\b"
     r"|(?i:(?:api[_-]?key|token|secret|authorization)[\"\x27]?\s*[:=]\s*[\"\x27]?)[A-Za-z0-9._\-]{12,})"
 )
+OPAQUE = re.compile(r"(?=[A-Za-z0-9_+/=]*[0-9])(?=[A-Za-z0-9_+/=]*[A-Za-z])[A-Za-z0-9_+/=]{20,}")
+strict = "--strict" in sys.argv[1:]
 for line in sys.stdin:
-    sys.stdout.write("   " + SECRET.sub("<redacted>", line))
-'
+    line = SECRET.sub("<redacted>", line)
+    if strict:
+        line = OPAQUE.sub("<redacted>", line)
+    sys.stdout.write("   " + line)
+' "$@"
 }
 
 for service in discovery-worker opportunity-worker api worker stf-temporal stf-worker stf-training-worker stf-gateway; do
@@ -54,7 +60,7 @@ echo "== freellmapi =="
 if [ -z "$freellmapi" ]; then
   echo "   No FreeLLMAPI container is running."
 else
-  docker logs --tail "$lines" "$freellmapi" 2>&1 | redact
+  docker logs --tail "$lines" "$freellmapi" 2>&1 | redact --strict
 fi
 echo
 
