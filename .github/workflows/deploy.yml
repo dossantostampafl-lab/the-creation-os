@@ -15,6 +15,7 @@ on:
           - check
           - check-chat-instructions
           - check-chat-latency
+          - compare-chat-generation
           - check-universe-inference
           - repair-universe-inference
           - restart
@@ -313,6 +314,9 @@ jobs:
                 source ./deploy/oracle/env-file.sh
                 printf "%s\n" "$(env_get STF_GRAFANA_ADMIN_PASSWORD)" | python3 deploy/oracle/check-chat-latency.py --port "$(env_get STF_GRAFANA_PORT)"
               '
+              ;;
+            compare-chat-generation)
+              sudo "${COMPOSE[@]}" exec -T api python - < deploy/oracle/compare-chat-generation.py
               ;;
             check-universe-inference)
               sudo env UNIVERSE_INFERENCE_DIAGNOSTIC=true ./deploy/oracle/check-inference.sh
