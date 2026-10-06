@@ -146,13 +146,17 @@ def connect(*, output: Path, port: int, no_browser: bool, force_new: bool) -> No
         "code_challenge_method": "S256",
         "code_challenge": _b64url_sha256(verifier),
     }
+    contains_id_token_hint = False
     if client_id == DYNAMIC_CLIENT_ID:
         params["agent_name_hint"] = AGENT_NAME
     else:
         retained_id_token = str(existing.get("id_token") or "").strip()
         email = str(existing.get("email") or "").strip()
-        if retained_id_token:
+        # id_token_hint is a credential-bearing hint: use it only when the URL is
+        # opened directly by this process, never when the URL must be printed.
+        if retained_id_token and not no_browser:
             params["id_token_hint"] = retained_id_token
+            contains_id_token_hint = True
         if email:
             params["login_hint"] = email
 
@@ -164,8 +168,14 @@ def connect(*, output: Path, port: int, no_browser: bool, force_new: bool) -> No
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        print("Open this URL in the browser to connect ChatGPT:")
-        print(url)
+        if contains_id_token_hint:
+            print(
+                "Opening ChatGPT authorization in the browser. "
+                "The authorization URL is intentionally not printed because it contains an ID-token hint."
+            )
+        else:
+            print("Open this URL in the browser to connect ChatGPT:")
+            print(url)
         if not no_browser:
             webbrowser.open(url)
         if not _CallbackHandler.event.wait(timeout=600):
