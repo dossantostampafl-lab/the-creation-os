@@ -23,7 +23,7 @@ CASES = [
 def matches(answer, expected):
     if isinstance(expected, tuple):
         return all(word in answer.casefold() for word in expected)
-    return answer.strip() == expected
+    return answer == expected
 
 
 async def main() -> int:

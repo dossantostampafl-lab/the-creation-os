@@ -12,6 +12,8 @@ PROBE = Path(__file__).resolve().parents[2] / "deploy/oracle/check-chat-instruct
 
 @pytest.mark.parametrize("answer, expected, ok", [
     ("voz local ativa", "voz local ativa", True),
+    (" voz local ativa", "voz local ativa", False),
+    ("voz local ativa\n", "voz local ativa", False),
     ("Voz local está ativa.", "voz local ativa", False),
     ("SINAL-73: pronto!", "SINAL-73: pronto!", True),
     ("Sinal-73: pronto", "SINAL-73: pronto!", False),
