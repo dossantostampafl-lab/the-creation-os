@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import re
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from enum import StrEnum
@@ -197,6 +197,8 @@ class VoiceSessionGateway:
         session: VoiceSession,
         stt: RealtimeSTT,
         primary: StreamingProvider,
+        fallbacks: Sequence[StreamingProvider] = (),
+        primary_models: Sequence[str] = (),
         tts_factory: TTSFactory,
         request_builder: RequestBuilder | None = None,
         on_turn_completed: TurnCompleted | None = None,
@@ -209,6 +211,8 @@ class VoiceSessionGateway:
         self.session = session
         self.stt = stt
         self.primary = primary
+        self.fallbacks = tuple(fallbacks)
+        self.primary_models = tuple(primary_models)
         self.tts_factory = tts_factory
         self.request_builder = request_builder
         self.on_turn_completed = on_turn_completed
@@ -374,6 +378,8 @@ class VoiceSessionGateway:
                     async for chunk in stream_response(
                         request,
                         primary=self.primary,
+                        primary_models=self.primary_models,
+                        fallbacks=self.fallbacks,
                         first_token_timeout_seconds=(
                             self.first_token_timeout_seconds
                         ),
@@ -389,6 +395,13 @@ class VoiceSessionGateway:
                             emitted_model_text = True
                             metrics.mark("first_model_token")
                             metrics.provider_selected = chunk.provider
+                            if chunk.provider != self.primary.name:
+                                metrics.fallback_reason = "provider_fallback"
+                            elif (
+                                self.primary_models
+                                and chunk.model != self.primary_models[0]
+                            ):
+                                metrics.fallback_reason = "model_failover"
 
                         response_parts.append(chunk.text)
                         metrics.mark("first_tts_text")
