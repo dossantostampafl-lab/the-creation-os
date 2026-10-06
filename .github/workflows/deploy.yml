@@ -19,6 +19,7 @@ on:
           - restart
           - update
           - set-inference
+          - set-inference-chatgpt
           - set-inference-freellmapi
           - set-creator-password
           - tidy
@@ -378,6 +379,10 @@ jobs:
               ;;
             set-inference)
               sudo -E ./deploy/oracle/set-inference.sh anthropic "${ANTHROPIC_MODEL:-claude-sonnet-5}"
+              ;;
+            set-inference-chatgpt)
+              # ChatGPT OAuth is primary; the existing FreeLLMAPI gateway remains an independent reserve.
+              FALLBACK_PROVIDERS=freellmapi sudo -E ./deploy/oracle/set-inference.sh chatgpt gpt-6.1-sol
               ;;
             set-inference-freellmapi)
               # FreeLLMAPI first, Claude as the reserve. The script refuses, and changes nothing,
