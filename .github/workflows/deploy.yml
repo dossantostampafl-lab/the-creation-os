@@ -309,7 +309,10 @@ jobs:
               sudo "${COMPOSE[@]}" exec -T api python - < deploy/oracle/check-chat-instructions.py
               ;;
             check-chat-latency)
-              sudo "${COMPOSE[@]}" exec -T api python - < deploy/oracle/check-chat-latency.py
+              sudo bash -c '
+                source ./deploy/oracle/env-file.sh
+                printf "%s\n" "$(env_get STF_GRAFANA_ADMIN_PASSWORD)" | python3 deploy/oracle/check-chat-latency.py --port "$(env_get STF_GRAFANA_PORT)"
+              '
               ;;
             check-universe-inference)
               sudo env UNIVERSE_INFERENCE_DIAGNOSTIC=true ./deploy/oracle/check-inference.sh
