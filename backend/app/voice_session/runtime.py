@@ -35,7 +35,9 @@ def build_voice_inference_runtime() -> VoiceInferenceRuntime:
     registry = ProviderRegistry()
     _register_provider(registry, "freellmapi")
     fallbacks: list[StreamingProvider] = []
-    for provider_name in settings.inference_provider_chain[1:]:
+    for provider_name in settings.inference_provider_chain:
+        if provider_name == "freellmapi":
+            continue
         try:
             _register_provider(registry, provider_name)
         except (RuntimeError, ValueError) as exc:
