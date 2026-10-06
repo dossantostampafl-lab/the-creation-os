@@ -7,7 +7,7 @@ import pytest
 
 from app.cognition.trinity import TrinityEngine, UniverseReadiness
 from app.core.domain import Actor
-from app.inference.contracts import InferenceRequest, InferenceResponse
+from app.inference.contracts import InferenceRequest, InferenceResponse, InferenceTimeoutError
 from app.models.entities import Agent, Conversation, Message, Mission, Universe
 from app.services.conversation_context import SYSTEM_PROMPT
 from app.services.deus import (
@@ -162,6 +162,48 @@ async def test_deus_uses_model_router_and_persists_both_sides_of_conversation() 
     assert any(message["role"] == "system" and "DEUS" in message["content"] for message in router.requests[0].messages)
     assert repo.events[-1]["event_type"] == "deus_response_generated"
     assert repo.commits == 1
+
+
+@pytest.mark.asyncio
+async def test_deus_chat_passes_the_provider_deadline_to_the_router() -> None:
+    actor = Actor(str(uuid.uuid4()), "creator")
+    repo = FakeRepository(actor)
+    router = StubRouter()
+    service = DeusConversationService(
+        repo,
+        router,
+        provider="freellmapi",
+        model="auto",
+        provider_timeout_seconds=5.0,
+        total_timeout_seconds=15.0,
+    )
+
+    await service.respond(actor, repo.conversation.id, "Qual é o status?", str(uuid.uuid4()))
+
+    assert router.requests[0].metadata["attempt_timeout_seconds"] == 5.0
+
+
+@pytest.mark.asyncio
+async def test_deus_chat_enforces_the_total_interactive_deadline() -> None:
+    actor = Actor(str(uuid.uuid4()), "creator")
+    repo = FakeRepository(actor)
+
+    class SlowRouter:
+        async def generate(self, request: InferenceRequest) -> InferenceResponse:
+            await asyncio.sleep(0.05)
+            return InferenceResponse(provider="stub", model="stub-model", content="late")
+
+    service = DeusConversationService(
+        repo,
+        SlowRouter(),
+        provider="freellmapi",
+        model="auto",
+        provider_timeout_seconds=0.01,
+        total_timeout_seconds=0.01,
+    )
+
+    with pytest.raises(InferenceTimeoutError, match="total interactive deadline"):
+        await service.respond(actor, repo.conversation.id, "Qual é o status?", str(uuid.uuid4()))
 
 
 @pytest.mark.asyncio
