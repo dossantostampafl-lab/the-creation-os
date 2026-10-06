@@ -1,7 +1,9 @@
 FROM node:22-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci
+# npm can silently omit a failed optional native package. Validate it in the
+# install layer so Docker cannot cache an incomplete install as successful.
+RUN npm ci --include=optional && node -e "require('lightningcss')"
 COPY . .
 ARG VITE_API_BASE_URL=/api/v1
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
