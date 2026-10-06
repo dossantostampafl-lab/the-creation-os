@@ -34,7 +34,7 @@ async def main():
         ("arithmetic", "Quanto é dois mais dois? Responda apenas com o número.", "4"),
         ("context", "Qual estilo de voz eu acabei de preferir? Responda em uma frase.", ("masculin", "grav", "seren")),
     ]
-    for selected_model, (name, question, expected) in [(model, case) for model in ("gpt-oss-20b", "qwen3.8-27b") for case in cases]:
+    for selected_model, (name, question, expected) in [(model, case) for model in ("command-r7b", "command-a-2", "gemini-3.8-flash", "command-a") for case in (cases[0], cases[-1])]:
         messages = packet.messages[:-2] + [{"role": "user", "content": "Prefiro sua voz masculina, grave e serena."}] + [packet.messages[-2], {"role": "user", "content": question}]
         budget = 512
         started = time.monotonic()
