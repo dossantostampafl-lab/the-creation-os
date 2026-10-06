@@ -54,6 +54,8 @@ else
     cd "$env_dir"
     printf '   LLM_PROVIDER=%s\n' "$(env_get LLM_PROVIDER)"
     printf '   LLM_FALLBACK_PROVIDERS=%s\n' "$(env_get LLM_FALLBACK_PROVIDERS)"
+    printf '   CHATGPT_MODEL=%s\n' "$(env_get CHATGPT_MODEL)"
+    printf '   CHATGPT_CREDENTIALS_FILE=%s\n' "$(env_get CHATGPT_CREDENTIALS_FILE)"
     printf '   FREELLMAPI_MODEL=%s\n' "$(env_get FREELLMAPI_MODEL)"
     printf '   FREELLMAPI_BASE_URL=%s\n' "$(env_get FREELLMAPI_BASE_URL)"
     freellm_key="$(env_get FREELLMAPI_API_KEY)"
@@ -72,9 +74,9 @@ if [ -z "$api_container" ]; then
   echo "   No api container to ask."
 else
   docker exec -i "$api_container" sh -c \
-    'printf "   LLM_PROVIDER=%s\n   LLM_FALLBACK_PROVIDERS=%s\n   FREELLMAPI_MODEL=%s\n   FREELLMAPI_BASE_URL=%s\n   FREELLMAPI_API_KEY: %s characters\n   ANTHROPIC_MODEL=%s\n   ANTHROPIC_API_KEY: %s characters\n" \
-      "$LLM_PROVIDER" "$LLM_FALLBACK_PROVIDERS" "$FREELLMAPI_MODEL" "$FREELLMAPI_BASE_URL" "${#FREELLMAPI_API_KEY}" \
-      "$ANTHROPIC_MODEL" "${#ANTHROPIC_API_KEY}"' \
+    'printf "   LLM_PROVIDER=%s\n   LLM_FALLBACK_PROVIDERS=%s\n   CHATGPT_MODEL=%s\n   CHATGPT_CREDENTIALS_FILE=%s\n   CHATGPT_CREDENTIALS_PRESENT=%s\n   FREELLMAPI_MODEL=%s\n   FREELLMAPI_BASE_URL=%s\n   FREELLMAPI_API_KEY: %s characters\n   ANTHROPIC_MODEL=%s\n   ANTHROPIC_API_KEY: %s characters\n" \
+      "$LLM_PROVIDER" "$LLM_FALLBACK_PROVIDERS" "$CHATGPT_MODEL" "$CHATGPT_CREDENTIALS_FILE" "$([ -s "$CHATGPT_CREDENTIALS_FILE" ] && echo yes || echo no)" \
+      "$FREELLMAPI_MODEL" "$FREELLMAPI_BASE_URL" "${#FREELLMAPI_API_KEY}" "$ANTHROPIC_MODEL" "${#ANTHROPIC_API_KEY}"' \
     || echo "   Could not read the container's environment."
 fi
 
