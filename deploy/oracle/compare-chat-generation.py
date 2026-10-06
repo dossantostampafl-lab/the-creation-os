@@ -9,11 +9,18 @@ from app.config import settings
 from app.db.session import AsyncSessionLocal
 from app.inference.bootstrap import build_model_router, resolve_configured_model
 from app.inference.contracts import InferenceRequest, ModelRequirements
+from app.inference.freellmapi_config import load_freellmapi_config
 from app.services.conversation_context import SYSTEM_PROMPT
 from app.services.deus_context import DeusContextBuilder
 
 
 async def main():
+    config = load_freellmapi_config()
+    async with httpx.AsyncClient(timeout=10) as catalog:
+        response = await catalog.get(config.base_url + "/models", headers={"Authorization": "Bearer " + config.api_key.get_secret_value()} if config.api_key else {})
+        response.raise_for_status()
+        print(json.dumps({"models": [{k: row.get(k) for k in ("id", "name", "available")} for row in response.json().get("data", [])]}), flush=True)
+
     async with httpx.AsyncClient(base_url="http://127.0.0.1:8000/api/v1", timeout=10) as client:
         response = await client.post("/auth/login", json={"username": settings.creator_bootstrap_username,
             "password": settings.creator_bootstrap_password.get_secret_value()})
@@ -40,7 +47,7 @@ async def main():
                 requirements=ModelRequirements(preferred_provider="freellmapi", max_output_tokens=budget))), 25)
             print(json.dumps({"case": name, "ms": round((time.monotonic()-started)*1000),
                 "input_bytes": len(json.dumps(messages).encode()), "exact": response.content == "voz local ativa",
-                "finish": response.finish_reason, "usage": response.usage}), flush=True)
+                "model": response.model, "finish": response.finish_reason, "usage": response.usage}), flush=True)
         except Exception as exc:
             print(json.dumps({"case": name, "error": type(exc).__name__}), flush=True)
 
