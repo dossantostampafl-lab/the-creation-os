@@ -33,13 +33,14 @@ fi
 
 provider="${1:-anthropic}"
 case "$provider" in
+  chatgpt) key_var=""; model_var=CHATGPT_MODEL; default_model=gpt-6.1-sol ;;
   anthropic) key_var=ANTHROPIC_API_KEY; model_var=ANTHROPIC_MODEL; default_model=claude-sonnet-5 ;;
   openai) key_var=LLM_API_KEY; model_var=LLM_MODEL; default_model=gpt-4o-mini ;;
   freellmapi) key_var=FREELLMAPI_API_KEY; model_var=FREELLMAPI_MODEL; default_model="" ;;
   openai_compatible) key_var=OPENAI_COMPATIBLE_API_KEY; model_var=OPENAI_COMPATIBLE_MODEL; default_model="" ;;
   *)
     echo "Unknown provider: $provider" >&2
-    echo "Use one of: anthropic, openai, freellmapi, openai_compatible" >&2
+    echo "Use one of: chatgpt, anthropic, openai, freellmapi, openai_compatible" >&2
     exit 1
     ;;
 esac
@@ -55,35 +56,35 @@ fi
 
 # The key may arrive in the environment, which is how CI passes it; otherwise it is asked for.
 # -s keeps the key off the screen; -r stops a backslash in it from being eaten.
-api_key="${!key_var:-}"
-if [ -n "$api_key" ]; then
-  echo "Using the $key_var already in the environment."
-elif [ -t 0 ]; then
-  if [ "$provider" = "freellmapi" ]; then
-    read -rsp "Paste the $provider API key, or just press Enter if it has none: " api_key
-  else
-    read -rsp "Paste the $provider API key and press Enter: " api_key
-  fi
-  echo
+api_key=""
+if [ "$provider" = "chatgpt" ]; then
+  echo "ChatGPT uses Sign in with ChatGPT OAuth credentials, not an API key."
 else
-  # Without a terminal and without the variable, the key already in .env is the one meant:
-  # changing only the model or the Workspace must not demand that the key be pasted again.
-  api_key="$(env_get "$key_var")"
+  api_key="${!key_var:-}"
   if [ -n "$api_key" ]; then
-    echo "Keeping the $key_var already in .env."
+    echo "Using the $key_var already in the environment."
+  elif [ -t 0 ]; then
+    if [ "$provider" = "freellmapi" ]; then
+      read -rsp "Paste the $provider API key, or just press Enter if it has none: " api_key
+    else
+      read -rsp "Paste the $provider API key and press Enter: " api_key
+    fi
+    echo
+  else
+    api_key="$(env_get "$key_var")"
+    if [ -n "$api_key" ]; then
+      echo "Keeping the $key_var already in .env."
+    fi
   fi
-fi
-# FreeLLMAPI runs on this machine and can be set up without a key: then requests go out with no
-# Authorization header. Every other provider needs one.
-if [ -z "$api_key" ] && [ "$provider" != "freellmapi" ]; then
-  echo "No $key_var was given, and .env holds none; nothing changed." >&2
-  exit 1
-fi
-if [ -z "$api_key" ]; then
-  echo "No key: FreeLLMAPI will be called without an Authorization header."
-else
-  # The length is the one safe thing to show: it catches a paste that arrived truncated.
-  printf 'Key received: %s characters.\n' "${#api_key}"
+  if [ -z "$api_key" ] && [ "$provider" != "freellmapi" ]; then
+    echo "No $key_var was given, and .env holds none; nothing changed." >&2
+    exit 1
+  fi
+  if [ -z "$api_key" ]; then
+    echo "No key: FreeLLMAPI will be called without an Authorization header."
+  else
+    printf 'Key received: %s characters.\n' "${#api_key}"
+  fi
 fi
 
 # A key created for one Workspace already carries it, so this stays empty for almost everyone.
@@ -111,6 +112,7 @@ if [ -n "$fallback" ]; then
   IFS=',' read -ra reserves <<< "$fallback"
   for reserve in "${reserves[@]}"; do
     case "$reserve" in
+      chatgpt) reserve_key=""; reserve_model=CHATGPT_MODEL ;;
       anthropic) reserve_key=ANTHROPIC_API_KEY; reserve_model=ANTHROPIC_MODEL ;;
       openai) reserve_key=LLM_API_KEY; reserve_model=LLM_MODEL ;;
       freellmapi) reserve_key=""; reserve_model=FREELLMAPI_MODEL ;;
@@ -153,8 +155,14 @@ cp .env .env.bak
 chmod 600 .env.bak
 env_set LLM_PROVIDER "$provider"
 env_set "$model_var" "$model"
-env_set "$key_var" "$api_key"
+if [ -n "$key_var" ]; then
+  env_set "$key_var" "$api_key"
+fi
 unset api_key
+if [ "$provider" = "chatgpt" ]; then
+  env_set CHATGPT_CREDENTIALS_FILE "/var/lib/creation/chatgpt/credentials.json"
+fi
+env_set DEUS_VOICE_PRIMARY_PROVIDER "$provider"
 if [ "$provider" = "anthropic" ]; then
   env_set ANTHROPIC_WORKSPACE_ID "$workspace_id"
 fi
@@ -174,7 +182,9 @@ printf '  LLM_FALLBACK_PROVIDERS=%s\n' "$(env_get LLM_FALLBACK_PROVIDERS)"
 if [ "$provider" = "freellmapi" ]; then
   printf '  FREELLMAPI_BASE_URL=%s\n' "$(env_get FREELLMAPI_BASE_URL)"
 fi
-if [ -n "$(env_get "$key_var")" ]; then
+if [ "$provider" = "chatgpt" ]; then
+  printf '  CHATGPT_CREDENTIALS_FILE=%s\n' "$(env_get CHATGPT_CREDENTIALS_FILE)"
+elif [ -n "$(env_get "$key_var")" ]; then
   printf '  %s=<set>\n' "$key_var"
 elif [ "$provider" = "freellmapi" ]; then
   printf '  %s=<none: no Authorization header is sent>\n' "$key_var"
