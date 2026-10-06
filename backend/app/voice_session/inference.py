@@ -141,5 +141,16 @@ async def stream_response(
             continue
 
     if last_error is not None:
+        # Preserve the legacy single-provider contract for callers that have
+        # not enabled the new policy yet.
+        if (
+            not models
+            and not fallbacks
+            and not isinstance(last_error, InferenceTimeoutError)
+        ):
+            raise InferenceTimeoutError(
+                primary.name,
+                "FreeLLM voice response unavailable",
+            ) from last_error
         raise last_error
     raise InferenceTimeoutError(primary.name, "DEUS voice inference is unavailable")
