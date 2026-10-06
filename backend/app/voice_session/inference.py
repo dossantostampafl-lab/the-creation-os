@@ -22,6 +22,18 @@ class StreamChunk:
     model: str | None = None
 
 
+def _resolved_model(provider: StreamingProvider, request: InferenceRequest) -> str | None:
+    if request.model:
+        return request.model
+    public_default = getattr(provider, "default_model", None)
+    if isinstance(public_default, str) and public_default.strip():
+        return public_default
+    private_default = getattr(provider, "_default_model", None)
+    if isinstance(private_default, str) and private_default.strip():
+        return private_default
+    return None
+
+
 async def _open_stream(
     provider: StreamingProvider,
     request: InferenceRequest,
@@ -56,7 +68,7 @@ async def _serve_attempt(
     *,
     first_token_timeout_seconds: float,
 ) -> AsyncIterator[StreamChunk]:
-    model = request.model
+    model = _resolved_model(provider, request)
     with operation(
         "llm.stream.attempt",
         {
