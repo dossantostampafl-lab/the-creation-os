@@ -29,14 +29,12 @@ def _conversation_models() -> tuple[str, ...]:
 
 
 def build_voice_inference_runtime() -> VoiceInferenceRuntime:
-    if settings.deus_voice_primary_provider != "freellmapi":
-        raise RuntimeError("DEUS_VOICE_PRIMARY_PROVIDER must be freellmapi")
-
+    primary_name = settings.deus_voice_primary_provider
     registry = ProviderRegistry()
-    _register_provider(registry, "freellmapi")
+    _register_provider(registry, primary_name)
     fallbacks: list[StreamingProvider] = []
     for provider_name in settings.inference_provider_chain:
-        if provider_name == "freellmapi":
+        if provider_name == primary_name:
             continue
         try:
             _register_provider(registry, provider_name)
@@ -50,12 +48,12 @@ def build_voice_inference_runtime() -> VoiceInferenceRuntime:
         fallbacks.append(registry.get(provider_name))
 
     return VoiceInferenceRuntime(
-        primary=registry.get("freellmapi"),
+        primary=registry.get(primary_name),
         fallbacks=tuple(fallbacks),
-        primary_models=_conversation_models(),
+        primary_models=_conversation_models() if primary_name == "freellmapi" else (),
     )
 
 
 def build_primary_provider() -> StreamingProvider:
-    """Compatibility shim for callers/tests that only need the FreeLLM primary."""
+    """Compatibility shim for callers/tests that only need the configured primary."""
     return build_voice_inference_runtime().primary
