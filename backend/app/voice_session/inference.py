@@ -107,15 +107,19 @@ async def stream_response(
 
     last_error: InferenceError | None = None
     for attempt_index, attempt_request in enumerate(primary_requests):
+        emitted = False
         try:
             async for chunk in _serve_attempt(
                 primary,
                 attempt_request,
                 first_token_timeout_seconds=first_token_timeout_seconds,
             ):
+                emitted = True
                 yield chunk
             return
         except InferenceError as exc:
+            if emitted:
+                raise
             last_error = exc
             # Legacy mode retries only transient first-token timeouts. An
             # explicit model pool intentionally advances on any pre-token
@@ -128,15 +132,19 @@ async def stream_response(
 
     fallback_request = request.model_copy(update={"model": None})
     for fallback in fallbacks:
+        emitted = False
         try:
             async for chunk in _serve_attempt(
                 fallback,
                 fallback_request,
                 first_token_timeout_seconds=first_token_timeout_seconds,
             ):
+                emitted = True
                 yield chunk
             return
         except InferenceError as exc:
+            if emitted:
+                raise
             last_error = exc
             continue
 
