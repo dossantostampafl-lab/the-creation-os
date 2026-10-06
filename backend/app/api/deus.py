@@ -72,6 +72,8 @@ async def converse_with_deus(
         model=model,
         trinity=trinity,
         context_builder=DeusContextBuilder(AsyncSessionLocal) if settings.deus_context_retrieval_enabled else None,
+        provider_timeout_seconds=settings.deus_chat_provider_timeout_seconds,
+        total_timeout_seconds=settings.deus_chat_total_timeout_seconds,
     )
     turn = None
     store = TurnStore(AsyncSessionLocal)
