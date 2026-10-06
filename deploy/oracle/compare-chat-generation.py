@@ -34,19 +34,19 @@ async def main():
         ("arithmetic", "Quanto é dois mais dois? Responda apenas com o número.", "4"),
         ("context", "Qual estilo de voz eu acabei de preferir? Responda em uma frase.", ("masculin", "grav", "seren")),
     ]
-    for name, question, expected in cases * 2:
+    for selected_model, (name, question, expected) in [(model, case) for model in ("gpt-oss-20b", "qwen3.8-27b") for case in cases]:
         messages = packet.messages[:-2] + [{"role": "user", "content": "Prefiro sua voz masculina, grave e serena."}] + [packet.messages[-2], {"role": "user", "content": question}]
         budget = 512
         started = time.monotonic()
         try:
             response = await asyncio.wait_for(provider.generate(InferenceRequest(messages=messages,
-                model="gemini-3.5-flash-lite",
+                model=selected_model,
                 requirements=ModelRequirements(preferred_provider="freellmapi", max_output_tokens=budget))), 25)
-            print(json.dumps({"case": name, "ms": round((time.monotonic()-started)*1000),
+            print(json.dumps({"requested_model": selected_model, "case": name, "ms": round((time.monotonic()-started)*1000),
                 "input_bytes": len(json.dumps(messages).encode()), "exact": (all(word in response.content.casefold() for word in expected) if isinstance(expected, tuple) else response.content == expected),
                 "model": response.model, "finish": response.finish_reason, "usage": response.usage}), flush=True)
         except Exception as exc:
-            print(json.dumps({"case": name, "error": type(exc).__name__}), flush=True)
+            print(json.dumps({"requested_model": selected_model, "case": name, "error": type(exc).__name__}), flush=True)
 
 
 asyncio.run(main())
