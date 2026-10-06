@@ -8,8 +8,10 @@ from test_knowledge import knowledge_db  # noqa: F401
 
 from app.autonomy.competition import (
     OpportunityCompetitionWorker,
+    next_cycle_delay,
     score_thesis,
 )
+from app.inference.contracts import InferenceRateLimitError
 from app.models.entities import Agent, Chronicle, Mission, Universe
 from app.models.opportunity import Opportunity, OpportunityLease, OpportunityThesis
 from app.repositories.domain import DomainRepository
@@ -235,3 +237,95 @@ def test_score_thesis_is_bounded_and_rewards_confidence_upside_and_downside_cont
         evidence_refs_json=["evidence"],
     )
     assert 0.0 <= score_thesis(weak) < score_thesis(strong) <= 1.0
+
+
+class ExhaustedThesisGenerator(FakeThesisGenerator):
+    """Every provider in the chain is out of quota."""
+
+    async def generate(self, opportunity, universe, agent) -> OpportunityThesisCreate:
+        self.generated.append(universe.id)
+        raise InferenceRateLimitError("freellmapi", "FreeLLMAPI rate limit reached")
+
+
+@pytest.mark.asyncio
+async def test_competition_worker_stops_calling_inference_for_the_cycle_once_no_provider_answers(
+    knowledge_db,  # noqa: F811
+) -> None:
+    factory, creator_id, _ = knowledge_db
+    universe_ids: list[str] = []
+
+    async with factory() as session:
+        for idx in range(3):
+            universe_id = str(uuid.uuid4())
+            universe_ids.append(universe_id)
+            session.add(
+                Universe(
+                    id=universe_id,
+                    code=f"exhausted-{idx}-{universe_id[:6]}",
+                    name=f"Exhausted {idx}",
+                    active=True,
+                )
+            )
+            await session.flush()
+            session.add(
+                Agent(
+                    id=str(uuid.uuid4()),
+                    code=f"exhausted-agent-{idx}-{universe_id[:6]}",
+                    name=f"Exhausted Agent {idx}",
+                    universe_id=universe_id,
+                    active=True,
+                    capabilities_json={"inference_provider": "fake"},
+                )
+            )
+        await session.commit()
+
+    opportunity_ids: list[str] = []
+    for idx in range(2):
+        async with factory() as session:
+            opportunity = await create_or_get_opportunity(
+                DomainRepository(session),
+                creator_id=creator_id,
+                discovered_by_universe_id=universe_ids[0],
+                sector="software",
+                problem_or_gap=f"verified recurring operational gap {idx}",
+                capture_mechanism="bounded service",
+                evidence_refs=[f"test:exhausted:evidence:{idx}"],
+                time_window={"kind": "test"},
+                correlation_id=str(uuid.uuid4()),
+            )
+            opportunity_ids.append(opportunity.id)
+
+    generator = ExhaustedThesisGenerator()
+    worker = OpportunityCompetitionWorker(
+        factory,
+        generator=generator,
+        competitor_universe_ids=universe_ids,
+        competitor_limit=3,
+        composition_enabled=True,
+        max_opportunities_per_cycle=2,
+    )
+    report = await worker.run_once(creator_id)
+
+    # One refused call is enough to know the quota is gone: the other competitors and the
+    # second opportunity are not asked again in the same cycle.
+    assert len(generator.generated) == 1
+    assert report["inference_unavailable"] == 1
+    assert report["inference_rate_limited"] == 1
+    assert report["theses_created"] == 0
+    assert generator.critiques == 0
+    assert generator.compositions == 0
+
+    async with factory() as session:
+        for opportunity_id in opportunity_ids:
+            opportunity = await session.get(Opportunity, opportunity_id)
+            assert opportunity is not None and opportunity.status == "DETECTED"
+
+
+def test_next_cycle_delay_doubles_while_inference_is_unavailable_and_is_capped() -> None:
+    assert next_cycle_delay(60, 0, 1800) == 60
+    assert next_cycle_delay(60, 1, 1800) == 120
+    assert next_cycle_delay(60, 2, 1800) == 240
+    assert next_cycle_delay(60, 5, 1800) == 1800
+    assert next_cycle_delay(60, 10_000, 1800) == 1800
+    # A ceiling below the base never shortens the normal cycle.
+    assert next_cycle_delay(60, 3, 30) == 60

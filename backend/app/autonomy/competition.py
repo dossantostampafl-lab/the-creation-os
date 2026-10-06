@@ -18,7 +18,12 @@ from app.diagnostics.heartbeat import supervised
 from app.diagnostics.worker import creator_scope
 from app.inference.agent_config import effective_agent_capabilities
 from app.inference.bootstrap import build_model_router
-from app.inference.contracts import InferenceRequest, ModelRequirements
+from app.inference.contracts import (
+    InferenceError,
+    InferenceRateLimitError,
+    InferenceRequest,
+    ModelRequirements,
+)
 from app.inference.router import ModelRouter
 from app.models.entities import Agent, Universe
 from app.models.opportunity import Opportunity, OpportunityLease, OpportunityThesis
@@ -65,6 +70,19 @@ class ThesisGenerator(Protocol):
         universe: Universe,
         agent: Agent,
     ) -> OpportunityThesisCreate: ...
+
+
+def next_cycle_delay(
+    base_seconds: float, consecutive_unavailable: int, max_seconds: float
+) -> float:
+    """Doubles the wait after each cycle in which no inference provider answered.
+
+    Free-tier quotas recover on the provider's clock, not ours: retrying every cycle while
+    they are exhausted only keeps them exhausted, and leaves nothing for DEUS to answer with.
+    """
+    if consecutive_unavailable <= 0:
+        return base_seconds
+    return min(base_seconds * 2 ** min(consecutive_unavailable, 16), max(base_seconds, max_seconds))
 
 
 def _utcnow() -> datetime:
@@ -338,6 +356,16 @@ class OpportunityCompetitionWorker:
         self.research_lease_seconds = research_lease_seconds
         self.executive_lease_seconds = executive_lease_seconds
         self.stale_claim_seconds = stale_claim_seconds
+        # Set when a generation fails because no inference provider answered. The rest of
+        # the cycle then stops calling the model instead of repeating the same failure.
+        self._inference_unavailable = False
+        self._inference_rate_limited = False
+
+    def _note_inference_failure(self, exc: Exception) -> None:
+        if isinstance(exc, InferenceError):
+            self._inference_unavailable = True
+            if isinstance(exc, InferenceRateLimitError):
+                self._inference_rate_limited = True
 
     async def _claim(self, creator_id: str) -> list[str]:
         stale_before = _utcnow() - timedelta(seconds=self.stale_claim_seconds)
@@ -470,11 +498,14 @@ class OpportunityCompetitionWorker:
             for universe, agent in competitors:
                 if universe.id in existing_universe_ids:
                     continue
+                if self._inference_unavailable:
+                    break
                 try:
                     thesis_payload = await self.generator.generate(
                         opportunity, universe, agent
                     )
                 except Exception as exc:
+                    self._note_inference_failure(exc)
                     logger.bind(
                         component="opportunity-competition",
                         opportunity_id=opportunity.id,
@@ -508,7 +539,7 @@ class OpportunityCompetitionWorker:
                     )
                 )
 
-            if self.composition_enabled:
+            if self.composition_enabled and not self._inference_unavailable:
                 composition_marker = f"composition:{opportunity.id}"
                 composed = next(
                     (
@@ -602,6 +633,7 @@ class OpportunityCompetitionWorker:
                         )
                         await repository.commit()
                     except Exception as exc:
+                        self._note_inference_failure(exc)
                         logger.bind(
                             component="opportunity-competition",
                             opportunity_id=opportunity.id,
@@ -630,6 +662,8 @@ class OpportunityCompetitionWorker:
 
     @traced("opportunity.competition")
     async def run_once(self, creator_id: str) -> dict[str, int]:
+        self._inference_unavailable = False
+        self._inference_rate_limited = False
         claimed = await self._claim(creator_id)
         theses_created = 0
         competitions_resolved = 0
@@ -651,6 +685,8 @@ class OpportunityCompetitionWorker:
             "opportunities_processed": competitions_resolved,
             "theses_created": theses_created,
             "competitions_resolved": competitions_resolved,
+            "inference_unavailable": int(self._inference_unavailable),
+            "inference_rate_limited": int(self._inference_rate_limited),
         }
 
 
@@ -669,11 +705,16 @@ async def run() -> None:
         executive_lease_seconds=settings.opportunity_executive_lease_seconds,
         stale_claim_seconds=settings.opportunity_stale_claim_seconds,
     )
+    consecutive_unavailable = 0
     while True:
         try:
             creator_id = await creator_scope()
             if creator_id:
                 report = await worker.run_once(creator_id)
+                if report["inference_unavailable"]:
+                    consecutive_unavailable += 1
+                else:
+                    consecutive_unavailable = 0
                 logger.bind(**report).info(
                     "autonomous opportunity competition cycle"
                 )
@@ -682,7 +723,18 @@ async def run() -> None:
                 component="opportunity-competition",
                 error_type=type(exc).__name__,
             ).warning("opportunity competition worker unavailable")
-        await asyncio.sleep(settings.opportunity_competition_cycle_seconds)
+        delay = next_cycle_delay(
+            settings.opportunity_competition_cycle_seconds,
+            consecutive_unavailable,
+            settings.opportunity_inference_backoff_max_seconds,
+        )
+        if consecutive_unavailable:
+            logger.bind(
+                component="opportunity-competition",
+                consecutive_unavailable=consecutive_unavailable,
+                delay_seconds=delay,
+            ).warning("no inference provider answered; backing off the next cycle")
+        await asyncio.sleep(delay)
 
 
 if __name__ == "__main__":

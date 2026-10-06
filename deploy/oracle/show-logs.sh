@@ -17,6 +17,25 @@ case "$lines" in
 esac
 [ "$lines" -gt 500 ] && lines=500
 
+# A log line can carry whatever an error put in it, so anything that looks like a key is
+# replaced before it reaches a workflow log that others can read. FreeLLMAPI holds the keys of
+# every free tier it routes to (Google, Groq, Cohere, OpenRouter...), so their shapes are covered too.
+redact() {
+  python3 -c '
+import re
+import sys
+
+SECRET = re.compile(
+    r"(sk-[A-Za-z0-9_\-]{8,}|wrkspc_[A-Za-z0-9]+|Bearer\s+[A-Za-z0-9._\-]{8,}"
+    r"|AIza[0-9A-Za-z_\-]{20,}|gsk_[A-Za-z0-9]{20,}|freellmapi-[A-Za-z0-9_\-]{8,}"
+    r"|\b[A-Za-z0-9]{40}\b"
+    r"|(?i:(?:api[_-]?key|token|secret|authorization)[\"\x27]?\s*[:=]\s*[\"\x27]?)[A-Za-z0-9._\-]{12,})"
+)
+for line in sys.stdin:
+    sys.stdout.write("   " + SECRET.sub("<redacted>", line))
+'
+}
+
 for service in discovery-worker opportunity-worker api worker stf-temporal stf-worker stf-training-worker stf-gateway; do
   container="$(docker ps --filter "label=com.docker.compose.service=$service" --format '{{.ID}}' | head -1)"
   echo "== $service =="
@@ -24,19 +43,20 @@ for service in discovery-worker opportunity-worker api worker stf-temporal stf-w
     echo "   No $service container is running."
     continue
   fi
-  # A log line can carry whatever an error put in it, so anything that looks like a key is
-  # replaced before it reaches a workflow log that others can read.
-  docker logs --tail "$lines" "$container" 2>&1 \
-    | python3 -c '
-import re
-import sys
-
-SECRET = re.compile(r"(sk-[A-Za-z0-9_\-]{8,}|wrkspc_[A-Za-z0-9]+|Bearer\s+[A-Za-z0-9._\-]{8,})")
-for line in sys.stdin:
-    sys.stdout.write("   " + SECRET.sub("<redacted>", line))
-'
+  docker logs --tail "$lines" "$container" 2>&1 | redact
   echo
 done
+
+# FreeLLMAPI runs from its own Compose project (star-trek-freellmapi), so it is found by name.
+# Its log is the only place that says which free tier refused a call and why.
+freellmapi="$(docker ps --filter 'name=freellmapi' --format '{{.ID}}' | head -1)"
+echo "== freellmapi =="
+if [ -z "$freellmapi" ]; then
+  echo "   No FreeLLMAPI container is running."
+else
+  docker logs --tail "$lines" "$freellmapi" 2>&1 | redact
+fi
+echo
 
 echo '== MinIO inventory (read-only) =='
 docker ps -a --format '{{.Names}} {{.Image}} {{.Status}}' | awk 'tolower($0) ~ /minio/ {print}'

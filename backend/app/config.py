@@ -69,6 +69,9 @@ class Settings(BaseSettings):
     opportunity_executive_lease_seconds: int = Field(1800, ge=60, le=86400, env="OPPORTUNITY_EXECUTIVE_LEASE_SECONDS")
     opportunity_stale_claim_seconds: int = Field(900, ge=60, le=86400, env="OPPORTUNITY_STALE_CLAIM_SECONDS")
     opportunity_competition_cycle_seconds: int = Field(60, ge=10, le=3600, env="OPPORTUNITY_COMPETITION_CYCLE_SECONDS")
+    opportunity_inference_backoff_max_seconds: int = Field(
+        1800, ge=10, le=86400, env="OPPORTUNITY_INFERENCE_BACKOFF_MAX_SECONDS"
+    )
     perception_sensor_bindings_json: str = Field('{"web.search":{"capability":"web","action":"search"}}', env="PERCEPTION_SENSOR_BINDINGS_JSON")
     perception_sensor_allowlist: str = Field("", env="PERCEPTION_SENSOR_ALLOWLIST")
     perception_max_sensors_per_cycle: int = Field(4, ge=1, le=32, env="PERCEPTION_MAX_SENSORS_PER_CYCLE")

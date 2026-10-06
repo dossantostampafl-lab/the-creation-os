@@ -184,7 +184,20 @@ try:
 except ValueError:
     print("   " + response.text[:300])
 else:
-    print("   " + json.dumps(body)[:400])
+    models = body.get("data") if isinstance(body, dict) else None
+    if not isinstance(models, list):
+        print("   " + json.dumps(body)[:400])
+    else:
+        # One line per model, so an exhausted free tier is named instead of cut off mid-list.
+        available = sum(1 for item in models if isinstance(item, dict) and item.get("available"))
+        print(f"   {available} of {len(models)} model(s) available")
+        for item in models:
+            if not isinstance(item, dict):
+                continue
+            reason = " ".join(str(item.get("unavailable_reason") or "").split())[:200]
+            state = "available" if item.get("available") else "UNAVAILABLE"
+            model_id = str(item.get("id"))[:80]
+            print(f"   - {model_id:<40} {state}" + (f"  {reason}" if reason else ""))
 ' || echo "   Could not run the FreeLLMAPI probe inside the container."
 fi
 
