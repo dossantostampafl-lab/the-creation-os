@@ -15,6 +15,8 @@ cp .env .env.before-local-voice
 chmod 600 .env.before-local-voice
 env_set DEUS_VOICE_SESSION_ENABLED true
 env_set DEUS_VOICE_PRIMARY_PROVIDER freellmapi
+voice_models="${DEUS_VOICE_CONVERSATION_MODELS:-$(env_get DEUS_VOICE_CONVERSATION_MODELS)}"
+env_set DEUS_VOICE_CONVERSATION_MODELS "$voice_models"
 # The same chat remains free when a typed turn follows a voice turn.
 env_set LLM_PROVIDER freellmapi
 fallback="$(env_get LLM_FALLBACK_PROVIDERS)"
@@ -30,6 +32,7 @@ chmod 600 .env
 for attempt in $(seq 1 60); do
   if curl -fsS http://127.0.0.1:8000/api/v1/health/ready >/dev/null; then
     echo "DEUS local voice is ready: Kokoro pm_santa, Vosk Portuguese, FreeLLMAPI."
+    printf "FreeLLM voice model pool: %s\\n" "${voice_models:-<legacy FREELLMAPI_MODEL>}"
     printf "Inference reserve: %s\\n" "${fallback:-<none configured>}"
     exit 0
   fi
