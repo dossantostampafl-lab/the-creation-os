@@ -14,6 +14,7 @@ on:
         options:
           - check
           - check-chat-instructions
+          - check-chat-latency
           - check-universe-inference
           - repair-universe-inference
           - restart
@@ -306,6 +307,9 @@ jobs:
               ;;
             check-chat-instructions)
               sudo "${COMPOSE[@]}" exec -T api python - < deploy/oracle/check-chat-instructions.py
+              ;;
+            check-chat-latency)
+              sudo "${COMPOSE[@]}" exec -T api python - < deploy/oracle/check-chat-latency.py
               ;;
             check-universe-inference)
               sudo env UNIVERSE_INFERENCE_DIAGNOSTIC=true ./deploy/oracle/check-inference.sh
