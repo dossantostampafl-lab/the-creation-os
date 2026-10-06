@@ -185,7 +185,7 @@ def connect(*, output: Path, port: int, no_browser: bool, force_new: bool) -> No
         server.server_close()
         thread.join(timeout=5)
 
-    callback = _CallbackHandler.result or {}
+    callback: dict[str, str] = _CallbackHandler.result or {}
     if callback.get("state") != state:
         raise RuntimeError("OAuth state did not match")
     if callback.get("error"):
