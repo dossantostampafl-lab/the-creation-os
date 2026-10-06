@@ -63,3 +63,18 @@ def test_voice_runtime_reuses_configured_anthropic_reserve(monkeypatch):
     assert runtime.primary.name == "freellmapi"
     assert runtime.primary_models == ("model-a", "model-b")
     assert [provider.name for provider in runtime.fallbacks] == ["anthropic"]
+
+
+def test_voice_keeps_anthropic_when_chat_uses_it_as_primary(monkeypatch):
+    _configure_free_primary(monkeypatch)
+    monkeypatch.setattr(settings, "llm_provider", "anthropic")
+    monkeypatch.setattr(settings, "llm_fallback_providers", "freellmapi")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-secret")
+    monkeypatch.setenv("ANTHROPIC_MODEL", "claude-model")
+    monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
+    monkeypatch.setenv("DEUS_VOICE_CONVERSATION_MODELS", "model-a")
+
+    runtime = build_voice_inference_runtime()
+
+    assert runtime.primary.name == "freellmapi"
+    assert [provider.name for provider in runtime.fallbacks] == ["anthropic"]
