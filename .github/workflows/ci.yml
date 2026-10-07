@@ -161,6 +161,10 @@ jobs:
           bash -n deploy/oracle/enable-connected-deus.sh
           bash -n deploy/oracle/enable-cyber-range-training.sh
           bash -n deploy/oracle/set-local-voice.sh
+          bash -n deploy/oracle/set-inference.sh
+          bash -n deploy/oracle/chatgpt-host-id.sh
+          bash -n deploy/oracle/import-chatgpt-credentials.sh
+          bash -n deploy/oracle/check-inference.sh
           bash -n deploy/oracle/smoke-test.sh
       - name: Validate Windows operations scripts
         shell: pwsh

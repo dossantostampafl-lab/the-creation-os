@@ -54,6 +54,21 @@ if [ -z "$model" ]; then
   exit 1
 fi
 
+# The deploy wrapper refreshes scripts before invoking this command. ChatGPT activation
+# must fast-forward the complete installation so code, Compose mounts, and UI are one revision.
+if [ "$provider" = "chatgpt" ]; then
+  target_ref="${REF:-main}"
+  if ! [[ "$target_ref" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+    echo "Invalid deployment ref: $target_ref" >&2
+    exit 1
+  fi
+  echo "Updating the installation to origin/$target_ref before activating ChatGPT..."
+  git checkout HEAD -- deploy/oracle deploy/stf 2>/dev/null || true
+  git fetch --prune origin
+  git fetch origin "+$target_ref:refs/remotes/origin/$target_ref"
+  git merge --ff-only "origin/$target_ref"
+fi
+
 # The key may arrive in the environment, which is how CI passes it; otherwise it is asked for.
 # -s keeps the key off the screen; -r stops a backslash in it from being eaten.
 api_key=""
@@ -208,16 +223,21 @@ else
   exit 1
 fi
 
-if [ "$provider" = "chatgpt" ]; then
-  echo
-  echo "Preparing the stable Oracle host identity required for ChatGPT authorization..."
-  "$REPO_DIR/deploy/oracle/chatgpt-host-id.sh"
-fi
-
-# The containers read .env only when they are created, so recreating them is part of the change.
+# The containers read .env only when they are created. ChatGPT activation also upgrades
+# the complete runtime so frontend, API, workers and credential-volume mounts are one revision.
 echo
-echo "Restarting api and worker..."
-"${COMPOSE[@]}" up -d --force-recreate api worker
+profile_args=()
+if grep -qE "^DEUS_(CONTEXT_RETRIEVAL|DIAGNOSTICS|AUTONOMY_DISCOVERY|AUTONOMY_COMPETITION)_ENABLED=true$" .env; then
+  profile_args+=(--profile connected-deus)
+fi
+if grep -q "^STF_AUTO_TRAINING_ENABLED=true$" .env; then
+  profile_args+=(--profile security-task-force)
+fi
+if grep -q "^TELEMETRY_ENABLED=true$" .env; then
+  profile_args+=(--profile observability)
+fi
+echo "Building and recreating the current runtime..."
+"${COMPOSE[@]}" "${profile_args[@]}" up -d --build --remove-orphans
 
 port="$(env_get CREATION_API_PORT)"
 base="http://127.0.0.1:${port:-8000}"
@@ -235,6 +255,12 @@ if ! curl -fsS "$base/api/v1/health/ready" >/dev/null 2>&1; then
   echo "The API did not become ready after the inference change." >&2
   "${COMPOSE[@]}" ps api worker >&2 || true
   exit 1
+fi
+
+if [ "$provider" = "chatgpt" ]; then
+  echo
+  echo "Preparing the stable Oracle host identity required for ChatGPT authorization..."
+  "$REPO_DIR/deploy/oracle/chatgpt-host-id.sh"
 fi
 
 # The API reports the provider it actually loaded, which is the only answer that counts.
@@ -263,3 +289,9 @@ print("  configured:", snapshot.get("configured"))
 print("  provider:  ", snapshot.get("configured_provider"))
 for entry in snapshot.get("providers", []):
     print("  -", entry.get("provider"), "available:", entry.get("available"), entry.get("detail") or "")'
+
+if [ "$provider" = "chatgpt" ]; then
+  echo
+  echo "Running the authentication-ready smoke test..."
+  "$REPO_DIR/deploy/oracle/smoke-test.sh" --deus
+fi
