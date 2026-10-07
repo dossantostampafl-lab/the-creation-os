@@ -106,6 +106,27 @@ def test_chatgpt_structured_temporary_usage_error_uses_fallback_signal() -> None
         provider()._raise_http_error(response)
 
 
+def test_chatgpt_direct_admission_503_preserves_detail_without_inventing_code() -> None:
+    from app.inference.contracts import ProviderUnavailable
+
+    response = httpx.Response(
+        503,
+        request=httpx.Request("POST", "https://api.openai.com/v1/responses"),
+        headers={"x-request-id": "req_direct_503"},
+        json={"detail": "direct route temporarily unavailable"},
+    )
+
+    with pytest.raises(ProviderUnavailable) as captured:
+        provider()._raise_http_error(response)
+
+    error = captured.value
+    assert error.upstream_status == 503
+    assert error.upstream_code is None
+    assert error.request_id == "req_direct_503"
+    assert error.upstream_body == {"detail": "direct route temporarily unavailable"}
+    assert "direct route temporarily unavailable" in str(error)
+
+
 def test_chatgpt_model_catalog_uses_only_exact_list_visibility_and_slug() -> None:
     assert listed_model_slugs(
         {
