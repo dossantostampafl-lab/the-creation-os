@@ -7,6 +7,8 @@ from app.cache.routing import CachingModelRouter
 from app.config import settings
 from app.inference.anthropic_config import load_anthropic_config
 from app.inference.anthropic_provider import AnthropicProvider
+from app.inference.chatgpt_credentials import ChatGPTCredentialStore
+from app.inference.chatgpt_provider import ChatGPTPlanProvider
 from app.inference.contracts import ProviderModelProfile
 from app.inference.freellmapi_config import load_freellmapi_config, load_freellmapi_model
 from app.inference.freellmapi_provider import FreeLLMAPIProvider
@@ -30,7 +32,24 @@ def resolve_configured_model(router: ModelRouter) -> str:
 
 
 def _register_provider(registry: ProviderRegistry, provider: str) -> None:
-    if provider == "openai":
+    if provider == "chatgpt":
+        registry.register(
+            ChatGPTPlanProvider(
+                credentials=ChatGPTCredentialStore(settings.chatgpt_credentials_file),
+                default_model=settings.chatgpt_model,
+                base_url=settings.chatgpt_base_url,
+                timeout_seconds=settings.chatgpt_timeout_seconds,
+            )
+        )
+        registry.register_model_profile(
+            ProviderModelProfile(
+                provider="chatgpt",
+                model=settings.chatgpt_model,
+                capabilities=frozenset({"text", "streaming"}),
+                is_default=True,
+            )
+        )
+    elif provider == "openai":
         if settings.llm_api_key is None or not settings.llm_api_key.get_secret_value():
             raise RuntimeError("LLM_API_KEY is required when LLM_PROVIDER=openai")
         registry.register(

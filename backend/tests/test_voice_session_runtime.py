@@ -6,13 +6,14 @@ from app.voice_session.runtime import build_voice_inference_runtime
 
 def _configure_free_primary(monkeypatch) -> None:
     monkeypatch.setattr(settings, "llm_provider", "freellmapi")
+    monkeypatch.setattr(settings, "deus_voice_primary_provider", "freellmapi")
     monkeypatch.setenv("FREELLMAPI_MODEL", "auto")
     monkeypatch.setenv("FREELLMAPI_BASE_URL", "http://freellmapi:3001/v1")
     monkeypatch.setenv("FREELLMAPI_API_KEY", "")
 
 
-def test_voice_runtime_uses_free_primary_and_existing_timeout():
-    assert settings.deus_voice_primary_provider == "freellmapi"
+def test_voice_runtime_defaults_to_chatgpt_primary_and_existing_timeout():
+    assert settings.deus_voice_primary_provider == "chatgpt"
     assert settings.deus_voice_first_token_timeout_ms == 2500
 
 
@@ -78,3 +79,20 @@ def test_voice_keeps_anthropic_when_chat_uses_it_as_primary(monkeypatch):
 
     assert runtime.primary.name == "freellmapi"
     assert [provider.name for provider in runtime.fallbacks] == ["anthropic"]
+
+
+def test_voice_runtime_uses_chatgpt_primary_with_freellm_reserve(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "llm_provider", "chatgpt")
+    monkeypatch.setattr(settings, "llm_fallback_providers", "freellmapi")
+    monkeypatch.setattr(settings, "deus_voice_primary_provider", "chatgpt")
+    monkeypatch.setattr(settings, "chatgpt_credentials_file", str(tmp_path / "credentials.json"))
+    monkeypatch.setenv("FREELLMAPI_MODEL", "free-model")
+    monkeypatch.setenv("FREELLMAPI_BASE_URL", "http://freellmapi:3001/v1")
+    monkeypatch.setenv("FREELLMAPI_API_KEY", "")
+    monkeypatch.delenv("DEUS_VOICE_CONVERSATION_MODELS", raising=False)
+
+    runtime = build_voice_inference_runtime()
+
+    assert runtime.primary.name == "chatgpt"
+    assert runtime.primary_models == ()
+    assert [provider.name for provider in runtime.fallbacks] == ["freellmapi"]

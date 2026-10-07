@@ -34,6 +34,7 @@ services:
       - voice_models:/var/lib/creation/voice
       - deus_diagnostics:/var/lib/creation/diagnostics
       - deus_obsidian:/var/lib/creation/obsidian
+      - chatgpt_credentials:/var/lib/creation/chatgpt
     ports:
       - "127.0.0.1:${CREATION_API_PORT:-8000}:8000"
     depends_on:
@@ -99,6 +100,7 @@ services:
     command: ["python", "-m", "app.worker"]
     volumes:
       - workspace_data:${WORKSPACE_ROOT:-/var/lib/creation/workspaces}
+      - chatgpt_credentials:/var/lib/creation/chatgpt
     restart: unless-stopped
     networks:
       - tco_net
@@ -431,10 +433,14 @@ services:
       OPPORTUNITY_STALE_CLAIM_SECONDS: ${OPPORTUNITY_STALE_CLAIM_SECONDS:-900}
       OPPORTUNITY_COMPETITION_CYCLE_SECONDS: ${OPPORTUNITY_COMPETITION_CYCLE_SECONDS:-60}
       OPPORTUNITY_INFERENCE_BACKOFF_MAX_SECONDS: ${OPPORTUNITY_INFERENCE_BACKOFF_MAX_SECONDS:-1800}
-      LLM_PROVIDER: ${LLM_PROVIDER:-freellmapi}
-      LLM_FALLBACK_PROVIDERS: ${LLM_FALLBACK_PROVIDERS:-}
+      LLM_PROVIDER: ${LLM_PROVIDER:-chatgpt}
+      LLM_FALLBACK_PROVIDERS: ${LLM_FALLBACK_PROVIDERS:-freellmapi}
       LLM_MODEL: ${LLM_MODEL:-}
       LLM_API_KEY: ${LLM_API_KEY:-}
+      CHATGPT_MODEL: ${CHATGPT_MODEL:-gpt-6.1-sol}
+      CHATGPT_CREDENTIALS_FILE: ${CHATGPT_CREDENTIALS_FILE:-/var/lib/creation/chatgpt/credentials.json}
+      CHATGPT_BASE_URL: ${CHATGPT_BASE_URL:-https://api.openai.com/v1}
+      CHATGPT_TIMEOUT_SECONDS: ${CHATGPT_TIMEOUT_SECONDS:-60}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-}
       ANTHROPIC_WORKSPACE_ID: ${ANTHROPIC_WORKSPACE_ID:-}
@@ -458,6 +464,8 @@ services:
     depends_on:
       api:
         condition: service_healthy
+    volumes:
+    - chatgpt_credentials:/var/lib/creation/chatgpt
     restart: unless-stopped
     networks:
     - tco_net
@@ -465,6 +473,7 @@ services:
     - no-new-privileges:true
 
 volumes:
+  chatgpt_credentials:
   deus_diagnostics:
   deus_obsidian:
   voice_models:

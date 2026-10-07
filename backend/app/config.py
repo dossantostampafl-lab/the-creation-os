@@ -6,7 +6,7 @@ from urllib.parse import urlsplit
 
 from pydantic.v1 import BaseSettings, Field, SecretStr, validator
 
-SUPPORTED_LLM_PROVIDERS = frozenset({"openai", "anthropic", "freellmapi", "openai_compatible"})
+SUPPORTED_LLM_PROVIDERS = frozenset({"chatgpt", "openai", "anthropic", "freellmapi", "openai_compatible"})
 
 # The values .env.example ships. They are published, so they are not credentials anywhere.
 PLACEHOLDER_SECRETS = frozenset({"replace-me-with-a-secure-random-value", "change-me-securely"})
@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     llm_fallback_providers: str = Field("", env="LLM_FALLBACK_PROVIDERS")
     llm_model: str = Field("fake", env="LLM_MODEL")
     llm_api_key: SecretStr | None = Field(None, env="LLM_API_KEY")
+    chatgpt_model: str = Field("gpt-6.1-sol", env="CHATGPT_MODEL")
+    chatgpt_credentials_file: str = Field("/var/lib/creation/chatgpt/credentials.json", env="CHATGPT_CREDENTIALS_FILE")
+    chatgpt_base_url: str = Field("https://api.openai.com/v1", env="CHATGPT_BASE_URL")
+    chatgpt_timeout_seconds: float = Field(60.0, gt=0.0, le=120.0, env="CHATGPT_TIMEOUT_SECONDS")
     embedding_provider: str = Field("fake", env="EMBEDDING_PROVIDER")
     embedding_model: str = Field("fake", env="EMBEDDING_MODEL")
     semantic_cache_mode: str = Field("shadow", env="SEMANTIC_CACHE_MODE")
@@ -141,7 +145,7 @@ class Settings(BaseSettings):
     deus_local_voice_silence_ms: int = Field(400, ge=200, le=1500, env="DEUS_LOCAL_VOICE_SILENCE_MS")
     voice_session_ticket_ttl_seconds: int = Field(20, ge=5, le=120, env="VOICE_SESSION_TICKET_TTL_SECONDS")
     deus_voice_session_enabled: bool = Field(False, env="DEUS_VOICE_SESSION_ENABLED")
-    deus_voice_primary_provider: str = Field("freellmapi", env="DEUS_VOICE_PRIMARY_PROVIDER")
+    deus_voice_primary_provider: str = Field("chatgpt", env="DEUS_VOICE_PRIMARY_PROVIDER")
     deus_voice_first_token_timeout_ms: int = Field(2500, ge=250, le=15000, env="DEUS_VOICE_FIRST_TOKEN_TIMEOUT_MS")
 
     class Config:
@@ -243,8 +247,8 @@ class Settings(BaseSettings):
     @validator("deus_voice_primary_provider")
     def validate_deus_voice_primary_provider(cls, value: str) -> str:
         normalized = value.strip().lower()
-        if normalized != "freellmapi":
-            raise ValueError("DEUS_VOICE_PRIMARY_PROVIDER must be freellmapi")
+        if normalized not in SUPPORTED_LLM_PROVIDERS:
+            raise ValueError("DEUS_VOICE_PRIMARY_PROVIDER must be a supported LLM provider")
         return normalized
 
     @validator("semantic_cache_mode")
