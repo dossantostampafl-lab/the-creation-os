@@ -289,3 +289,9 @@ print("  configured:", snapshot.get("configured"))
 print("  provider:  ", snapshot.get("configured_provider"))
 for entry in snapshot.get("providers", []):
     print("  -", entry.get("provider"), "available:", entry.get("available"), entry.get("detail") or "")'
+
+if [ "$provider" = "chatgpt" ]; then
+  echo
+  echo "Running the authentication-ready smoke test..."
+  "$REPO_DIR/deploy/oracle/smoke-test.sh" --deus
+fi
