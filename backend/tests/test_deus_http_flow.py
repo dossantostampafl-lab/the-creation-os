@@ -90,4 +90,8 @@ async def test_when_the_gateway_is_down_deus_says_so_with_503(stf_db, monkeypatc
 
     response, messages, _ = await _talk(stf_db, monkeypatch, handler)
     assert response.status_code == 503
-    assert "inference provider" in response.json()["detail"]
+    detail = response.json()["detail"]
+    assert detail["provider"] == "freellmapi"
+    assert detail["code"] == "INFERENCE_UPSTREAM_RESPONSE_ERROR"
+    assert "provedor de inferência" in detail["message"]
+    assert detail["retryable"] is False
