@@ -32,14 +32,16 @@ def test_chatgpt_host_id_is_persisted_before_credentials_exist(tmp_path: Path) -
     assert (tmp_path / "host-id").read_text(encoding="utf-8").strip() == first
 
 
-def test_new_registration_keeps_the_existing_host_identity(tmp_path: Path) -> None:
+def test_saved_remote_profile_does_not_overwrite_the_browser_hosts_identity(tmp_path: Path) -> None:
     output = tmp_path / "credentials.json"
-    credentials = {"ext_agent_host_id": "urn:uuid:11111111-1111-4111-8111-111111111111"}
+    local_host_id = _load_or_create_host_id(output, {})
+    remote_host_id = "urn:uuid:11111111-1111-4111-8111-111111111111"
+    credentials = {"ext_agent_host_id": remote_host_id}
 
-    host_id = _load_or_create_host_id(output, credentials)
+    selected_host_id = _load_or_create_host_id(output, credentials)
 
-    assert host_id == credentials["ext_agent_host_id"]
-    assert (tmp_path / "host-id").read_text(encoding="utf-8").strip() == host_id
+    assert selected_host_id == remote_host_id
+    assert (tmp_path / "host-id").read_text(encoding="utf-8").strip() == local_host_id
 
 
 def test_plan_permission_comes_only_from_token_response_scopes() -> None:
