@@ -91,7 +91,8 @@ async def run(full: bool) -> int:
     )
     request = InferenceRequest(
         model=settings.chatgpt_model,
-        messages=[{"role": "user", "content": "Reply with exactly READY."}],
+        messages=[{"role": "user", "content": "Reply with exactly READY. Do not call any tools."}],
+        metadata={"enable_capability_intents": True},
     )
     try:
         response = await provider.generate(request)
