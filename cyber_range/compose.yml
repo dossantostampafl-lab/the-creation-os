@@ -40,6 +40,20 @@ services:
   webgoat:
     image: webgoat/webgoat:latest
     profiles: ["cyber-range"]
+    # The image's built-in healthcheck calls curl, which the image does not ship.
+    healthcheck:
+      test:
+        - CMD
+        - bash
+        - -c
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/8080 &&
+          printf 'GET /WebGoat/actuator/health HTTP/1.0\r\nHost: localhost\r\n\r\n' >&3 &&
+          grep -q '"status":"UP"' <&3
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
     networks:
       - range_targets
     security_opt:
