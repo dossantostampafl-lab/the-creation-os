@@ -186,18 +186,21 @@ def _apply_wake(result: dict[str, Any], hits: list[tuple[float, float]]) -> str:
     if not hits or re.search(r'\bdeus\b', text):
         return text
     words = [w for w in result.get('result', []) if isinstance(w, dict) and 'word' in w]
+
+    def middle(word: dict[str, Any]) -> float:
+        return (float(word.get('start', 0)) + float(word.get('end', 0))) / 2
+
     for start, end in hits:
-        overlapping = [
-            w for w in words
-            if float(w.get('start', 0)) < end and float(w.get('end', 0)) > start
-        ]
+        # Only words centred inside the hit were the wake word; neighbours that merely
+        # touch its edges are part of the command.
+        covered = [w for w in words if start <= middle(w) <= end]
         if any(
             w['word'] in WAKE_LOOKALIKES and float(w.get('conf', 0)) >= WAKE_LOOKALIKE_MIN_CONFIDENCE
-            for w in overlapping
+            for w in covered
         ):
             continue
-        before = [w['word'] for w in words if float(w.get('end', 0)) <= start and w not in overlapping]
-        after = [w['word'] for w in words if float(w.get('start', 0)) >= end and w not in overlapping]
+        before = [w['word'] for w in words if middle(w) < start]
+        after = [w['word'] for w in words if middle(w) > end]
         return ' '.join([*before, 'deus', *after])
     return text
 
@@ -268,12 +271,11 @@ class VoskRealtimeSTT:
         self._last_partial = ''
         text = _apply_wake(result, hits)
         if self._debug_transcripts:
-            logger.bind(
-                event="voice_transcript_debug",
-                recognized=result.get('text', ''),
-                wake_hits=len(hits),
-                committed_text=text,
-            ).info("voice transcript debug")
+            # The default loguru sink prints only the message, so the values go in it.
+            logger.info(
+                "voice_transcript_debug recognized={!r} wake_hits={} committed_text={!r}",
+                result.get('text', ''), len(hits), text,
+            )
         return STTTranscript(text=text, committed=True) if text else None
 
     async def send_audio(self, audio: bytes, *, commit: bool = False) -> None:
