@@ -54,8 +54,23 @@ class ChatGPTCredentialRecord:
 
 
 class _HostFileLock:
-    def __init__(self, path: Path) -> None:
+    """Cross-process ``flock`` that never leaks the lock when its waiter is cancelled.
+
+    A blocking ``flock`` in a worker thread cannot be interrupted: if the awaiting task were
+    cancelled, the thread would still acquire the lock later and nobody would release it.
+    Polling with ``LOCK_NB`` keeps every wait inside a cancellable ``asyncio.sleep``.
+    """
+
+    def __init__(
+        self,
+        path: Path,
+        *,
+        poll_interval_seconds: float = 0.02,
+        max_poll_interval_seconds: float = 0.25,
+    ) -> None:
         self.path = path
+        self.poll_interval_seconds = poll_interval_seconds
+        self.max_poll_interval_seconds = max_poll_interval_seconds
         self._fd: int | None = None
 
     async def __aenter__(self) -> "_HostFileLock":
@@ -63,18 +78,31 @@ class _HostFileLock:
 
         self.path.parent.mkdir(parents=True, exist_ok=True)
         fd = os.open(self.path, os.O_CREAT | os.O_RDWR, 0o600)
-        await asyncio.to_thread(fcntl.flock, fd, fcntl.LOCK_EX)
+        try:
+            delay = self.poll_interval_seconds
+            while True:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    await asyncio.sleep(delay)
+                    delay = min(delay * 2, self.max_poll_interval_seconds)
+        except BaseException:
+            os.close(fd)
+            raise
         self._fd = fd
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
         import fcntl
 
-        if self._fd is None:
+        fd, self._fd = self._fd, None
+        if fd is None:
             return
-        await asyncio.to_thread(fcntl.flock, self._fd, fcntl.LOCK_UN)
-        os.close(self._fd)
-        self._fd = None
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
 
 
 class ChatGPTCredentialStore:

@@ -20,6 +20,11 @@ env_set DEUS_VOICE_CONVERSATION_MODELS "$voice_models"
 # The same chat remains free when a typed turn follows a voice turn.
 env_set LLM_PROVIDER freellmapi
 fallback="$(env_get LLM_FALLBACK_PROVIDERS)"
+# freellmapi is now the primary; Settings rejects a reserve chain that repeats LLM_PROVIDER.
+fallback="$(printf '%s' "$fallback" | awk -v RS=',' '{
+  gsub(/^[[:space:]]+|[[:space:]]+$/, ""); name = tolower($0)
+  if (name != "" && name != "freellmapi" && !seen[name]++) out = out (out == "" ? "" : ",") name
+} END { print out }')"
 if [ -z "$fallback" ] && [ -n "$(env_get ANTHROPIC_API_KEY)" ] && [ -n "$(env_get ANTHROPIC_MODEL)" ]; then
   fallback="anthropic"
 fi
