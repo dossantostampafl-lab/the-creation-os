@@ -15,6 +15,8 @@ from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
+from loguru import logger
+
 from app.config import settings
 from app.observability.telemetry import operation, traced
 from app.voice_session.stt import STTTranscript
@@ -25,6 +27,14 @@ from app.voice_session.tts import VoiceSynthesisError
 _TTS_LOCK = threading.Lock()
 _models: LocalSpeechEngine | None = None
 _model_lock = threading.Lock()
+
+# The large model often hears "Deus" as "seis", "adeus" or nothing on real microphones.
+# A small model restricted to this grammar only decides whether "Deus" was said.
+WAKE_GRAMMAR = json.dumps(["deus", "[unk]"])
+WAKE_MIN_CONFIDENCE = 0.8
+# A confident transcription of a look-alike word over the same audio vetoes the wake.
+WAKE_LOOKALIKES = frozenset({"adeus", "museus", "dois", "seus", "meus", "teus", "zeus", "céus", "deu"})
+WAKE_LOOKALIKE_MIN_CONFIDENCE = 0.8
 
 
 async def _run_synthesis(work: Callable[[], bytes]) -> bytes:
@@ -58,6 +68,8 @@ class LocalSpeechEngine:
         self.kokoro = Kokoro.from_session(session, str(root / 'voices-v1.0.bin'))
         SetLogLevel(-1)
         self.vosk = Model(str(root / 'vosk-pt'))
+        wake = root / 'vosk-wake-pt'
+        self.wake_vosk = Model(str(wake)) if wake.is_dir() else None
 
     @traced("voice.tts")
     async def synthesize(self, text: str) -> bytes:
@@ -71,7 +83,17 @@ class LocalSpeechEngine:
 
     def recognizer(self) -> Any:
         from vosk import KaldiRecognizer
-        return KaldiRecognizer(self.vosk, 16000)
+        recognizer = KaldiRecognizer(self.vosk, 16000)
+        recognizer.SetWords(True)
+        return recognizer
+
+    def wake_recognizer(self) -> Any | None:
+        from vosk import KaldiRecognizer
+        if self.wake_vosk is None:
+            return None
+        recognizer = KaldiRecognizer(self.wake_vosk, 16000, WAKE_GRAMMAR)
+        recognizer.SetWords(True)
+        return recognizer
 
 
 def _load_engine() -> LocalSpeechEngine:
@@ -150,9 +172,49 @@ class KokoroRealtimeTTS:
         return item
 
 
+def _wake_hits(result: dict[str, Any]) -> list[tuple[float, float]]:
+    return [
+        (float(word['start']), float(word['end']))
+        for word in result.get('result', [])
+        if word.get('word') == 'deus' and float(word.get('conf', 0)) >= WAKE_MIN_CONFIDENCE
+    ]
+
+
+def _apply_wake(result: dict[str, Any], hits: list[tuple[float, float]]) -> str:
+    """Return the transcript with "deus" restored where the wake spotter heard it."""
+    text = str(result.get('text', '')).strip()
+    if not hits or re.search(r'\bdeus\b', text):
+        return text
+    words = [w for w in result.get('result', []) if isinstance(w, dict) and 'word' in w]
+    for start, end in hits:
+        overlapping = [
+            w for w in words
+            if float(w.get('start', 0)) < end and float(w.get('end', 0)) > start
+        ]
+        if any(
+            w['word'] in WAKE_LOOKALIKES and float(w.get('conf', 0)) >= WAKE_LOOKALIKE_MIN_CONFIDENCE
+            for w in overlapping
+        ):
+            continue
+        before = [w['word'] for w in words if float(w.get('end', 0)) <= start and w not in overlapping]
+        after = [w['word'] for w in words if float(w.get('start', 0)) >= end and w not in overlapping]
+        return ' '.join([*before, 'deus', *after])
+    return text
+
+
 class VoskRealtimeSTT:
-    def __init__(self, recognizer: Any, *, silence_ms: int = 400) -> None:
+    def __init__(
+        self,
+        recognizer: Any,
+        *,
+        silence_ms: int = 400,
+        wake_recognizer: Any | None = None,
+        debug_transcripts: bool = False,
+    ) -> None:
         self._recognizer = recognizer
+        self._wake_recognizer = wake_recognizer
+        self._wake_hits: list[tuple[float, float]] = []
+        self._debug_transcripts = debug_transcripts
         self._recognition_lock = threading.Lock()
         self._silence_ms = silence_ms
         self._silence_samples = 0
@@ -179,6 +241,9 @@ class VoskRealtimeSTT:
         self._silence_samples = 0 if voiced else self._silence_samples + len(samples)
         with (operation("voice.stt") if self._has_speech else nullcontext()), self._recognition_lock:
             endpoint = self._recognizer.AcceptWaveform(audio) if audio else False
+            wake = self._wake_recognizer
+            if wake is not None and audio and wake.AcceptWaveform(audio):
+                self._wake_hits.extend(_wake_hits(json.loads(wake.Result())))
             if endpoint:
                 result = json.loads(self._recognizer.Result())
             elif self._has_speech and (
@@ -195,10 +260,20 @@ class VoskRealtimeSTT:
                     self._last_partial = partial
                     return STTTranscript(text=partial, committed=False)
                 return None
+            if wake is not None:
+                self._wake_hits.extend(_wake_hits(json.loads(wake.FinalResult())))
+            hits, self._wake_hits = self._wake_hits, []
         self._has_speech = False
         self._silence_samples = self._utterance_samples = 0
         self._last_partial = ''
-        text = result.get('text', '').strip()
+        text = _apply_wake(result, hits)
+        if self._debug_transcripts:
+            logger.bind(
+                event="voice_transcript_debug",
+                recognized=result.get('text', ''),
+                wake_hits=len(hits),
+                committed_text=text,
+            ).info("voice transcript debug")
         return STTTranscript(text=text, committed=True) if text else None
 
     async def send_audio(self, audio: bytes, *, commit: bool = False) -> None:

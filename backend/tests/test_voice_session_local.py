@@ -213,3 +213,89 @@ async def test_long_idle_does_not_force_an_immediate_empty_commit_on_next_questi
             await stt.send_audio(b'\x00\x00' * 1600)
         await stt.send_audio(b'\x00\x20' * 1600)
     assert rec.finals == 0
+
+
+class WordRecognizer:
+    """Finalizes one utterance with word timings, as Vosk does with SetWords(True)."""
+
+    def __init__(self, words, *, grammar=False):
+        self.words = words
+        self.grammar = grammar
+
+    def AcceptWaveform(self, audio):
+        return False
+
+    def PartialResult(self):
+        return json.dumps({'partial': ''})
+
+    def FinalResult(self):
+        words, self.words = self.words, []
+        return json.dumps({
+            'result': [{'word': w, 'conf': c, 'start': s, 'end': e} for w, c, s, e in words],
+            'text': ' '.join(w for w, *_ in words),
+        })
+
+
+async def committed_text(big_words, wake_words, **kwargs):
+    stt = local_module().VoskRealtimeSTT(
+        recognizer=WordRecognizer(big_words),
+        wake_recognizer=None if wake_words is None else WordRecognizer(wake_words, grammar=True),
+        **kwargs,
+    )
+    async with stt:
+        await stt.send_audio(b'\x00\x20' * 1600, commit=True)
+        transcript = await asyncio.wait_for(stt.receive_transcript(), timeout=1)
+    assert transcript.committed
+    return transcript.text
+
+
+@pytest.mark.asyncio
+async def test_wake_spotter_restores_deus_misheard_by_the_large_model():
+    text = await committed_text(
+        [('seis', 0.59, 0.5, 0.9), ('que', 0.9, 1.0, 1.1), ('horas', 0.9, 1.1, 1.5)],
+        [('deus', 0.95, 0.48, 0.92), ('[unk]', 0.9, 1.0, 1.5)],
+    )
+    assert text == 'deus que horas'
+
+
+@pytest.mark.asyncio
+async def test_wake_spotter_alone_wakes_when_the_large_model_heard_nothing():
+    assert await committed_text([], [('deus', 0.92, 0.5, 0.9)]) == 'deus'
+
+
+@pytest.mark.asyncio
+async def test_confident_lookalike_vetoes_the_wake_spotter():
+    text = await committed_text([('adeus', 0.93, 0.5, 0.9)], [('deus', 1.0, 0.5, 0.9)])
+    assert text == 'adeus'
+
+
+@pytest.mark.asyncio
+async def test_low_confidence_wake_spot_is_ignored():
+    text = await committed_text([('seis', 0.5, 0.5, 0.9)], [('deus', 0.6, 0.5, 0.9)])
+    assert text == 'seis'
+
+
+@pytest.mark.asyncio
+async def test_missing_wake_model_keeps_large_model_transcript():
+    assert await committed_text([('seis', 0.5, 0.5, 0.9)], None) == 'seis'
+
+
+@pytest.mark.asyncio
+async def test_transcript_debug_log_is_opt_in(monkeypatch):
+    module = local_module()
+    logged = []
+
+    class Bound:
+        def __init__(self, fields):
+            self.fields = fields
+
+        def info(self, message):
+            logged.append(self.fields)
+
+    monkeypatch.setattr(module.logger, 'bind', lambda **fields: Bound(fields))
+    await committed_text([('seis', 0.5, 0.5, 0.9)], [('deus', 0.9, 0.5, 0.9)])
+    assert logged == []
+    await committed_text([('seis', 0.5, 0.5, 0.9)], [('deus', 0.9, 0.5, 0.9)], debug_transcripts=True)
+    assert logged == [{
+        'event': 'voice_transcript_debug', 'recognized': 'seis', 'wake_hits': 1, 'committed_text': 'deus',
+    }]

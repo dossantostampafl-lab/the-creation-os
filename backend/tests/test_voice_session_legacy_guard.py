@@ -47,3 +47,9 @@ def test_voice_setup_probes_the_production_streaming_client():
     assert "app.voice_session.verify_local" in script
     assert "app.voice_session.prepare" in script
     assert "httpx.post" not in script
+
+
+def test_deploy_update_prepares_new_local_voice_models_before_restart():
+    workflow = (ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8")
+    update = workflow[workflow.index("            update)"):workflow.index("            enable-observability)")]
+    assert update.index("app.voice_session.prepare") < update.index("up -d --build")

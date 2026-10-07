@@ -156,6 +156,8 @@ class Settings(BaseSettings):
     deus_local_voice_models_dir: str = Field("/var/lib/creation/voice", env="DEUS_LOCAL_VOICE_MODELS_DIR")
     deus_local_voice_cpu_threads: int = Field(2, ge=1, le=2, env="DEUS_LOCAL_VOICE_CPU_THREADS")
     deus_local_voice_silence_ms: int = Field(400, ge=200, le=1500, env="DEUS_LOCAL_VOICE_SILENCE_MS")
+    # Temporary troubleshooting only: logs what local recognition heard, i.e. the creator's speech.
+    deus_voice_debug_transcripts: bool = Field(False, env="DEUS_VOICE_DEBUG_TRANSCRIPTS")
     voice_session_ticket_ttl_seconds: int = Field(20, ge=5, le=120, env="VOICE_SESSION_TICKET_TTL_SECONDS")
     deus_voice_session_enabled: bool = Field(False, env="DEUS_VOICE_SESSION_ENABLED")
     deus_voice_primary_provider: str = Field("chatgpt", env="DEUS_VOICE_PRIMARY_PROVIDER")
