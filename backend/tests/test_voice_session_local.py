@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import json
+from pathlib import Path
 
 import pytest
 
@@ -310,8 +311,18 @@ def test_prepare_reinstalls_an_empty_or_incomplete_vosk_directory(tmp_path, monk
         with zipfile.ZipFile(archive, 'w') as package:
             package.writestr('packaged/am/final.mdl', 'model')
 
+    import sys
+    import types
+
+    class Model:
+        def __init__(self, path):
+            if not (Path(path) / 'am' / 'final.mdl').read_text() == 'model':
+                raise Exception('Failed to create a model')
+
+    monkeypatch.setitem(sys.modules, 'vosk', types.SimpleNamespace(Model=Model, SetLogLevel=lambda level: None))
     monkeypatch.setattr(prepare, 'download', fake_download)
-    (tmp_path / 'vosk-wake-pt').mkdir()
+    (tmp_path / 'vosk-wake-pt' / 'am').mkdir(parents=True)
+    (tmp_path / 'vosk-wake-pt' / 'am' / 'final.mdl').write_text('truncated')
     prepare.install_vosk(tmp_path, 'https://example.invalid/model.zip', 'packaged', 'vosk-wake-pt')
     assert (tmp_path / 'vosk-wake-pt' / 'am' / 'final.mdl').read_text() == 'model'
 

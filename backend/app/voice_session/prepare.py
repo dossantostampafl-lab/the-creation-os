@@ -28,7 +28,19 @@ def download(url: str, path: Path) -> None:
 
 
 def vosk_model_installed(directory: Path) -> bool:
-    return directory.is_dir() and any(directory.rglob('final.mdl'))
+    if not directory.is_dir() or not any(directory.rglob('final.mdl')):
+        return False
+    try:
+        from vosk import Model, SetLogLevel
+    except ImportError:
+        return True
+    # Loading is the only reliable completeness check: Vosk needs several files besides final.mdl.
+    SetLogLevel(-1)
+    try:
+        Model(str(directory))
+    except Exception:
+        return False
+    return True
 
 
 def install_vosk(root: Path, url: str, packaged_name: str, name: str) -> None:
