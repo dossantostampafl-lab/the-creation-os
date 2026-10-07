@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import time
 
+from app.config import settings
 from app.voice_session.local import VoskRealtimeSTT, get_local_engine
 
 
@@ -23,14 +25,17 @@ async def main() -> None:
                           np.arange(len(pcm)), pcm).astype('<i2').tobytes()
     final_text = ''
     started = time.monotonic()
-    async with VoskRealtimeSTT(engine.recognizer()) as stt:
+    silence_ms = settings.deus_local_voice_silence_ms
+    async with VoskRealtimeSTT(engine.recognizer(), silence_ms=silence_ms) as stt:
         for offset in range(0, len(converted), 3200):
             await stt.send_audio(converted[offset:offset + 3200])
             while not stt._transcripts.empty():
                 transcript = await stt.receive_transcript()
                 if transcript.committed:
                     final_text += ' ' + transcript.text
-        for _ in range(6):
+        # The speaker then stops talking for longer than the configured end-of-sentence pause,
+        # exactly as the live gateway sees it; a shorter tail would end before the commit.
+        for _ in range(math.ceil(silence_ms / 100) + 5):
             await stt.send_audio(b'\x00' * 3200)
             while not stt._transcripts.empty():
                 transcript = await stt.receive_transcript()
