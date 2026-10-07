@@ -234,7 +234,8 @@ class ChatGPTPlanProvider:
         capability = self._capability_from_output(completed)
         if capability is not None:
             metadata["capability_intent"] = capability
-        usage = completed.get("usage") if isinstance(completed.get("usage"), dict) else {}
+        raw_usage = completed.get("usage")
+        usage: dict[str, Any] = raw_usage if isinstance(raw_usage, dict) else {}
         normalized_usage = {
             key: int(value)
             for key, value in usage.items()
