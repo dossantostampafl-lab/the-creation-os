@@ -120,4 +120,4 @@ The composer shows **Using ChatGPT plan**, the active account label when OpenAI 
 
 ## Background and automation consent
 
-Sign in with ChatGPT permits background/automation use only with explicit user consent. THE CREATION OS keeps autonomous discovery/competition disabled by default, and Mission execution remains Creator-authorized. Enabling autonomous profiles is therefore an explicit operational opt-in; deployments intended for another user must obtain that user's consent before enabling ChatGPT-backed background work.
+Sign in with ChatGPT permits background/automation use only with explicit user consent. THE CREATION OS keeps autonomous discovery/competition disabled by default. If ChatGPT appears anywhere in the configured inference chain, enabling autonomous discovery or competition is rejected unless `CHATGPT_BACKGROUND_AUTOMATION_CONSENT=true` is also set as the explicit operational consent gate. Mission execution remains Creator-authorized. Deployments intended for another user must obtain that user's express consent before enabling this setting.
