@@ -27,6 +27,11 @@ DYNAMIC_CLIENT_ID = "dynamic_agent_client"
 AGENT_NAME = "THE CREATION OS"
 
 
+def _default_credentials_path() -> Path:
+    # Keep OAuth bearer/refresh/ID tokens outside any project checkout by default.
+    return Path.home() / ".config" / "the-creation-os" / "chatgpt" / "credentials.json"
+
+
 def _b64url_sha256(value: str) -> str:
     digest = hashlib.sha256(value.encode("ascii")).digest()
     return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
@@ -262,8 +267,8 @@ def main() -> None:
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("chatgpt-credentials.json"),
-        help="Protected credential file to create or refresh.",
+        default=_default_credentials_path(),
+        help="Protected credential file to create or refresh (defaults outside the source tree).",
     )
     parser.add_argument("--port", type=int, default=1455)
     parser.add_argument("--no-browser", action="store_true")
