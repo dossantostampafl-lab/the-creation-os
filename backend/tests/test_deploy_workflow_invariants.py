@@ -347,6 +347,17 @@ def test_update_proves_the_real_deus_path_before_it_is_green() -> None:
     assert inference < conversation
 
 
+def test_update_repairs_the_supported_chatgpt_reserve_chain() -> None:
+    """An update must not leave ChatGPT with an empty reserve when FreeLLMAPI is already configured."""
+    remote = _remote_script()
+    update = remote.split("update)", 1)[1].split(";;", 1)[0]
+    assert 'provider" = "chatgpt"' in update
+    assert "FREELLMAPI_MODEL" in update
+    assert "FREELLMAPI_BASE_URL" in update
+    assert "env_set LLM_FALLBACK_PROVIDERS freellmapi" in update
+    assert "env_set CHATGPT_FALLBACK_ENABLED true" in update
+
+
 def test_inference_check_reports_provider_order_and_probes_freellmapi() -> None:
     """FreeLLMAPI may be healthy while Anthropic is primary; the report must make both facts visible."""
     script = (REPO_ROOT / "deploy" / "oracle" / "check-inference.sh").read_text(encoding="utf-8")
