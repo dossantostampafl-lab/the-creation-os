@@ -290,6 +290,24 @@ async def test_wake_spotter_keeps_command_words_touching_the_hit_edges():
 
 
 @pytest.mark.asyncio
+async def test_wake_spotter_keeps_command_words_inside_a_broad_hit():
+    text = await committed_text(
+        [('seis', 0.59, 0.5, 0.9), ('que', 0.9, 0.9, 1.1), ('horas', 0.9, 1.1, 1.5)],
+        [('deus', 0.95, 0.45, 1.2)],
+    )
+    assert text == 'deus que horas'
+
+
+@pytest.mark.asyncio
+async def test_wake_spotter_vetoes_lookalike_overlapping_a_narrow_hit():
+    text = await committed_text(
+        [('adeus', 0.95, 0.4, 1.0), ('amigo', 0.9, 1.0, 1.4)],
+        [('deus', 0.9, 0.75, 0.95)],
+    )
+    assert text == 'adeus amigo'
+
+
+@pytest.mark.asyncio
 async def test_transcript_debug_log_is_opt_in(monkeypatch):
     module = local_module()
     logged = []
