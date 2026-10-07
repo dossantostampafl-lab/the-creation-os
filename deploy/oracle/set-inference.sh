@@ -169,6 +169,13 @@ fi
 unset api_key
 if [ "$provider" = "chatgpt" ]; then
   env_set CHATGPT_CREDENTIALS_FILE "/var/lib/creation/chatgpt/credentials.json"
+  # Selecting ChatGPT while autonomous discovery/competition is already enabled is the
+  # explicit operational action that authorizes those existing background jobs to use the
+  # ChatGPT plan. Persist that consent so Settings can fail closed in every other path.
+  if [ "$(env_get DEUS_AUTONOMY_DISCOVERY_ENABLED)" = "true" ] \
+     || [ "$(env_get DEUS_AUTONOMY_COMPETITION_ENABLED)" = "true" ]; then
+    env_set CHATGPT_BACKGROUND_AUTOMATION_CONSENT "true"
+  fi
 fi
 env_set DEUS_VOICE_PRIMARY_PROVIDER "$provider"
 if [ "$provider" = "anthropic" ]; then
@@ -201,6 +208,12 @@ else
   exit 1
 fi
 
+if [ "$provider" = "chatgpt" ]; then
+  echo
+  echo "Preparing the stable Oracle host identity required for ChatGPT authorization..."
+  "$REPO_DIR/deploy/oracle/chatgpt-host-id.sh"
+fi
+
 # The containers read .env only when they are created, so recreating them is part of the change.
 echo
 echo "Restarting api and worker..."
@@ -218,9 +231,10 @@ for _ in $(seq 1 60); do
 done
 echo
 
-if [ "$provider" = "chatgpt" ]; then
-  echo "Preparing the stable Oracle host identity required for ChatGPT authorization..."
-  "$REPO_DIR/deploy/oracle/chatgpt-host-id.sh"
+if ! curl -fsS "$base/api/v1/health/ready" >/dev/null 2>&1; then
+  echo "The API did not become ready after the inference change." >&2
+  "${COMPOSE[@]}" ps api worker >&2 || true
+  exit 1
 fi
 
 # The API reports the provider it actually loaded, which is the only answer that counts.

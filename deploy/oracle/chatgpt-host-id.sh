@@ -9,13 +9,10 @@ REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_DIR"
 COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.cloud.yml)
 
-api_container="$("${COMPOSE[@]}" ps -q api)"
-if [ -z "$api_container" ]; then
-  echo "The API container must be running before preparing the ChatGPT host identity." >&2
-  exit 1
-fi
-
-"${COMPOSE[@]}" exec -T api python - <<'PY'
+# Use a one-shot container so host identity can be prepared even when the long-running
+# API is stopped or waiting for OAuth-related configuration. The service image supplies
+# the canonical protected volume mount, but the script imports only Python's stdlib.
+"${COMPOSE[@]}" run --rm --no-deps --entrypoint python api - <<'PY'
 from pathlib import Path
 import uuid
 
@@ -32,7 +29,11 @@ else:
     value = "urn:uuid:" + str(uuid.uuid4())
     path.write_text(value + "\n", encoding="utf-8")
     path.chmod(0o600)
-if not value.startswith("urn:uuid:"):
+if not (
+    value.startswith("urn:uuid:")
+    or value.startswith("urn:ietf:params:oauth:jwk-thumbprint:")
+    or value.startswith("did:key:")
+):
     raise SystemExit("Stored ChatGPT host ID has an unsupported format")
 print(value)
 PY

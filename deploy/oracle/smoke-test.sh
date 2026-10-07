@@ -181,11 +181,25 @@ with httpx.Client(base_url=BASE, timeout=45) as client:
     inference = client.get("/system/inference")
     snapshot = inference.json() if inference.status_code == 200 else {}
     configured = bool(snapshot.get("configured"))
+    configured_provider = str(snapshot.get("configured_provider") or "").lower()
     available = any(p.get("available") for p in snapshot.get("providers", []))
-    report("inference configured", configured, snapshot.get("configured_provider", ""))
-    # This is the exact expression the interface uses to enable the DEUS console.
-    report("a provider is available", available,
-           "" if available else "the console stays disabled while this is false")
+    chatgpt_credentials = os.getenv(
+        "CHATGPT_CREDENTIALS_FILE",
+        "/var/lib/creation/chatgpt/credentials.json",
+    )
+    chatgpt_preauth = (
+        configured_provider == "chatgpt"
+        and not os.path.isfile(chatgpt_credentials)
+    )
+    report("inference configured", configured, configured_provider)
+    # Before the one-time browser OAuth, an explicitly selected ChatGPT provider is expected
+    # to be unavailable. Treat that state as deployment-ready, not as a broken provider.
+    if chatgpt_preauth:
+        report("ChatGPT OAuth pending", True, "deployment is ready for authentication")
+    else:
+        # This is the exact expression the interface uses to enable the DEUS console.
+        report("a provider is available", available,
+               "" if available else "the console stays disabled while this is false")
 
     if os.getenv("LLM_PROVIDER", "").lower() == "freellmapi" and os.getenv("ANTHROPIC_API_KEY") and os.getenv("ANTHROPIC_MODEL"):
         reserve = [item.strip().lower() for item in os.getenv("LLM_FALLBACK_PROVIDERS", "").split(",") if item.strip()]
@@ -312,7 +326,11 @@ with httpx.Client(base_url=BASE, timeout=45) as client:
         f"HTTP {ticket_probe.status_code}",
     )
 
-    if os.getenv("TCO_WITH_DEUS") == "true":
+    if os.getenv("TCO_WITH_DEUS") == "true" and chatgpt_preauth:
+        print()
+        print("== Talking to DEUS ==")
+        print("   INFO  skipped until the one-time Sign in with ChatGPT OAuth is imported.")
+    elif os.getenv("TCO_WITH_DEUS") == "true":
         print()
         print("== Talking to DEUS ==")
         conversation = client.post("/conversations", json={"title": "Smoke test"})

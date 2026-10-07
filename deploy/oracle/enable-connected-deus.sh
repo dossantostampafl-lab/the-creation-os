@@ -35,6 +35,11 @@ anthropic_key=existing.get('ANTHROPIC_API_KEY','').strip('"\'').strip()
 anthropic_model=existing.get('ANTHROPIC_MODEL','').strip('"\'').strip()
 if primary == 'freellmapi' and not fallbacks and anthropic_key and anthropic_model:
     values['LLM_FALLBACK_PROVIDERS']='anthropic'
+if primary == 'chatgpt':
+    # This command explicitly enables the background discovery/competition workers.
+    # Recording consent here prevents an accidental ChatGPT-backed background rollout
+    # through any path that did not run this explicit activation command.
+    values['CHATGPT_BACKGROUND_AUTOMATION_CONSENT']='true'
 lines=[line for line in lines if not any(line.startswith(key+'=') for key in values)]
 p.write_text('\n'.join(lines+[key+'='+value for key,value in values.items()])+'\n')
 p.chmod(0o600)
