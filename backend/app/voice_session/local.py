@@ -192,18 +192,28 @@ def _apply_wake(result: dict[str, Any], hits: list[tuple[float, float]]) -> str:
     if not hits or re.search(r'\bdeus\b', text):
         return text
     words = [w for w in result.get('result', []) if isinstance(w, dict) and 'word' in w]
+
+    def overlap(word: dict[str, Any], start: float, end: float) -> float:
+        return min(end, float(word.get('end', 0))) - max(start, float(word.get('start', 0)))
+
     for start, end in hits:
-        overlapping = [
-            w for w in words
-            if float(w.get('start', 0)) < end and float(w.get('end', 0)) > start
-        ]
         if any(
-            w['word'] in WAKE_LOOKALIKES and float(w.get('conf', 0)) >= WAKE_LOOKALIKE_MIN_CONFIDENCE
-            for w in overlapping
+            w['word'] in WAKE_LOOKALIKES
+            and float(w.get('conf', 0)) >= WAKE_LOOKALIKE_MIN_CONFIDENCE
+            and overlap(w, start, end) > 0
+            for w in words
         ):
             continue
-        before = [w['word'] for w in words if float(w.get('end', 0)) <= start and w not in overlapping]
-        after = [w['word'] for w in words if float(w.get('start', 0)) >= end and w not in overlapping]
+        # The wake word replaces at most the one word the large model heard in its place,
+        # i.e. the word mostly inside the hit; every other word belongs to the command.
+        best = max(words, key=lambda w: overlap(w, start, end), default=None)
+        if best is not None:
+            length = float(best.get('end', 0)) - float(best.get('start', 0))
+            if overlap(best, start, end) < max(length, 1e-6) / 2:
+                best = None
+        others = [w for w in words if w is not best]
+        before = [w['word'] for w in others if float(w.get('start', 0)) < start]
+        after = [w['word'] for w in others if float(w.get('start', 0)) >= start]
         return ' '.join([*before, 'deus', *after])
     return text
 
@@ -274,12 +284,11 @@ class VoskRealtimeSTT:
         self._last_partial = ''
         text = _apply_wake(result, hits)
         if self._debug_transcripts:
-            logger.bind(
-                event="voice_transcript_debug",
-                recognized=result.get('text', ''),
-                wake_hits=len(hits),
-                committed_text=text,
-            ).info("voice transcript debug")
+            # The default loguru sink prints only the message, so the values go in it.
+            logger.info(
+                "voice_transcript_debug recognized={!r} wake_hits={} committed_text={!r}",
+                result.get('text', ''), len(hits), text,
+            )
         return STTTranscript(text=text, committed=True) if text else None
 
     async def send_audio(self, audio: bytes, *, commit: bool = False) -> None:
