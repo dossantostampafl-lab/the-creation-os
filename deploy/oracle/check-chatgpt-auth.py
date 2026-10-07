@@ -65,7 +65,11 @@ async def run(full: bool) -> int:
             return 3
         slugs = _model_slugs(payload)
         print(f"   model catalog: reachable ({len(slugs)} model(s) visible)")
-        if slugs and settings.chatgpt_model not in slugs:
+        if not slugs:
+            print("   model catalog contained no usable model slugs")
+            print("   AUTH_READY=no")
+            return 4
+        if settings.chatgpt_model not in slugs:
             print(f"   configured model available: no ({settings.chatgpt_model})")
             print("   AUTH_READY=no")
             return 4
