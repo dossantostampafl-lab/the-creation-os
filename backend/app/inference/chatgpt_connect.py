@@ -250,20 +250,21 @@ def connect(
     contains_id_token_hint = False
     if client_id == DYNAMIC_CLIENT_ID:
         params["agent_name_hint"] = AGENT_NAME
-    elif enable_plan:
-        # The user explicitly asked to enable plan usage after an earlier decline.
-        # OpenAI currently supports prompt=consent for this reauthorization path.
-        params["prompt"] = "consent"
     else:
         retained_id_token = str(existing.get("id_token") or "").strip()
         email = str(existing.get("email") or "").strip()
-        # id_token_hint is a credential-bearing hint: use it only when the URL is
-        # opened directly by this process, never when the URL must be printed.
+        # Returning authorization stays bound to the selected saved registration.
+        # id_token_hint is credential-bearing, so only place it in a URL opened
+        # directly by this process; never print that URL to a terminal.
         if retained_id_token and not no_browser:
             params["id_token_hint"] = retained_id_token
             contains_id_token_hint = True
         if email:
             params["login_hint"] = email
+        if enable_plan:
+            # The user explicitly asked to enable plan usage after an earlier decline.
+            # OpenAI currently supports prompt=consent for this reauthorization path.
+            params["prompt"] = "consent"
 
     url = AUTHORIZE_URL + "?" + urlencode(params)
 
