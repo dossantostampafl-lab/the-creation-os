@@ -163,7 +163,9 @@ class ChatGPTPlanProvider:
                                 **capability_intent_parameters(),
                                 "additionalProperties": False,
                             },
-                            "strict": True,
+                            # Strict mode rejects this schema (free-form `arguments`, optional
+                            # fields) with invalid_function_parameters; CapabilityIntent validates it.
+                            "strict": False,
                         }
                     ],
                 }
