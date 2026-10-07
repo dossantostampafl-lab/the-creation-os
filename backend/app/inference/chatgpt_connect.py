@@ -250,6 +250,19 @@ def connect(*, output: Path, port: int, no_browser: bool, force_new: bool) -> No
         if callback_client_id and callback_client_id != issued_client_id:
             raise RuntimeError("ChatGPT callback returned a different client_id")
 
+    # On first dynamic registration, retain the issued client ID before exchanging
+    # the authorization code. If the code exchange fails (for example invalid_grant),
+    # the next attempt must reuse this issued client rather than register another one.
+    if client_id == DYNAMIC_CLIENT_ID and not saved_credentials:
+        _save(
+            output,
+            {
+                "issuer": ISSUER,
+                "client_id": issued_client_id,
+                "ext_agent_host_id": host_id,
+            },
+        )
+
     with httpx.Client(timeout=30.0) as client:
         response = client.post(
             TOKEN_URL,
