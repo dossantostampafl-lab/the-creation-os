@@ -21,7 +21,7 @@ From a fresh checkout of `main` on Linux/macOS:
 cd backend
 python3 -m venv .venv
 .venv/bin/python -m pip install -e .
-.venv/bin/python -m app.inference.chatgpt_connect --output ../chatgpt-credentials.json
+.venv/bin/python -m app.inference.chatgpt_connect
 ```
 
 On Windows PowerShell:
@@ -30,19 +30,21 @@ On Windows PowerShell:
 cd backend
 py -3.12 -m venv .venv
 .\\.venv\\Scripts\\python.exe -m pip install -e .
-.\\.venv\\Scripts\\python.exe -m app.inference.chatgpt_connect --output ..\\chatgpt-credentials.json
+.\\.venv\\Scripts\\python.exe -m app.inference.chatgpt_connect
 ```
 
-The command opens the official OpenAI authorization page, requests the ChatGPT plan-use permission, validates the returned ID token and writes a protected credential file. Do not commit, paste into chat, or log this file.
+The command opens the official OpenAI authorization page, requests the ChatGPT plan-use permission, validates the returned ID token and writes a protected credential file outside the checkout by default at `~/.config/the-creation-os/chatgpt/credentials.json`. Do not copy the token values into chat, logs, source control, or analytics. The repository also ignores `chatgpt-credentials*.json` as a defense-in-depth guard for explicitly named exports.
 
 ## Transfer to the self-hosted Oracle VM
 
-Copy the credential file over a secure SSH channel to a temporary path on the VM, then from the repository root run:
+Copy `~/.config/the-creation-os/chatgpt/credentials.json` over a secure SSH channel to a temporary path on the VM, then from the repository root run:
 
 ```bash
 sudo ./deploy/oracle/import-chatgpt-credentials.sh /tmp/chatgpt-credentials.json
 rm -f /tmp/chatgpt-credentials.json
 ```
+
+On Windows, the same default file is under `%USERPROFILE%\\.config\\the-creation-os\\chatgpt\\credentials.json`.
 
 The import script preserves the VM's own stable host ID while installing the issued client registration and OAuth tokens into the shared protected volume.
 
