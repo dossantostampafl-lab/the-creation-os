@@ -29,9 +29,9 @@ The implementation follows the OpenAI open-source/self-hosted VM flow:
 - Credential path inside API/worker containers: `/var/lib/creation/chatgpt/credentials.json`
 - API and worker share the protected `chatgpt_credentials` Docker volume.
 
-## One-time authorization for the Oracle host
+## One-time authorization and transfer to Oracle
 
-OpenAI binds this flow to a stable `ext_agent_host_id`. The Oracle runtime must therefore know its host ID **before** the browser authorization is created. Do not authorize on one host and then relabel the credential file for another host.
+OpenAI's loopback callback reaches the computer running the browser, not the remote Oracle VM. For the self-hosted VM flow, the VM first persists its own stable `ext_agent_host_id`; the browser computer can then complete OAuth locally and the protected credential session can be transferred. The imported record must preserve the VM host ID instead of overwriting it with the browser/laptop host ID.
 
 First deploy the stack on Oracle, then from the repository root on the VM run:
 
@@ -39,15 +39,15 @@ First deploy the stack on Oracle, then from the repository root on the VM run:
 sudo bash ./deploy/oracle/chatgpt-host-id.sh
 ```
 
-Copy the printed `urn:uuid:...` value. It is an opaque host identifier, not a bearer token.
+This creates the VM host ID in the protected ChatGPT volume. The printed `urn:uuid:...` value is an opaque host identifier, not a bearer token.
 
-On the computer that will run the browser callback, create a dedicated Oracle profile using that exact host ID. From a fresh checkout of `main` on Linux/macOS:
+On the computer that will run the browser callback, authorize the selected ChatGPT account. From a fresh checkout of `main` on Linux/macOS:
 
 ```bash
 cd backend
 python3 -m venv .venv
 .venv/bin/python -m pip install -e .
-.venv/bin/python -m app.inference.chatgpt_connect --new --profile oracle --host-id 'urn:uuid:ORACLE_HOST_ID'
+.venv/bin/python -m app.inference.chatgpt_connect --profile oracle
 ```
 
 On Windows PowerShell:
@@ -56,7 +56,7 @@ On Windows PowerShell:
 cd backend
 py -3.12 -m venv .venv
 .\\.venv\\Scripts\\python.exe -m pip install -e .
-.\\.venv\\Scripts\\python.exe -m app.inference.chatgpt_connect --new --profile oracle --host-id 'urn:uuid:ORACLE_HOST_ID'
+.\\.venv\\Scripts\\python.exe -m app.inference.chatgpt_connect --profile oracle
 ```
 
 The profile is written outside the checkout:
@@ -64,18 +64,16 @@ The profile is written outside the checkout:
 - Linux/macOS: `~/.config/the-creation-os/chatgpt/profiles/oracle/credentials.json`
 - Windows: `%USERPROFILE%\\.config\\the-creation-os\\chatgpt\\profiles\\oracle\\credentials.json`
 
-Use another profile name for another ChatGPT account/workspace registration. If plan-use consent was previously declined for the same Oracle registration, rerun the selected profile with `--enable-plan`; the helper reuses the issued client, the same Oracle host ID, and the retained account hints. Never paste token values into chat, logs, source control, analytics, or support transcripts.
+Use another profile name for another ChatGPT account/workspace registration. If plan-use consent was previously declined, rerun the selected registration with `--enable-plan`; the helper reuses its issued client and retained account hints. Never paste token values into chat, logs, source control, analytics, or support transcripts.
 
-## Transfer to the self-hosted Oracle VM
-
-Copy the Oracle-bound profile's `credentials.json` over SSH to a temporary VM path, then from the repository root run:
+Copy that profile's `credentials.json` over SSH to a temporary VM path, then from the repository root run:
 
 ```bash
 sudo bash ./deploy/oracle/import-chatgpt-credentials.sh /tmp/chatgpt-credentials.json
 rm -f /tmp/chatgpt-credentials.json
 ```
 
-The importer refuses a partial installation unless API and worker share the same persistent credential volume. It also refuses credentials whose saved `ext_agent_host_id` differs from the Oracle host ID; it never rewrites host identity after OAuth.
+The importer refuses a partial installation unless API and worker share the same persistent credential volume. During import it keeps the Oracle VM's already-persisted host ID and installs the selected issued client/token session into that runtime, matching OpenAI's self-hosted VM transfer flow. Later reauthorization for the VM can use that VM host ID with `--host-id` so subsequent authorization is attributed to the VM host.
 
 ## Verify end to end
 
