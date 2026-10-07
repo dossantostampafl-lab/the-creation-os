@@ -83,6 +83,49 @@ async def test_local_stt_commits_after_short_silence_without_losing_wake_questio
     assert rec.finals == 1
 
 
+class SegmentingRecognizer:
+    """Kaldi closes a segment on its own at a short pause inside the Creator's sentence."""
+
+    def __init__(self, segments):
+        self.segments = list(segments)
+        self.pending = ''
+
+    def AcceptWaveform(self, audio):
+        if any(audio) and self.segments:
+            self.pending = self.segments.pop(0)
+            return True
+        return False
+
+    def Result(self):
+        text, self.pending = self.pending, ''
+        return json.dumps({'text': text, 'result': []})
+
+    def PartialResult(self):
+        return json.dumps({'partial': ''})
+
+    def FinalResult(self):
+        return json.dumps({'text': '', 'result': []})
+
+
+@pytest.mark.asyncio
+async def test_a_breath_inside_the_sentence_does_not_split_it_into_two_turns():
+    rec = SegmentingRecognizer(['deus qual é', '<UNK>', 'a previsão do tempo'])
+    async with local_module().VoskRealtimeSTT(recognizer=rec, silence_ms=1000) as stt:
+        await stt.send_audio(b'\x00\x20' * 1600)           # "deus qual é", then Kaldi ends a segment
+        for _ in range(6):                                  # a 0.6 s breath
+            await stt.send_audio(b'\x00\x00' * 1600)
+        await stt.send_audio(b'\x00\x20' * 1600)           # a noise Kaldi cannot place
+        await stt.send_audio(b'\x00\x20' * 1600)           # "a previsão do tempo"
+        for _ in range(10):                                 # the Creator stops talking
+            await stt.send_audio(b'\x00\x00' * 1600)
+        committed = []
+        while not stt._transcripts.empty():
+            transcript = stt._transcripts.get_nowait()
+            if transcript.committed:
+                committed.append(transcript.text)
+    assert committed == ['deus qual é a previsão do tempo']
+
+
 @pytest.mark.asyncio
 async def test_explicit_commit_does_not_duplicate_final_when_silent():
     rec = Recognizer()

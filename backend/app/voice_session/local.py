@@ -178,6 +178,25 @@ class KokoroRealtimeTTS:
         return item
 
 
+_UNKNOWN_WORDS = frozenset({'<unk>', '[unk]'})
+
+
+def _join_segments(segments: list[dict[str, Any]]) -> dict[str, Any]:
+    """One utterance from the segments Kaldi closed inside it; word times are stream-absolute.
+
+    The model marks sounds it cannot place as <UNK>; they are noise, never the Creator's words.
+    """
+    words = [
+        word for item in segments for word in item.get('result', [])
+        if isinstance(word, dict) and str(word.get('word', '')).lower() not in _UNKNOWN_WORDS
+    ]
+    text = ' '.join(
+        token for item in segments for token in str(item.get('text', '')).split()
+        if token.lower() not in _UNKNOWN_WORDS
+    )
+    return {'text': text, 'result': words}
+
+
 def _wake_hits(result: dict[str, Any]) -> list[tuple[float, float]]:
     return [
         (float(word['start']), float(word['end']))
@@ -223,7 +242,7 @@ class VoskRealtimeSTT:
         self,
         recognizer: Any,
         *,
-        silence_ms: int = 400,
+        silence_ms: int = 1000,
         wake_recognizer: Any | None = None,
         debug_transcripts: bool = False,
     ) -> None:
@@ -237,6 +256,10 @@ class VoskRealtimeSTT:
         self._utterance_samples = 0
         self._has_speech = False
         self._last_partial = ''
+        # Kaldi closes a segment on its own after ~0.5 s of trailing silence, shorter than a
+        # breath between clauses. Closed segments wait here until the Creator's pause reaches
+        # silence_ms, so one spoken sentence becomes one committed transcript.
+        self._segments: list[dict[str, Any]] = []
         self._pending_audio = bytearray()
         self._transcripts: asyncio.Queue[STTTranscript] = asyncio.Queue(maxsize=64)
 
@@ -256,25 +279,33 @@ class VoskRealtimeSTT:
         self._utterance_samples = self._utterance_samples + len(samples) if self._has_speech else 0
         self._silence_samples = 0 if voiced else self._silence_samples + len(samples)
         with (operation("voice.stt") if self._has_speech else nullcontext()), self._recognition_lock:
-            endpoint = self._recognizer.AcceptWaveform(audio) if audio else False
+            kaldi_endpoint = self._recognizer.AcceptWaveform(audio) if audio else False
             wake = self._wake_recognizer
             if wake is not None and audio and wake.AcceptWaveform(audio):
                 self._wake_hits.extend(_wake_hits(json.loads(wake.Result())))
-            if endpoint:
-                result = json.loads(self._recognizer.Result())
-            elif self._has_speech and (
+            if kaldi_endpoint:
+                segment = json.loads(self._recognizer.Result())
+                if str(segment.get('text', '')).strip():
+                    self._segments.append(segment)
+            finished = self._has_speech and (
                 commit or self._silence_samples >= self._silence_ms * 16
                 or self._utterance_samples >= 30 * 16000
-            ):
-                result = json.loads(self._recognizer.FinalResult())
-                endpoint = True
+            )
+            if finished:
+                if not kaldi_endpoint:
+                    segment = json.loads(self._recognizer.FinalResult())
+                    if str(segment.get('text', '')).strip():
+                        self._segments.append(segment)
+                result = _join_segments(self._segments)
+                self._segments = []
             elif commit:
                 return None
             else:
                 partial = json.loads(self._recognizer.PartialResult()).get('partial', '').strip()
-                if partial and partial != self._last_partial:
-                    self._last_partial = partial
-                    return STTTranscript(text=partial, committed=False)
+                heard = ' '.join([*(str(item.get('text', '')).strip() for item in self._segments), partial]).strip()
+                if heard and heard != self._last_partial:
+                    self._last_partial = heard
+                    return STTTranscript(text=heard, committed=False)
                 return None
             if wake is not None:
                 self._wake_hits.extend(_wake_hits(json.loads(wake.FinalResult())))
