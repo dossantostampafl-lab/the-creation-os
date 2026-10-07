@@ -101,7 +101,8 @@ def _load_or_create_host_id(output: Path, credentials: dict[str, object]) -> str
     path = _host_id_path(output)
     credential_host_id = str(credentials.get("ext_agent_host_id") or "").strip()
     if credential_host_id:
-        _persist_host_id(path, credential_host_id)
+        # A saved profile can intentionally represent a remote/self-hosted runtime.
+        # Reuse its binding without overwriting this computer's own shared host identity.
         return credential_host_id
     if path.exists():
         value = path.read_text(encoding="utf-8").strip()
@@ -226,7 +227,8 @@ def connect(
             or host_id.startswith("did:key:")
         ):
             raise RuntimeError("Unsupported ext_agent_host_id format")
-        _persist_host_id(_host_id_path(output), host_id)
+        # An override can represent a remote VM. It belongs to this authorization/profile,
+        # not to the browser computer's shared local host-id file.
     else:
         host_id = _load_or_create_host_id(output, saved_credentials)
 
