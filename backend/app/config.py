@@ -218,6 +218,10 @@ class Settings(BaseSettings):
         names = _split_providers(value)
         if "fake" in names:
             raise ValueError("LLM_FALLBACK_PROVIDERS must not contain fake")
+        if "chatgpt" in names:
+            raise ValueError(
+                "ChatGPT plan usage must be configured as LLM_PROVIDER, not as a silent fallback"
+            )
         unsupported = [name for name in names if name not in SUPPORTED_LLM_PROVIDERS]
         if unsupported:
             raise ValueError(
