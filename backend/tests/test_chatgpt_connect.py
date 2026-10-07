@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.inference.chatgpt_connect import _default_credentials_path, _load_or_create_host_id
+import pytest
+
+from app.inference.chatgpt_connect import _default_credentials_path, _granted_scopes, _load_or_create_host_id
 
 
 def test_default_chatgpt_credentials_path_stays_outside_checkout(monkeypatch, tmp_path: Path) -> None:
@@ -33,3 +35,14 @@ def test_new_registration_keeps_the_existing_host_identity(tmp_path: Path) -> No
 
     assert host_id == credentials["ext_agent_host_id"]
     assert (tmp_path / "host-id").read_text(encoding="utf-8").strip() == host_id
+
+
+def test_plan_permission_comes_only_from_token_response_scopes() -> None:
+    assert _granted_scopes({"scope": "openid profile chatgpt.tokens.use.direct"}) == {
+        "openid",
+        "profile",
+        "chatgpt.tokens.use.direct",
+    }
+
+    with pytest.raises(RuntimeError, match="did not return granted scopes"):
+        _granted_scopes({})
