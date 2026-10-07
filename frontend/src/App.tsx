@@ -39,6 +39,7 @@ function App() {
   const [decisionsOpen, setDecisionsOpen] = useState(false);
   const [systemPage, setSystemPage] = useState(1);
   const [systemPageSize, setSystemPageSize] = useState(25);
+  const [planWelcomeOpen, setPlanWelcomeOpen] = useState(false);
   const cursor = useRef(0);
   const usernameRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
@@ -233,8 +234,27 @@ function App() {
   const missionTasks = useMemo(() => state?.tasks.filter((task) => task.mission_id === selectedMission?.id) ?? [], [state, selectedMission]);
   const pulseEntries = useMemo(() => Object.entries(state?.pulse ?? {}).slice(0, 8), [state]);
   const deusReady = Boolean(inference?.configured && inference.providers.some((provider) => provider.available));
+  const chatgptProvider = inference?.providers.find((provider) => provider.provider === "chatgpt") ?? null;
+  const usingChatgptPlan = Boolean(
+    inference?.configured_provider === "chatgpt" && chatgptProvider?.available && chatgptProvider.usage_url,
+  );
+  const chatgptPlan = usingChatgptPlan && chatgptProvider?.usage_url
+    ? { accountLabel: chatgptProvider.account_label, usageUrl: chatgptProvider.usage_url }
+    : null;
   const universes = useMemo(() => state?.universes.slice(0, 12) ?? [], [state]);
   const systemPages = state ? systemPageCount(state.pagination.totals, systemPageSize) : 1;
+
+  useEffect(() => {
+    if (!usingChatgptPlan) return;
+    if (window.localStorage.getItem("creation_chatgpt_plan_welcome_v1") !== "seen") {
+      setPlanWelcomeOpen(true);
+    }
+  }, [usingChatgptPlan]);
+
+  function dismissPlanWelcome() {
+    window.localStorage.setItem("creation_chatgpt_plan_welcome_v1", "seen");
+    setPlanWelcomeOpen(false);
+  }
 
   return (
     <main className="universe">
@@ -253,6 +273,18 @@ function App() {
       </header>
 
       <PwaStatus />
+
+      {planWelcomeOpen && chatgptPlan && (
+        <section className="plan-welcome" role="dialog" aria-modal="false" aria-label="ChatGPT plan connected">
+          <div>
+            <span className="eyebrow">CHATGPT CONNECTED</span>
+            <strong>THE CREATION OS está usando o seu plano ChatGPT.</strong>
+            <p>O uso do plano é separado de cobrança por API. Você pode acompanhar os limites nas configurações de uso do ChatGPT.</p>
+          </div>
+          <a href={chatgptPlan.usageUrl} target="_blank" rel="noreferrer">Manage usage</a>
+          <button type="button" onClick={dismissPlanWelcome}>Entendi</button>
+        </section>
+      )}
 
       {connection !== "AUTH_REQUIRED" && (
         <div className="presence-state" aria-live="polite">DEUS · {mood.toUpperCase()}</div>
@@ -303,7 +335,7 @@ function App() {
             <span>Vitals</span><small>System vitals</small>
           </button>}
           <DecisionsPanel id="creator-decisions" hidden={!decisionsOpen} missions={state?.missions ?? []} onClose={closeDecisions} onChanged={() => setRetryVersion((version) => version + 1)} />
-          <CreatorConsole enabled={deusReady} onMoodChange={setMood} />
+          <CreatorConsole enabled={deusReady} chatgptPlan={chatgptPlan} onMoodChange={setMood} />
         </section>
       )}
 
@@ -371,6 +403,8 @@ function App() {
                 {inference.providers.map((provider) => <div className="inference-provider" key={provider.provider}>
                   <div className="row"><span>{provider.provider}</span><b className={statusTone(provider.available ? "AVAILABLE" : "UNAVAILABLE")}>{provider.available ? "AVAILABLE" : "UNAVAILABLE"}</b></div>
                   {provider.detail && <small>{provider.detail}</small>}
+                  {provider.account_label && <small>Conta ativa: {provider.account_label}</small>}
+                  {provider.usage_url && <a className="inference-usage-link" href={provider.usage_url} target="_blank" rel="noreferrer">Manage ChatGPT usage</a>}
                   {provider.models.map((model) => <div className="row" key={`${provider.provider}:${model.model}`}>
                     <span><span>{model.model}</span><small>{model.capabilities.join(" · ")}</small></span>
                     <b className="neutral">{model.cost_tier}</b>

@@ -43,6 +43,12 @@ class ModelRouter:
         # Last-resort providers tried after everything a request asked for is unavailable.
         self._fallback_providers = tuple(fallback_providers)
 
+    @staticmethod
+    def _must_stop_after_provider_failure(provider_name: str) -> bool:
+        # OpenAI SIWC requires ChatGPT-plan usage failures to stop the request.
+        # Never silently move the same request onto another provider/billing path.
+        return provider_name.strip().lower() == "chatgpt"
+
     def _profile_for_request(self, provider_name: str, request: InferenceRequest):
         if request.model is not None:
             return self.registry.get_model_profile(provider_name, request.model)
@@ -140,9 +146,13 @@ class ModelRouter:
             now = self._clock()
             if not self._rate_limit_cooldown.can_attempt(provider_name, now=now):
                 last_error = ProviderUnavailable(provider_name, "provider rate-limit cooldown active")
+                if self._must_stop_after_provider_failure(provider_name):
+                    raise last_error
                 continue
             if not self._circuit_breaker.can_attempt(provider_name, now=now):
                 last_error = ProviderUnavailable(provider_name, "provider circuit open")
+                if self._must_stop_after_provider_failure(provider_name):
+                    raise last_error
                 continue
 
             try:
@@ -178,27 +188,32 @@ class ModelRouter:
                     retry_after_seconds=self._rate_limit_cooldown_seconds,
                 )
                 last_error = exc
+                if self._must_stop_after_provider_failure(provider_name):
+                    raise
                 continue
             except InferenceTimeoutError as exc:
                 self._circuit_breaker.record_transient_failure(provider_name, now=self._clock())
                 last_error = exc
+                if self._must_stop_after_provider_failure(provider_name):
+                    raise
                 continue
             except InferenceAuthenticationError as exc:
-                # A refused credential is a problem to fix, but it must not take the whole service down
-                # while a configured reserve can answer. It is logged loudly so it is not mistaken for
-                # a healthy primary, and counted so the provider is not retried on every request. When
-                # nothing else is left the error surfaces as it always did. A configuration error
-                # (a different exception) still fails closed with no reserve.
+                # Credential failures are logged without their secret. ChatGPT-plan requests stop
+                # here; other providers retain the configured reserve behavior.
                 logger.warning(
                     "inference provider {} refused its credential; trying the next provider if there is one",
                     provider_name,
                 )
                 self._circuit_breaker.record_transient_failure(provider_name, now=self._clock())
                 last_error = exc
+                if self._must_stop_after_provider_failure(provider_name):
+                    raise
                 continue
             except ProviderUnavailable as exc:
                 self._circuit_breaker.record_transient_failure(provider_name, now=self._clock())
                 last_error = exc
+                if self._must_stop_after_provider_failure(provider_name):
+                    raise
                 continue
 
             self._circuit_breaker.record_success(provider_name)

@@ -394,8 +394,8 @@ jobs:
               # revision and rebuild api/worker before switching the runtime to ChatGPT.
               sudo git merge --ff-only "origin/$target"
               sudo "${COMPOSE[@]}" build api worker
-              # ChatGPT OAuth is primary; the existing FreeLLMAPI gateway remains an independent reserve.
-              FALLBACK_PROVIDERS=freellmapi sudo -E ./deploy/oracle/set-inference.sh chatgpt gpt-6.1-sol
+              # SIWC plan requests must never silently switch to another provider/billing path.
+              FALLBACK_PROVIDERS= sudo -E ./deploy/oracle/set-inference.sh chatgpt gpt-6.1-sol
               sudo ./deploy/oracle/check-inference.sh
               ;;
             set-inference-freellmapi)

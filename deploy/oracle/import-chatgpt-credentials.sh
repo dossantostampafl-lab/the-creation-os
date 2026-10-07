@@ -25,8 +25,17 @@ import json, os, stat, sys
 path = sys.argv[1]
 with open(path, "r", encoding="utf-8") as handle:
     data = json.load(handle)
-required = {"client_id", "access_token", "refresh_token", "saved_at"}
+required = {"client_id", "access_token", "refresh_token", "id_token", "subject", "saved_at"}
 missing = sorted(name for name in required if not data.get(name))
+if data.get("issuer") != "https://auth.openai.com":
+    missing.append("issuer:https://auth.openai.com")
+if data.get("client_id") == "dynamic_agent_client":
+    missing.append("issued_client_id")
+try:
+    if int(data.get("expires_in", 0)) <= 0:
+        missing.append("expires_in")
+except (TypeError, ValueError):
+    missing.append("expires_in")
 scope = data.get("scopes", data.get("scope", []))
 if isinstance(scope, str):
     scopes = set(scope.split())

@@ -13,23 +13,19 @@ from app.inference.chatgpt_provider import ChatGPTPlanProvider
 from app.inference.contracts import InferenceRequest
 
 
-def _model_slugs(payload: object) -> set[str]:
+def _model_slugs(payload: object) -> list[str]:
     if not isinstance(payload, dict):
-        return set()
+        return []
     items = payload.get("models")
     if not isinstance(items, list):
-        items = payload.get("data")
-    if not isinstance(items, list):
-        return set()
-    slugs: set[str] = set()
+        return []
+    slugs: list[str] = []
     for item in items:
-        if not isinstance(item, dict):
+        if not isinstance(item, dict) or item.get("visibility") != "list":
             continue
-        if item.get("visibility") not in {None, "list"}:
-            continue
-        value = item.get("slug") or item.get("id")
+        value = item.get("slug")
         if isinstance(value, str) and value:
-            slugs.add(value)
+            slugs.append(value)
     return slugs
 
 

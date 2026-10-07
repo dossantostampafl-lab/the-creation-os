@@ -25,7 +25,7 @@ The implementation follows the OpenAI open-source/self-hosted VM flow:
 
 - Primary provider: `chatgpt`
 - Default model: `gpt-6.1-sol`
-- Fallback provider: `freellmapi`
+- Automatic billing fallback from ChatGPT: **disabled by design**. A ChatGPT-plan failure stops that request; the UI surfaces the plan/usage state instead of silently switching providers.
 - Credential path inside API/worker containers: `/var/lib/creation/chatgpt/credentials.json`
 - API and worker share the protected `chatgpt_credentials` Docker volume.
 
@@ -86,3 +86,30 @@ AUTH_READY=yes
 The check validates the protected credential record, refreshes the access token when needed, fetches the account-specific model catalog, verifies that the configured model appears in the display-visible catalog, and performs one minimal Responses API inference. The catalog alone is not treated as entitlement proof; the completed inference is the final proof.
 
 If authentication has not been completed yet, the deployed stack may correctly report ChatGPT unavailable and use FreeLLMAPI as reserve. That is an expected pre-authentication state, not a successful OAuth proof.
+
+
+## Account profiles and sign-out
+
+Each ChatGPT account/workspace registration has its own protected profile. List local registrations without printing credentials:
+
+```bash
+manage-chatgpt list
+```
+
+Sign out one profile:
+
+```bash
+manage-chatgpt sign-out --profile default
+```
+
+Sign-out discovers OpenAI's current OIDC revocation endpoint and attempts refresh-token revocation. HTTP 200 is treated as confirmed revocation. Network/5xx failures use bounded retry. Local bearer credentials are cleared even if remote revocation cannot be confirmed, while the issued client/account/host mapping is retained so reauthorization remains stable. If remote revocation was not confirmed, disconnect the app from ChatGPT settings as well.
+
+## Runtime failure semantics
+
+A ChatGPT-plan request never silently crosses to FreeLLMAPI, Anthropic, OpenAI API billing, or another provider. The SIWC error code, upstream HTTP status, request ID, parameter, and parsed upstream error payload are preserved internally; only safe structured fields are returned to the Creator UI. Temporary plan-availability failures receive bounded retry. Usage-limit, authorization-context, eligibility, unsupported-capability, and unsupported-route failures do not loop OAuth or retry the same invalid request.
+
+The composer shows **Using ChatGPT plan**, the active account label when OpenAI supplied one, and a **Manage usage** action. On the first healthy plan connection the UI shows a one-time welcome explaining that ChatGPT-plan usage is separate from API billing.
+
+## Background and automation consent
+
+Sign in with ChatGPT permits background/automation use only with explicit user consent. THE CREATION OS keeps autonomous discovery/competition disabled by default, and Mission execution remains Creator-authorized. Enabling autonomous profiles is therefore an explicit operational opt-in; deployments intended for another user must obtain that user's consent before enabling ChatGPT-backed background work.

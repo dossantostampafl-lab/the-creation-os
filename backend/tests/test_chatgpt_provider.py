@@ -3,7 +3,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from app.inference.chatgpt_provider import ChatGPTPlanProvider
+from app.inference.chatgpt_provider import ChatGPTPlanProvider, listed_model_slugs
 from app.inference.contracts import (
     InferenceAuthenticationError,
     InferenceRateLimitError,
@@ -101,3 +101,35 @@ def test_chatgpt_structured_temporary_usage_error_uses_fallback_signal() -> None
 
     with pytest.raises(ProviderUnavailable):
         provider()._raise_http_error(response)
+
+
+def test_chatgpt_model_catalog_uses_only_exact_list_visibility_and_slug() -> None:
+    assert listed_model_slugs(
+        {
+            "models": [
+                {"slug": "gpt-visible-a", "display_name": "A", "visibility": "list"},
+                {"slug": "gpt-hidden", "visibility": "hidden"},
+                {"id": "legacy-id", "visibility": "list"},
+                {"slug": "gpt-visible-b", "visibility": "list"},
+            ],
+            "data": [{"id": "must-not-be-used"}],
+        }
+    ) == ["gpt-visible-a", "gpt-visible-b"]
+
+
+def test_chatgpt_http_error_preserves_status_code_param_and_request_id() -> None:
+    response = httpx.Response(
+        400,
+        request=httpx.Request("POST", "https://api.openai.com/v1/responses"),
+        headers={"x-request-id": "req_si_wc_123"},
+        json={"error": {"code": "subscription_sharing_unsupported_capability", "param": "temperature"}},
+    )
+
+    with pytest.raises(Exception) as captured:
+        provider()._raise_http_error(response)
+
+    error = captured.value
+    assert getattr(error, "upstream_status") == 400
+    assert getattr(error, "upstream_code") == "subscription_sharing_unsupported_capability"
+    assert getattr(error, "upstream_param") == "temperature"
+    assert getattr(error, "request_id") == "req_si_wc_123"

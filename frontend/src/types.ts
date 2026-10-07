@@ -134,6 +134,8 @@ export type InferenceProviderStatus = {
   provider: string;
   available: boolean;
   detail: string | null;
+  account_label: string | null;
+  usage_url: string | null;
   models: InferenceModelStatus[];
 };
 

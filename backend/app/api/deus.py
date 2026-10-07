@@ -129,14 +129,61 @@ async def converse_with_deus(
             await store.finish(turn, None, 'failed')
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except InferenceError as exc:
-        # Every provider in the chain failed. Say so plainly (503) instead of an opaque 500, and name
-        # which provider and why in the log so the cause is found without guessing.
         await session.rollback()
         if turn is not None:
             await store.finish(turn, None, 'failed')
-        logger.bind(component="deus", provider=exc.provider, code=exc.code).warning(
-            "DEUS could not get an answer from any inference provider: {}", exc)
-        raise HTTPException(status_code=503, detail="DEUS could not reach any inference provider right now") from exc
+        upstream_code = exc.upstream_code or exc.code
+        retryable_codes = {
+            "subscription_sharing_usage_unavailable",
+            "subscription_sharing_user_unavailable",
+            "INFERENCE_TIMEOUT",
+            "PROVIDER_UNAVAILABLE",
+        }
+        retryable = upstream_code in retryable_codes
+        if upstream_code == "subscription_sharing_usage_limit_exceeded":
+            message = "O limite de uso do plano ChatGPT foi atingido. Gerencie o uso no ChatGPT para continuar."
+            api_status = 429
+            retryable = False
+        elif upstream_code == "subscription_sharing_user_not_eligible":
+            message = "O uso do plano ChatGPT não está disponível para esta conta ou workspace."
+            api_status = 503
+            retryable = False
+        elif upstream_code in {
+            "subscription_sharing_invalid_user",
+            "chatpass_v2_scope_not_authorized",
+            "chatpass_v2_invalid_authorization_context",
+        }:
+            message = "A autorização do plano ChatGPT precisa de atenção."
+            api_status = 503
+            retryable = False
+        elif upstream_code in {
+            "subscription_sharing_unsupported_capability",
+            "subscription_sharing_route_not_supported",
+        }:
+            message = "A requisição usou uma capacidade não aceita pelo contrato atual do ChatGPT."
+            api_status = 502
+            retryable = False
+        else:
+            message = "DEUS não conseguiu concluir a resposta com o provedor de inferência configurado."
+            api_status = 503
+        detail = {
+            "code": upstream_code,
+            "provider": exc.provider,
+            "message": message,
+            "retryable": retryable,
+            "upstream_status": exc.upstream_status,
+            "request_id": exc.request_id,
+            "param": exc.upstream_param,
+        }
+        logger.bind(
+            component="deus",
+            provider=exc.provider,
+            code=exc.code,
+            upstream_code=upstream_code,
+            upstream_status=exc.upstream_status,
+            request_id=exc.request_id,
+        ).warning("DEUS inference request failed")
+        raise HTTPException(status_code=api_status, detail=detail) from exc
 
     except Exception:
         await session.rollback()

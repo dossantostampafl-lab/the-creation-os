@@ -41,6 +41,7 @@ create-db = "app.db.initial:create_database"
 restore-creator = "app.admin.creator:main"
 rotate-creator-password = "app.admin.creator:rotate"
 connect-chatgpt = "app.inference.chatgpt_connect:main"
+manage-chatgpt = "app.inference.chatgpt_accounts:main"
 seed-universes = "app.admin.seed:main"
 
 [tool.setuptools.packages.find]

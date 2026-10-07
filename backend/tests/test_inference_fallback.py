@@ -207,3 +207,29 @@ def test_bootstrap_skips_a_fallback_without_its_credentials(freellmapi_with_anth
     router = build_model_router()
     assert tuple(router.registry.names()) == ("freellmapi",)
     assert router._candidate_names(request()) == ["freellmapi"]
+
+
+@pytest.mark.asyncio
+async def test_chatgpt_plan_failure_never_silently_switches_billing_path() -> None:
+    primary = StubProvider(
+        "chatgpt",
+        failure=InferenceRateLimitError(
+            "chatgpt",
+            "plan limit",
+            upstream_status=429,
+            upstream_code="subscription_sharing_usage_limit_exceeded",
+        ),
+    )
+    fallback = StubProvider("freellmapi")
+    router = router_with(primary, fallback)
+    plan_request = InferenceRequest(
+        messages=[{"role": "user", "content": "hello"}],
+        model="auto",
+        requirements=ModelRequirements(preferred_provider="chatgpt"),
+    )
+
+    with pytest.raises(InferenceRateLimitError):
+        await router.generate(plan_request)
+
+    assert len(primary.requests) == 1
+    assert fallback.requests == []
