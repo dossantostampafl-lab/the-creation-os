@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.inference.chatgpt_connect import _default_credentials_path
+from app.inference.chatgpt_connect import _default_credentials_path, _load_or_create_host_id
 
 
 def test_default_chatgpt_credentials_path_stays_outside_checkout(monkeypatch, tmp_path: Path) -> None:
@@ -12,3 +12,24 @@ def test_default_chatgpt_credentials_path_stays_outside_checkout(monkeypatch, tm
 
     assert path == tmp_path / ".config" / "the-creation-os" / "chatgpt" / "credentials.json"
     assert path.is_absolute()
+
+
+def test_chatgpt_host_id_is_persisted_before_credentials_exist(tmp_path: Path) -> None:
+    output = tmp_path / "credentials.json"
+
+    first = _load_or_create_host_id(output, {})
+    second = _load_or_create_host_id(output, {})
+
+    assert first.startswith("urn:uuid:")
+    assert second == first
+    assert (tmp_path / "host-id").read_text(encoding="utf-8").strip() == first
+
+
+def test_new_registration_keeps_the_existing_host_identity(tmp_path: Path) -> None:
+    output = tmp_path / "credentials.json"
+    credentials = {"ext_agent_host_id": "urn:uuid:11111111-1111-4111-8111-111111111111"}
+
+    host_id = _load_or_create_host_id(output, credentials)
+
+    assert host_id == credentials["ext_agent_host_id"]
+    assert (tmp_path / "host-id").read_text(encoding="utf-8").strip() == host_id
