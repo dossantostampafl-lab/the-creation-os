@@ -373,11 +373,25 @@ jobs:
               ;;
             update)
               sudo git merge --ff-only "origin/$target"
-              # Do not silently drop the reserve after a voice/deploy cycle.
+              # Do not silently drop the declared reserve after a voice/deploy cycle.
+              # Repair the two supported production chains when an older .env predates
+              # the fallback fields: ChatGPT -> FreeLLMAPI, or FreeLLMAPI -> Anthropic.
               sudo bash -c '
                 source ./deploy/oracle/env-file.sh
-                if [ "$(env_get LLM_PROVIDER)" = "freellmapi" ] \
-                   && [ -z "$(env_get LLM_FALLBACK_PROVIDERS)" ] \
+                provider="$(env_get LLM_PROVIDER)"
+                fallback="$(env_get LLM_FALLBACK_PROVIDERS)"
+                if [ "$provider" = "chatgpt" ] \
+                   && [ -z "$fallback" ] \
+                   && [ -n "$(env_get FREELLMAPI_MODEL)" ] \
+                   && [ -n "$(env_get FREELLMAPI_BASE_URL)" ]; then
+                  env_set LLM_FALLBACK_PROVIDERS freellmapi
+                  env_set CHATGPT_FALLBACK_ENABLED true
+                elif [ "$provider" = "chatgpt" ] && [ -n "$fallback" ]; then
+                  # set-inference.sh writes this invariant. Older deployments may have
+                  # the reserve list without the disclosure gate that lets the router use it.
+                  env_set CHATGPT_FALLBACK_ENABLED true
+                elif [ "$provider" = "freellmapi" ] \
+                   && [ -z "$fallback" ] \
                    && [ -n "$(env_get ANTHROPIC_API_KEY)" ] \
                    && [ -n "$(env_get ANTHROPIC_MODEL)" ]; then
                   env_set LLM_FALLBACK_PROVIDERS anthropic

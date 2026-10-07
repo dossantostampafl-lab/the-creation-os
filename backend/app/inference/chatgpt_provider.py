@@ -78,15 +78,23 @@ class ChatGPTPlanProvider:
         }
 
     @staticmethod
-    def _error_details(payload: Any) -> tuple[str, str | None]:
+    def _error_details(payload: Any) -> tuple[str | None, str | None]:
+        """Return only structured upstream error fields that actually exist.
+
+        Sign in with ChatGPT can reject a request before a Responses stream opens
+        with a direct-admission body such as {"detail": "..."}. Inventing the
+        generic code "provider_error" for that shape hides the useful distinction
+        between a transient 503 and a structured contract error.
+        """
         if not isinstance(payload, dict):
-            return "provider_error", None
+            return None, None
         error = payload.get("error")
         if isinstance(error, dict):
-            code = str(error.get("code") or error.get("type") or "provider_error")
+            raw_code = error.get("code") or error.get("type")
+            code = str(raw_code) if raw_code is not None else None
             param = error.get("param")
             return code, str(param) if param is not None else None
-        return "provider_error", None
+        return None, None
 
     @staticmethod
     def _request_id(response: httpx.Response) -> str | None:
@@ -111,10 +119,12 @@ class ChatGPTPlanProvider:
             except ValueError:
                 payload = {}
             code, _ = self._error_details(payload)
+            direct_detail = payload.get("detail") if isinstance(payload, dict) else None
+            diagnostic = code or (direct_detail if isinstance(direct_detail, str) else None) or "unstructured error"
             return ProviderHealth(
                 provider=self.name,
                 available=False,
-                detail=f"model catalog returned HTTP {response.status_code}: {code}",
+                detail=f"model catalog returned HTTP {response.status_code}: {diagnostic}",
             )
         try:
             payload = response.json()
@@ -178,7 +188,9 @@ class ChatGPTPlanProvider:
         except ValueError:
             payload = {"non_json_body": response.text[:2000]}
         code, param = self._error_details(payload)
-        message = f"ChatGPT returned HTTP {response.status_code}: {code}"
+        direct_detail = payload.get("detail") if isinstance(payload, dict) else None
+        diagnostic = code or (direct_detail if isinstance(direct_detail, str) else None) or "unstructured error"
+        message = f"ChatGPT returned HTTP {response.status_code}: {diagnostic}"
         request_id = self._request_id(response)
         if code == "subscription_sharing_usage_limit_exceeded" or response.status_code == 429:
             raise InferenceRateLimitError(
