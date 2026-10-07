@@ -108,6 +108,10 @@ fi
 # The reserve chain. An unset FALLBACK_PROVIDERS clears any earlier chain, so switching back to a single
 # provider does not leave a stale reserve behind.
 fallback="$(printf '%s' "${FALLBACK_PROVIDERS:-}" | tr -d '[:space:]')"
+if [ "$provider" = "chatgpt" ] && [ -n "$fallback" ]; then
+  echo "ChatGPT plan requests never switch to another provider or billing path; clearing the requested reserve chain."
+  fallback=""
+fi
 if [ -n "$fallback" ]; then
   IFS=',' read -ra reserves <<< "$fallback"
   for reserve in "${reserves[@]}"; do
@@ -213,6 +217,11 @@ for _ in $(seq 1 60); do
   sleep 2
 done
 echo
+
+if [ "$provider" = "chatgpt" ]; then
+  echo "Preparing the stable Oracle host identity required for ChatGPT authorization..."
+  "$REPO_DIR/deploy/oracle/chatgpt-host-id.sh"
+fi
 
 # The API reports the provider it actually loaded, which is the only answer that counts.
 login_body="$(python3 -c 'import json, sys; print(json.dumps({"username": sys.argv[1], "password": sys.argv[2]}))' \

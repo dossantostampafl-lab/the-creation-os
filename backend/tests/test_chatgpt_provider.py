@@ -133,3 +133,22 @@ def test_chatgpt_http_error_preserves_status_code_param_and_request_id() -> None
     assert getattr(error, "upstream_code") == "subscription_sharing_unsupported_capability"
     assert getattr(error, "upstream_param") == "temperature"
     assert getattr(error, "request_id") == "req_si_wc_123"
+
+
+def test_chatgpt_explicit_stream_error_is_not_ignored() -> None:
+    from app.inference.contracts import InferenceUpstreamResponseError
+
+    event = {
+        "type": "error",
+        "code": "ERR_SOMETHING",
+        "message": "Something went wrong",
+        "param": "input",
+        "sequence_number": 7,
+    }
+
+    with pytest.raises(InferenceUpstreamResponseError) as captured:
+        provider()._raise_stream_error(event)
+
+    assert captured.value.upstream_code == "ERR_SOMETHING"
+    assert captured.value.upstream_param == "input"
+    assert captured.value.upstream_body == event

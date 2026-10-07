@@ -145,23 +145,38 @@ async def converse_with_deus(
             api_status = 429
             retryable = False
         elif upstream_code == "subscription_sharing_user_not_eligible":
-            message = "O uso do plano ChatGPT não está disponível para esta conta ou workspace."
-            api_status = 503
+            message = "O uso do plano ChatGPT não está disponível para esta conta, workspace ou política."
+            api_status = 403
+            retryable = False
+        elif upstream_code == "subscription_sharing_invalid_user":
+            message = "O contexto do assinante ChatGPT não pôde ser validado; a conexão precisa de atenção."
+            api_status = 401
             retryable = False
         elif upstream_code in {
-            "subscription_sharing_invalid_user",
             "chatpass_v2_scope_not_authorized",
             "chatpass_v2_invalid_authorization_context",
         }:
-            message = "A autorização do plano ChatGPT precisa de atenção."
-            api_status = 503
+            message = "A permissão assinada do ChatGPT não autoriza esta operação."
+            api_status = 403
             retryable = False
-        elif upstream_code in {
-            "subscription_sharing_unsupported_capability",
-            "subscription_sharing_route_not_supported",
-        }:
-            message = "A requisição usou uma capacidade não aceita pelo contrato atual do ChatGPT."
-            api_status = 502
+        elif upstream_code == "subscription_sharing_unsupported_capability":
+            message = "A requisição usou uma capacidade ou parâmetro não aceito pelo contrato atual do ChatGPT."
+            api_status = 400
+            retryable = False
+        elif upstream_code == "subscription_sharing_route_not_supported":
+            message = "A rota usada não é aceita para uso direto do plano ChatGPT."
+            api_status = 403
+            retryable = False
+        elif exc.provider == "chatgpt" and exc.upstream_status == 401:
+            message = "O ChatGPT não aceitou a identidade ou a permissão direta desta conexão."
+            api_status = 401
+            retryable = False
+        elif exc.provider == "chatgpt" and exc.upstream_status == 403:
+            message = (
+                "O ChatGPT recusou esta solicitação por uma restrição de política, região ou permissão "
+                "da integração."
+            )
+            api_status = 403
             retryable = False
         else:
             message = "DEUS não conseguiu concluir a resposta com o provedor de inferência configurado."

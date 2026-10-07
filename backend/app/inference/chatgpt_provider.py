@@ -279,6 +279,34 @@ class ChatGPTPlanProvider:
             self.name, code, upstream_code=code, upstream_param=param, upstream_body=event
         )
 
+    def _raise_stream_error(self, event: dict[str, Any]) -> None:
+        code = str(event.get("code") or "provider_error")
+        param = str(event.get("param")) if event.get("param") is not None else None
+        if code == "subscription_sharing_usage_limit_exceeded":
+            raise InferenceRateLimitError(
+                self.name, code, upstream_code=code, upstream_param=param, upstream_body=event
+            )
+        if code in {
+            "subscription_sharing_usage_unavailable",
+            "subscription_sharing_user_unavailable",
+            "subscription_sharing_user_not_eligible",
+            "subscription_sharing_not_enabled",
+        }:
+            raise ProviderUnavailable(
+                self.name, code, upstream_code=code, upstream_param=param, upstream_body=event
+            )
+        if code in {
+            "subscription_sharing_invalid_user",
+            "chatpass_v2_scope_not_authorized",
+            "chatpass_v2_invalid_authorization_context",
+        }:
+            raise InferenceAuthenticationError(
+                self.name, code, upstream_code=code, upstream_param=param, upstream_body=event
+            )
+        raise InferenceUpstreamResponseError(
+            self.name, code, upstream_code=code, upstream_param=param, upstream_body=event
+        )
+
     async def _events(self, request: InferenceRequest) -> AsyncIterator[dict[str, Any]]:
         try:
             headers = await self._headers()
@@ -307,6 +335,8 @@ class ChatGPTPlanProvider:
                         event_type = event.get("type")
                         if event_type == "response.failed":
                             self._raise_stream_failure(event)
+                        if event_type == "error":
+                            self._raise_stream_error(event)
                         if event_type == "response.incomplete":
                             raise ProviderUnavailable(
                                 self.name,
