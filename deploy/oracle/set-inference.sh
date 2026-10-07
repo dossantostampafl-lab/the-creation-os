@@ -54,9 +54,9 @@ if [ -z "$model" ]; then
   exit 1
 fi
 
-# The GitHub deploy wrapper deliberately refreshes only deploy scripts before invoking this
-# command. ChatGPT activation must deploy the matching backend/frontend/Compose revision too,
-# otherwise a green provider switch could still run stale application code.
+# The GitHub deploy wrapper refreshes deploy scripts before invoking this command.
+# ChatGPT activation must fast-forward the whole installation too, so backend, frontend,
+# Compose mounts and OAuth code all come from the same revision.
 if [ "$provider" = "chatgpt" ]; then
   target_ref="${REF:-main}"
   if ! [[ "$target_ref" =~ ^[A-Za-z0-9._/-]+$ ]]; then
@@ -64,8 +64,6 @@ if [ "$provider" = "chatgpt" ]; then
     exit 1
   fi
   echo "Updating the installation to origin/$target_ref before activating ChatGPT..."
-  # The workflow may have checked the latest deploy scripts into an older working tree.
-  # Restore only those wrapper-managed paths so the fast-forward can proceed safely.
   git checkout HEAD -- deploy/oracle deploy/stf 2>/dev/null || true
   git fetch --prune origin
   git fetch origin "+$target_ref:refs/remotes/origin/$target_ref"
@@ -227,10 +225,11 @@ else
 fi
 
 # The containers read .env only when they are created. ChatGPT activation also upgrades
-# the complete runtime so the frontend, API, worker, Compose mounts, and OAuth code are one revision.
+# the complete runtime so the UI, API, worker and credential-volume mounts are one revision.
 echo
 profile_args=()
 if grep -qE '^DEUS_(CONTEXT_RETRIEVAL|DIAGNOSTICS|AUTONOMY_DISCOVERY|AUTONOMY_COMPETITION)_ENABLED=true
+
 port="$(env_get CREATION_API_PORT)"
 base="http://127.0.0.1:${port:-8000}"
 printf '\nWaiting for the API'
@@ -291,6 +290,7 @@ fi
   profile_args+=(--profile connected-deus)
 fi
 if grep -q '^STF_AUTO_TRAINING_ENABLED=true
+
 port="$(env_get CREATION_API_PORT)"
 base="http://127.0.0.1:${port:-8000}"
 printf '\nWaiting for the API'
@@ -339,6 +339,7 @@ for entry in snapshot.get("providers", []):
   profile_args+=(--profile security-task-force)
 fi
 if grep -q '^TELEMETRY_ENABLED=true
+
 port="$(env_get CREATION_API_PORT)"
 base="http://127.0.0.1:${port:-8000}"
 printf '\nWaiting for the API'
