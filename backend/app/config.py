@@ -162,6 +162,8 @@ class Settings(BaseSettings):
     deus_voice_session_enabled: bool = Field(False, env="DEUS_VOICE_SESSION_ENABLED")
     deus_voice_primary_provider: str = Field("chatgpt", env="DEUS_VOICE_PRIMARY_PROVIDER")
     deus_voice_first_token_timeout_ms: int = Field(2500, ge=250, le=15000, env="DEUS_VOICE_FIRST_TOKEN_TIMEOUT_MS")
+    deus_voice_chatgpt_first_token_timeout_ms: int = Field(10000, ge=250, le=15000, env="DEUS_VOICE_CHATGPT_FIRST_TOKEN_TIMEOUT_MS")
+    deus_voice_event_timeout_seconds: float = Field(15.0, gt=0.0, le=30.0, env="DEUS_VOICE_EVENT_TIMEOUT_SECONDS")
 
     class Config:
         env_file = os.path.join(os.path.dirname(__file__), "..", "..", ".env")

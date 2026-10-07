@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -98,6 +98,7 @@ async def stream_response(
     primary_models: Sequence[str] = (),
     fallbacks: Sequence[StreamingProvider] = (),
     first_token_timeout_seconds: float = 2.5,
+    first_token_timeouts_by_provider: Mapping[str, float] | None = None,
 ) -> AsyncIterator[StreamChunk]:
     """Stream one coherent answer, failing over only before any model text is emitted.
 
@@ -109,12 +110,15 @@ async def stream_response(
     """
     if first_token_timeout_seconds <= 0:
         raise ValueError("first_token_timeout_seconds must be greater than zero")
+    timeouts = first_token_timeouts_by_provider or {}
+    if any(timeout <= 0 for timeout in timeouts.values()):
+        raise ValueError("provider first token timeouts must be greater than zero")
 
     models = tuple(model.strip() for model in primary_models if model.strip())
     primary_requests = (
         tuple(request.model_copy(update={"model": model}) for model in models)
         if models
-        else (request, request)
+        else (request, request) if primary.name == "freellmapi" else (request,)
     )
 
     last_error: InferenceError | None = None
@@ -124,7 +128,7 @@ async def stream_response(
             async for chunk in _serve_attempt(
                 primary,
                 attempt_request,
-                first_token_timeout_seconds=first_token_timeout_seconds,
+                first_token_timeout_seconds=timeouts.get(primary.name, first_token_timeout_seconds),
             ):
                 emitted = True
                 yield chunk
@@ -149,7 +153,7 @@ async def stream_response(
             async for chunk in _serve_attempt(
                 fallback,
                 fallback_request,
-                first_token_timeout_seconds=first_token_timeout_seconds,
+                first_token_timeout_seconds=timeouts.get(fallback.name, first_token_timeout_seconds),
             ):
                 emitted = True
                 yield chunk

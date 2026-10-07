@@ -227,6 +227,9 @@ async def voice_session_socket(
                     first_token_timeout_seconds=(
                         settings.deus_voice_first_token_timeout_ms / 1000
                     ),
+                    first_token_timeouts_by_provider={
+                        "chatgpt": settings.deus_voice_chatgpt_first_token_timeout_ms / 1000,
+                    },
                 )
 
                 await send_json(
@@ -242,8 +245,19 @@ async def voice_session_socket(
                 async def transcript_pump() -> None:
                     while session.state.value != "CLOSED":
                         transcript = await stt.receive_transcript()
-                        async for outbound in gateway.process_transcript(transcript):
-                            await send_json(outbound)
+                        events = gateway.process_transcript(transcript)
+                        try:
+                            while True:
+                                # Bound inactivity in context, inference, synthesis and persistence,
+                                # while allowing long answers that keep making progress.
+                                try:
+                                    async with asyncio.timeout(settings.deus_voice_event_timeout_seconds):
+                                        outbound = await anext(events)
+                                except StopAsyncIteration:
+                                    break
+                                await send_json(outbound)
+                        finally:
+                            await events.aclose()
 
                 pump = asyncio.create_task(transcript_pump())
                 receiver = asyncio.create_task(websocket.receive_json())
@@ -339,7 +353,17 @@ async def voice_session_socket(
                 await websocket.close(code=1008 if exc.nonretryable else 1013)
             except (RuntimeError, WebSocketDisconnect):
                 pass
-        except (RuntimeError, OSError, TimeoutError, InferenceError):
+        except TimeoutError:
+            try:
+                await send_json({
+                    "type": "error", "code": "VOICE_TURN_TIMEOUT",
+                    "message": "A resposta por voz demorou além do limite. Reconectando para continuar.",
+                    "nonretryable": False,
+                })
+                await websocket.close(code=1013)
+            except (RuntimeError, WebSocketDisconnect):
+                pass
+        except (RuntimeError, OSError, InferenceError):
             try:
                 await send_json(
                     {
