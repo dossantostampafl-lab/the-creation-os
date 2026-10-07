@@ -27,9 +27,25 @@ DYNAMIC_CLIENT_ID = "dynamic_agent_client"
 AGENT_NAME = "THE CREATION OS"
 
 
+def _config_root() -> Path:
+    return Path.home() / ".config" / "the-creation-os" / "chatgpt"
+
+
+def _validate_profile_name(value: str) -> str:
+    normalized = value.strip()
+    if not normalized or normalized in {".", ".."}:
+        raise ValueError("ChatGPT profile name must not be empty")
+    if any(char not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-" for char in normalized):
+        raise ValueError("ChatGPT profile name may contain only letters, numbers, dot, underscore, and hyphen")
+    return normalized
+
+
+def _profile_credentials_path(profile: str = "default") -> Path:
+    return _config_root() / "profiles" / _validate_profile_name(profile) / "credentials.json"
+
+
 def _default_credentials_path() -> Path:
-    # Keep OAuth bearer/refresh/ID tokens outside any project checkout by default.
-    return Path.home() / ".config" / "the-creation-os" / "chatgpt" / "credentials.json"
+    return _profile_credentials_path("default")
 
 
 def _inside_git_checkout(path: Path) -> bool:
@@ -39,6 +55,13 @@ def _inside_git_checkout(path: Path) -> bool:
             return True
     return False
 
+
+def _storage_root_for(output: Path) -> Path:
+    # Default profile layout: <root>/profiles/<profile>/credentials.json.
+    for parent in output.parents:
+        if parent.name == "profiles":
+            return parent.parent
+    return output.parent
 
 def _b64url_sha256(value: str) -> str:
     digest = hashlib.sha256(value.encode("ascii")).digest()
@@ -58,7 +81,7 @@ def _load_existing(path: Path) -> dict[str, object]:
 
 
 def _host_id_path(output: Path) -> Path:
-    return output.parent / "host-id"
+    return _storage_root_for(output) / "host-id"
 
 
 def _persist_host_id(path: Path, value: str) -> None:
@@ -173,15 +196,39 @@ def _save(path: Path, document: dict[str, object]) -> None:
     os.chmod(path, 0o600)
 
 
-def connect(*, output: Path, port: int, no_browser: bool, force_new: bool) -> None:
+def connect(
+    *,
+    output: Path,
+    port: int,
+    no_browser: bool,
+    force_new: bool,
+    enable_plan: bool = False,
+    host_id_override: str | None = None,
+) -> None:
     saved_credentials = _load_existing(output)
-    existing = {} if force_new else saved_credentials
+    if force_new and saved_credentials:
+        raise RuntimeError(
+            "Refusing to replace an existing ChatGPT registration. "
+            "Use a different --profile for another account or workspace."
+        )
+    existing = saved_credentials
     saved_client_id = str(existing.get("client_id") or "").strip()
     client_id = saved_client_id or DYNAMIC_CLIENT_ID
     # The host identity belongs to this installation, not to one account/client.
-    # Persist it before opening the browser so cancelled/failed first sign-ins and
-    # --new registrations keep the same host identity on the next attempt.
-    host_id = _load_or_create_host_id(output, saved_credentials)
+    # Persist it before opening the browser so cancelled/failed first sign-ins
+    # reuse the same identity. A self-hosted VM can supply its own persisted ID
+    # when a later reauthorization is performed locally on the VM's behalf.
+    if host_id_override:
+        host_id = host_id_override.strip()
+        if not (
+            host_id.startswith("urn:uuid:")
+            or host_id.startswith("urn:ietf:params:oauth:jwk-thumbprint:")
+            or host_id.startswith("did:key:")
+        ):
+            raise RuntimeError("Unsupported ext_agent_host_id format")
+        _persist_host_id(_host_id_path(output), host_id)
+    else:
+        host_id = _load_or_create_host_id(output, saved_credentials)
 
     state = secrets.token_urlsafe(32)
     nonce = secrets.token_urlsafe(32)
@@ -203,6 +250,10 @@ def connect(*, output: Path, port: int, no_browser: bool, force_new: bool) -> No
     contains_id_token_hint = False
     if client_id == DYNAMIC_CLIENT_ID:
         params["agent_name_hint"] = AGENT_NAME
+    elif enable_plan:
+        # The user explicitly asked to enable plan usage after an earlier decline.
+        # OpenAI currently supports prompt=consent for this reauthorization path.
+        params["prompt"] = "consent"
     else:
         retained_id_token = str(existing.get("id_token") or "").strip()
         email = str(existing.get("email") or "").strip()
@@ -261,7 +312,7 @@ def connect(*, output: Path, port: int, no_browser: bool, force_new: bool) -> No
     # On first dynamic registration, retain the issued client ID before exchanging
     # the authorization code. If the code exchange fails (for example invalid_grant),
     # the next attempt must reuse this issued client rather than register another one.
-    if client_id == DYNAMIC_CLIENT_ID and not saved_credentials:
+    if client_id == DYNAMIC_CLIENT_ID:
         _save(
             output,
             {
@@ -284,8 +335,22 @@ def connect(*, output: Path, port: int, no_browser: bool, force_new: bool) -> No
             },
         )
         if response.status_code >= 400:
-            raise RuntimeError(f"ChatGPT token exchange failed with HTTP {response.status_code}")
+            try:
+                error_payload = response.json()
+            except ValueError:
+                error_payload = {}
+            error_code = (
+                str(error_payload.get("error") or error_payload.get("code") or "oauth_error")
+                if isinstance(error_payload, dict)
+                else "oauth_error"
+            )
+            suffix = " Start authorization again with the retained issued client_id." if error_code == "invalid_grant" else ""
+            raise RuntimeError(
+                f"ChatGPT token exchange failed with HTTP {response.status_code}: {error_code}.{suffix}"
+            )
         tokens = response.json()
+        if not isinstance(tokens, dict):
+            raise RuntimeError("ChatGPT token exchange returned an invalid response")
 
     id_token = str(tokens.get("id_token") or "")
     access_token = str(tokens.get("access_token") or "")
@@ -293,8 +358,6 @@ def connect(*, output: Path, port: int, no_browser: bool, force_new: bool) -> No
     scopes = _granted_scopes(tokens)
     if not id_token or not access_token or not refresh_token:
         raise RuntimeError("ChatGPT token exchange returned incomplete credentials")
-    if "chatgpt.tokens.use.direct" not in scopes:
-        raise RuntimeError("ChatGPT plan usage permission was not granted")
 
     claims = _validate_id_token(id_token, client_id=issued_client_id, nonce=nonce)
     existing_subject = str(existing.get("subject") or "").strip()
@@ -314,32 +377,59 @@ def connect(*, output: Path, port: int, no_browser: bool, force_new: bool) -> No
         "refresh_token": refresh_token,
         "token_type": str(tokens.get("token_type") or "Bearer"),
         "expires_in": int(tokens.get("expires_in") or 3600),
+        "earliest_refresh_at": tokens.get("earliest_refresh_at"),
         "scopes": sorted(scopes),
+        "plan_usage_enabled": "chatgpt.tokens.use.direct" in scopes,
         "saved_at": datetime.now(timezone.utc).isoformat(),
     }
     _save(output, document)
+    plan_enabled = "chatgpt.tokens.use.direct" in scopes
     print(f"ChatGPT connection saved securely to: {output}")
-    print("Plan usage permission: enabled")
+    print(f"Plan usage permission: {'enabled' if plan_enabled else 'disabled'}")
+    if not plan_enabled:
+        print(
+            "Sign-in was retained, but ChatGPT plan usage was not granted. "
+            "Run this command again with --enable-plan to request consent."
+        )
     print("No token value was printed.")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Connect THE CREATION OS to a ChatGPT plan with OAuth.")
+    parser = argparse.ArgumentParser(description="Connect THE CREATION OS to a ChatGPT account with OAuth.")
+    parser.add_argument(
+        "--profile",
+        default="default",
+        help="Local ChatGPT account/workspace profile name. Use a different name for another registration.",
+    )
     parser.add_argument(
         "--output",
         type=Path,
-        default=_default_credentials_path(),
-        help="Protected credential file to create or refresh (defaults outside the source tree).",
+        default=None,
+        help="Advanced: protected credential file path. Defaults to the selected profile outside source control.",
     )
     parser.add_argument("--port", type=int, default=1455)
     parser.add_argument("--no-browser", action="store_true")
     parser.add_argument(
         "--new",
         action="store_true",
-        help="Register a new ChatGPT client instead of reusing the client in --output.",
+        help="Register a new ChatGPT client. Existing profiles are never overwritten; choose another --profile.",
+    )
+    parser.add_argument(
+        "--enable-plan",
+        action="store_true",
+        help="Explicitly request consent again for ChatGPT plan usage on a saved registration.",
+    )
+    parser.add_argument(
+        "--host-id",
+        default=None,
+        help="Advanced/self-hosted recovery: use an existing VM ext_agent_host_id for this authorization.",
     )
     args = parser.parse_args()
-    output = args.output.expanduser().resolve()
+    try:
+        profile = _validate_profile_name(args.profile)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    output = (args.output or _profile_credentials_path(profile)).expanduser().resolve()
     if _inside_git_checkout(output):
         raise SystemExit(
             "Refusing to store ChatGPT OAuth credentials inside a Git checkout. "
@@ -350,6 +440,8 @@ def main() -> None:
         port=args.port,
         no_browser=args.no_browser,
         force_new=args.new,
+        enable_plan=args.enable_plan,
+        host_id_override=args.host_id,
     )
 
 
