@@ -163,6 +163,13 @@ async def converse_with_deus(
             message = "A requisição usou uma capacidade não aceita pelo contrato atual do ChatGPT."
             api_status = 502
             retryable = False
+        elif exc.provider == "chatgpt" and exc.upstream_status == 403:
+            message = (
+                "O ChatGPT recusou esta solicitação por uma restrição de política, região ou permissão "
+                "da integração."
+            )
+            api_status = 403
+            retryable = False
         else:
             message = "DEUS não conseguiu concluir a resposta com o provedor de inferência configurado."
             api_status = 503
