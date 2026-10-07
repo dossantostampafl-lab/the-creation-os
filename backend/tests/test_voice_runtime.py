@@ -23,6 +23,7 @@ class StubProvider:
 
 
 def test_chatgpt_voice_runtime_does_not_register_a_billing_fallback(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "chatgpt_fallback_enabled", False)
     monkeypatch.setattr(settings, "deus_voice_primary_provider", "chatgpt")
     monkeypatch.setattr(settings, "llm_provider", "chatgpt")
     monkeypatch.setattr(settings, "llm_fallback_providers", "freellmapi")
@@ -39,3 +40,23 @@ def test_chatgpt_voice_runtime_does_not_register_a_billing_fallback(monkeypatch)
     assert built.primary.name == "chatgpt"
     assert built.fallbacks == ()
     assert registered == ["chatgpt"]
+
+
+def test_chatgpt_voice_runtime_uses_the_disclosed_reserve_when_enabled(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "chatgpt_fallback_enabled", True)
+    monkeypatch.setattr(settings, "deus_voice_primary_provider", "chatgpt")
+    monkeypatch.setattr(settings, "llm_provider", "chatgpt")
+    monkeypatch.setattr(settings, "llm_fallback_providers", "freellmapi")
+    registered: list[str] = []
+
+    def fake_register(registry, provider_name: str) -> None:
+        registered.append(provider_name)
+        registry.register(StubProvider(provider_name))
+
+    monkeypatch.setattr(runtime, "_register_provider", fake_register)
+
+    built = runtime.build_voice_inference_runtime()
+
+    assert built.primary.name == "chatgpt"
+    assert [item.name for item in built.fallbacks] == ["freellmapi"]
+    assert registered == ["chatgpt", "freellmapi"]

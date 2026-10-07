@@ -28,6 +28,8 @@ class InferenceStatusSnapshot(BaseModel):
     configured: bool
     configured_provider: str
     providers: list[InferenceProviderStatus] = Field(default_factory=list)
+    # True when a failure of the configured provider may be answered by a registered reserve.
+    fallback_enabled: bool = False
 
 
 async def build_inference_status(router: ModelRouter) -> InferenceStatusSnapshot:
@@ -73,6 +75,7 @@ async def build_inference_status(router: ModelRouter) -> InferenceStatusSnapshot
         configured=bool(provider_names),
         configured_provider=provider_names[0] if provider_names else "",
         providers=statuses,
+        fallback_enabled=bool(provider_names[1:]) and router.allows_fallback_after(provider_names[0]),
     )
 
 

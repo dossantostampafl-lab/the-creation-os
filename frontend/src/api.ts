@@ -184,6 +184,9 @@ export type DeusConversationReply = {
   response: string;
   inception: ProposalSummary | null;
   correlation_id: string;
+  provider?: string | null;
+  fallback_from?: string | null;
+  fallback_reason?: string | null;
 };
 
 export class InferenceApiError extends Error {

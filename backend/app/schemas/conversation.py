@@ -43,6 +43,10 @@ class MessageResponse(BaseModel):
     inception: dict[str, str] | None = None
     system_state: dict[str, Any] | None = None
     correlation_id: str
+    # Which provider produced the reply, and, when a reserve answered, which one failed and why.
+    provider: str | None = None
+    fallback_from: str | None = None
+    fallback_reason: str | None = None
 
 
 class ConversationMessageResponse(BaseModel):

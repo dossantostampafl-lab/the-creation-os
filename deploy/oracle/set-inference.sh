@@ -123,9 +123,13 @@ fi
 # The reserve chain. An unset FALLBACK_PROVIDERS clears any earlier chain, so switching back to a single
 # provider does not leave a stale reserve behind.
 fallback="$(printf '%s' "${FALLBACK_PROVIDERS:-}" | tr -d '[:space:]')"
+# A ChatGPT plan request only moves to a reserve when the operator asked for one here. Every
+# reply a reserve produces is labeled with the provider that answered and why ChatGPT did not,
+# so the switch is disclosed rather than silent (OpenAI SIWC forbids silent switching).
+chatgpt_fallback=false
 if [ "$provider" = "chatgpt" ] && [ -n "$fallback" ]; then
-  echo "ChatGPT plan requests never switch to another provider or billing path; clearing the requested reserve chain."
-  fallback=""
+  chatgpt_fallback=true
+  echo "ChatGPT plan first; disclosed reserve: $fallback"
 fi
 if [ -n "$fallback" ]; then
   IFS=',' read -ra reserves <<< "$fallback"
@@ -182,6 +186,7 @@ if [ -n "$key_var" ]; then
   env_set "$key_var" "$api_key"
 fi
 unset api_key
+env_set CHATGPT_FALLBACK_ENABLED "$chatgpt_fallback"
 if [ "$provider" = "chatgpt" ]; then
   env_set CHATGPT_CREDENTIALS_FILE "/var/lib/creation/chatgpt/credentials.json"
   # Selecting ChatGPT while autonomous discovery/competition is already enabled is the

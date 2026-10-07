@@ -34,8 +34,9 @@ def build_voice_inference_runtime() -> VoiceInferenceRuntime:
     _register_provider(registry, primary_name)
     fallbacks: list[StreamingProvider] = []
     # SIWC plan requests must stop on ChatGPT errors rather than silently changing
-    # provider/billing path. Voice otherwise keeps the existing explicit fallback chain.
-    if primary_name == "chatgpt":
+    # provider/billing path, unless the operator enabled the disclosed fallback: voice then
+    # reports the provider that answered and why (provider_selected/fallback_reason telemetry).
+    if primary_name == "chatgpt" and not settings.chatgpt_fallback_enabled:
         return VoiceInferenceRuntime(
             primary=registry.get(primary_name),
             fallbacks=(),

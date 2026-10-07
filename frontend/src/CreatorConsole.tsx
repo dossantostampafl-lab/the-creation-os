@@ -32,6 +32,37 @@ const CONVERSATION_KEY = CREATOR_CONVERSATION_KEY;
 type Entry = { kind: "message"; at: string; message: ConversationMessage } | { kind: "proposal"; at: string; proposal: Proposal };
 
 /** Messages and Trinity proposals in the order they happened; a proposal follows the exchange that raised it. */
+const PROVIDER_LABELS: Record<string, string> = {
+  chatgpt: "plano ChatGPT",
+  freellmapi: "FreeLLM",
+  anthropic: "Claude (Anthropic)",
+  openai: "OpenAI API",
+  openai_compatible: "provedor compatível",
+};
+
+const FALLBACK_REASONS: Record<string, string> = {
+  subscription_sharing_usage_limit_exceeded: "limite de uso atingido",
+  subscription_sharing_usage_unavailable: "uso do plano indisponível",
+  subscription_sharing_user_unavailable: "conta indisponível",
+  subscription_sharing_user_not_eligible: "conta não elegível",
+  INFERENCE_TIMEOUT: "sem resposta a tempo",
+  INFERENCE_RATE_LIMIT: "limite de uso atingido",
+  PROVIDER_UNAVAILABLE: "indisponível no momento",
+  INFERENCE_AUTHENTICATION_ERROR: "conexão precisa ser autorizada",
+};
+
+function providerLabel(name: unknown): string {
+  return typeof name === "string" ? PROVIDER_LABELS[name] ?? name : "provedor de reserva";
+}
+
+/** A reply produced by a reserve says so: the switch away from the ChatGPT plan is never silent. */
+export function fallbackNotice(metadata: Record<string, unknown>): string | null {
+  const from = metadata.fallback_from;
+  if (typeof from !== "string" || !from) return null;
+  const reason = typeof metadata.fallback_reason === "string" ? FALLBACK_REASONS[metadata.fallback_reason] : undefined;
+  return `Respondido por ${providerLabel(metadata.provider)} · ${providerLabel(from)} ${reason ? `(${reason})` : "indisponível"}`;
+}
+
 function timeline(messages: ConversationMessage[], proposals: Proposal[]): Entry[] {
   const entries: Entry[] = [
     ...messages.map((message) => ({ kind: "message" as const, at: message.created_at, message })),
@@ -264,7 +295,10 @@ export function CreatorConsole({ enabled, chatgptPlan = null, onMoodChange }: Pr
         role: "deus",
         content: reply.response,
         route: "deus",
-        metadata_json: {},
+        metadata_json: {
+          ...(reply.provider ? { provider: reply.provider } : {}),
+          ...(reply.fallback_from ? { fallback_from: reply.fallback_from, fallback_reason: reply.fallback_reason ?? null } : {}),
+        },
         correlation_id: reply.correlation_id || "",
         created_at: new Date().toISOString(),
       };
@@ -323,6 +357,9 @@ export function CreatorConsole({ enabled, chatgptPlan = null, onMoodChange }: Pr
           <div className={`console-message ${entry.message.role === "deus" ? "deus-message" : "creator-message"}`} key={entry.message.id}>
             <span>{entry.message.role === "deus" ? "DEUS" : "CREATOR"}</span>
             <p>{entry.message.content}</p>
+            {entry.message.role === "deus" && fallbackNotice(entry.message.metadata_json) && (
+              <small className="fallback-notice">{fallbackNotice(entry.message.metadata_json)}</small>
+            )}
           </div>
         ))}
         {pending && <div className="console-thinking" aria-label="DEUS is thinking"><i /><i /><i /></div>}

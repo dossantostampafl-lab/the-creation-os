@@ -30,4 +30,5 @@ async def test_inference_status_route_returns_safe_unconfigured_snapshot_for_fak
         "configured": False,
         "configured_provider": "fake",
         "providers": [],
+        "fallback_enabled": False,
     }
