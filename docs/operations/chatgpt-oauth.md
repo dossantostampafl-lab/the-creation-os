@@ -15,13 +15,22 @@ THE CREATION OS uses OpenAI Sign in with ChatGPT for the `chatgpt` inference pro
 
 OAuth must be completed on a computer that has the browser receiving the loopback callback.
 
-From a fresh checkout of `main`:
+From a fresh checkout of `main` on Linux/macOS:
 
 ```bash
 cd backend
-python -m venv .venv
-python -m pip install -e .
-python -m app.inference.chatgpt_connect --output ../chatgpt-credentials.json
+python3 -m venv .venv
+.venv/bin/python -m pip install -e .
+.venv/bin/python -m app.inference.chatgpt_connect --output ../chatgpt-credentials.json
+```
+
+On Windows PowerShell:
+
+```powershell
+cd backend
+py -3.12 -m venv .venv
+.\\.venv\\Scripts\\python.exe -m pip install -e .
+.\\.venv\\Scripts\\python.exe -m app.inference.chatgpt_connect --output ..\\chatgpt-credentials.json
 ```
 
 The command opens the official OpenAI authorization page, requests the ChatGPT plan-use permission, validates the returned ID token and writes a protected credential file. Do not commit, paste into chat, or log this file.
