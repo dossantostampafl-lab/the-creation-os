@@ -49,6 +49,38 @@ def _load_existing(path: Path) -> dict[str, object]:
     return value if isinstance(value, dict) else {}
 
 
+def _host_id_path(output: Path) -> Path:
+    return output.parent / "host-id"
+
+
+def _persist_host_id(path: Path, value: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(path.parent, 0o700)
+    except OSError:
+        pass
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(value + "\n", encoding="utf-8")
+    os.chmod(temporary, 0o600)
+    os.replace(temporary, path)
+    os.chmod(path, 0o600)
+
+
+def _load_or_create_host_id(output: Path, credentials: dict[str, object]) -> str:
+    path = _host_id_path(output)
+    credential_host_id = str(credentials.get("ext_agent_host_id") or "").strip()
+    if credential_host_id:
+        _persist_host_id(path, credential_host_id)
+        return credential_host_id
+    if path.exists():
+        value = path.read_text(encoding="utf-8").strip()
+        if value:
+            return value
+    value = "urn:uuid:" + str(uuid.uuid4())
+    _persist_host_id(path, value)
+    return value
+
+
 def _validate_id_token(id_token: str, *, client_id: str, nonce: str) -> dict[str, object]:
     with httpx.Client(timeout=15.0) as client:
         response = client.get(JWKS_URL)
@@ -127,12 +159,14 @@ def _save(path: Path, document: dict[str, object]) -> None:
 
 
 def connect(*, output: Path, port: int, no_browser: bool, force_new: bool) -> None:
-    existing = {} if force_new else _load_existing(output)
+    saved_credentials = _load_existing(output)
+    existing = {} if force_new else saved_credentials
     saved_client_id = str(existing.get("client_id") or "").strip()
     client_id = saved_client_id or DYNAMIC_CLIENT_ID
-    host_id = str(existing.get("ext_agent_host_id") or "").strip()
-    if not host_id:
-        host_id = "urn:uuid:" + str(uuid.uuid4())
+    # The host identity belongs to this installation, not to one account/client.
+    # Persist it before opening the browser so cancelled/failed first sign-ins and
+    # --new registrations keep the same host identity on the next attempt.
+    host_id = _load_or_create_host_id(output, saved_credentials)
 
     state = secrets.token_urlsafe(32)
     nonce = secrets.token_urlsafe(32)
