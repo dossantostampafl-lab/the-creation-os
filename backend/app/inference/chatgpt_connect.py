@@ -32,6 +32,14 @@ def _default_credentials_path() -> Path:
     return Path.home() / ".config" / "the-creation-os" / "chatgpt" / "credentials.json"
 
 
+def _inside_git_checkout(path: Path) -> bool:
+    resolved = path.expanduser().resolve()
+    for directory in (resolved.parent, *resolved.parents):
+        if (directory / ".git").exists():
+            return True
+    return False
+
+
 def _b64url_sha256(value: str) -> str:
     digest = hashlib.sha256(value.encode("ascii")).digest()
     return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
@@ -331,8 +339,14 @@ def main() -> None:
         help="Register a new ChatGPT client instead of reusing the client in --output.",
     )
     args = parser.parse_args()
+    output = args.output.expanduser().resolve()
+    if _inside_git_checkout(output):
+        raise SystemExit(
+            "Refusing to store ChatGPT OAuth credentials inside a Git checkout. "
+            "Choose a protected path outside source control."
+        )
     connect(
-        output=args.output.expanduser().resolve(),
+        output=output,
         port=args.port,
         no_browser=args.no_browser,
         force_new=args.new,
