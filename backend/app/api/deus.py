@@ -139,7 +139,7 @@ async def converse_with_deus(
             "INFERENCE_TIMEOUT",
             "PROVIDER_UNAVAILABLE",
         }
-        retryable = upstream_code in retryable_codes
+        retryable = upstream_code in retryable_codes or exc.upstream_status == 503
         if upstream_code == "subscription_sharing_usage_limit_exceeded":
             message = "O limite de uso do plano ChatGPT foi atingido. Gerencie o uso no ChatGPT para continuar."
             api_status = 429
