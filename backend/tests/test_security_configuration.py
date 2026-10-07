@@ -52,3 +52,29 @@ def test_a_provider_gateway_must_not_receive_a_key_in_the_clear(url: str, accept
         return
     with pytest.raises(RuntimeError, match="PROVIDER_BASE_URL"):
         checked_base_url("PROVIDER_BASE_URL", url)
+
+
+def test_chatgpt_autonomy_requires_explicit_background_consent() -> None:
+    with pytest.raises(ValidationError, match="CHATGPT_BACKGROUND_AUTOMATION_CONSENT"):
+        _production_settings(
+            llm_provider="chatgpt",
+            deus_autonomy_discovery_enabled=True,
+        )
+
+
+def test_chatgpt_autonomy_accepts_explicit_background_consent() -> None:
+    configured = _production_settings(
+        llm_provider="chatgpt",
+        deus_autonomy_discovery_enabled=True,
+        deus_autonomy_competition_enabled=True,
+        chatgpt_background_automation_consent=True,
+    )
+    assert configured.chatgpt_background_automation_consent is True
+
+
+def test_non_chatgpt_autonomy_does_not_require_chatgpt_consent() -> None:
+    configured = _production_settings(
+        llm_provider="freellmapi",
+        deus_autonomy_discovery_enabled=True,
+    )
+    assert configured.deus_autonomy_discovery_enabled is True
