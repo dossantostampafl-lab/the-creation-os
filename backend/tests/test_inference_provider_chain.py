@@ -44,6 +44,11 @@ def test_fallbacks_reject_fake() -> None:
         _settings(llm_provider="freellmapi", llm_fallback_providers="fake")
 
 
+def test_fallbacks_reject_chatgpt_as_silent_plan_fallback() -> None:
+    with pytest.raises(ValidationError, match="not as a silent fallback"):
+        _settings(llm_provider="freellmapi", llm_fallback_providers="chatgpt")
+
+
 def test_fallbacks_reject_unsupported_provider() -> None:
     with pytest.raises(ValidationError, match="supported providers"):
         _settings(llm_provider="freellmapi", llm_fallback_providers="gemini")
