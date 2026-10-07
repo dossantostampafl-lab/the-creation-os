@@ -33,13 +33,13 @@ The implementation follows the OpenAI open-source/self-hosted VM flow:
 
 OpenAI's loopback callback reaches the computer running the browser, not the remote Oracle VM. For the self-hosted VM flow, the VM first persists its own stable `ext_agent_host_id`; the browser computer can then complete OAuth locally and the protected credential session can be transferred. The imported record must preserve the VM host ID instead of overwriting it with the browser/laptop host ID.
 
-First deploy the stack on Oracle, then from the repository root on the VM run:
+Selecting ChatGPT as the deployed inference provider now creates the VM host ID automatically after the API restarts. To inspect or prepare it explicitly from the repository root on the VM, run:
 
 ```bash
 sudo bash ./deploy/oracle/chatgpt-host-id.sh
 ```
 
-This creates the VM host ID in the protected ChatGPT volume. The printed `urn:uuid:...` value is an opaque host identifier, not a bearer token.
+This keeps the VM host ID in the protected ChatGPT volume. The printed `urn:uuid:...` value is an opaque host identifier, not a bearer token. The ChatGPT deploy path also clears any requested inference reserve chain so a plan-backed request cannot silently cross to another provider or billing path.
 
 On the computer that will run the browser callback, authorize the selected ChatGPT account. From a fresh checkout of `main` on Linux/macOS:
 
