@@ -79,3 +79,61 @@ async def test_deus_answers_with_503_not_500_when_every_provider_fails(chain, mo
     assert detail["provider"] == "freellmapi"
     assert detail["code"] == "INFERENCE_UPSTREAM_RESPONSE_ERROR"
     assert "provedor de inferência" in detail["message"]
+
+
+async def test_deus_surfaces_chatgpt_direct_admission_403_without_retrying(chain, monkeypatch):
+    import uuid
+
+    from httpx import ASGITransport, AsyncClient
+
+    from app.api import deus as deus_api
+    from app.inference.contracts import InferenceUpstreamResponseError
+    from app.main import app
+
+    class Restricted:
+        registry = None
+
+        async def generate(self, request):
+            raise InferenceUpstreamResponseError(
+                "chatgpt",
+                "direct admission denied",
+                upstream_status=403,
+                upstream_code="provider_error",
+                upstream_body={"detail": "policy restriction"},
+            )
+
+    monkeypatch.setattr(deus_api, "build_model_router", lambda: Restricted())
+    monkeypatch.setattr(deus_api, "resolve_configured_model", lambda router: "gpt-6.1-sol")
+
+    class Service:
+        def __init__(self, *args, **kwargs):
+            self.router = args[1]
+
+        async def respond(self, *args, **kwargs):
+            await self.router.generate(None)
+
+    class Session:
+        async def rollback(self):
+            pass
+
+    monkeypatch.setattr(deus_api, "DeusConversationService", Service)
+    from app.api.dependencies import actor
+    from app.core.domain import Actor
+
+    app.dependency_overrides[actor] = lambda: Actor(id="creator-1", role="creator")
+    app.dependency_overrides[deus_api.get_session] = lambda: Session()
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post(
+                f"/api/v1/conversations/{uuid.uuid4()}/deus",
+                json={"content": "oi"},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+    detail = response.json()["detail"]
+    assert detail["provider"] == "chatgpt"
+    assert detail["upstream_status"] == 403
+    assert detail["retryable"] is False
+    assert "política, região ou permissão" in detail["message"]
