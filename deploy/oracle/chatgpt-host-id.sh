@@ -24,24 +24,33 @@ if [ -z "$mount_name" ]; then
   exit 1
 fi
 
-docker exec -i "$api_container" python - <<'PY'
+# The named volume is created by Docker as root. The application itself runs as a
+# non-root user, so initialize ownership once as root and hand the protected directory
+# to the same UID/GID as PID 1 in the API container. This also leaves refresh-token
+# rotation writable after the helper exits.
+docker exec -u 0 -i "$api_container" python - <<'PY'
 from pathlib import Path
+import os
 import uuid
 
 root = Path("/var/lib/creation/chatgpt")
 if not root.exists():
     raise SystemExit("ChatGPT credential volume mount is missing")
-try:
-    root.chmod(0o700)
-except OSError:
-    pass
+
+process = Path("/proc/1").stat()
+uid, gid = process.st_uid, process.st_gid
+os.chown(root, uid, gid)
+root.chmod(0o700)
+
 path = root / "host-id"
 if path.exists():
     value = path.read_text(encoding="utf-8").strip()
 else:
     value = "urn:uuid:" + str(uuid.uuid4())
     path.write_text(value + "\n", encoding="utf-8")
-    path.chmod(0o600)
+os.chown(path, uid, gid)
+path.chmod(0o600)
+
 if not (
     value.startswith("urn:uuid:")
     or value.startswith("urn:ietf:params:oauth:jwk-thumbprint:")
