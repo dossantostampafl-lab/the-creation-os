@@ -120,7 +120,9 @@ def _granted_scopes(tokens: dict[str, object]) -> set[str]:
     return {item for item in token_scope.split() if item}
 
 
-def _validate_id_token(id_token: str, *, client_id: str, nonce: str) -> dict[str, object]:
+def _validate_id_token(
+    id_token: str, *, client_id: str, nonce: str, access_token: str
+) -> dict[str, object]:
     with httpx.Client(timeout=15.0) as client:
         response = client.get(JWKS_URL)
         response.raise_for_status()
@@ -145,6 +147,7 @@ def _validate_id_token(id_token: str, *, client_id: str, nonce: str) -> dict[str
         algorithms=[str(header.get("alg") or "RS256")],
         audience=client_id,
         issuer=ISSUER,
+        access_token=access_token,
         options={"require_sub": True, "require_exp": True, "require_iat": True},
     )
     if claims.get("nonce") != nonce:
@@ -362,7 +365,9 @@ def connect(
     if not id_token or not access_token or not refresh_token:
         raise RuntimeError("ChatGPT token exchange returned incomplete credentials")
 
-    claims = _validate_id_token(id_token, client_id=issued_client_id, nonce=nonce)
+    claims = _validate_id_token(
+        id_token, client_id=issued_client_id, nonce=nonce, access_token=access_token
+    )
     existing_subject = str(existing.get("subject") or "").strip()
     if existing_subject and str(claims.get("sub") or "") != existing_subject:
         raise RuntimeError(

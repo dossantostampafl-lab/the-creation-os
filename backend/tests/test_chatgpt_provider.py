@@ -42,6 +42,9 @@ def test_chatgpt_payload_uses_direct_plan_contract_and_developer_messages() -> N
     assert payload["input"][0]["role"] == "developer"
     assert "max_output_tokens" not in payload
     assert payload["tools"][0]["type"] == "namespace"
+    tool = payload["tools"][0]["tools"][0]
+    assert tool["parameters"]["properties"]["arguments"]["additionalProperties"] is True
+    assert tool["strict"] is False
     assert payload["tools"][0]["name"] == "creation"
 
 
