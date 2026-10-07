@@ -168,6 +168,7 @@ class ChatGPTCredentialStore:
             )
         now = datetime.now(timezone.utc)
         document: dict[str, Any] = {
+            "issuer": "https://auth.openai.com",
             "client_id": previous.client_id,
             "access_token": str(payload["access_token"]),
             "refresh_token": str(payload.get("refresh_token") or previous.refresh_token),
@@ -179,6 +180,7 @@ class ChatGPTCredentialStore:
                 previous.earliest_refresh_at,
             ),
             "scopes": sorted(scopes),
+            "plan_usage_enabled": True,
             "saved_at": now.isoformat(),
         }
         for key, value in {

@@ -233,7 +233,8 @@ function App() {
   const selectedMission = state?.missions.find((mission) => ["executing", "distributed", "authorized"].includes(mission.status)) ?? state?.missions.at(-1);
   const missionTasks = useMemo(() => state?.tasks.filter((task) => task.mission_id === selectedMission?.id) ?? [], [state, selectedMission]);
   const pulseEntries = useMemo(() => Object.entries(state?.pulse ?? {}).slice(0, 8), [state]);
-  const deusReady = Boolean(inference?.configured && inference.providers.some((provider) => provider.available));
+  const configuredProvider = inference?.providers.find((provider) => provider.provider === inference.configured_provider) ?? null;
+  const deusReady = Boolean(inference?.configured && configuredProvider?.available);
   const chatgptProvider = inference?.providers.find((provider) => provider.provider === "chatgpt") ?? null;
   const usingChatgptPlan = Boolean(
     inference?.configured_provider === "chatgpt" && chatgptProvider?.available && chatgptProvider.usage_url,

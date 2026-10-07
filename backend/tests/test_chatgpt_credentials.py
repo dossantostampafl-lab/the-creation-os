@@ -49,3 +49,24 @@ def test_refresh_error_code_uses_machine_readable_oauth_error() -> None:
     )
 
     assert ChatGPTCredentialStore._response_error_code(response) == "refresh_token_reused"
+
+
+def test_refresh_write_preserves_production_issuer_and_plan_marker(tmp_path: Path) -> None:
+    path = tmp_path / "credentials.json"
+    store = ChatGPTCredentialStore(str(path))
+    previous = _record()
+
+    stored = store._write(
+        previous,
+        {
+            "access_token": "new-access",
+            "refresh_token": "new-refresh",
+            "expires_in": 3600,
+            "scope": "openid chatgpt.tokens.use.direct",
+        },
+    )
+
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert payload["issuer"] == "https://auth.openai.com"
+    assert payload["plan_usage_enabled"] is True
+    assert stored.access_token == "new-access"
