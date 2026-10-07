@@ -73,6 +73,35 @@ def request() -> InferenceRequest:
 
 
 @pytest.mark.asyncio
+async def test_chatgpt_timeout_is_not_retried_before_configured_reserve():
+    primary = StubProvider("chatgpt", [InferenceTimeoutError("chatgpt", "timeout")])
+    reserve = StubProvider("freellmapi", ["Reserva."])
+    chunks = [chunk async for chunk in stream_response(request(), primary=primary, fallbacks=(reserve,))]
+    assert chunks == [StreamChunk(provider="freellmapi", text="Reserva.")]
+    assert primary.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_chatgpt_gets_its_own_first_token_budget_without_extending_reserve_budget():
+    class DelayedProvider(StubProvider):
+        async def stream(self, request):
+            await asyncio.sleep(0.03)
+            async for text in super().stream(request):
+                yield text
+
+    primary = DelayedProvider("chatgpt", ["Resposta."])
+    options = dict(first_token_timeout_seconds=0.01, first_token_timeouts_by_provider={"chatgpt": 0.1})
+    chunks = [chunk async for chunk in stream_response(request(), primary=primary, **options)]
+    assert chunks == [StreamChunk(provider="chatgpt", text="Resposta.")]
+
+    failed = StubProvider("chatgpt", [InferenceRateLimitError("chatgpt", "limited")])
+    with pytest.raises(InferenceTimeoutError):
+        _ = [chunk async for chunk in stream_response(
+            request(), primary=failed, fallbacks=(DelayedProvider("freellmapi", ["Late"]),), **options,
+        )]
+
+
+@pytest.mark.asyncio
 async def test_stream_uses_primary_from_free_primary():
     primary = StubProvider("freellmapi", ["Olá", " mundo"])
 

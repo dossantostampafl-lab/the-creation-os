@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import re
-from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from enum import StrEnum
@@ -203,6 +203,7 @@ class VoiceSessionGateway:
         request_builder: RequestBuilder | None = None,
         on_turn_completed: TurnCompleted | None = None,
         first_token_timeout_seconds: float = 2.5,
+        first_token_timeouts_by_provider: Mapping[str, float] | None = None,
     ) -> None:
         if first_token_timeout_seconds <= 0:
             raise ValueError(
@@ -217,6 +218,7 @@ class VoiceSessionGateway:
         self.request_builder = request_builder
         self.on_turn_completed = on_turn_completed
         self.first_token_timeout_seconds = first_token_timeout_seconds
+        self.first_token_timeouts_by_provider = first_token_timeouts_by_provider
 
     async def send_audio(
         self,
@@ -383,6 +385,7 @@ class VoiceSessionGateway:
                         first_token_timeout_seconds=(
                             self.first_token_timeout_seconds
                         ),
+                        first_token_timeouts_by_provider=self.first_token_timeouts_by_provider,
                     ):
                         if (
                             turn_id != self.session.turn_id

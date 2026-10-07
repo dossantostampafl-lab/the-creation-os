@@ -744,3 +744,74 @@ def test_acknowledgement_reports_missing_models_without_private_details(voice_cl
     assert detail["code"] == "VOICE_MODELS_UNAVAILABLE"
     assert detail["nonretryable"] is True
     assert "private" not in detail["message"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stalled", ["model", "tts"])
+async def test_stalled_voice_turn_closes_socket_for_automatic_reconnect(voice_client, monkeypatch, stalled):
+    cancelled = asyncio.Event()
+
+    class QuestionSTT(HangingRealtimeSTT):
+        async def receive_transcript(self):
+            return STTTranscript("Deus, responda", committed=True)
+
+    class Provider:
+        name = "chatgpt"
+
+        async def stream(self, request):
+            yield "Resposta."
+            if stalled == "model":
+                try:
+                    await asyncio.Event().wait()
+                finally:
+                    cancelled.set()
+
+    class TTS(FakeRealtimeTTS):
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            pass
+
+        async def receive_audio(self):
+            try:
+                await asyncio.Event().wait()
+            finally:
+                if stalled == "tts":
+                    cancelled.set()
+
+    class Socket:
+        def __init__(self):
+            self.events = []
+            self.close_code = None
+
+        async def accept(self):
+            pass
+
+        async def receive_json(self):
+            await asyncio.Event().wait()
+
+        async def send_json(self, payload):
+            self.events.append(payload)
+
+        async def close(self, code):
+            self.close_code = code
+
+    from types import SimpleNamespace
+
+    config = voice_session_api.settings.dict()
+    config["deus_voice_event_timeout_seconds"] = 0.05
+    monkeypatch.setattr(voice_session_api, "settings", SimpleNamespace(**config))
+    monkeypatch.setattr(voice_session_api, "VoskRealtimeSTT", lambda *_a, **_k: QuestionSTT())
+    monkeypatch.setattr(voice_session_api, "KokoroRealtimeTTS", lambda *_a, **_k: TTS([]))
+    monkeypatch.setattr(voice_session_api, "build_voice_inference_runtime", lambda: VoiceInferenceRuntime(
+        primary=Provider(), fallbacks=(), primary_models=(),
+    ))
+    socket = Socket()
+    await asyncio.wait_for(voice_session_api.voice_session_socket(
+        socket, ticket="ticket-1", conversation_id="conversation-1",
+    ), timeout=0.5)
+    assert socket.close_code == 1013
+    assert socket.events[-1]["code"] == "VOICE_TURN_TIMEOUT"
+    assert socket.events[-1]["nonretryable"] is False
+    assert cancelled.is_set()
