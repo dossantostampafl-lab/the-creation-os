@@ -4,7 +4,12 @@ from pathlib import Path
 
 import pytest
 
-from app.inference.chatgpt_connect import _default_credentials_path, _granted_scopes, _load_or_create_host_id
+from app.inference.chatgpt_connect import (
+    _default_credentials_path,
+    _granted_scopes,
+    _inside_git_checkout,
+    _load_or_create_host_id,
+)
 
 
 def test_default_chatgpt_credentials_path_stays_outside_checkout(monkeypatch, tmp_path: Path) -> None:
@@ -46,3 +51,12 @@ def test_plan_permission_comes_only_from_token_response_scopes() -> None:
 
     with pytest.raises(RuntimeError, match="did not return granted scopes"):
         _granted_scopes({})
+
+
+def test_credentials_destination_inside_git_checkout_is_rejected_by_guard(tmp_path: Path) -> None:
+    checkout = tmp_path / "repo"
+    checkout.mkdir()
+    (checkout / ".git").mkdir()
+
+    assert _inside_git_checkout(checkout / "credentials.json")
+    assert not _inside_git_checkout(tmp_path / "outside" / "credentials.json")
