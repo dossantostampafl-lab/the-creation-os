@@ -43,10 +43,26 @@ print("Credential structure validated; token values were not printed.")
 PY
 
 api_container="$("${COMPOSE[@]}" ps -q api)"
-if [ -z "$api_container" ]; then
-  echo "The API container is not running. Start the stack first." >&2
+worker_container="$("${COMPOSE[@]}" ps -q worker)"
+if [ -z "$api_container" ] || [ -z "$worker_container" ]; then
+  echo "The API and worker containers must both be running. Deploy/rebuild the ChatGPT-capable stack first." >&2
   exit 1
 fi
+
+credential_mount() {
+  docker inspect -f '{{range .Mounts}}{{if eq .Destination "/var/lib/creation/chatgpt"}}{{.Name}}{{end}}{{end}}' "$1" 2>/dev/null
+}
+api_mount="$(credential_mount "$api_container")"
+worker_mount="$(credential_mount "$worker_container")"
+if [ -z "$api_mount" ] || [ -z "$worker_mount" ]; then
+  echo "The protected ChatGPT credential volume is not mounted in API and worker. Deploy/rebuild before importing OAuth credentials." >&2
+  exit 1
+fi
+if [ "$api_mount" != "$worker_mount" ]; then
+  echo "API and worker do not share the same ChatGPT credential volume; refusing a partial credential install." >&2
+  exit 1
+fi
+echo "Protected ChatGPT credential volume verified for API and worker."
 
 host_id="$("${COMPOSE[@]}" exec -T api python - <<'PY'
 from pathlib import Path
