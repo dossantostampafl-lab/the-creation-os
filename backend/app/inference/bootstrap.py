@@ -159,4 +159,7 @@ def build_model_router() -> ModelRouter:
         fallback_providers=reserves,
         circuit_breaker=_CIRCUIT_BREAKER,
         rate_limit_cooldown=_RATE_LIMIT_COOLDOWN,
+        disclosed_fallback_after=(
+            ("chatgpt",) if settings.chatgpt_fallback_enabled and reserves else ()
+        ),
     )

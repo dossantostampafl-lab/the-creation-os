@@ -25,7 +25,9 @@ The implementation follows the OpenAI open-source/self-hosted VM flow:
 
 - Primary provider: `chatgpt`
 - Default model: `gpt-6.1-sol`
-- Automatic billing fallback from ChatGPT: **disabled by design**. A ChatGPT-plan failure stops that request; the UI surfaces the plan/usage state instead of silently switching providers.
+- Fallback from ChatGPT: **opt-in and disclosed**. With `CHATGPT_FALLBACK_ENABLED=true` and `LLM_FALLBACK_PROVIDERS=freellmapi` (what the `set-inference-chatgpt` deploy task configures), a request the ChatGPT plan cannot answer continues on FreeLLMAPI. The reply carries `fallback_from`/`fallback_reason`, is stored with them, and the Creator console labels it ("Respondido por FreeLLM · plano ChatGPT (limite de uso atingido)"). OpenAI SIWC forbids *silently* switching the billing path; this switch is configured by the operator and shown on every reply. Without the opt-in, a ChatGPT-plan failure stops the request as before.
+- After `subscription_sharing_usage_limit_exceeded` the ChatGPT provider enters the rate-limit cooldown, so new requests pause plan usage and go straight to the reserve until it ends.
+- Interactive deadline: a ChatGPT attempt gets `DEUS_CHAT_CHATGPT_TIMEOUT_SECONDS` (default 25s, because a reply only counts after `response.completed`); the whole turn may take that plus `DEUS_CHAT_TOTAL_TIMEOUT_SECONDS`.
 - Credential path inside API/worker containers: `/var/lib/creation/chatgpt/credentials.json`
 - API and worker share the protected `chatgpt_credentials` Docker volume.
 
@@ -65,6 +67,17 @@ The profile is written outside the checkout:
 - Windows: `%USERPROFILE%\\.config\\the-creation-os\\chatgpt\\profiles\\oracle\\credentials.json`
 
 Use another profile name for another ChatGPT account/workspace registration. If plan-use consent was previously declined, rerun the selected registration with `--enable-plan`; the helper reuses its issued client and retained account hints. Never paste token values into chat, logs, source control, analytics, or support transcripts.
+
+### Import without SSH (GitHub Actions)
+
+1. Run the `Deploy` task `set-inference-chatgpt` once; it prints the VM host ID (`urn:uuid:...`).
+2. On your computer, authorize with that host ID so the registration belongs to the VM:
+   `python -m app.inference.chatgpt_connect --profile oracle --host-id urn:uuid:...`
+3. Open the profile's `credentials.json` and paste its **entire contents** into a repository secret named `CHATGPT_CREDENTIALS_JSON` (Settings → Secrets and variables → Actions).
+4. Run the `Deploy` task `import-chatgpt-credentials`. It decodes the secret into an owner-only temporary file on the VM, runs the importer below, deletes the file and finishes with the full `check-chatgpt-auth` (expect `AUTH_READY=yes`).
+5. Delete the `CHATGPT_CREDENTIALS_JSON` secret afterwards: the VM refreshes and rotates its own tokens from then on, so the copy in GitHub only goes stale.
+
+### Import over SSH
 
 Copy that profile's `credentials.json` over SSH to a temporary VM path, then from the repository root run:
 
@@ -112,7 +125,7 @@ Sign-out discovers OpenAI's current OIDC revocation endpoint and attempts refres
 
 ## Runtime failure semantics
 
-A ChatGPT-plan request never silently crosses to FreeLLMAPI, Anthropic, OpenAI API billing, or another provider. The SIWC error code, upstream HTTP status, request ID, parameter, and parsed upstream error payload are preserved internally; only safe structured fields are returned to the Creator UI. Temporary plan-availability failures receive bounded retry. Usage-limit, authorization-context, eligibility, unsupported-capability, and unsupported-route failures do not loop OAuth or retry the same invalid request.
+A ChatGPT-plan request never *silently* crosses to FreeLLMAPI, Anthropic, OpenAI API billing, or another provider: it crosses only to the reserve the operator enabled with `CHATGPT_FALLBACK_ENABLED`, and the reply says so. The SIWC error code, upstream HTTP status, request ID, parameter, and parsed upstream error payload are preserved internally; only safe structured fields are returned to the Creator UI. Temporary plan-availability failures receive bounded retry. Usage-limit, authorization-context, eligibility, unsupported-capability, and unsupported-route failures do not loop OAuth or retry the same invalid request.
 
 The composer shows **Using ChatGPT plan**, the active account label when OpenAI supplied one, and a **Manage usage** action. On the first healthy plan connection the UI shows a one-time welcome explaining that ChatGPT-plan usage is separate from API billing.
 

@@ -112,6 +112,12 @@ class DeusReply:
     provider: str
     model: str
     inception: dict[str, str] | None = None
+    fallback_from: str | None = None
+    fallback_reason: str | None = None
+
+
+def _optional_str(value: object) -> str | None:
+    return value if isinstance(value, str) and value else None
 
 
 @dataclass(frozen=True)
@@ -224,6 +230,7 @@ class DeusConversationService:
         context_builder=None,
         provider_timeout_seconds: float | None = None,
         total_timeout_seconds: float | None = None,
+        provider_timeout_overrides: dict[str, float] | None = None,
     ) -> None:
         self.repo = repository
         self.router = router
@@ -233,6 +240,7 @@ class DeusConversationService:
         self.context_builder = context_builder
         self.provider_timeout_seconds = provider_timeout_seconds
         self.total_timeout_seconds = total_timeout_seconds
+        self.provider_timeout_overrides = dict(provider_timeout_overrides or {})
 
     async def _reason(
         self, actor: Actor, content: str, history: list[Message], snapshot: Awaitable[SystemSnapshot],
@@ -412,6 +420,8 @@ class DeusConversationService:
         }
         if self.provider_timeout_seconds is not None:
             metadata["attempt_timeout_seconds"] = self.provider_timeout_seconds
+        if self.provider_timeout_overrides:
+            metadata["attempt_timeout_seconds_by_provider"] = dict(self.provider_timeout_overrides)
         if context_packet is not None:
             creator_message.metadata_json = {**creator_message.metadata_json, 'knowledge_project_id':context_packet.trace['project_id']}
             metadata.update({'cache_policy': 'bypass', 'knowledge_version': str(context_packet.trace['knowledge_epoch']), 'retrieval_fingerprint': context_packet.trace['retrieval_fingerprint'], 'context_trace_id': context_packet.trace_id})
@@ -443,7 +453,12 @@ class DeusConversationService:
             role="deus",
             content=inference.content,
             route="deus",
-            metadata_json={"provider": inference.provider, "model": inference.model, **({"context_trace_id": context_packet.trace_id} if context_packet else {})},
+            metadata_json={
+                "provider": inference.provider,
+                "model": inference.model,
+                **{key: inference.metadata[key] for key in ("fallback_from", "fallback_reason") if inference.metadata.get(key)},
+                **({"context_trace_id": context_packet.trace_id} if context_packet else {}),
+            },
             correlation_id=correlation_id,
         ))
         # Chronicle writes take a global lock, so they all happen after the model calls.
@@ -515,6 +530,8 @@ class DeusConversationService:
             provider=inference.provider,
             model=inference.model,
             inception=inception,
+            fallback_from=_optional_str(inference.metadata.get("fallback_from")),
+            fallback_reason=_optional_str(inference.metadata.get("fallback_reason")),
         )
         if commit_guard is not None:
             await commit_guard(reply)

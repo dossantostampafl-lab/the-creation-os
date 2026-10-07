@@ -49,6 +49,10 @@ class Settings(BaseSettings):
     chatgpt_base_url: str = Field("https://api.openai.com/v1", env="CHATGPT_BASE_URL")
     chatgpt_timeout_seconds: float = Field(60.0, gt=0.0, le=120.0, env="CHATGPT_TIMEOUT_SECONDS")
     chatgpt_background_automation_consent: bool = Field(False, env="CHATGPT_BACKGROUND_AUTOMATION_CONSENT")
+    # Opt-in: when the ChatGPT plan cannot answer, the request may continue on LLM_FALLBACK_PROVIDERS.
+    # Every such answer is marked fallback_from/fallback_reason and shown as such to the Creator,
+    # so the switch is never silent (OpenAI SIWC forbids silently changing the billing path).
+    chatgpt_fallback_enabled: bool = Field(False, env="CHATGPT_FALLBACK_ENABLED")
     embedding_provider: str = Field("fake", env="EMBEDDING_PROVIDER")
     embedding_model: str = Field("fake", env="EMBEDDING_MODEL")
     semantic_cache_mode: str = Field("shadow", env="SEMANTIC_CACHE_MODE")
@@ -98,6 +102,14 @@ class Settings(BaseSettings):
         gt=0.0,
         le=10.0,
         env="DEUS_CHAT_PROVIDER_TIMEOUT_SECONDS",
+    )
+    # A ChatGPT-plan turn only counts once response.completed arrives, which takes longer than
+    # the 5s budget meant for the fast free-tier attempt.
+    deus_chat_chatgpt_timeout_seconds: float = Field(
+        25.0,
+        gt=0.0,
+        le=60.0,
+        env="DEUS_CHAT_CHATGPT_TIMEOUT_SECONDS",
     )
     deus_chat_total_timeout_seconds: float = Field(
         15.0,
@@ -160,6 +172,17 @@ class Settings(BaseSettings):
     @property
     def web_provider_preferences(self) -> list[str]:
         return [name.strip().lower() for name in self.web_provider_preference.split(",") if name.strip()]
+
+    @property
+    def deus_chat_attempt_timeouts_by_provider(self) -> dict[str, float]:
+        return {"chatgpt": self.deus_chat_chatgpt_timeout_seconds}
+
+    @property
+    def deus_chat_effective_total_timeout_seconds(self) -> float:
+        """The whole-turn ceiling, widened by ChatGPT's own attempt when it is in the chain."""
+        if "chatgpt" in self.inference_provider_chain:
+            return self.deus_chat_total_timeout_seconds + self.deus_chat_chatgpt_timeout_seconds
+        return self.deus_chat_total_timeout_seconds
 
     @property
     def inference_provider_chain(self) -> list[str]:

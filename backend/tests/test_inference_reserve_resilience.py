@@ -150,3 +150,55 @@ async def test_deus_preserves_nonretryable_chatgpt_admission_and_contract_status
     assert detail["upstream_status"] == upstream_status
     assert detail["code"] == upstream_code
     assert detail["retryable"] is False
+
+
+async def test_deus_reply_names_the_reserve_that_answered_for_chatgpt(chain, monkeypatch):
+    import uuid
+
+    from httpx import ASGITransport, AsyncClient
+
+    from app.api import deus as deus_api
+    from app.main import app
+    from app.services.deus import DeusReply
+
+    monkeypatch.setattr(deus_api, "build_model_router", lambda: object())
+    monkeypatch.setattr(deus_api, "resolve_configured_model", lambda router: "auto")
+    monkeypatch.setattr(settings, "trinity_enabled", False)
+
+    class Service:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def respond(self, *args, **kwargs):
+            return DeusReply(
+                creator_message_id="creator-message",
+                deus_message_id="deus-message",
+                conversation_id="conversation",
+                response="resposta da reserva",
+                provider="freellmapi",
+                model="auto",
+                fallback_from="chatgpt",
+                fallback_reason="subscription_sharing_usage_limit_exceeded",
+            )
+
+    class Session:
+        async def rollback(self):
+            pass
+
+    monkeypatch.setattr(deus_api, "DeusConversationService", Service)
+    from app.api.dependencies import actor
+    from app.core.domain import Actor
+
+    app.dependency_overrides[actor] = lambda: Actor(id="creator-1", role="creator")
+    app.dependency_overrides[deus_api.get_session] = lambda: Session()
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post(f"/api/v1/conversations/{uuid.uuid4()}/deus", json={"content": "oi"})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["provider"] == "freellmapi"
+    assert body["fallback_from"] == "chatgpt"
+    assert body["fallback_reason"] == "subscription_sharing_usage_limit_exceeded"
