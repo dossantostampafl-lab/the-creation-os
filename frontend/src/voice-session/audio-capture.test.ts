@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { downsampleTo16k, ensureAudioContextRunning, float32ToPcm16 } from "./audio-capture";
+import { downsampleTo16k, ensureAudioContextRunning, float32ToPcm16, StreamingDownsampler } from "./audio-capture";
 
 describe("realtime microphone PCM", () => {
   it("converts normalized float audio to little-endian PCM16", () => {
@@ -24,6 +24,32 @@ describe("realtime microphone PCM", () => {
     ]);
 
     expect(Array.from(downsampleTo16k(input, 48_000))).toEqual([0, 0.3, -0.6]);
+  });
+
+  it("keeps every sample across 128-sample frames at 48 kHz and 44.1 kHz", () => {
+    for (const rate of [48_000, 44_100]) {
+      const seconds = 1;
+      const input = Float32Array.from({ length: rate * seconds }, (_, index) => Math.sin(index / 7));
+      const downsampler = new StreamingDownsampler(rate);
+      let produced = 0;
+      for (let offset = 0; offset < input.length; offset += 128) {
+        produced += downsampler.push(input.subarray(offset, offset + 128)).length;
+      }
+      // Within one output sample of 16 000 per second: nothing dropped between frames.
+      expect(Math.abs(produced - 16_000 * seconds)).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("matches the one-shot downsampler when the frames are joined", () => {
+    const input = Float32Array.from({ length: 48 * 50 }, (_, index) => (index % 13) / 13 - 0.5);
+    const downsampler = new StreamingDownsampler(48_000);
+    const streamed: number[] = [];
+    for (let offset = 0; offset < input.length; offset += 128) {
+      streamed.push(...downsampler.push(input.subarray(offset, offset + 128)));
+    }
+    const whole = downsampleTo16k(input, 48_000);
+    expect(streamed.length).toBe(whole.length);
+    streamed.forEach((value, index) => expect(value).toBeCloseTo(whole[index], 5));
   });
 
   it("rejects unsupported input rates below 16 kHz", () => {

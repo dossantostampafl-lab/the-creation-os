@@ -45,6 +45,44 @@ export function downsampleTo16k(
   return output;
 }
 
+/**
+ * Downsamples a stream of microphone frames to 16 kHz without losing the samples that
+ * do not divide evenly into one frame. The browser delivers 128-sample frames, and at
+ * 48 kHz 128 / 3 leaves a remainder: converting each frame on its own dropped 2 of every
+ * 128 samples, sped speech up ~1.6% and put a 375 Hz click under the voice.
+ */
+export class StreamingDownsampler {
+  private readonly ratio: number;
+  private carry: number[] = [];
+  private position = 0;
+
+  constructor(private readonly inputRate: number) {
+    if (!Number.isFinite(inputRate) || inputRate < 16_000) {
+      throw new Error("VOICE_CAPTURE_SAMPLE_RATE_TOO_LOW");
+    }
+    this.ratio = inputRate / 16_000;
+  }
+
+  push(frame: Float32Array): number[] {
+    if (this.inputRate === 16_000) return Array.from(frame);
+    const samples = this.carry.length ? [...this.carry, ...frame] : Array.from(frame);
+    const output: number[] = [];
+    for (;;) {
+      const start = Math.floor(this.position);
+      const end = Math.max(start + 1, Math.floor(this.position + this.ratio));
+      if (end > samples.length) break;
+      let sum = 0;
+      for (let index = start; index < end; index += 1) sum += samples[index];
+      output.push(sum / (end - start));
+      this.position += this.ratio;
+    }
+    const consumed = Math.floor(this.position);
+    this.carry = samples.slice(consumed);
+    this.position -= consumed;
+    return output;
+  }
+}
+
 export function bytesToBase64(bytes: Uint8Array): string {
   let binary = "";
   const block = 0x8000;
@@ -101,11 +139,10 @@ export class MicrophonePcmCapture {
     silentGain.gain.value = 0;
     silentGain.connect(context.destination);
 
+    const downsampler = new StreamingDownsampler(context.sampleRate);
     const deliver = (samples: Float32Array) => {
       if (generation !== this.startGeneration || !samples.length) return;
-      const pcm16k = float32ToPcm16(
-        new Float32Array(downsampleTo16k(samples, context.sampleRate)),
-      );
+      const pcm16k = float32ToPcm16(new Float32Array(downsampler.push(samples)));
       onFrame({ float32: samples, pcm16k });
     };
 

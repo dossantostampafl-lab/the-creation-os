@@ -25,7 +25,7 @@ if [ -z "$fallback" ] && [ -n "$(env_get ANTHROPIC_API_KEY)" ] && [ -n "$(env_ge
 fi
 env_set LLM_FALLBACK_PROVIDERS "$fallback"
 env_set DEUS_LOCAL_VOICE_MODELS_DIR /var/lib/creation/voice
-env_set DEUS_LOCAL_VOICE_SILENCE_MS 400
+env_set DEUS_LOCAL_VOICE_SILENCE_MS 1000
 env_set DEUS_LOCAL_VOICE_CPU_THREADS 2
 chmod 600 .env
 "${COMPOSE[@]}" up -d --no-deps --force-recreate api
