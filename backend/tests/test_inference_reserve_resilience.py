@@ -81,7 +81,20 @@ async def test_deus_answers_with_503_not_500_when_every_provider_fails(chain, mo
     assert "provedor de inferência" in detail["message"]
 
 
-async def test_deus_surfaces_chatgpt_direct_admission_403_without_retrying(chain, monkeypatch):
+@pytest.mark.parametrize(
+    ("upstream_status", "upstream_code", "expected_status"),
+    [
+        (403, "provider_error", 403),
+        (403, "subscription_sharing_user_not_eligible", 403),
+        (401, "subscription_sharing_invalid_user", 401),
+        (403, "chatpass_v2_scope_not_authorized", 403),
+        (400, "subscription_sharing_unsupported_capability", 400),
+        (403, "subscription_sharing_route_not_supported", 403),
+    ],
+)
+async def test_deus_preserves_nonretryable_chatgpt_admission_and_contract_statuses(
+    chain, monkeypatch, upstream_status, upstream_code, expected_status
+):
     import uuid
 
     from httpx import ASGITransport, AsyncClient
@@ -96,10 +109,10 @@ async def test_deus_surfaces_chatgpt_direct_admission_403_without_retrying(chain
         async def generate(self, request):
             raise InferenceUpstreamResponseError(
                 "chatgpt",
-                "direct admission denied",
-                upstream_status=403,
-                upstream_code="provider_error",
-                upstream_body={"detail": "policy restriction"},
+                "direct admission or contract failure",
+                upstream_status=upstream_status,
+                upstream_code=upstream_code,
+                upstream_body={"detail": "restriction"},
             )
 
     monkeypatch.setattr(deus_api, "build_model_router", lambda: Restricted())
@@ -131,9 +144,9 @@ async def test_deus_surfaces_chatgpt_direct_admission_403_without_retrying(chain
     finally:
         app.dependency_overrides.clear()
 
-    assert response.status_code == 403
+    assert response.status_code == expected_status
     detail = response.json()["detail"]
     assert detail["provider"] == "chatgpt"
-    assert detail["upstream_status"] == 403
+    assert detail["upstream_status"] == upstream_status
+    assert detail["code"] == upstream_code
     assert detail["retryable"] is False
-    assert "política, região ou permissão" in detail["message"]
