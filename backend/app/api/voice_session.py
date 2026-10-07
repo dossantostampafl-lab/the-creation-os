@@ -179,7 +179,12 @@ async def voice_session_socket(
         })
         await websocket.close(code=1013)
         return
-    stt_client = VoskRealtimeSTT(engine.recognizer(), silence_ms=settings.deus_local_voice_silence_ms)
+    stt_client = VoskRealtimeSTT(
+        engine.recognizer(),
+        silence_ms=settings.deus_local_voice_silence_ms,
+        wake_recognizer=engine.wake_recognizer(),
+        debug_transcripts=settings.deus_voice_debug_transcripts,
+    )
 
     def tts_factory():
         return KokoroRealtimeTTS(engine)

@@ -394,6 +394,11 @@ jobs:
               if sudo grep -q '^TELEMETRY_ENABLED=true$' .env; then
                 profile_args+=(--profile observability)
               fi
+              # New local speech models (e.g. the "Deus" wake spotter) must exist before the API starts.
+              if sudo grep -q '^DEUS_VOICE_SESSION_ENABLED=true$' .env; then
+                sudo "${COMPOSE[@]}" build api
+                sudo "${COMPOSE[@]}" run --rm --no-deps api python -m app.voice_session.prepare
+              fi
               sudo "${COMPOSE[@]}" "${profile_args[@]}" up -d --build --remove-orphans
               sleep 30
               sudo ./deploy/oracle/check-inference.sh

@@ -285,6 +285,9 @@ def voice_client(monkeypatch):
         ),
     )
     class FakeEngine:
+        def wake_recognizer(self):
+            return None
+
         def recognizer(self):
             return object()
 

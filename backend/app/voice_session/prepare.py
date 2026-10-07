@@ -11,6 +11,8 @@ from app.config import settings
 
 KOKORO_BASE = 'https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/'
 VOSK_URL = 'https://alphacephei.com/vosk/models/vosk-model-pt-fb-v0.1.1-20220516_2113.zip'
+# Small model that supports a runtime grammar: used only to spot the "Deus" wake word.
+VOSK_WAKE_URL = 'https://alphacephei.com/vosk/models/vosk-model-small-pt-0.3.zip'
 
 
 def download(url: str, path: Path) -> None:
@@ -25,25 +27,30 @@ def download(url: str, path: Path) -> None:
         staging.unlink(missing_ok=True)
 
 
+def install_vosk(root: Path, url: str, packaged_name: str, name: str) -> None:
+    if (root / name).exists():
+        return
+    archive = root / f'{name}.zip'
+    download(url, archive)
+    with tempfile.TemporaryDirectory(dir=root) as temp:
+        directory = Path(temp)
+        with zipfile.ZipFile(archive) as package:
+            for entry in package.infolist():
+                target = (directory / entry.filename).resolve()
+                if not target.is_relative_to(directory.resolve()):
+                    raise RuntimeError('Unsafe model archive path')
+            package.extractall(directory)
+        (directory / packaged_name).rename(root / name)
+    archive.unlink()
+
+
 def main() -> None:
     root = Path(settings.deus_local_voice_models_dir)
     root.mkdir(parents=True, exist_ok=True)
     download(KOKORO_BASE + 'kokoro-v1.0.onnx', root / 'kokoro-v1.0.onnx')
     download(KOKORO_BASE + 'voices-v1.0.bin', root / 'voices-v1.0.bin')
-    if not (root / 'vosk-pt').exists():
-        archive = root / 'vosk-pt.zip'
-        download(VOSK_URL, archive)
-        with tempfile.TemporaryDirectory(dir=root) as temp:
-            directory = Path(temp)
-            with zipfile.ZipFile(archive) as package:
-                for entry in package.infolist():
-                    target = (directory / entry.filename).resolve()
-                    if not target.is_relative_to(directory.resolve()):
-                        raise RuntimeError('Unsafe model archive path')
-                package.extractall(directory)
-            source = directory / 'vosk-model-pt-fb-v0.1.1-20220516_2113'
-            source.rename(root / 'vosk-pt')
-        archive.unlink()
+    install_vosk(root, VOSK_URL, 'vosk-model-pt-fb-v0.1.1-20220516_2113', 'vosk-pt')
+    install_vosk(root, VOSK_WAKE_URL, 'vosk-model-small-pt-0.3', 'vosk-wake-pt')
     print('Local speech models prepared (Kokoro pm_santa / Vosk Portuguese).', flush=True)
 
 
