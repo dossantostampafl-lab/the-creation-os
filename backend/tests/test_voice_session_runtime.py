@@ -81,7 +81,7 @@ def test_voice_keeps_anthropic_when_chat_uses_it_as_primary(monkeypatch):
     assert [provider.name for provider in runtime.fallbacks] == ["anthropic"]
 
 
-def test_voice_runtime_uses_chatgpt_primary_with_freellm_reserve(monkeypatch, tmp_path):
+def test_voice_runtime_uses_chatgpt_primary_without_silent_billing_reserve(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "llm_provider", "chatgpt")
     monkeypatch.setattr(settings, "llm_fallback_providers", "freellmapi")
     monkeypatch.setattr(settings, "deus_voice_primary_provider", "chatgpt")
@@ -95,4 +95,4 @@ def test_voice_runtime_uses_chatgpt_primary_with_freellm_reserve(monkeypatch, tm
 
     assert runtime.primary.name == "chatgpt"
     assert runtime.primary_models == ()
-    assert [provider.name for provider in runtime.fallbacks] == ["freellmapi"]
+    assert runtime.fallbacks == ()
