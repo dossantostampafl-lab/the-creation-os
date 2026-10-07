@@ -54,6 +54,24 @@ if [ -z "$model" ]; then
   exit 1
 fi
 
+# The GitHub deploy wrapper deliberately refreshes only deploy scripts before invoking this
+# command. ChatGPT activation must deploy the matching backend/frontend/Compose revision too,
+# otherwise a green provider switch could still run stale application code.
+if [ "$provider" = "chatgpt" ]; then
+  target_ref="${REF:-main}"
+  if ! [[ "$target_ref" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+    echo "Invalid deployment ref: $target_ref" >&2
+    exit 1
+  fi
+  echo "Updating the installation to origin/$target_ref before activating ChatGPT..."
+  # The workflow may have checked the latest deploy scripts into an older working tree.
+  # Restore only those wrapper-managed paths so the fast-forward can proceed safely.
+  git checkout HEAD -- deploy/oracle deploy/stf 2>/dev/null || true
+  git fetch --prune origin
+  git fetch origin "+$target_ref:refs/remotes/origin/$target_ref"
+  git merge --ff-only "origin/$target_ref"
+fi
+
 # The key may arrive in the environment, which is how CI passes it; otherwise it is asked for.
 # -s keeps the key off the screen; -r stops a backslash in it from being eaten.
 api_key=""
@@ -208,16 +226,168 @@ else
   exit 1
 fi
 
+# The containers read .env only when they are created. ChatGPT activation also upgrades
+# the complete runtime so the frontend, API, worker, Compose mounts, and OAuth code are one revision.
+echo
+profile_args=()
+if grep -qE '^DEUS_(CONTEXT_RETRIEVAL|DIAGNOSTICS|AUTONOMY_DISCOVERY|AUTONOMY_COMPETITION)_ENABLED=true
+port="$(env_get CREATION_API_PORT)"
+base="http://127.0.0.1:${port:-8000}"
+printf '\nWaiting for the API'
+for _ in $(seq 1 60); do
+  if curl -fsS "$base/api/v1/health/ready" >/dev/null 2>&1; then
+    break
+  fi
+  printf '.'
+  sleep 2
+done
+echo
+
+if ! curl -fsS "$base/api/v1/health/ready" >/dev/null 2>&1; then
+  echo "The API did not become ready after the inference change." >&2
+  "${COMPOSE[@]}" ps api worker >&2 || true
+  exit 1
+fi
+
 if [ "$provider" = "chatgpt" ]; then
   echo
   echo "Preparing the stable Oracle host identity required for ChatGPT authorization..."
   "$REPO_DIR/deploy/oracle/chatgpt-host-id.sh"
 fi
 
-# The containers read .env only when they are created, so recreating them is part of the change.
+# The API reports the provider it actually loaded, which is the only answer that counts.
+login_body="$(python3 -c 'import json, sys; print(json.dumps({"username": sys.argv[1], "password": sys.argv[2]}))' \
+  "$(env_get CREATOR_BOOTSTRAP_USERNAME)" "$(env_get CREATOR_BOOTSTRAP_PASSWORD)")"
+token="$(
+  curl -fsS -X POST "$base/api/v1/auth/login" -H 'Content-Type: application/json' -d "$login_body" 2>/dev/null \
+    | python3 -c 'import json, sys
+try:
+    print(json.load(sys.stdin).get("access_token", ""))
+except Exception:
+    print("")' || true
+)"
+unset login_body
+
+if [ -z "$token" ]; then
+  echo "Could not log in to read the status. Check it in the interface, under System."
+  exit 0
+fi
+
+echo "The API now reports:"
+curl -fsS -H "Authorization: Bearer $token" "$base/api/v1/system/inference" 2>/dev/null \
+  | python3 -c 'import json, sys
+snapshot = json.load(sys.stdin)
+print("  configured:", snapshot.get("configured"))
+print("  provider:  ", snapshot.get("configured_provider"))
+for entry in snapshot.get("providers", []):
+    print("  -", entry.get("provider"), "available:", entry.get("available"), entry.get("detail") or "")'
+
+if [ "$provider" = "chatgpt" ]; then
+  echo
+  echo "Running the authentication-ready smoke test..."
+  "$REPO_DIR/deploy/oracle/smoke-test.sh" --deus
+fi
+ .env; then
+  profile_args+=(--profile connected-deus)
+fi
+if grep -q '^STF_AUTO_TRAINING_ENABLED=true
+port="$(env_get CREATION_API_PORT)"
+base="http://127.0.0.1:${port:-8000}"
+printf '\nWaiting for the API'
+for _ in $(seq 1 60); do
+  if curl -fsS "$base/api/v1/health/ready" >/dev/null 2>&1; then
+    break
+  fi
+  printf '.'
+  sleep 2
+done
 echo
-echo "Restarting api and worker..."
-"${COMPOSE[@]}" up -d --force-recreate api worker
+
+if ! curl -fsS "$base/api/v1/health/ready" >/dev/null 2>&1; then
+  echo "The API did not become ready after the inference change." >&2
+  "${COMPOSE[@]}" ps api worker >&2 || true
+  exit 1
+fi
+
+# The API reports the provider it actually loaded, which is the only answer that counts.
+login_body="$(python3 -c 'import json, sys; print(json.dumps({"username": sys.argv[1], "password": sys.argv[2]}))' \
+  "$(env_get CREATOR_BOOTSTRAP_USERNAME)" "$(env_get CREATOR_BOOTSTRAP_PASSWORD)")"
+token="$(
+  curl -fsS -X POST "$base/api/v1/auth/login" -H 'Content-Type: application/json' -d "$login_body" 2>/dev/null \
+    | python3 -c 'import json, sys
+try:
+    print(json.load(sys.stdin).get("access_token", ""))
+except Exception:
+    print("")' || true
+)"
+unset login_body
+
+if [ -z "$token" ]; then
+  echo "Could not log in to read the status. Check it in the interface, under System."
+  exit 0
+fi
+
+echo "The API now reports:"
+curl -fsS -H "Authorization: Bearer $token" "$base/api/v1/system/inference" 2>/dev/null \
+  | python3 -c 'import json, sys
+snapshot = json.load(sys.stdin)
+print("  configured:", snapshot.get("configured"))
+print("  provider:  ", snapshot.get("configured_provider"))
+for entry in snapshot.get("providers", []):
+    print("  -", entry.get("provider"), "available:", entry.get("available"), entry.get("detail") or "")'
+ .env; then
+  profile_args+=(--profile security-task-force)
+fi
+if grep -q '^TELEMETRY_ENABLED=true
+port="$(env_get CREATION_API_PORT)"
+base="http://127.0.0.1:${port:-8000}"
+printf '\nWaiting for the API'
+for _ in $(seq 1 60); do
+  if curl -fsS "$base/api/v1/health/ready" >/dev/null 2>&1; then
+    break
+  fi
+  printf '.'
+  sleep 2
+done
+echo
+
+if ! curl -fsS "$base/api/v1/health/ready" >/dev/null 2>&1; then
+  echo "The API did not become ready after the inference change." >&2
+  "${COMPOSE[@]}" ps api worker >&2 || true
+  exit 1
+fi
+
+# The API reports the provider it actually loaded, which is the only answer that counts.
+login_body="$(python3 -c 'import json, sys; print(json.dumps({"username": sys.argv[1], "password": sys.argv[2]}))' \
+  "$(env_get CREATOR_BOOTSTRAP_USERNAME)" "$(env_get CREATOR_BOOTSTRAP_PASSWORD)")"
+token="$(
+  curl -fsS -X POST "$base/api/v1/auth/login" -H 'Content-Type: application/json' -d "$login_body" 2>/dev/null \
+    | python3 -c 'import json, sys
+try:
+    print(json.load(sys.stdin).get("access_token", ""))
+except Exception:
+    print("")' || true
+)"
+unset login_body
+
+if [ -z "$token" ]; then
+  echo "Could not log in to read the status. Check it in the interface, under System."
+  exit 0
+fi
+
+echo "The API now reports:"
+curl -fsS -H "Authorization: Bearer $token" "$base/api/v1/system/inference" 2>/dev/null \
+  | python3 -c 'import json, sys
+snapshot = json.load(sys.stdin)
+print("  configured:", snapshot.get("configured"))
+print("  provider:  ", snapshot.get("configured_provider"))
+for entry in snapshot.get("providers", []):
+    print("  -", entry.get("provider"), "available:", entry.get("available"), entry.get("detail") or "")'
+ .env; then
+  profile_args+=(--profile observability)
+fi
+echo "Building and recreating the current runtime..."
+"${COMPOSE[@]}" "${profile_args[@]}" up -d --build --remove-orphans
 
 port="$(env_get CREATION_API_PORT)"
 base="http://127.0.0.1:${port:-8000}"
