@@ -229,3 +229,9 @@
 @media (max-width: 760px) {
   .chatgpt-plan-state { width: min(100%, 520px); justify-content: space-between; border-radius: 12px; }
 }
+.console-message .fallback-notice {
+  display: block;
+  margin-top: 6px;
+  color: #ffe0a6;
+  font: 600 10px/1.3 var(--mono);
+}

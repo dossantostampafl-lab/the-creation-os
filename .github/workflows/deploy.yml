@@ -15,6 +15,7 @@ on:
           - check
           - check-chat-instructions
           - check-chatgpt-auth
+          - import-chatgpt-credentials
           - check-universe-inference
           - repair-universe-inference
           - restart
@@ -253,9 +254,23 @@ jobs:
           FREELLMAPI_API_KEY: ${{ secrets.FREELLMAPI_API_KEY }}
           FREELLMAPI_MODEL: ${{ secrets.FREELLMAPI_MODEL }}
           FREELLMAPI_BASE_URL: ${{ secrets.FREELLMAPI_BASE_URL }}
+          CHATGPT_CREDENTIALS_JSON: ${{ secrets.CHATGPT_CREDENTIALS_JSON }}
           DEUS_VOICE_CONVERSATION_MODELS: ${{ inputs.voice_models }}
         run: |
           set -euo pipefail
+
+          if [ "$TASK" = "import-chatgpt-credentials" ] && [ -z "${CHATGPT_CREDENTIALS_JSON:-}" ]; then
+            echo "::error::import-chatgpt-credentials needs the CHATGPT_CREDENTIALS_JSON secret: the full" \
+                 "contents of the credentials.json written by chatgpt_connect. Add it under" \
+                 "Settings -> Secrets and variables -> Actions, then run this task again."
+            exit 1
+          fi
+          # The credential file spans several lines, so it travels as one base64 line down the
+          # same pipe as the other secrets: never as an argument, never in the log.
+          chatgpt_credentials_b64=""
+          if [ "$TASK" = "import-chatgpt-credentials" ]; then
+            chatgpt_credentials_b64="$(printf '%s' "$CHATGPT_CREDENTIALS_JSON" | base64 -w0)"
+          fi
 
           # set-inference without the ANTHROPIC_API_KEY secret keeps the key the server's .env
           # already holds, so changing only the model or the Workspace ID does not require
@@ -273,6 +288,7 @@ jobs:
             printf '%s\n' "${ANTHROPIC_API_KEY:-}"
             printf '%s\n' "${CREATOR_PASSWORD:-}"
             printf '%s\n' "${FREELLMAPI_API_KEY:-}"
+            printf '%s\n' "$chatgpt_credentials_b64"
             cat <<'REMOTE'
           set -euo pipefail
           # A server can carry more than one checkout: install.sh works where it is, and
@@ -326,6 +342,22 @@ jobs:
                 echo "The API container is not running." >&2
                 exit 1
               fi
+              sudo docker exec -i "$api" python - --full < deploy/oracle/check-chatgpt-auth.py
+              ;;
+            import-chatgpt-credentials)
+              # The importer needs the ChatGPT-capable stack and the VM host ID in place. The file
+              # exists only for the duration of the import, owner-only, and is removed afterwards.
+              credential_file="$(umask 077; mktemp)"
+              trap 'rm -f "$credential_file"' EXIT
+              if ! printf '%s' "${CHATGPT_CREDENTIALS_B64:-}" | base64 -d > "$credential_file" 2>/dev/null; then
+                echo "CHATGPT_CREDENTIALS_JSON could not be decoded. Paste the whole credentials.json into the secret." >&2
+                exit 1
+              fi
+              unset CHATGPT_CREDENTIALS_B64
+              sudo ./deploy/oracle/chatgpt-host-id.sh
+              sudo ./deploy/oracle/import-chatgpt-credentials.sh "$credential_file"
+              rm -f "$credential_file"
+              api="$(sudo docker ps --filter 'label=com.docker.compose.service=api' --format '{{.ID}}' | head -1)"
               sudo docker exec -i "$api" python - --full < deploy/oracle/check-chatgpt-auth.py
               ;;
             check-universe-inference)
@@ -394,8 +426,9 @@ jobs:
               # revision and rebuild api/worker before switching the runtime to ChatGPT.
               sudo git merge --ff-only "origin/$target"
               sudo "${COMPOSE[@]}" build api worker
-              # SIWC plan requests must never silently switch to another provider/billing path.
-              FALLBACK_PROVIDERS= sudo -E ./deploy/oracle/set-inference.sh chatgpt gpt-6.1-sol
+              # ChatGPT plan first. FreeLLMAPI answers only when the plan cannot, and every such reply
+              # names the provider that answered and why: a disclosed, never silent, switch.
+              FALLBACK_PROVIDERS=freellmapi sudo -E ./deploy/oracle/set-inference.sh chatgpt gpt-6.1-sol
               sudo ./deploy/oracle/check-inference.sh
               ;;
             set-inference-freellmapi)
@@ -449,8 +482,8 @@ jobs:
                         FREELLMAPI_BASE_URL='${FREELLMAPI_BASE_URL:-}' \
                         DEUS_VOICE_CONVERSATION_MODELS='${DEUS_VOICE_CONVERSATION_MODELS:-}'; \
                  IFS= read -r ANTHROPIC_API_KEY; IFS= read -r CREATOR_PASSWORD; \
-                 IFS= read -r FREELLMAPI_API_KEY; \
-                 export ANTHROPIC_API_KEY CREATOR_PASSWORD FREELLMAPI_API_KEY; exec bash -s"
+                 IFS= read -r FREELLMAPI_API_KEY; IFS= read -r CHATGPT_CREDENTIALS_B64; \
+                 export ANTHROPIC_API_KEY CREATOR_PASSWORD FREELLMAPI_API_KEY CHATGPT_CREDENTIALS_B64; exec bash -s"
 
       - name: Run authenticated gauntlet in a real browser
         if: inputs.task == 'browser-gauntlet'

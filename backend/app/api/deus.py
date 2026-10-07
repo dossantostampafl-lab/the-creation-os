@@ -73,7 +73,8 @@ async def converse_with_deus(
         trinity=trinity,
         context_builder=DeusContextBuilder(AsyncSessionLocal) if settings.deus_context_retrieval_enabled else None,
         provider_timeout_seconds=settings.deus_chat_provider_timeout_seconds,
-        total_timeout_seconds=settings.deus_chat_total_timeout_seconds,
+        total_timeout_seconds=settings.deus_chat_effective_total_timeout_seconds,
+        provider_timeout_overrides=settings.deus_chat_attempt_timeouts_by_provider,
     )
     turn = None
     store = TurnStore(AsyncSessionLocal)
@@ -89,14 +90,16 @@ async def converse_with_deus(
     def response_for(result):
         return MessageResponse(message_id=result.creator_message_id,
             conversation_id=result.conversation_id, route='deus', response=result.response,
-            inception=result.inception, system_state=None, correlation_id=cid)
+            inception=result.inception, system_state=None, correlation_id=cid,
+            provider=result.provider, fallback_from=result.fallback_from,
+            fallback_reason=result.fallback_reason)
 
     async def commit_guard(result):
         await store.finish_in_session(session, turn, response_for(result).model_dump(mode='json'), 'completed')
 
     try:
         try:
-            async with asyncio.timeout(settings.deus_chat_total_timeout_seconds):
+            async with asyncio.timeout(settings.deus_chat_effective_total_timeout_seconds):
                 if turn is not None:
                     async with store.renewing(turn):
                         result = await service.respond(

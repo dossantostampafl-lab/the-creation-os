@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 
 from loguru import logger
 
@@ -32,6 +32,7 @@ class ModelRouter:
         rate_limit_cooldown_seconds: float = 30.0,
         clock: Callable[[], float] = time.monotonic,
         fallback_providers: Sequence[str] = (),
+        disclosed_fallback_after: Collection[str] = (),
     ) -> None:
         if rate_limit_cooldown_seconds < 0:
             raise ValueError("rate_limit_cooldown_seconds must be >= 0")
@@ -42,12 +43,32 @@ class ModelRouter:
         self._clock = clock
         # Last-resort providers tried after everything a request asked for is unavailable.
         self._fallback_providers = tuple(fallback_providers)
+        # Providers whose failure may advance to the next candidate only because the operator
+        # opted in and every such answer carries fallback_from/fallback_reason for the UI.
+        self._disclosed_fallback_after = frozenset(
+            name.strip().lower() for name in disclosed_fallback_after
+        )
+
+    def _must_stop_after_provider_failure(self, provider_name: str) -> bool:
+        # OpenAI SIWC forbids silently moving a ChatGPT-plan request to another provider or
+        # billing path. Without an explicit, disclosed fallback the request stops here.
+        name = provider_name.strip().lower()
+        return name == "chatgpt" and name not in self._disclosed_fallback_after
+
+    def allows_fallback_after(self, provider_name: str) -> bool:
+        return not self._must_stop_after_provider_failure(provider_name)
 
     @staticmethod
-    def _must_stop_after_provider_failure(provider_name: str) -> bool:
-        # OpenAI SIWC requires ChatGPT-plan usage failures to stop the request.
-        # Never silently move the same request onto another provider/billing path.
-        return provider_name.strip().lower() == "chatgpt"
+    def _attempt_timeout(provider_name: str, metadata: dict) -> float | None:
+        by_provider = metadata.get("attempt_timeout_seconds_by_provider")
+        value = (
+            by_provider.get(provider_name)
+            if isinstance(by_provider, dict) and provider_name in by_provider
+            else metadata.get("attempt_timeout_seconds")
+        )
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0:
+            return float(value)
+        return None
 
     def _profile_for_request(self, provider_name: str, request: InferenceRequest):
         if request.model is not None:
@@ -134,7 +155,10 @@ class ModelRouter:
             raise ProviderUnavailable("router", "no inference provider requested")
 
         last_error: InferenceError | None = None
+        first_failure: InferenceError | None = None
         for provider_name in candidates:
+            if last_error is not None and first_failure is None:
+                first_failure = last_error
             provider = self.registry.get(provider_name)
             attempt = self._request_for(provider_name, request)
 
@@ -164,13 +188,8 @@ class ModelRouter:
                         health = await provider.health()
                         if not health.available:
                             raise ProviderUnavailable(provider_name, health.detail or "provider unavailable")
-                    timeout_value = attempt.metadata.get("attempt_timeout_seconds")
-                    timeout_seconds = (
-                        float(timeout_value)
-                        if isinstance(timeout_value, (int, float)) and not isinstance(timeout_value, bool)
-                        else None
-                    )
-                    if timeout_seconds is not None and timeout_seconds > 0:
+                    timeout_seconds = self._attempt_timeout(provider_name, attempt.metadata)
+                    if timeout_seconds is not None:
                         try:
                             async with asyncio.timeout(timeout_seconds):
                                 response = await provider.generate(attempt)
@@ -217,6 +236,18 @@ class ModelRouter:
                 continue
 
             self._circuit_breaker.record_success(provider_name)
+            if first_failure is not None:
+                # The answer came from a later candidate: say which provider failed and why,
+                # so the reply is never presented as if the first choice had produced it.
+                response = response.model_copy(
+                    update={
+                        "metadata": {
+                            **response.metadata,
+                            "fallback_from": first_failure.provider,
+                            "fallback_reason": first_failure.upstream_code or first_failure.code,
+                        }
+                    }
+                )
             return response
 
         if last_error is not None:

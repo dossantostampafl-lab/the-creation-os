@@ -233,3 +233,105 @@ async def test_chatgpt_plan_failure_never_silently_switches_billing_path() -> No
 
     assert len(primary.requests) == 1
     assert fallback.requests == []
+
+
+def _plan_request(**metadata) -> InferenceRequest:
+    return InferenceRequest(
+        messages=[{"role": "user", "content": "hello"}],
+        model="auto",
+        requirements=ModelRequirements(preferred_provider="chatgpt"),
+        metadata=metadata,
+    )
+
+
+def _disclosed_router(primary: StubProvider, fallback: StubProvider) -> ModelRouter:
+    registry = ProviderRegistry()
+    for provider, model in ((primary, "gpt-plan"), (fallback, "auto")):
+        registry.register(provider)
+        registry.register_model_profile(ProviderModelProfile(provider=provider.name, model=model, is_default=True))
+    return ModelRouter(
+        registry,
+        fallback_providers=[fallback.name],
+        disclosed_fallback_after=["chatgpt"],
+    )
+
+
+@pytest.mark.asyncio
+async def test_opted_in_chatgpt_fallback_answers_and_says_why() -> None:
+    primary = StubProvider(
+        "chatgpt",
+        failure=InferenceRateLimitError(
+            "chatgpt",
+            "plan limit",
+            upstream_status=429,
+            upstream_code="subscription_sharing_usage_limit_exceeded",
+        ),
+    )
+    fallback = StubProvider("freellmapi")
+    router = _disclosed_router(primary, fallback)
+
+    response = await router.generate(_plan_request())
+
+    assert response.provider == "freellmapi"
+    assert response.metadata["fallback_from"] == "chatgpt"
+    assert response.metadata["fallback_reason"] == "subscription_sharing_usage_limit_exceeded"
+    assert router.allows_fallback_after("chatgpt")
+
+    # The usage-limit cooldown pauses plan requests: the next one goes straight to the reserve.
+    again = await router.generate(_plan_request())
+    assert again.provider == "freellmapi"
+    assert len(primary.requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_healthy_chatgpt_answer_carries_no_fallback_marker() -> None:
+    router = _disclosed_router(StubProvider("chatgpt"), StubProvider("freellmapi"))
+
+    response = await router.generate(_plan_request())
+
+    assert response.provider == "chatgpt"
+    assert "fallback_from" not in response.metadata
+
+
+def test_without_the_opt_in_chatgpt_still_stops() -> None:
+    registry = ProviderRegistry()
+    assert not ModelRouter(registry).allows_fallback_after("chatgpt")
+    assert ModelRouter(registry).allows_fallback_after("freellmapi")
+
+
+@pytest.mark.asyncio
+async def test_chatgpt_gets_its_own_attempt_deadline() -> None:
+    class Slow(StubProvider):
+        async def generate(self, request: InferenceRequest) -> InferenceResponse:
+            await asyncio.sleep(0.05)
+            return await super().generate(request)
+
+    router = _disclosed_router(Slow("chatgpt"), StubProvider("freellmapi"))
+
+    # The generic 10ms budget would cut ChatGPT off; its own 1s budget lets it finish.
+    response = await router.generate(
+        _plan_request(
+            attempt_timeout_seconds=0.01,
+            attempt_timeout_seconds_by_provider={"chatgpt": 1.0},
+        )
+    )
+    assert response.provider == "chatgpt"
+
+    cut = await router.generate(_plan_request(attempt_timeout_seconds=0.01))
+    assert cut.provider == "freellmapi"
+    assert cut.metadata["fallback_reason"] == "INFERENCE_TIMEOUT"
+
+
+def test_bootstrap_opts_chatgpt_into_the_disclosed_fallback_only_when_enabled(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "llm_provider", "chatgpt")
+    monkeypatch.setattr(settings, "llm_fallback_providers", "freellmapi")
+    monkeypatch.setenv("FREELLMAPI_BASE_URL", "http://localhost:3001/v1")
+    monkeypatch.setenv("FREELLMAPI_MODEL", "auto")
+
+    monkeypatch.setattr(settings, "chatgpt_fallback_enabled", False)
+    assert not build_model_router().allows_fallback_after("chatgpt")
+
+    monkeypatch.setattr(settings, "chatgpt_fallback_enabled", True)
+    router = build_model_router()
+    assert tuple(router.registry.names()) == ("chatgpt", "freellmapi")
+    assert router.allows_fallback_after("chatgpt")

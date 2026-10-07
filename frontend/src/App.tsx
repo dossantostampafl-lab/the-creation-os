@@ -234,7 +234,12 @@ function App() {
   const missionTasks = useMemo(() => state?.tasks.filter((task) => task.mission_id === selectedMission?.id) ?? [], [state, selectedMission]);
   const pulseEntries = useMemo(() => Object.entries(state?.pulse ?? {}).slice(0, 8), [state]);
   const configuredProvider = inference?.providers.find((provider) => provider.provider === inference.configured_provider) ?? null;
-  const deusReady = Boolean(inference?.configured && configuredProvider?.available);
+  // A disclosed reserve keeps DEUS usable while the configured provider (e.g. the ChatGPT plan) is down.
+  const reserveAvailable = Boolean(
+    inference?.fallback_enabled
+      && inference.providers.some((provider) => provider.provider !== inference.configured_provider && provider.available),
+  );
+  const deusReady = Boolean(inference?.configured && (configuredProvider?.available || reserveAvailable));
   const chatgptProvider = inference?.providers.find((provider) => provider.provider === "chatgpt") ?? null;
   const usingChatgptPlan = Boolean(
     inference?.configured_provider === "chatgpt" && chatgptProvider?.available && chatgptProvider.usage_url,

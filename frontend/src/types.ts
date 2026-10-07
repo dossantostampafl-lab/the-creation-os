@@ -143,4 +143,5 @@ export type InferenceStatusSnapshot = {
   configured: boolean;
   configured_provider: string;
   providers: InferenceProviderStatus[];
+  fallback_enabled?: boolean;
 };
