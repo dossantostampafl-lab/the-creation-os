@@ -81,6 +81,13 @@ def _load_or_create_host_id(output: Path, credentials: dict[str, object]) -> str
     return value
 
 
+def _granted_scopes(tokens: dict[str, object]) -> set[str]:
+    token_scope = tokens.get("scope")
+    if not isinstance(token_scope, str) or not token_scope.strip():
+        raise RuntimeError("ChatGPT token exchange did not return granted scopes")
+    return {item for item in token_scope.split() if item}
+
+
 def _validate_id_token(id_token: str, *, client_id: str, nonce: str) -> dict[str, object]:
     with httpx.Client(timeout=15.0) as client:
         response = client.get(JWKS_URL)
@@ -262,10 +269,7 @@ def connect(*, output: Path, port: int, no_browser: bool, force_new: bool) -> No
     id_token = str(tokens.get("id_token") or "")
     access_token = str(tokens.get("access_token") or "")
     refresh_token = str(tokens.get("refresh_token") or "")
-    token_scope = tokens.get("scope")
-    if not isinstance(token_scope, str) or not token_scope.strip():
-        raise RuntimeError("ChatGPT token exchange did not return granted scopes")
-    scopes = {item for item in token_scope.split() if item}
+    scopes = _granted_scopes(tokens)
     if not id_token or not access_token or not refresh_token:
         raise RuntimeError("ChatGPT token exchange returned incomplete credentials")
     if "chatgpt.tokens.use.direct" not in scopes:
