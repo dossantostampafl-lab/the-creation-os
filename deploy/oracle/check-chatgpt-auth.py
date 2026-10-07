@@ -44,7 +44,24 @@ async def run(full: bool) -> int:
 
     print("   issued client id: present")
     print("   plan usage scope: enabled")
-    print(f"   vm host id: {'present' if record.ext_agent_host_id else 'missing'}")
+    host_path = path.parent / "host-id"
+    try:
+        runtime_host_id = host_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        runtime_host_id = ""
+    if not runtime_host_id:
+        print("   vm host id: missing")
+        print("   AUTH_READY=no")
+        return 2
+    if not record.ext_agent_host_id:
+        print("   credential host id: missing")
+        print("   AUTH_READY=no")
+        return 2
+    if record.ext_agent_host_id != runtime_host_id:
+        print("   credential host id: does not match this Oracle runtime")
+        print("   AUTH_READY=no")
+        return 2
+    print("   vm host id: matched")
 
     try:
         token = await store.access_token()
