@@ -14,6 +14,7 @@ on:
         options:
           - check
           - check-chat-instructions
+          - check-chatgpt-auth
           - check-universe-inference
           - repair-universe-inference
           - restart
@@ -319,6 +320,14 @@ jobs:
             check-chat-instructions)
               sudo "${COMPOSE[@]}" exec -T api python - < deploy/oracle/check-chat-instructions.py
               ;;
+            check-chatgpt-auth)
+              api="$(sudo docker ps --filter 'label=com.docker.compose.service=api' --format '{{.ID}}' | head -1)"
+              if [ -z "$api" ]; then
+                echo "The API container is not running." >&2
+                exit 1
+              fi
+              sudo docker exec -i "$api" python - --full < deploy/oracle/check-chatgpt-auth.py
+              ;;
             check-universe-inference)
               sudo env UNIVERSE_INFERENCE_DIAGNOSTIC=true ./deploy/oracle/check-inference.sh
               ;;
@@ -381,8 +390,13 @@ jobs:
               sudo -E ./deploy/oracle/set-inference.sh anthropic "${ANTHROPIC_MODEL:-claude-sonnet-5}"
               ;;
             set-inference-chatgpt)
-              # ChatGPT OAuth is primary; the existing FreeLLMAPI gateway remains an independent reserve.
-              FALLBACK_PROVIDERS=freellmapi sudo -E ./deploy/oracle/set-inference.sh chatgpt gpt-6.1-sol
+              # This provider lives in application code, not only in .env. Pull the selected
+              # revision and rebuild api/worker before switching the runtime to ChatGPT.
+              sudo git merge --ff-only "origin/$target"
+              sudo "${COMPOSE[@]}" build api worker
+              # SIWC plan requests must never silently switch to another provider/billing path.
+              FALLBACK_PROVIDERS= sudo -E ./deploy/oracle/set-inference.sh chatgpt gpt-6.1-sol
+              sudo ./deploy/oracle/check-inference.sh
               ;;
             set-inference-freellmapi)
               # FreeLLMAPI first, Claude as the reserve. The script refuses, and changes nothing,

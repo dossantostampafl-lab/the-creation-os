@@ -25,8 +25,17 @@ import json, os, stat, sys
 path = sys.argv[1]
 with open(path, "r", encoding="utf-8") as handle:
     data = json.load(handle)
-required = {"client_id", "access_token", "refresh_token", "saved_at"}
+required = {"client_id", "access_token", "refresh_token", "id_token", "subject", "saved_at"}
 missing = sorted(name for name in required if not data.get(name))
+if data.get("issuer") != "https://auth.openai.com":
+    missing.append("issuer:https://auth.openai.com")
+if data.get("client_id") == "dynamic_agent_client":
+    missing.append("issued_client_id")
+try:
+    if int(data.get("expires_in", 0)) <= 0:
+        missing.append("expires_in")
+except (TypeError, ValueError):
+    missing.append("expires_in")
 scope = data.get("scopes", data.get("scope", []))
 if isinstance(scope, str):
     scopes = set(scope.split())
@@ -43,10 +52,26 @@ print("Credential structure validated; token values were not printed.")
 PY
 
 api_container="$("${COMPOSE[@]}" ps -q api)"
-if [ -z "$api_container" ]; then
-  echo "The API container is not running. Start the stack first." >&2
+worker_container="$("${COMPOSE[@]}" ps -q worker)"
+if [ -z "$api_container" ] || [ -z "$worker_container" ]; then
+  echo "The API and worker containers must both be running. Deploy/rebuild the ChatGPT-capable stack first." >&2
   exit 1
 fi
+
+credential_mount() {
+  docker inspect -f '{{range .Mounts}}{{if eq .Destination "/var/lib/creation/chatgpt"}}{{.Name}}{{end}}{{end}}' "$1" 2>/dev/null
+}
+api_mount="$(credential_mount "$api_container")"
+worker_mount="$(credential_mount "$worker_container")"
+if [ -z "$api_mount" ] || [ -z "$worker_mount" ]; then
+  echo "The protected ChatGPT credential volume is not mounted in API and worker. Deploy/rebuild before importing OAuth credentials." >&2
+  exit 1
+fi
+if [ "$api_mount" != "$worker_mount" ]; then
+  echo "API and worker do not share the same ChatGPT credential volume; refusing a partial credential install." >&2
+  exit 1
+fi
+echo "Protected ChatGPT credential volume verified for API and worker."
 
 host_id="$("${COMPOSE[@]}" exec -T api python - <<'PY'
 from pathlib import Path
@@ -71,6 +96,9 @@ import json, os, sys
 source, target, host_id = sys.argv[1:]
 with open(source, "r", encoding="utf-8") as handle:
     data = json.load(handle)
+# The OAuth session may have been created on the browser/laptop host. OpenAI's
+# self-hosted VM flow requires the imported runtime record to preserve the VM's
+# already-persisted host ID rather than copying the laptop host ID over it.
 data["ext_agent_host_id"] = host_id
 with open(target, "w", encoding="utf-8") as handle:
     json.dump(data, handle, indent=2)

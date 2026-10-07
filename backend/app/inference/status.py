@@ -19,6 +19,8 @@ class InferenceProviderStatus(BaseModel):
     provider: str
     available: bool
     detail: str | None = None
+    account_label: str | None = None
+    usage_url: str | None = None
     models: list[InferenceModelStatus] = Field(default_factory=list)
 
 
@@ -50,11 +52,19 @@ async def build_inference_status(router: ModelRouter) -> InferenceStatusSnapshot
             )
             for profile in router.registry.model_profiles(provider_name)
         ]
+        try:
+            account_label = getattr(provider, "account_label", None)
+            usage_url = getattr(provider, "usage_url", None)
+        except Exception:
+            account_label = None
+            usage_url = None
         statuses.append(
             InferenceProviderStatus(
                 provider=provider_name,
                 available=available,
                 detail=detail,
+                account_label=account_label if isinstance(account_label, str) else None,
+                usage_url=usage_url if isinstance(usage_url, str) else None,
                 models=models,
             )
         )

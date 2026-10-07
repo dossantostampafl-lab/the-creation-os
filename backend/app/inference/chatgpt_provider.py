@@ -9,6 +9,7 @@ import httpx
 from app.inference.chatgpt_credentials import ChatGPTCredentialStore
 from app.inference.contracts import (
     InferenceAuthenticationError,
+    InferenceConfigurationError,
     InferenceRateLimitError,
     InferenceRequest,
     InferenceResponse,
@@ -22,11 +23,31 @@ from app.inference.provider_common import (
     capability_intent_parameters,
 )
 
+CHATGPT_USAGE_SETTINGS_URL = "https://chatgpt.com/#settings/Usage"
+
+
+def listed_model_slugs(payload: Any) -> list[str]:
+    """Return only display-visible SIWC model slugs, preserving server ordering."""
+    if not isinstance(payload, dict):
+        return []
+    models = payload.get("models")
+    if not isinstance(models, list):
+        return []
+    slugs: list[str] = []
+    for item in models:
+        if not isinstance(item, dict) or item.get("visibility") != "list":
+            continue
+        slug = item.get("slug")
+        if isinstance(slug, str) and slug.strip():
+            slugs.append(slug.strip())
+    return slugs
+
 
 class ChatGPTPlanProvider:
     """Responses API provider authenticated by Sign in with ChatGPT OAuth."""
 
     name = "chatgpt"
+    usage_url = CHATGPT_USAGE_SETTINGS_URL
 
     def __init__(
         self,
@@ -43,30 +64,70 @@ class ChatGPTPlanProvider:
         self.base_url = base_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
 
+    @property
+    def account_label(self) -> str | None:
+        try:
+            return self.credentials._read().email
+        except (InferenceAuthenticationError, OSError, ValueError):
+            return None
+
     async def _headers(self) -> dict[str, str]:
         return {
             "Authorization": f"Bearer {await self.credentials.access_token()}",
             "Content-Type": "application/json",
         }
 
+    @staticmethod
+    def _error_details(payload: Any) -> tuple[str, str | None]:
+        if not isinstance(payload, dict):
+            return "provider_error", None
+        error = payload.get("error")
+        if isinstance(error, dict):
+            code = str(error.get("code") or error.get("type") or "provider_error")
+            param = error.get("param")
+            return code, str(param) if param is not None else None
+        return "provider_error", None
+
+    @staticmethod
+    def _request_id(response: httpx.Response) -> str | None:
+        for name in ("x-request-id", "openai-request-id", "request-id"):
+            value = response.headers.get(name)
+            if value:
+                return value
+        return None
+
     async def health(self) -> ProviderHealth:
         try:
             headers = await self._headers()
             async with httpx.AsyncClient(timeout=min(self.timeout_seconds, 10.0)) as client:
                 response = await client.get(f"{self.base_url}/models", headers=headers)
-        except InferenceAuthenticationError as exc:
+        except (InferenceAuthenticationError, InferenceConfigurationError) as exc:
             return ProviderHealth(provider=self.name, available=False, detail=str(exc))
         except (ProviderUnavailable, httpx.HTTPError) as exc:
-            return ProviderHealth(
-                provider=self.name,
-                available=False,
-                detail=exc.__class__.__name__,
-            )
+            return ProviderHealth(provider=self.name, available=False, detail=exc.__class__.__name__)
         if response.status_code >= 400:
+            try:
+                payload = response.json()
+            except ValueError:
+                payload = {}
+            code, _ = self._error_details(payload)
             return ProviderHealth(
                 provider=self.name,
                 available=False,
-                detail=f"model catalog returned HTTP {response.status_code}",
+                detail=f"model catalog returned HTTP {response.status_code}: {code}",
+            )
+        try:
+            payload = response.json()
+        except ValueError:
+            return ProviderHealth(provider=self.name, available=False, detail="model catalog returned invalid JSON")
+        slugs = listed_model_slugs(payload)
+        if not slugs:
+            return ProviderHealth(provider=self.name, available=False, detail="model catalog exposed no display-visible models")
+        if self.default_model not in slugs:
+            return ProviderHealth(
+                provider=self.name,
+                available=False,
+                detail=f"configured model is not display-visible: {self.default_model}",
             )
         return ProviderHealth(provider=self.name, available=True)
 
@@ -109,32 +170,60 @@ class ChatGPTPlanProvider:
             ]
         return payload
 
-    @staticmethod
-    def _error_code(payload: Any) -> str:
-        if not isinstance(payload, dict):
-            return "provider_error"
-        error = payload.get("error")
-        if isinstance(error, dict):
-            return str(error.get("code") or error.get("type") or "provider_error")
-        detail = payload.get("detail")
-        return str(detail) if detail else "provider_error"
-
     def _raise_http_error(self, response: httpx.Response) -> None:
         try:
-            payload = response.json()
+            payload: Any = response.json()
         except ValueError:
-            payload = {}
-        code = self._error_code(payload)
+            payload = {"non_json_body": response.text[:2000]}
+        code, param = self._error_details(payload)
         message = f"ChatGPT returned HTTP {response.status_code}: {code}"
-        if response.status_code == 401:
-            raise InferenceAuthenticationError(self.name, message)
-        if response.status_code == 429:
-            raise InferenceRateLimitError(self.name, message)
-        if response.status_code in {402, 403}:
-            raise ProviderUnavailable(self.name, message)
-        if response.status_code >= 500:
-            raise ProviderUnavailable(self.name, message)
-        raise InferenceUpstreamResponseError(self.name, message)
+        request_id = self._request_id(response)
+        if code == "subscription_sharing_usage_limit_exceeded" or response.status_code == 429:
+            raise InferenceRateLimitError(
+                self.name, message,
+                upstream_status=response.status_code, upstream_code=code, upstream_param=param,
+                request_id=request_id, upstream_body=payload,
+            )
+        if code in {
+            "subscription_sharing_usage_unavailable",
+            "subscription_sharing_user_unavailable",
+            "subscription_sharing_user_not_eligible",
+        }:
+            raise ProviderUnavailable(
+                self.name, message,
+                upstream_status=response.status_code, upstream_code=code, upstream_param=param,
+                request_id=request_id, upstream_body=payload,
+            )
+        if code in {
+            "subscription_sharing_invalid_user",
+            "chatpass_v2_scope_not_authorized",
+            "chatpass_v2_invalid_authorization_context",
+        } or response.status_code == 401:
+            raise InferenceAuthenticationError(
+                self.name, message,
+                upstream_status=response.status_code, upstream_code=code, upstream_param=param,
+                request_id=request_id, upstream_body=payload,
+            )
+        if code in {
+            "subscription_sharing_unsupported_capability",
+            "subscription_sharing_route_not_supported",
+        }:
+            raise InferenceUpstreamResponseError(
+                self.name, message,
+                upstream_status=response.status_code, upstream_code=code, upstream_param=param,
+                request_id=request_id, upstream_body=payload,
+            )
+        if response.status_code in {402, 403} or response.status_code >= 500:
+            raise ProviderUnavailable(
+                self.name, message,
+                upstream_status=response.status_code, upstream_code=code, upstream_param=param,
+                request_id=request_id, upstream_body=payload,
+            )
+        raise InferenceUpstreamResponseError(
+            self.name, message,
+            upstream_status=response.status_code, upstream_code=code, upstream_param=param,
+            request_id=request_id, upstream_body=payload,
+        )
 
     @staticmethod
     def _capability_from_output(response_payload: dict[str, Any]) -> dict[str, Any] | None:
@@ -164,11 +253,31 @@ class ChatGPTPlanProvider:
             if isinstance(error, dict)
             else "provider_error"
         )
+        param = str(error.get("param")) if isinstance(error, dict) and error.get("param") is not None else None
         if code == "subscription_sharing_usage_limit_exceeded":
-            raise InferenceRateLimitError(self.name, code)
-        if code in {"subscription_sharing_usage_unavailable", "subscription_sharing_not_enabled"}:
-            raise ProviderUnavailable(self.name, code)
-        raise InferenceUpstreamResponseError(self.name, code)
+            raise InferenceRateLimitError(
+                self.name, code, upstream_code=code, upstream_param=param, upstream_body=event
+            )
+        if code in {
+            "subscription_sharing_usage_unavailable",
+            "subscription_sharing_user_unavailable",
+            "subscription_sharing_user_not_eligible",
+            "subscription_sharing_not_enabled",
+        }:
+            raise ProviderUnavailable(
+                self.name, code, upstream_code=code, upstream_param=param, upstream_body=event
+            )
+        if code in {
+            "subscription_sharing_invalid_user",
+            "chatpass_v2_scope_not_authorized",
+            "chatpass_v2_invalid_authorization_context",
+        }:
+            raise InferenceAuthenticationError(
+                self.name, code, upstream_code=code, upstream_param=param, upstream_body=event
+            )
+        raise InferenceUpstreamResponseError(
+            self.name, code, upstream_code=code, upstream_param=param, upstream_body=event
+        )
 
     async def _events(self, request: InferenceRequest) -> AsyncIterator[dict[str, Any]]:
         try:
@@ -199,10 +308,16 @@ class ChatGPTPlanProvider:
                         if event_type == "response.failed":
                             self._raise_stream_failure(event)
                         if event_type == "response.incomplete":
-                            raise ProviderUnavailable(self.name, "ChatGPT response was incomplete")
+                            raise ProviderUnavailable(
+                                self.name,
+                                "ChatGPT response was incomplete",
+                                upstream_code="response_incomplete",
+                                upstream_body=event,
+                            )
                         yield event
         except (
             InferenceAuthenticationError,
+            InferenceConfigurationError,
             InferenceRateLimitError,
             InferenceUpstreamResponseError,
             ProviderUnavailable,

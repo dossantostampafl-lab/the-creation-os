@@ -186,6 +186,32 @@ export type DeusConversationReply = {
   correlation_id: string;
 };
 
+export class InferenceApiError extends Error {
+  code: string;
+  retryable: boolean;
+  upstreamStatus: number | null;
+  requestId: string | null;
+
+  constructor(message: string, detail: { code: string; retryable?: boolean; upstream_status?: number | null; request_id?: string | null }) {
+    super(message);
+    this.name = "InferenceApiError";
+    this.code = detail.code;
+    this.retryable = Boolean(detail.retryable);
+    this.upstreamStatus = detail.upstream_status ?? null;
+    this.requestId = detail.request_id ?? null;
+  }
+}
+
+type InferenceFailurePayload = {
+  detail?: {
+    code?: string;
+    message?: string;
+    retryable?: boolean;
+    upstream_status?: number | null;
+    request_id?: string | null;
+  };
+};
+
 export async function converseWithDeus(
   conversationId: string,
   content: string,
@@ -198,11 +224,27 @@ export async function converseWithDeus(
     try {
       const response = await authorizedFetch(path, { method: "POST", body });
       if (response.ok) return response.json() as Promise<DeusConversationReply>;
-      if (![502, 503, 504].includes(response.status) || attempt === 1) {
+      const payload = await response.json().catch(() => null) as InferenceFailurePayload | null;
+      const detail = payload?.detail;
+      if (detail?.code) {
+        const failure = new InferenceApiError(
+          detail.message ?? "O provedor de inferência não concluiu a resposta.",
+          {
+            code: detail.code,
+            retryable: detail.retryable,
+            upstream_status: detail.upstream_status,
+            request_id: detail.request_id,
+          },
+        );
+        if (!failure.retryable || attempt === 1) throw failure;
+        lastError = failure;
+      } else if (![502, 503, 504].includes(response.status) || attempt === 1) {
         throw new Error(`HTTP_${response.status}`);
+      } else {
+        lastError = new Error(`HTTP_${response.status}`);
       }
-      lastError = new Error(`HTTP_${response.status}`);
     } catch (error) {
+      if (error instanceof InferenceApiError && !error.retryable) throw error;
       if (error instanceof Error && (
         error.message === "AUTH_REQUIRED"
         || error.message.startsWith("HTTP_4")

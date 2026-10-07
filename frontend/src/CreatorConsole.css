@@ -207,3 +207,25 @@
   .wake-hint { display: none; }
   .console-form textarea { max-height: 72px; padding-block: 9px; }
 }
+
+.chatgpt-plan-state {
+  justify-self: center;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 100%;
+  padding: 6px 10px;
+  border: 1px solid rgba(93, 222, 243, .22);
+  border-radius: 999px;
+  background: rgba(4, 14, 20, .72);
+  color: #9bcbd2;
+  font: 600 10px/1.3 var(--mono);
+}
+.chatgpt-plan-state span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chatgpt-plan-state a { flex: none; color: #8deafa; text-decoration: none; }
+.chatgpt-plan-state a:hover { text-decoration: underline; }
+.chatgpt-plan-state.limit { border-color: rgba(255, 210, 125, .62); background: rgba(61, 39, 8, .88); color: #ffe0a6; }
+.chatgpt-plan-state.limit a { color: #fff0bd; font-weight: 800; }
+@media (max-width: 760px) {
+  .chatgpt-plan-state { width: min(100%, 520px); justify-content: space-between; border-radius: 12px; }
+}

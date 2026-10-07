@@ -117,7 +117,17 @@ fi
 # The provider's own words are what identify it, so ask it directly, from inside the container
 # that holds the credential. The reply carries no secret.
 echo
-echo "== 4. What Anthropic itself says =="
+echo "== 4. What ChatGPT itself says =="
+if [ -z "$api_container" ]; then
+  echo "   No api container to ask from."
+else
+  if ! docker exec -i "$api_container" python - --status < "$REPO_DIR/deploy/oracle/check-chatgpt-auth.py"; then
+    echo "   ChatGPT OAuth is not ready yet. Complete Sign in with ChatGPT and import the protected credential file."
+  fi
+fi
+
+echo
+echo "== 5. What Anthropic itself says =="
 if [ -z "$api_container" ]; then
   echo "   No api container to ask from."
 else
@@ -161,7 +171,7 @@ fi
 # FreeLLMAPI can be installed and healthy even while another provider is primary. Probe it
 # independently so the report answers both questions: provider order and gateway availability.
 echo
-echo "== 5. What FreeLLMAPI itself says =="
+echo "== 6. What FreeLLMAPI itself says =="
 if [ -z "$api_container" ]; then
   echo "   No api container to ask from."
 else

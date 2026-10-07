@@ -71,9 +71,24 @@ class ProviderHealth(BaseModel):
 class InferenceError(RuntimeError):
     code: str = "INFERENCE_ERROR"
 
-    def __init__(self, provider: str, message: str) -> None:
+    def __init__(
+        self,
+        provider: str,
+        message: str,
+        *,
+        upstream_status: int | None = None,
+        upstream_code: str | None = None,
+        upstream_param: str | None = None,
+        request_id: str | None = None,
+        upstream_body: Any | None = None,
+    ) -> None:
         super().__init__(message)
         self.provider = provider
+        self.upstream_status = upstream_status
+        self.upstream_code = upstream_code
+        self.upstream_param = upstream_param
+        self.request_id = request_id
+        self.upstream_body = upstream_body
 
 
 class InferenceConfigurationError(InferenceError):

@@ -74,4 +74,8 @@ async def test_deus_answers_with_503_not_500_when_every_provider_fails(chain, mo
                                          )
     finally:
         app.dependency_overrides.clear()
-    assert response.status_code == 503 and "inference provider" in response.json()["detail"]
+    assert response.status_code == 503
+    detail = response.json()["detail"]
+    assert detail["provider"] == "freellmapi"
+    assert detail["code"] == "INFERENCE_UPSTREAM_RESPONSE_ERROR"
+    assert "provedor de inferência" in detail["message"]

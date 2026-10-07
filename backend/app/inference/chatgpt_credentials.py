@@ -10,11 +10,25 @@ from typing import Any
 
 import httpx
 
-from app.inference.contracts import InferenceAuthenticationError, ProviderUnavailable
+from app.inference.contracts import (
+    InferenceAuthenticationError,
+    InferenceConfigurationError,
+    ProviderUnavailable,
+)
 
 _TOKEN_ENDPOINT = "https://auth.openai.com/api/accounts/oauth/token"
 _RESOURCE = "https://api.openai.com/v1"
 _REQUIRED_SCOPE = "chatgpt.tokens.use.direct"
+_TERMINAL_REFRESH_CODES = frozenset(
+    {
+        "invalid_grant",
+        "invalid_refresh_token",
+        "token_expired",
+        "refresh_token_expired",
+        "refresh_token_invalidated",
+        "refresh_token_reused",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -29,6 +43,7 @@ class ChatGPTCredentialRecord:
     email: str | None = None
     subject: str | None = None
     ext_agent_host_id: str | None = None
+    earliest_refresh_at: str | int | float | None = None
 
     @property
     def expires_at(self) -> datetime:
@@ -122,6 +137,7 @@ class ChatGPTCredentialStore:
                     if raw.get("ext_agent_host_id")
                     else None
                 ),
+                earliest_refresh_at=raw.get("earliest_refresh_at"),
             )
         except (KeyError, TypeError, ValueError) as exc:
             raise InferenceAuthenticationError(
@@ -152,13 +168,19 @@ class ChatGPTCredentialStore:
             )
         now = datetime.now(timezone.utc)
         document: dict[str, Any] = {
+            "issuer": "https://auth.openai.com",
             "client_id": previous.client_id,
             "access_token": str(payload["access_token"]),
             "refresh_token": str(payload.get("refresh_token") or previous.refresh_token),
             "id_token": str(payload.get("id_token") or previous.id_token or ""),
             "token_type": str(payload.get("token_type") or "Bearer"),
             "expires_in": int(payload.get("expires_in", 3600)),
+            "earliest_refresh_at": payload.get(
+                "earliest_refresh_at",
+                previous.earliest_refresh_at,
+            ),
             "scopes": sorted(scopes),
+            "plan_usage_enabled": True,
             "saved_at": now.isoformat(),
         }
         for key, value in {
@@ -180,6 +202,39 @@ class ChatGPTCredentialStore:
         os.replace(temporary, self.path)
         os.chmod(self.path, 0o600)
         return self._read()
+
+    def _clear_unusable_tokens(self, record: ChatGPTCredentialRecord) -> None:
+        """Drop unusable bearer credentials while retaining the reusable registration mapping."""
+        document: dict[str, Any] = {
+            "issuer": "https://auth.openai.com",
+            "client_id": record.client_id,
+            "plan_usage_enabled": False,
+            "disconnected_at": datetime.now(timezone.utc).isoformat(),
+        }
+        for key, value in {
+            "email": record.email,
+            "subject": record.subject,
+            "ext_agent_host_id": record.ext_agent_host_id,
+        }.items():
+            if value:
+                document[key] = value
+
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self.path.with_suffix(self.path.suffix + ".tmp")
+        temporary.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, self.path)
+        os.chmod(self.path, 0o600)
+
+    @staticmethod
+    def _response_error_code(response: httpx.Response) -> str:
+        try:
+            payload = response.json()
+        except ValueError:
+            return "oauth_error"
+        if not isinstance(payload, dict):
+            return "oauth_error"
+        return str(payload.get("error") or payload.get("code") or "oauth_error")
 
     @staticmethod
     def _needs_refresh(record: ChatGPTCredentialRecord, skew_seconds: int) -> bool:
@@ -217,10 +272,22 @@ class ChatGPTCredentialStore:
                 f"ChatGPT token refresh failed: {exc.__class__.__name__}",
             ) from exc
 
+        error_code = self._response_error_code(response) if response.status_code >= 400 else ""
+        if error_code in _TERMINAL_REFRESH_CODES:
+            self._clear_unusable_tokens(record)
+            raise InferenceAuthenticationError(
+                "chatgpt",
+                f"ChatGPT refresh token is no longer usable ({error_code}); sign in again with the saved client registration",
+            )
+        if error_code == "invalid_client":
+            raise InferenceConfigurationError(
+                "chatgpt",
+                "ChatGPT refresh rejected the issued client registration (invalid_client)",
+            )
         if response.status_code in {400, 401, 403}:
             raise InferenceAuthenticationError(
                 "chatgpt",
-                f"ChatGPT token refresh was rejected with HTTP {response.status_code}",
+                f"ChatGPT token refresh was rejected with HTTP {response.status_code}: {error_code}",
             )
         if response.status_code >= 500:
             raise ProviderUnavailable(

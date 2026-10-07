@@ -587,3 +587,32 @@ html, body, #root {
 .connected-tools textarea { min-height: 6rem; resize: vertical; }
 .connected-tools button { min-height: 44px; padding: .5rem .75rem; }
 .connected-tools p { overflow-wrap: anywhere; }
+
+.plan-welcome {
+  position: fixed;
+  top: max(72px, calc(56px + env(safe-area-inset-top)));
+  left: 50%;
+  z-index: 40;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 14px;
+  width: min(760px, calc(100vw - 32px));
+  padding: 14px 16px;
+  transform: translateX(-50%);
+  border: 1px solid rgba(96, 226, 247, .3);
+  border-radius: 16px;
+  background: rgba(4, 18, 24, .96);
+  box-shadow: 0 20px 70px rgba(0, 0, 0, .5);
+  backdrop-filter: blur(22px);
+}
+.plan-welcome strong { display: block; margin-top: 4px; color: #effdff; }
+.plan-welcome p { margin: 4px 0 0; color: #91aaae; font-size: 12px; line-height: 1.45; }
+.plan-welcome a, .inference-usage-link { color: #82e8f7; text-decoration: none; }
+.plan-welcome a:hover, .inference-usage-link:hover { text-decoration: underline; }
+.plan-welcome button { min-width: 72px; min-height: 44px; border: 1px solid rgba(94, 222, 243, .3); border-radius: 999px; color: #e8fbfe; background: rgba(10, 74, 86, .72); cursor: pointer; }
+.inference-usage-link { display: inline-block; margin: 3px 0 8px; font: 600 10px/1.3 var(--mono); }
+@media (max-width: 760px) {
+  .plan-welcome { grid-template-columns: 1fr auto; top: max(66px, calc(52px + env(safe-area-inset-top))); }
+  .plan-welcome div { grid-column: 1 / -1; }
+}

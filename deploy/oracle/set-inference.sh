@@ -112,7 +112,11 @@ if [ -n "$fallback" ]; then
   IFS=',' read -ra reserves <<< "$fallback"
   for reserve in "${reserves[@]}"; do
     case "$reserve" in
-      chatgpt) reserve_key=""; reserve_model=CHATGPT_MODEL ;;
+      chatgpt)
+        echo "ChatGPT plan usage cannot be a reserve provider. Configure chatgpt as the primary so plan usage is explicit." >&2
+        echo "Nothing was changed." >&2
+        exit 1
+        ;;
       anthropic) reserve_key=ANTHROPIC_API_KEY; reserve_model=ANTHROPIC_MODEL ;;
       openai) reserve_key=LLM_API_KEY; reserve_model=LLM_MODEL ;;
       freellmapi) reserve_key=""; reserve_model=FREELLMAPI_MODEL ;;

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
 import {
   CREATOR_CONVERSATION_KEY,
+  InferenceApiError,
   converseWithDeus,
   createConversation,
   decideInception,
@@ -22,6 +23,7 @@ import "./CreatorConsole.css";
 
 type Props = {
   enabled: boolean;
+  chatgptPlan?: { accountLabel: string | null; usageUrl: string } | null;
   onMoodChange?: (mood: CosmosMood) => void;
 };
 
@@ -43,12 +45,13 @@ async function loadProposal(inception: Inception): Promise<Proposal> {
   return { inception, mission: missionId ? await fetchMission(missionId) : null };
 }
 
-export function CreatorConsole({ enabled, onMoodChange }: Props) {
+export function CreatorConsole({ enabled, chatgptPlan = null, onMoodChange }: Props) {
   const [conversationId, setConversationId] = useState(() => window.localStorage.getItem(CONVERSATION_KEY));
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [usageLimit, setUsageLimit] = useState(false);
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [deciding, setDeciding] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -219,6 +222,7 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
     if (!content || !enabled || pending) return;
     setPending(true);
     setError(null);
+    setUsageLimit(false);
     let optimisticId: string | null = null;
     try {
       let id = conversationId;
@@ -280,13 +284,18 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
       }
       setInput((current) => current || content);
       const message = failure instanceof Error ? failure.message : "CONVERSATION_FAILED";
-      setError(
-        message === "AUTH_REQUIRED"
-          ? "Sessão expirada. Entre novamente para continuar."
-          : ["HTTP_502", "HTTP_503", "HTTP_504", "DEUS_TEMPORARILY_UNAVAILABLE"].includes(message)
-            ? "DEUS está temporariamente sem resposta dos provedores de inferência. Tente novamente."
-            : "Não foi possível concluir a conversa com DEUS.",
-      );
+      if (failure instanceof InferenceApiError) {
+        setUsageLimit(failure.code === "subscription_sharing_usage_limit_exceeded");
+        setError(failure.message);
+      } else {
+        setError(
+          message === "AUTH_REQUIRED"
+            ? "Sessão expirada. Entre novamente para continuar."
+            : ["HTTP_502", "HTTP_503", "HTTP_504", "DEUS_TEMPORARILY_UNAVAILABLE"].includes(message)
+              ? "DEUS está temporariamente sem resposta do provedor de inferência. Tente novamente."
+              : "Não foi possível concluir a conversa com DEUS.",
+        );
+      }
     } finally {
       setPending(false);
     }
@@ -318,6 +327,12 @@ export function CreatorConsole({ enabled, onMoodChange }: Props) {
         ))}
         {pending && <div className="console-thinking" aria-label="DEUS is thinking"><i /><i /><i /></div>}
       </div>
+      {chatgptPlan && (
+        <div className={`chatgpt-plan-state${usageLimit ? " limit" : ""}`}>
+          <span>Using ChatGPT plan{chatgptPlan.accountLabel ? ` · ${chatgptPlan.accountLabel}` : ""}</span>
+          <a href={chatgptPlan.usageUrl} target="_blank" rel="noreferrer">Manage usage</a>
+        </div>
+      )}
       <form className="console-form" noValidate onSubmit={(event: FormEvent<HTMLFormElement>) => { event.preventDefault(); void send(); }}>
         <textarea
           className="resize-none"
