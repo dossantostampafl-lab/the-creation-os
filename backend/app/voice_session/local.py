@@ -68,8 +68,14 @@ class LocalSpeechEngine:
         self.kokoro = Kokoro.from_session(session, str(root / 'voices-v1.0.bin'))
         SetLogLevel(-1)
         self.vosk = Model(str(root / 'vosk-pt'))
+        self.wake_vosk = None
         wake = root / 'vosk-wake-pt'
-        self.wake_vosk = Model(str(wake)) if wake.is_dir() else None
+        if wake.is_dir():
+            # The spotter is optional: a broken install must not stop the API from starting.
+            try:
+                self.wake_vosk = Model(str(wake))
+            except Exception:
+                logger.warning("Wake-word model at {} failed to load; using the main model only", wake)
 
     @traced("voice.tts")
     async def synthesize(self, text: str) -> bytes:

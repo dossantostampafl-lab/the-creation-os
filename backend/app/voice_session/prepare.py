@@ -27,9 +27,16 @@ def download(url: str, path: Path) -> None:
         staging.unlink(missing_ok=True)
 
 
+def vosk_model_installed(directory: Path) -> bool:
+    return directory.is_dir() and any(directory.rglob('final.mdl'))
+
+
 def install_vosk(root: Path, url: str, packaged_name: str, name: str) -> None:
-    if (root / name).exists():
+    target = root / name
+    if vosk_model_installed(target):
         return
+    if target.exists():
+        shutil.rmtree(target)
     archive = root / f'{name}.zip'
     download(url, archive)
     with tempfile.TemporaryDirectory(dir=root) as temp:

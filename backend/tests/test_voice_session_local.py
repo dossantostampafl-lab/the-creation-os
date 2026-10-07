@@ -299,3 +299,46 @@ async def test_transcript_debug_log_is_opt_in(monkeypatch):
     assert logged == [{
         'event': 'voice_transcript_debug', 'recognized': 'seis', 'wake_hits': 1, 'committed_text': 'deus',
     }]
+
+
+def test_prepare_reinstalls_an_empty_or_incomplete_vosk_directory(tmp_path, monkeypatch):
+    import zipfile
+
+    from app.voice_session import prepare
+
+    def fake_download(url, archive):
+        with zipfile.ZipFile(archive, 'w') as package:
+            package.writestr('packaged/am/final.mdl', 'model')
+
+    monkeypatch.setattr(prepare, 'download', fake_download)
+    (tmp_path / 'vosk-wake-pt').mkdir()
+    prepare.install_vosk(tmp_path, 'https://example.invalid/model.zip', 'packaged', 'vosk-wake-pt')
+    assert (tmp_path / 'vosk-wake-pt' / 'am' / 'final.mdl').read_text() == 'model'
+
+    monkeypatch.setattr(prepare, 'download', lambda *_: pytest.fail('installed model re-downloaded'))
+    prepare.install_vosk(tmp_path, 'https://example.invalid/model.zip', 'packaged', 'vosk-wake-pt')
+
+
+def test_broken_wake_model_does_not_stop_the_engine(tmp_path, monkeypatch):
+    import sys
+    import types
+
+    module = local_module()
+    (tmp_path / 'vosk-wake-pt').mkdir()
+
+    class Model:
+        def __init__(self, path):
+            if path.endswith('vosk-wake-pt'):
+                raise Exception('Failed to create a model')
+
+    fake_vosk = types.SimpleNamespace(Model=Model, SetLogLevel=lambda level: None)
+    fake_kokoro = types.SimpleNamespace(Kokoro=types.SimpleNamespace(from_session=lambda *a: object()))
+    fake_rt = types.SimpleNamespace(
+        SessionOptions=lambda: types.SimpleNamespace(),
+        InferenceSession=lambda *a, **k: object(),
+    )
+    monkeypatch.setitem(sys.modules, 'vosk', fake_vosk)
+    monkeypatch.setitem(sys.modules, 'kokoro_onnx', fake_kokoro)
+    monkeypatch.setitem(sys.modules, 'onnxruntime', fake_rt)
+    engine = module.LocalSpeechEngine(str(tmp_path))
+    assert engine.wake_vosk is None
