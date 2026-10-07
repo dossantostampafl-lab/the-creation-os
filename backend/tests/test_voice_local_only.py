@@ -55,3 +55,13 @@ def test_local_voice_activation_preserves_or_restores_anthropic_reserve():
     assert 'ANTHROPIC_API_KEY' in script
     assert 'ANTHROPIC_MODEL' in script
     assert 'fallback="anthropic"' in script
+
+
+def test_local_voice_activation_keeps_a_chatgpt_provider():
+    script = (ROOT / "deploy" / "oracle" / "set-local-voice.sh").read_text(encoding="utf-8")
+    chatgpt_branch = script.split('if [ "$provider" = "chatgpt" ]; then', 1)[1].split("else", 1)[0]
+    # Installing local speech must not move a ChatGPT-plan deployment back to FreeLLMAPI.
+    assert "env_set LLM_PROVIDER" not in chatgpt_branch
+    assert "env_set LLM_FALLBACK_PROVIDERS" not in chatgpt_branch
+    assert "env_set DEUS_VOICE_PRIMARY_PROVIDER chatgpt" in chatgpt_branch
+    assert "env_set DEUS_LOCAL_VOICE_SILENCE_MS 1000" in script

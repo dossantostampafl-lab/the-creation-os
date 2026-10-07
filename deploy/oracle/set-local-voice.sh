@@ -14,16 +14,25 @@ COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.cloud.yml)
 cp .env .env.before-local-voice
 chmod 600 .env.before-local-voice
 env_set DEUS_VOICE_SESSION_ENABLED true
-env_set DEUS_VOICE_PRIMARY_PROVIDER freellmapi
 voice_models="${DEUS_VOICE_CONVERSATION_MODELS:-$(env_get DEUS_VOICE_CONVERSATION_MODELS)}"
 env_set DEUS_VOICE_CONVERSATION_MODELS "$voice_models"
-# The same chat remains free when a typed turn follows a voice turn.
-env_set LLM_PROVIDER freellmapi
 fallback="$(env_get LLM_FALLBACK_PROVIDERS)"
-if [ -z "$fallback" ] && [ -n "$(env_get ANTHROPIC_API_KEY)" ] && [ -n "$(env_get ANTHROPIC_MODEL)" ]; then
-  fallback="anthropic"
+provider="$(env_get LLM_PROVIDER)"
+if [ "$provider" = "chatgpt" ]; then
+  # The ChatGPT plan stays the provider for text and voice (set-inference-chatgpt chose it,
+  # with its disclosed reserve). This task only installs and tunes local speech.
+  echo "Keeping LLM_PROVIDER=chatgpt; only local speech settings change."
+  env_set DEUS_VOICE_PRIMARY_PROVIDER chatgpt
+else
+  env_set DEUS_VOICE_PRIMARY_PROVIDER freellmapi
+  # The same chat remains free when a typed turn follows a voice turn.
+  provider=freellmapi
+  env_set LLM_PROVIDER freellmapi
+  if [ -z "$fallback" ] && [ -n "$(env_get ANTHROPIC_API_KEY)" ] && [ -n "$(env_get ANTHROPIC_MODEL)" ]; then
+    fallback="anthropic"
+  fi
+  env_set LLM_FALLBACK_PROVIDERS "$fallback"
 fi
-env_set LLM_FALLBACK_PROVIDERS "$fallback"
 env_set DEUS_LOCAL_VOICE_MODELS_DIR /var/lib/creation/voice
 env_set DEUS_LOCAL_VOICE_SILENCE_MS 1000
 env_set DEUS_LOCAL_VOICE_CPU_THREADS 2
@@ -31,7 +40,7 @@ chmod 600 .env
 "${COMPOSE[@]}" up -d --no-deps --force-recreate api
 for attempt in $(seq 1 60); do
   if curl -fsS http://127.0.0.1:8000/api/v1/health/ready >/dev/null; then
-    echo "DEUS local voice is ready: Kokoro pm_santa, Vosk Portuguese, FreeLLMAPI."
+    echo "DEUS local voice is ready: Kokoro pm_santa, Vosk Portuguese, inference: $provider."
     printf "FreeLLM voice model pool: %s\\n" "${voice_models:-<legacy FREELLMAPI_MODEL>}"
     printf "Inference reserve: %s\\n" "${fallback:-<none configured>}"
     exit 0
