@@ -25,6 +25,8 @@ def _model_slugs(payload: object) -> set[str]:
     for item in items:
         if not isinstance(item, dict):
             continue
+        if item.get("visibility") not in {None, "list"}:
+            continue
         value = item.get("slug") or item.get("id")
         if isinstance(value, str) and value:
             slugs.add(value)

@@ -77,3 +77,27 @@ def test_chatgpt_stream_usage_limit_maps_to_fallback_signal() -> None:
 
     with pytest.raises(InferenceRateLimitError):
         provider()._raise_stream_failure(event)
+
+
+def test_chatgpt_structured_invalid_user_is_authentication_failure() -> None:
+    response = httpx.Response(
+        401,
+        request=httpx.Request("POST", "https://api.openai.com/v1/responses"),
+        json={"error": {"code": "subscription_sharing_invalid_user"}},
+    )
+
+    with pytest.raises(InferenceAuthenticationError):
+        provider()._raise_http_error(response)
+
+
+def test_chatgpt_structured_temporary_usage_error_uses_fallback_signal() -> None:
+    response = httpx.Response(
+        503,
+        request=httpx.Request("POST", "https://api.openai.com/v1/responses"),
+        json={"error": {"code": "subscription_sharing_user_unavailable"}},
+    )
+
+    from app.inference.contracts import ProviderUnavailable
+
+    with pytest.raises(ProviderUnavailable):
+        provider()._raise_http_error(response)

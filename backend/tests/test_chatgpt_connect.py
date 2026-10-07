@@ -17,7 +17,7 @@ def test_default_chatgpt_credentials_path_stays_outside_checkout(monkeypatch, tm
 
     path = _default_credentials_path()
 
-    assert path == tmp_path / ".config" / "the-creation-os" / "chatgpt" / "credentials.json"
+    assert path == tmp_path / ".config" / "the-creation-os" / "chatgpt" / "profiles" / "default" / "credentials.json"
     assert path.is_absolute()
 
 

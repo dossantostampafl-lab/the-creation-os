@@ -126,13 +126,26 @@ class ChatGPTPlanProvider:
             payload = {}
         code = self._error_code(payload)
         message = f"ChatGPT returned HTTP {response.status_code}: {code}"
-        if response.status_code == 401:
-            raise InferenceAuthenticationError(self.name, message)
-        if response.status_code == 429:
+        if code == "subscription_sharing_usage_limit_exceeded" or response.status_code == 429:
             raise InferenceRateLimitError(self.name, message)
-        if response.status_code in {402, 403}:
+        if code in {
+            "subscription_sharing_usage_unavailable",
+            "subscription_sharing_user_unavailable",
+            "subscription_sharing_user_not_eligible",
+        }:
             raise ProviderUnavailable(self.name, message)
-        if response.status_code >= 500:
+        if code in {
+            "subscription_sharing_invalid_user",
+            "chatpass_v2_scope_not_authorized",
+            "chatpass_v2_invalid_authorization_context",
+        } or response.status_code == 401:
+            raise InferenceAuthenticationError(self.name, message)
+        if code in {
+            "subscription_sharing_unsupported_capability",
+            "subscription_sharing_route_not_supported",
+        }:
+            raise InferenceUpstreamResponseError(self.name, message)
+        if response.status_code in {402, 403} or response.status_code >= 500:
             raise ProviderUnavailable(self.name, message)
         raise InferenceUpstreamResponseError(self.name, message)
 
@@ -166,8 +179,19 @@ class ChatGPTPlanProvider:
         )
         if code == "subscription_sharing_usage_limit_exceeded":
             raise InferenceRateLimitError(self.name, code)
-        if code in {"subscription_sharing_usage_unavailable", "subscription_sharing_not_enabled"}:
+        if code in {
+            "subscription_sharing_usage_unavailable",
+            "subscription_sharing_user_unavailable",
+            "subscription_sharing_user_not_eligible",
+            "subscription_sharing_not_enabled",
+        }:
             raise ProviderUnavailable(self.name, code)
+        if code in {
+            "subscription_sharing_invalid_user",
+            "chatpass_v2_scope_not_authorized",
+            "chatpass_v2_invalid_authorization_context",
+        }:
+            raise InferenceAuthenticationError(self.name, code)
         raise InferenceUpstreamResponseError(self.name, code)
 
     async def _events(self, request: InferenceRequest) -> AsyncIterator[dict[str, Any]]:
