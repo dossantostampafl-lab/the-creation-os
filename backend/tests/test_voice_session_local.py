@@ -281,21 +281,43 @@ async def test_missing_wake_model_keeps_large_model_transcript():
 
 
 @pytest.mark.asyncio
+async def test_wake_spotter_keeps_command_words_touching_the_hit_edges():
+    text = await committed_text(
+        [('seis', 0.59, 0.5, 0.9), ('que', 0.9, 0.85, 1.1), ('horas', 0.9, 1.1, 1.5)],
+        [('deus', 0.95, 0.48, 0.95)],
+    )
+    assert text == 'deus que horas'
+
+
+@pytest.mark.asyncio
+async def test_wake_spotter_keeps_command_words_inside_a_broad_hit():
+    text = await committed_text(
+        [('seis', 0.59, 0.5, 0.9), ('que', 0.9, 0.9, 1.1), ('horas', 0.9, 1.1, 1.5)],
+        [('deus', 0.95, 0.45, 1.2)],
+    )
+    assert text == 'deus que horas'
+
+
+@pytest.mark.asyncio
+async def test_wake_spotter_vetoes_lookalike_overlapping_a_narrow_hit():
+    text = await committed_text(
+        [('adeus', 0.95, 0.4, 1.0), ('amigo', 0.9, 1.0, 1.4)],
+        [('deus', 0.9, 0.75, 0.95)],
+    )
+    assert text == 'adeus amigo'
+
+
+@pytest.mark.asyncio
 async def test_transcript_debug_log_is_opt_in(monkeypatch):
     module = local_module()
     logged = []
 
-    class Bound:
-        def __init__(self, fields):
-            self.fields = fields
+    class Logger:
+        def info(self, message, *args):
+            logged.append(message.format(*args))
 
-        def info(self, message):
-            logged.append(self.fields)
-
-    monkeypatch.setattr(module.logger, 'bind', lambda **fields: Bound(fields))
+    monkeypatch.setattr(module, 'logger', Logger())
     await committed_text([('seis', 0.5, 0.5, 0.9)], [('deus', 0.9, 0.5, 0.9)])
     assert logged == []
     await committed_text([('seis', 0.5, 0.5, 0.9)], [('deus', 0.9, 0.5, 0.9)], debug_transcripts=True)
-    assert logged == [{
-        'event': 'voice_transcript_debug', 'recognized': 'seis', 'wake_hits': 1, 'committed_text': 'deus',
-    }]
+    assert logged == ["voice_transcript_debug recognized='seis' wake_hits=1 committed_text='deus'"]
