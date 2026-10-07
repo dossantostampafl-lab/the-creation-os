@@ -25,7 +25,7 @@ import json, os, stat, sys
 path = sys.argv[1]
 with open(path, "r", encoding="utf-8") as handle:
     data = json.load(handle)
-required = {"client_id", "access_token", "refresh_token", "id_token", "subject", "saved_at"}
+required = {"client_id", "access_token", "refresh_token", "id_token", "subject", "ext_agent_host_id", "saved_at"}
 missing = sorted(name for name in required if not data.get(name))
 if data.get("issuer") != "https://auth.openai.com":
     missing.append("issuer:https://auth.openai.com")
@@ -89,19 +89,25 @@ print(value)
 PY
 )"
 
+source_host_id="$(python3 - "$source_file" <<'PY'
+import json, sys
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    data = json.load(handle)
+print(str(data.get("ext_agent_host_id") or ""))
+PY
+)"
+if [ "$source_host_id" != "$host_id" ]; then
+  echo "Credential host mismatch; refusing to relabel OAuth credentials for another host." >&2
+  echo "Oracle host ID: $host_id" >&2
+  echo "Create a new ChatGPT profile for this Oracle host with:" >&2
+  echo "  connect-chatgpt --new --profile oracle --host-id '$host_id'" >&2
+  exit 1
+fi
+
 temporary="$(mktemp)"
 trap 'rm -f "$temporary"' EXIT
-python3 - "$source_file" "$temporary" "$host_id" <<'PY'
-import json, os, sys
-source, target, host_id = sys.argv[1:]
-with open(source, "r", encoding="utf-8") as handle:
-    data = json.load(handle)
-data["ext_agent_host_id"] = host_id
-with open(target, "w", encoding="utf-8") as handle:
-    json.dump(data, handle, indent=2)
-    handle.write("\n")
-os.chmod(target, 0o600)
-PY
+cp "$source_file" "$temporary"
+chmod 600 "$temporary"
 
 "${COMPOSE[@]}" exec -T api sh -c '
   set -eu
