@@ -199,3 +199,25 @@ def test_chatgpt_stream_failure_without_a_code_keeps_its_message() -> None:
     with pytest.raises(InferenceUpstreamResponseError) as captured:
         provider()._raise_stream_error(error_event)
     assert "Upstream connect error" in str(captured.value)
+
+
+def test_chatgpt_stream_error_reads_fields_nested_under_error() -> None:
+    from app.inference.contracts import InferenceUpstreamResponseError, ProviderUnavailable
+
+    nested = {
+        "type": "error",
+        "error": {"type": "server_error", "code": "server_error", "message": "Upstream overloaded"},
+    }
+    with pytest.raises(InferenceUpstreamResponseError) as captured:
+        provider()._raise_stream_error(nested)
+    assert captured.value.upstream_code == "server_error"
+    assert "Upstream overloaded" in str(captured.value)
+
+    limited = {"type": "error", "error": {"code": "subscription_sharing_usage_unavailable"}}
+    with pytest.raises(ProviderUnavailable):
+        provider()._raise_stream_error(limited)
+
+    bare = {"type": "error", "sequence_number": 3}
+    with pytest.raises(InferenceUpstreamResponseError) as captured:
+        provider()._raise_stream_error(bare)
+    assert "unrecognized error event: sequence_number,type" in str(captured.value)

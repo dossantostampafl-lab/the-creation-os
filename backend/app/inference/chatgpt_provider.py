@@ -266,6 +266,15 @@ class ChatGPTPlanProvider:
             return f"{code}: {message.strip()[:200]}"
         return code
 
+    @staticmethod
+    def _shape(event: dict[str, Any]) -> str:
+        """Names of the fields an unrecognized error event carried; field names only, no values."""
+        nested = event.get("error")
+        keys = sorted(str(key) for key in event)
+        if isinstance(nested, dict):
+            keys.append("error{" + ",".join(sorted(str(key) for key in nested)) + "}")
+        return "unrecognized error event: " + ",".join(keys)
+
     def _raise_stream_failure(self, event: dict[str, Any]) -> None:
         response = event.get("response")
         error = response.get("error") if isinstance(response, dict) else None
@@ -278,6 +287,8 @@ class ChatGPTPlanProvider:
         upstream_message = error.get("message") if isinstance(error, dict) else None
         if not upstream_message and isinstance(response, dict):
             upstream_message = f"response status {response.get('status')}"
+        if not upstream_message:
+            upstream_message = self._shape(event)
         code_text = self._with_message(code, upstream_message)
         if code == "subscription_sharing_usage_limit_exceeded":
             raise InferenceRateLimitError(
@@ -305,9 +316,15 @@ class ChatGPTPlanProvider:
         )
 
     def _raise_stream_error(self, event: dict[str, Any]) -> None:
-        code = str(event.get("code") or "provider_error")
-        param = str(event.get("param")) if event.get("param") is not None else None
-        code_text = self._with_message(code, event.get("message"))
+        # The error fields arrive either on the event itself or nested under "error".
+        raw_nested = event.get("error")
+        nested: dict[str, Any] = raw_nested if isinstance(raw_nested, dict) else {}
+        raw_code = event.get("code") or nested.get("code") or nested.get("type")
+        code = str(raw_code or "provider_error")
+        raw_param = event.get("param") if event.get("param") is not None else nested.get("param")
+        param = str(raw_param) if raw_param is not None else None
+        message = event.get("message") or nested.get("message") or self._shape(event)
+        code_text = self._with_message(code, message)
         if code == "subscription_sharing_usage_limit_exceeded":
             raise InferenceRateLimitError(
                 self.name, code_text, upstream_code=code, upstream_param=param, upstream_body=event
