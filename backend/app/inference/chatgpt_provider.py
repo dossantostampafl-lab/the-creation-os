@@ -317,7 +317,8 @@ class ChatGPTPlanProvider:
 
     def _raise_stream_error(self, event: dict[str, Any]) -> None:
         # The error fields arrive either on the event itself or nested under "error".
-        nested = event.get("error") if isinstance(event.get("error"), dict) else {}
+        raw_nested = event.get("error")
+        nested: dict[str, Any] = raw_nested if isinstance(raw_nested, dict) else {}
         raw_code = event.get("code") or nested.get("code") or nested.get("type")
         code = str(raw_code or "provider_error")
         raw_param = event.get("param") if event.get("param") is not None else nested.get("param")
