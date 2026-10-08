@@ -257,3 +257,5 @@ async def test_deus_failure_names_why_chatgpt_failed_before_the_reserve(chain, m
     assert detail["fallback_from"] == "chatgpt"
     assert detail["fallback_reason"] == "PROVIDER_UNAVAILABLE"
     assert detail["fallback_upstream_status"] == 503
+    assert detail["fallback_error"] == "ChatGPT returned HTTP 503: overloaded"
+    assert detail["error"] == "deadline"

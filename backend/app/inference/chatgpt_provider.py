@@ -259,6 +259,13 @@ class ChatGPTPlanProvider:
                 return arguments
         return None
 
+    @staticmethod
+    def _with_message(code: str, message: Any) -> str:
+        """The stream's own error message, kept so a failure without a code can still be told apart."""
+        if isinstance(message, str) and message.strip():
+            return f"{code}: {message.strip()[:200]}"
+        return code
+
     def _raise_stream_failure(self, event: dict[str, Any]) -> None:
         response = event.get("response")
         error = response.get("error") if isinstance(response, dict) else None
@@ -268,9 +275,13 @@ class ChatGPTPlanProvider:
             else "provider_error"
         )
         param = str(error.get("param")) if isinstance(error, dict) and error.get("param") is not None else None
+        upstream_message = error.get("message") if isinstance(error, dict) else None
+        if not upstream_message and isinstance(response, dict):
+            upstream_message = f"response status {response.get('status')}"
+        code_text = self._with_message(code, upstream_message)
         if code == "subscription_sharing_usage_limit_exceeded":
             raise InferenceRateLimitError(
-                self.name, code, upstream_code=code, upstream_param=param, upstream_body=event
+                self.name, code_text, upstream_code=code, upstream_param=param, upstream_body=event
             )
         if code in {
             "subscription_sharing_usage_unavailable",
@@ -279,7 +290,7 @@ class ChatGPTPlanProvider:
             "subscription_sharing_not_enabled",
         }:
             raise ProviderUnavailable(
-                self.name, code, upstream_code=code, upstream_param=param, upstream_body=event
+                self.name, code_text, upstream_code=code, upstream_param=param, upstream_body=event
             )
         if code in {
             "subscription_sharing_invalid_user",
@@ -287,18 +298,19 @@ class ChatGPTPlanProvider:
             "chatpass_v2_invalid_authorization_context",
         }:
             raise InferenceAuthenticationError(
-                self.name, code, upstream_code=code, upstream_param=param, upstream_body=event
+                self.name, code_text, upstream_code=code, upstream_param=param, upstream_body=event
             )
         raise InferenceUpstreamResponseError(
-            self.name, code, upstream_code=code, upstream_param=param, upstream_body=event
+            self.name, code_text, upstream_code=code, upstream_param=param, upstream_body=event
         )
 
     def _raise_stream_error(self, event: dict[str, Any]) -> None:
         code = str(event.get("code") or "provider_error")
         param = str(event.get("param")) if event.get("param") is not None else None
+        code_text = self._with_message(code, event.get("message"))
         if code == "subscription_sharing_usage_limit_exceeded":
             raise InferenceRateLimitError(
-                self.name, code, upstream_code=code, upstream_param=param, upstream_body=event
+                self.name, code_text, upstream_code=code, upstream_param=param, upstream_body=event
             )
         if code in {
             "subscription_sharing_usage_unavailable",
@@ -307,7 +319,7 @@ class ChatGPTPlanProvider:
             "subscription_sharing_not_enabled",
         }:
             raise ProviderUnavailable(
-                self.name, code, upstream_code=code, upstream_param=param, upstream_body=event
+                self.name, code_text, upstream_code=code, upstream_param=param, upstream_body=event
             )
         if code in {
             "subscription_sharing_invalid_user",
@@ -315,10 +327,10 @@ class ChatGPTPlanProvider:
             "chatpass_v2_invalid_authorization_context",
         }:
             raise InferenceAuthenticationError(
-                self.name, code, upstream_code=code, upstream_param=param, upstream_body=event
+                self.name, code_text, upstream_code=code, upstream_param=param, upstream_body=event
             )
         raise InferenceUpstreamResponseError(
-            self.name, code, upstream_code=code, upstream_param=param, upstream_body=event
+            self.name, code_text, upstream_code=code, upstream_param=param, upstream_body=event
         )
 
     async def _events(self, request: InferenceRequest) -> AsyncIterator[dict[str, Any]]:

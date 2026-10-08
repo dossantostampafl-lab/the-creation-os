@@ -176,3 +176,26 @@ def test_chatgpt_explicit_stream_error_is_not_ignored() -> None:
     assert captured.value.upstream_code == "ERR_SOMETHING"
     assert captured.value.upstream_param == "input"
     assert captured.value.upstream_body == event
+
+
+def test_chatgpt_stream_failure_without_a_code_keeps_its_message() -> None:
+    from app.inference.contracts import InferenceUpstreamResponseError
+
+    failed = {
+        "type": "response.failed",
+        "response": {"status": "failed", "error": {"message": "The model is currently overloaded."}},
+    }
+    with pytest.raises(InferenceUpstreamResponseError) as captured:
+        provider()._raise_stream_failure(failed)
+    assert captured.value.upstream_code == "provider_error"
+    assert "The model is currently overloaded." in str(captured.value)
+
+    no_error = {"type": "response.failed", "response": {"status": "failed", "error": None}}
+    with pytest.raises(InferenceUpstreamResponseError) as captured:
+        provider()._raise_stream_failure(no_error)
+    assert "response status failed" in str(captured.value)
+
+    error_event = {"type": "error", "message": "Upstream connect error"}
+    with pytest.raises(InferenceUpstreamResponseError) as captured:
+        provider()._raise_stream_error(error_event)
+    assert "Upstream connect error" in str(captured.value)
