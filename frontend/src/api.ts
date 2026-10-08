@@ -62,8 +62,11 @@ async function refreshAccessToken(): Promise<string> {
       headers: { Authorization: `Bearer ${refreshToken()}` },
     });
     if (!response.ok) {
-      clearSession();
-      throw new Error("AUTH_REQUIRED");
+      if (response.status === 401 || response.status === 403) {
+        clearSession();
+        throw new Error("AUTH_REQUIRED");
+      }
+      throw new Error(`HTTP_${response.status}`);
     }
     const tokens = await response.json() as TokenResponse;
     storeTokens(tokens);
@@ -85,16 +88,16 @@ export async function authorizedFetch(path: string, init?: RequestInit): Promise
   });
 
   let response = await request(token());
-  if (response.status !== 401 && response.status !== 403) return response;
+  if (response.status !== 401) return response;
 
   try {
     const fresh = await refreshAccessToken();
     response = await request(fresh);
-  } catch {
-    clearSession();
-    throw new Error("AUTH_REQUIRED");
+  } catch (failure) {
+    if (failure instanceof Error && failure.message === "AUTH_REQUIRED") clearSession();
+    throw failure;
   }
-  if (response.status === 401 || response.status === 403) {
+  if (response.status === 401) {
     clearSession();
     throw new Error("AUTH_REQUIRED");
   }

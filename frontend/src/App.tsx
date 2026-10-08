@@ -233,13 +233,9 @@ function App() {
   const selectedMission = state?.missions.find((mission) => ["executing", "distributed", "authorized"].includes(mission.status)) ?? state?.missions.at(-1);
   const missionTasks = useMemo(() => state?.tasks.filter((task) => task.mission_id === selectedMission?.id) ?? [], [state, selectedMission]);
   const pulseEntries = useMemo(() => Object.entries(state?.pulse ?? {}).slice(0, 8), [state]);
-  const configuredProvider = inference?.providers.find((provider) => provider.provider === inference.configured_provider) ?? null;
-  // A disclosed reserve keeps DEUS usable while the configured provider (e.g. the ChatGPT plan) is down.
-  const reserveAvailable = Boolean(
-    inference?.fallback_enabled
-      && inference.providers.some((provider) => provider.provider !== inference.configured_provider && provider.available),
-  );
-  const deusReady = Boolean(inference?.configured && (configuredProvider?.available || reserveAvailable));
+  // Telemetry is advisory. The conversation endpoint owns admission and fallback;
+  // a failed or stale health probe must not prevent the Creator from trying it.
+  const deusReady = !inference || inference.configured;
   const chatgptProvider = inference?.providers.find((provider) => provider.provider === "chatgpt") ?? null;
   const usingChatgptPlan = Boolean(
     inference?.configured_provider === "chatgpt" && chatgptProvider?.available && chatgptProvider.usage_url,
@@ -337,18 +333,20 @@ function App() {
           <button ref={decisionsTriggerRef} type="button" className="edge-trigger edge-trigger-left" aria-expanded={decisionsOpen} aria-controls="creator-decisions" onClick={() => { setDecisionsOpen((open) => !open); setVitalsOpen(false); }}>
             <span>Decisions</span><small>Creator decisions</small>
           </button>
-          {state && <button ref={vitalsTriggerRef} type="button" className="edge-trigger edge-trigger-right vitals-toggle" aria-expanded={vitalsOpen} aria-controls="system-vitals" onClick={() => { setVitalsOpen((open) => !open); setDecisionsOpen(false); }}>
+          <button ref={vitalsTriggerRef} type="button" className="edge-trigger edge-trigger-right vitals-toggle" aria-expanded={vitalsOpen} aria-controls="system-vitals" onClick={() => { setVitalsOpen((open) => !open); setDecisionsOpen(false); }}>
             <span>Vitals</span><small>System vitals</small>
-          </button>}
+          </button>
           <DecisionsPanel id="creator-decisions" hidden={!decisionsOpen} missions={state?.missions ?? []} onClose={closeDecisions} onChanged={() => setRetryVersion((version) => version + 1)} />
           <CreatorConsole enabled={deusReady} chatgptPlan={chatgptPlan} onMoodChange={setMood} />
         </section>
       )}
 
-      {state && (
+      {connection !== "AUTH_REQUIRED" && (
         <aside className="vitals" id="system-vitals" aria-label="System vitals" hidden={!vitalsOpen}>
           <header className="drawer-header"><div><span className="eyebrow">OBSERVABILITY</span><h2>System vitals</h2></div><button type="button" className="drawer-close" aria-label="Close system vitals" onClick={closeVitals}>×</button></header>
           <ConnectedPanel />
+          {!state && <p role="status">Estado geral indisponível. As ferramentas acima podem ser consultadas separadamente.</p>}
+          {state && <>
           <section className="metrics">
             {[
               ["MISSIONS", state.counts.missions], ["RUNNING", state.counts.running_missions], ["TASKS", state.counts.tasks],
@@ -419,6 +417,7 @@ function App() {
               </div>
             )}
           </article>
+          </>}
         </aside>
       )}
     </main>

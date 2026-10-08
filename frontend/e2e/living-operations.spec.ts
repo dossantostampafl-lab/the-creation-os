@@ -440,3 +440,37 @@ test('late chronicle history preserves the newer streamed event', async ({ page 
   await expect(historyPanel.getByText('mission_distributed', {exact:true})).toBeVisible();
   await expect(historyPanel.getByText('task_progressed', {exact:true})).toBeVisible();
 });
+
+test('telemetry failure does not block chat, Cyber Range or mission planning', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('creation_access_token', 'e2e-token');
+    localStorage.setItem('creation_conversation_id', 'conversation');
+  });
+  await page.route('**/api/v1/**', route => route.fulfill({ json: [] }));
+  await page.route('**/api/v1/system/state?**', route => route.fulfill({ status: 503, json: {} }));
+  await page.route('**/api/v1/system/inference', route => route.fulfill({ status: 503, json: {} }));
+  await page.route('**/api/v1/voice/**', route => route.fulfill({ status: 503, json: {} }));
+  await page.route('**/api/v1/knowledge/diagnostics/current', route => route.fulfill({ status: 503, json: {} }));
+  await page.route('**/api/v1/cyber-range/training', route => route.fulfill({ status: 503, json: {} }));
+  await page.route('**/api/v1/builds', route => route.fulfill({ status: 503, json: {} }));
+  await page.route('**/api/v1/cyber-range/status', route => route.fulfill({ json: { status: 'available', scenarios: [], catalog: [{ id: 'health', description: 'Laboratório de teste' }] } }));
+  await page.route('**/api/v1/universes', route => route.fulfill({ json: state.universes }));
+  await page.route('**/api/v1/agents', route => route.fulfill({ json: state.agents }));
+  await page.route('**/api/v1/conversations/conversation/deus', route => route.fulfill({ status: 201, json: {
+    message_id: 'reply', conversation_id: 'conversation', response: 'Conversa disponível.', route: 'deus', inception: null, correlation_id: 'reply',
+  } }));
+  await page.goto('/');
+  await expect(page.getByRole('textbox', { name: 'Message DEUS' })).toBeEnabled();
+  await page.getByRole('textbox', { name: 'Message DEUS' }).fill('Olá');
+  await page.getByRole('button', { name: 'Send to DEUS' }).click();
+  await expect(page.getByText('Conversa disponível.', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'System vitals' }).click();
+  await page.getByRole('button', { name: 'Verificar laboratório' }).click();
+  await expect(page.getByText('Laboratório de teste')).toBeVisible();
+  await page.getByRole('button', { name: 'Close system vitals' }).click();
+  await page.getByRole('button', { name: 'Creator decisions' }).click();
+  await page.getByRole('button', { name: 'Criar missão', exact: true }).click();
+  await expect(page.getByRole('combobox', { name: 'Universe da etapa 1' })).toBeEnabled();
+  await page.getByRole('combobox', { name: 'Universe da etapa 1' }).selectOption('engineering');
+  await expect(page.getByRole('combobox', { name: 'Universe da etapa 1' })).toHaveValue('engineering');
+});
