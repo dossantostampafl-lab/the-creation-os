@@ -27,7 +27,7 @@ The implementation follows the OpenAI open-source/self-hosted VM flow:
 - Default model: `gpt-6.1-sol`
 - Fallback from ChatGPT: **opt-in and disclosed**. With `CHATGPT_FALLBACK_ENABLED=true` and `LLM_FALLBACK_PROVIDERS=freellmapi` (what the `set-inference-chatgpt` deploy task configures), a request the ChatGPT plan cannot answer continues on FreeLLMAPI. The reply carries `fallback_from`/`fallback_reason`, is stored with them, and the Creator console labels it ("Respondido por FreeLLM · plano ChatGPT (limite de uso atingido)"). OpenAI SIWC forbids *silently* switching the billing path; this switch is configured by the operator and shown on every reply. Without the opt-in, a ChatGPT-plan failure stops the request as before.
 - After `subscription_sharing_usage_limit_exceeded` the ChatGPT provider enters the rate-limit cooldown, so new requests pause plan usage and go straight to the reserve until it ends.
-- Interactive deadline: a ChatGPT attempt gets `DEUS_CHAT_CHATGPT_TIMEOUT_SECONDS` (default 25s, because a reply only counts after `response.completed`); the whole turn may take that plus `DEUS_CHAT_TOTAL_TIMEOUT_SECONDS`.
+- Interactive deadline: a ChatGPT attempt gets `DEUS_CHAT_CHATGPT_TIMEOUT_SECONDS` (default 10s; a healthy reply completes in about 3s, and a stuck or limited plan should hand over to the reserve quickly); the whole turn may take that plus `DEUS_CHAT_TOTAL_TIMEOUT_SECONDS`.
 - Credential path inside API/worker containers: `/var/lib/creation/chatgpt/credentials.json`
 - API and worker share the protected `chatgpt_credentials` Docker volume.
 
