@@ -42,9 +42,14 @@ if [ -d "$REPO_DIR/.git" ]; then
   # The Oracle installation directory is deployment-owned. Runtime secrets live in the
   # untracked .env and application data lives in Docker volumes, so updating tracked files
   # to the audited main branch does not erase either one.
+  # Sites another project appended to deploy/Caddyfile (Star Trek 1) are put back after the reset.
+  caddy_copy="$(mktemp)"
+  cp -p "$REPO_DIR/deploy/Caddyfile" "$caddy_copy" 2>/dev/null || true
   git -C "$REPO_DIR" fetch --prune origin main
   git -C "$REPO_DIR" checkout -q main
   git -C "$REPO_DIR" reset --hard origin/main
+  (cd "$REPO_DIR" && bash deploy/oracle/keep-caddy-sites.sh --restore "$caddy_copy")
+  rm -f "$caddy_copy"
 else
   if [ -e "$REPO_DIR" ] && [ -n "$(ls -A "$REPO_DIR" 2>/dev/null || true)" ]; then
     die "$REPO_DIR exists and is not an empty THE CREATION OS installation directory"
