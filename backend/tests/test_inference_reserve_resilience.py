@@ -202,3 +202,58 @@ async def test_deus_reply_names_the_reserve_that_answered_for_chatgpt(chain, mon
     assert body["provider"] == "freellmapi"
     assert body["fallback_from"] == "chatgpt"
     assert body["fallback_reason"] == "subscription_sharing_usage_limit_exceeded"
+
+
+@pytest.mark.asyncio
+async def test_deus_failure_names_why_chatgpt_failed_before_the_reserve(chain, monkeypatch):
+    import uuid
+
+    from httpx import ASGITransport, AsyncClient
+
+    from app.api import deus as deus_api
+    from app.inference.contracts import InferenceTimeoutError, ProviderUnavailable
+    from app.main import app
+
+    class BothFail:
+        registry = None
+
+        async def generate(self, request):
+            error = InferenceTimeoutError("freellmapi", "deadline")
+            error.first_failure = ProviderUnavailable(
+                "chatgpt", "ChatGPT returned HTTP 503: overloaded", upstream_status=503
+            )
+            raise error
+
+    monkeypatch.setattr(deus_api, "build_model_router", lambda: BothFail())
+    monkeypatch.setattr(deus_api, "resolve_configured_model", lambda router: "gpt-6.1-sol")
+
+    class Service:
+        def __init__(self, *args, **kwargs):
+            self.router = args[1]
+
+        async def respond(self, *args, **kwargs):
+            await self.router.generate(None)
+
+    class Session:
+        async def rollback(self):
+            pass
+
+    monkeypatch.setattr(deus_api, "DeusConversationService", Service)
+    from app.api.dependencies import actor
+    from app.core.domain import Actor
+
+    app.dependency_overrides[actor] = lambda: Actor(id="creator-1", role="creator")
+    app.dependency_overrides[deus_api.get_session] = lambda: Session()
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post(f"/api/v1/conversations/{uuid.uuid4()}/deus", json={"content": "oi"})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 503
+    detail = response.json()["detail"]
+    assert detail["provider"] == "freellmapi"
+    assert detail["code"] == "INFERENCE_TIMEOUT"
+    assert detail["fallback_from"] == "chatgpt"
+    assert detail["fallback_reason"] == "PROVIDER_UNAVAILABLE"
+    assert detail["fallback_upstream_status"] == 503

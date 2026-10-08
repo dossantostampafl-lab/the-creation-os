@@ -89,6 +89,9 @@ class InferenceError(RuntimeError):
         self.upstream_param = upstream_param
         self.request_id = request_id
         self.upstream_body = upstream_body
+        # When every candidate failed, the error raised is the last one; this keeps the first
+        # (the configured provider's) failure, which is usually the one worth knowing.
+        self.first_failure: InferenceError | None = None
 
 
 class InferenceConfigurationError(InferenceError):

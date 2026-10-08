@@ -193,6 +193,11 @@ async def converse_with_deus(
             "request_id": exc.request_id,
             "param": exc.upstream_param,
         }
+        first = exc.first_failure
+        if first is not None:
+            detail["fallback_from"] = first.provider
+            detail["fallback_reason"] = first.upstream_code or first.code
+            detail["fallback_upstream_status"] = first.upstream_status
         logger.bind(
             component="deus",
             provider=exc.provider,
@@ -200,6 +205,11 @@ async def converse_with_deus(
             upstream_code=upstream_code,
             upstream_status=exc.upstream_status,
             request_id=exc.request_id,
+            first_provider=first.provider if first is not None else None,
+            first_code=(first.upstream_code or first.code) if first is not None else None,
+            first_upstream_status=first.upstream_status if first is not None else None,
+            first_request_id=first.request_id if first is not None else None,
+            first_error=str(first)[:300] if first is not None else None,
         ).warning("DEUS inference request failed")
         raise HTTPException(status_code=api_status, detail=detail) from exc
 

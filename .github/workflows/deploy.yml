@@ -327,6 +327,9 @@ jobs:
           sudo git checkout "origin/$target" -- deploy/oracle deploy/stf
           sudo chmod +x deploy/oracle/*.sh deploy/stf/*.sh
           echo "== Deploy scripts taken from origin/$target =="
+          # Sites another project appended to deploy/Caddyfile (Star Trek 1) survive every deploy.
+          sudo ./deploy/oracle/keep-caddy-sites.sh "origin/$target" \
+            || echo "WARNING: deploy/Caddyfile was left as it was." >&2
 
           COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.cloud.yml)
           case "$TASK" in

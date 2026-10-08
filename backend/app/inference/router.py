@@ -251,5 +251,7 @@ class ModelRouter:
             return response
 
         if last_error is not None:
+            if first_failure is not None and first_failure is not last_error:
+                last_error.first_failure = first_failure
             raise last_error
         raise ProviderUnavailable("router", "no inference provider available")

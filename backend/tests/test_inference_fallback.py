@@ -335,3 +335,22 @@ def test_bootstrap_opts_chatgpt_into_the_disclosed_fallback_only_when_enabled(mo
     router = build_model_router()
     assert tuple(router.registry.names()) == ("chatgpt", "freellmapi")
     assert router.allows_fallback_after("chatgpt")
+
+
+@pytest.mark.asyncio
+async def test_when_chatgpt_and_its_reserve_both_fail_the_chatgpt_reason_is_kept() -> None:
+    from app.inference.contracts import ProviderUnavailable
+
+    chatgpt_failure = ProviderUnavailable(
+        "chatgpt", "ChatGPT returned HTTP 503: overloaded", upstream_status=503, request_id="req-1"
+    )
+    router = _disclosed_router(
+        StubProvider("chatgpt", failure=chatgpt_failure),
+        StubProvider("freellmapi", failure=InferenceTimeoutError("freellmapi", "deadline")),
+    )
+
+    with pytest.raises(InferenceTimeoutError) as raised:
+        await router.generate(_plan_request())
+
+    assert raised.value.provider == "freellmapi"
+    assert raised.value.first_failure is chatgpt_failure
