@@ -393,13 +393,30 @@ with httpx.Client(base_url=BASE, timeout=45) as client:
                 )
                 elapsed = time.monotonic() - started
                 if reply.status_code in (200, 201):
-                    answer = (reply.json().get("response") or "").strip()
+                    body = reply.json()
+                    answer = (body.get("response") or "").strip()
                     ok = deus_probe_matches(answer, expected)
                     successful_turns += int(ok)
-                    report(f"DEUS turn {turn_index}: {check_name}", ok, f"{elapsed:.2f}s / {answer[:160]!r}")
+                    # Which provider answered, and why the first choice did not, if it did not.
+                    via = body.get("provider") or "?"
+                    if body.get("fallback_from"):
+                        via += f" after {body['fallback_from']} failed ({body.get('fallback_reason')})"
+                    report(f"DEUS turn {turn_index}: {check_name}", ok, f"{elapsed:.2f}s / {via} / {answer[:160]!r}")
                 else:
+                    try:
+                        failure = reply.json().get("detail") or {}
+                    except ValueError:
+                        failure = {}
+                    if isinstance(failure, dict) and failure.get("code"):
+                        # Codes and statuses only: this output lands in a public Actions log.
+                        summary = f"{failure.get('provider')}: {failure.get('code')} (upstream {failure.get('upstream_status')})"
+                        if failure.get("fallback_from"):
+                            summary += (f"; first {failure['fallback_from']}: {failure.get('fallback_reason')}"
+                                        f" (upstream {failure.get('fallback_upstream_status')})")
+                    else:
+                        summary = reply.text[:160]
                     report(f"DEUS turn {turn_index}: {check_name}", False,
-                           f"{elapsed:.2f}s / HTTP {reply.status_code}: {reply.text[:160]}")
+                           f"{elapsed:.2f}s / HTTP {reply.status_code}: {summary}")
             report("DEUS sustained 3 consecutive turns", successful_turns == 3, f"{successful_turns}/3")
             messages = client.get(f"/conversations/{conversation_id}/messages")
             report("all DEUS turns are stored", messages.status_code == 200 and len(messages.json()) >= 6,
