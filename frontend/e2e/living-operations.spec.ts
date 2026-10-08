@@ -251,7 +251,7 @@ test("recovers from an offline API with the explicit Retry action", async ({ pag
   await page.route("**/api/v1/chronicles?limit=40&offset=0", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(chronicle) }));
   await page.route("**/api/v1/system/events?after=41", (route) => route.fulfill({ status: 200, contentType: "text/event-stream", body: "" }));
   await page.goto("/");
-  await expect(page.getByRole("alert")).toContainText("Live state unavailable");
+  await expect(page.locator('.error-banner').filter({ hasText: 'Live state unavailable' })).toBeVisible();
   offline = false;
   await page.getByRole("button", { name: "Retry" }).click();
   await expect(page.locator(".top-status .status")).toHaveText("LIVE", { timeout: 6000 });

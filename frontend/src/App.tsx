@@ -125,10 +125,10 @@ function App() {
         setConnection("CONNECTING");
         setError(null);
         setPanelErrors({});
+        refreshPanels(true);
         const snapshot = await fetchSystemState(systemPage, systemPageSize);
         if (!active) return;
         setState(snapshot);
-        refreshPanels(true);
         cursor.current = snapshot.position;
         setConnection("LIVE");
         controller.abort();
@@ -337,7 +337,7 @@ function App() {
             <span>Vitals</span><small>System vitals</small>
           </button>
           <DecisionsPanel id="creator-decisions" hidden={!decisionsOpen} missions={state?.missions ?? []} onClose={closeDecisions} onChanged={() => setRetryVersion((version) => version + 1)} />
-          <CreatorConsole enabled={deusReady} chatgptPlan={chatgptPlan} onMoodChange={setMood} />
+          <CreatorConsole enabled={deusReady} voiceEnabled={Boolean(inference?.configured || panelErrors["Inferência"])} chatgptPlan={chatgptPlan} onMoodChange={setMood} />
         </section>
       )}
 
