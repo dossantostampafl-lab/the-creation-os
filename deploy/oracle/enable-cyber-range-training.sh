@@ -104,6 +104,11 @@ if ! iptables -C INPUT -s 172.16.0.0/12 -p tcp --dport 7071 -j ACCEPT 2>/dev/nul
     iptables -A INPUT -s 172.16.0.0/12 -p tcp --dport 7071 -j ACCEPT
   fi
 fi
+# Persist it: a rule added only at runtime is gone after a VM reboot, and the API then gets
+# "No route to host" from the relay while the relay and the controller are both up.
+if command -v netfilter-persistent >/dev/null 2>&1; then
+  netfilter-persistent save >/dev/null 2>&1 || true
+fi
 
 for _ in $(seq 1 30); do
   if curl -fsS -H "Authorization: Bearer $token" "http://$docker_host_ip:7071/health" >/dev/null 2>&1; then
