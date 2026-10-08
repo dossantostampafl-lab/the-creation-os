@@ -415,6 +415,16 @@ jobs:
                 if [ -z "$total" ] || [ "$total" = "15" ] || [ "$total" = "15.0" ]; then
                   env_set DEUS_CHAT_TOTAL_TIMEOUT_SECONDS 25
                 fi
+                # A stuck ChatGPT turn hands over to the reserve after 10s, not 25s.
+                plan="$(env_get DEUS_CHAT_CHATGPT_TIMEOUT_SECONDS)"
+                if [ -z "$plan" ] || [ "$plan" = "25" ] || [ "$plan" = "25.0" ]; then
+                  env_set DEUS_CHAT_CHATGPT_TIMEOUT_SECONDS 10
+                fi
+                # One opportunity competition every 3 hours instead of every minute.
+                cycle="$(env_get OPPORTUNITY_COMPETITION_CYCLE_SECONDS)"
+                if [ -z "$cycle" ] || [ "$cycle" = "60" ]; then
+                  env_set OPPORTUNITY_COMPETITION_CYCLE_SECONDS 10800
+                fi
               '
               # Preserve every optional runtime profile already enabled on this host.
               profile_args=()

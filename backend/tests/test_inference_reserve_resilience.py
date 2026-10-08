@@ -259,3 +259,15 @@ async def test_deus_failure_names_why_chatgpt_failed_before_the_reserve(chain, m
     assert detail["fallback_upstream_status"] == 503
     assert detail["fallback_error"] == "ChatGPT returned HTTP 503: overloaded"
     assert detail["error"] == "deadline"
+
+
+def test_defaults_keep_chat_responsive_and_competition_infrequent():
+    from app.config import Settings
+
+    defaults = Settings.__fields__
+    # A stuck ChatGPT turn hands over to the reserve after 10s; the whole turn stays under 45s.
+    assert defaults["deus_chat_chatgpt_timeout_seconds"].default == 10.0
+    assert (defaults["deus_chat_chatgpt_timeout_seconds"].default
+            + defaults["deus_chat_total_timeout_seconds"].default) < 45
+    # The opportunity competition runs every 3 hours, not every minute.
+    assert defaults["opportunity_competition_cycle_seconds"].default == 3 * 60 * 60

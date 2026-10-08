@@ -77,7 +77,9 @@ class Settings(BaseSettings):
     opportunity_research_lease_seconds: int = Field(600, ge=60, le=86400, env="OPPORTUNITY_RESEARCH_LEASE_SECONDS")
     opportunity_executive_lease_seconds: int = Field(1800, ge=60, le=86400, env="OPPORTUNITY_EXECUTIVE_LEASE_SECONDS")
     opportunity_stale_claim_seconds: int = Field(900, ge=60, le=86400, env="OPPORTUNITY_STALE_CLAIM_SECONDS")
-    opportunity_competition_cycle_seconds: int = Field(60, ge=10, le=3600, env="OPPORTUNITY_COMPETITION_CYCLE_SECONDS")
+    # One competition every 3 hours: each cycle is minutes of inference, and it must leave the
+    # reserve free for DEUS.
+    opportunity_competition_cycle_seconds: int = Field(10800, ge=10, le=86400, env="OPPORTUNITY_COMPETITION_CYCLE_SECONDS")
     opportunity_inference_backoff_max_seconds: int = Field(
         1800, ge=10, le=86400, env="OPPORTUNITY_INFERENCE_BACKOFF_MAX_SECONDS"
     )
@@ -104,10 +106,10 @@ class Settings(BaseSettings):
         le=20.0,
         env="DEUS_CHAT_PROVIDER_TIMEOUT_SECONDS",
     )
-    # A ChatGPT-plan turn only counts once response.completed arrives, which takes longer than
-    # the 5s budget meant for the fast free-tier attempt.
+    # A ChatGPT-plan turn only counts once response.completed arrives (about 3s when healthy).
+    # Past 10s the plan is stuck or limited, and the Creator is better served by the reserve.
     deus_chat_chatgpt_timeout_seconds: float = Field(
-        25.0,
+        10.0,
         gt=0.0,
         le=60.0,
         env="DEUS_CHAT_CHATGPT_TIMEOUT_SECONDS",
