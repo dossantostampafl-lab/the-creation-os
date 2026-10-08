@@ -23,6 +23,7 @@ import "./CreatorConsole.css";
 
 type Props = {
   enabled: boolean;
+  voiceEnabled?: boolean;
   chatgptPlan?: { accountLabel: string | null; usageUrl: string } | null;
   onMoodChange?: (mood: CosmosMood) => void;
 };
@@ -76,7 +77,7 @@ async function loadProposal(inception: Inception): Promise<Proposal> {
   return { inception, mission: missionId ? await fetchMission(missionId) : null };
 }
 
-export function CreatorConsole({ enabled, chatgptPlan = null, onMoodChange }: Props) {
+export function CreatorConsole({ enabled, voiceEnabled = enabled, chatgptPlan = null, onMoodChange }: Props) {
   const [conversationId, setConversationId] = useState(() => window.localStorage.getItem(CONVERSATION_KEY));
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [input, setInput] = useState("");
@@ -88,7 +89,7 @@ export function CreatorConsole({ enabled, chatgptPlan = null, onMoodChange }: Pr
   const scrollRef = useRef<HTMLDivElement>(null);
   const creatingConversation = useRef(false);
   const voiceSession = useDeusVoiceSession({
-    enabled: enabled && Boolean(conversationId),
+    enabled: enabled && voiceEnabled && Boolean(conversationId),
     conversationId,
     onWake: () => setError(null),
     onTranscript: (text, turnId, sessionId) => {

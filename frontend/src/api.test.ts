@@ -80,3 +80,29 @@ it("retries one transient DEUS failure with the exact same idempotency key", asy
   expect(first.request_id).toBe("22222222-2222-4222-8222-222222222222");
   expect(second).toEqual(first);
 });
+
+it('preserves the session when one operation is forbidden', async () => {
+  const { authorizedFetch } = await import('./api');
+  const removeItem = vi.fn();
+  vi.stubGlobal('window', {
+    localStorage: { getItem: () => 'valid-access', removeItem },
+    sessionStorage: { getItem: () => 'refresh-access', removeItem },
+    location: { href: 'https://creation.example/' }, setTimeout,
+  });
+  vi.stubGlobal('fetch', () => Promise.resolve(new Response('{}', { status: 403 })));
+  await expect(authorizedFetch('/missions/restricted/start', { method: 'POST' })).resolves.toMatchObject({ status: 403 });
+  expect(removeItem).not.toHaveBeenCalled();
+});
+
+it('preserves refresh credentials when the authentication service is temporarily unavailable', async () => {
+  const { authorizedFetch } = await import('./api');
+  const removeItem = vi.fn();
+  vi.stubGlobal('window', {
+    localStorage: { getItem: () => 'expired-access', removeItem },
+    sessionStorage: { getItem: () => 'valid-refresh', removeItem },
+    location: { href: 'https://creation.example/' }, setTimeout,
+  });
+  vi.stubGlobal('fetch', (url: string) => Promise.resolve(new Response('{}', { status: url.endsWith('/auth/refresh') ? 503 : 401 })));
+  await expect(authorizedFetch('/system/state')).rejects.toThrow('HTTP_503');
+  expect(removeItem).not.toHaveBeenCalled();
+});
