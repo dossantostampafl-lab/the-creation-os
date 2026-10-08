@@ -725,7 +725,7 @@ async def run() -> None:
 
     worker = OpportunityCompetitionWorker(
         AsyncSessionLocal,
-        generator=InferenceThesisGenerator(build_model_router()),
+        generator=InferenceThesisGenerator(build_model_router(background=True)),
         competitor_limit=settings.opportunity_competitor_limit,
         composition_enabled=settings.opportunity_composition_enabled,
         max_opportunities_per_cycle=settings.opportunity_max_per_cycle,

@@ -142,7 +142,7 @@ async def run_worker() -> None:
         while True:
             await asyncio.sleep(POLL_INTERVAL_SECONDS)
 
-    router = build_model_router()
+    router = build_model_router(background=True)
     capability_gateway = build_capability_gateway()
     await register_mcp_capabilities(capability_gateway)
     capability_runtime = CapabilityRuntime(AsyncSessionLocal, capability_gateway)
