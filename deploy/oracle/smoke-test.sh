@@ -408,11 +408,14 @@ with httpx.Client(base_url=BASE, timeout=45) as client:
                     except ValueError:
                         failure = {}
                     if isinstance(failure, dict) and failure.get("code"):
-                        # Codes and statuses only: this output lands in a public Actions log.
+                        # Codes, statuses and the provider's own error text, never the conversation: this
+                        # output lands in a public Actions log.
                         summary = f"{failure.get('provider')}: {failure.get('code')} (upstream {failure.get('upstream_status')})"
                         if failure.get("fallback_from"):
                             summary += (f"; first {failure['fallback_from']}: {failure.get('fallback_reason')}"
                                         f" (upstream {failure.get('fallback_upstream_status')})")
+                            if failure.get("fallback_error"):
+                                summary += f" [{failure['fallback_error'][:200]}]"
                     else:
                         summary = reply.text[:160]
                     report(f"DEUS turn {turn_index}: {check_name}", False,

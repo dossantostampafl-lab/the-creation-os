@@ -192,12 +192,16 @@ async def converse_with_deus(
             "upstream_status": exc.upstream_status,
             "request_id": exc.request_id,
             "param": exc.upstream_param,
+            # The provider's own error text (never the conversation): what tells two failures
+            # with the same code apart.
+            "error": str(exc)[:200],
         }
         first = exc.first_failure
         if first is not None:
             detail["fallback_from"] = first.provider
             detail["fallback_reason"] = first.upstream_code or first.code
             detail["fallback_upstream_status"] = first.upstream_status
+            detail["fallback_error"] = str(first)[:200]
         logger.bind(
             component="deus",
             provider=exc.provider,
