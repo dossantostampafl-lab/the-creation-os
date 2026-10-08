@@ -33,6 +33,7 @@ class ModelRouter:
         clock: Callable[[], float] = time.monotonic,
         fallback_providers: Sequence[str] = (),
         disclosed_fallback_after: Collection[str] = (),
+        excluded_providers: Collection[str] = (),
     ) -> None:
         if rate_limit_cooldown_seconds < 0:
             raise ValueError("rate_limit_cooldown_seconds must be >= 0")
@@ -48,6 +49,9 @@ class ModelRouter:
         self._disclosed_fallback_after = frozenset(
             name.strip().lower() for name in disclosed_fallback_after
         )
+        # Providers this router never calls, even when a request names them (background work
+        # kept off the Creator's ChatGPT plan).
+        self._excluded_providers = frozenset(name.strip().lower() for name in excluded_providers)
 
     def _must_stop_after_provider_failure(self, provider_name: str) -> bool:
         # OpenAI SIWC forbids silently moving a ChatGPT-plan request to another provider or
@@ -157,6 +161,8 @@ class ModelRouter:
         last_error: InferenceError | None = None
         first_failure: InferenceError | None = None
         for provider_name in candidates:
+            if provider_name.strip().lower() in self._excluded_providers:
+                continue
             if last_error is not None and first_failure is None:
                 first_failure = last_error
             provider = self.registry.get(provider_name)

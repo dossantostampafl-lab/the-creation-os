@@ -5,6 +5,8 @@ services:
     build:
       context: ./controller
     profiles: ["cyber-range"]
+    # Back after a VM reboot; a deliberate `docker compose stop` stays stopped.
+    restart: unless-stopped
     environment:
       RANGE_SCENARIO_CATALOG: /app/scenarios/catalog.json
       RANGE_CAMPAIGN_CATALOG: /app/scenarios/campaigns.json
@@ -32,6 +34,8 @@ services:
   juice-shop:
     image: bkimminich/juice-shop:latest
     profiles: ["cyber-range"]
+    # Back after a VM reboot; a deliberate `docker compose stop` stays stopped.
+    restart: unless-stopped
     networks:
       - range_targets
     security_opt:
@@ -40,6 +44,8 @@ services:
   webgoat:
     image: webgoat/webgoat:latest
     profiles: ["cyber-range"]
+    # Back after a VM reboot; a deliberate `docker compose stop` stays stopped.
+    restart: unless-stopped
     # The image's built-in healthcheck calls curl, which the image does not ship.
     healthcheck:
       test:
@@ -63,6 +69,8 @@ services:
     build:
       context: ./proxy
     profiles: ["cyber-range"]
+    # Back after a VM reboot; a deliberate `docker compose stop` stays stopped.
+    restart: unless-stopped
     depends_on:
       - controller
     environment:
@@ -85,6 +93,8 @@ services:
     build:
       context: ./proxy
     profiles: ["cyber-range"]
+    # Back after a VM reboot; a deliberate `docker compose stop` stays stopped.
+    restart: unless-stopped
     depends_on:
       - juice-shop
     environment:
@@ -107,6 +117,8 @@ services:
     build:
       context: ./proxy
     profiles: ["cyber-range"]
+    # Back after a VM reboot; a deliberate `docker compose stop` stays stopped.
+    restart: unless-stopped
     depends_on:
       - webgoat
     environment:
@@ -129,6 +141,8 @@ services:
     build:
       context: ./proxy
     profiles: ["cyber-range"]
+    # Back after a VM reboot; a deliberate `docker compose stop` stays stopped.
+    restart: unless-stopped
     depends_on:
       - webgoat
     environment:

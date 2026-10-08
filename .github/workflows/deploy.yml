@@ -393,11 +393,27 @@ jobs:
                   # set-inference.sh writes this invariant. Older deployments may have
                   # the reserve list without the disclosure gate that lets the router use it.
                   env_set CHATGPT_FALLBACK_ENABLED true
+                  # A configured Anthropic answers when both the plan and FreeLLMAPI cannot.
+                  if [ "$fallback" = "freellmapi" ] \
+                     && [ -n "$(env_get ANTHROPIC_API_KEY)" ] \
+                     && [ -n "$(env_get ANTHROPIC_MODEL)" ]; then
+                    env_set LLM_FALLBACK_PROVIDERS freellmapi,anthropic
+                  fi
                 elif [ "$provider" = "freellmapi" ] \
                    && [ -z "$fallback" ] \
                    && [ -n "$(env_get ANTHROPIC_API_KEY)" ] \
                    && [ -n "$(env_get ANTHROPIC_MODEL)" ]; then
                   env_set LLM_FALLBACK_PROVIDERS anthropic
+                fi
+                # The old 5s/15s reserve deadlines were shorter than a FreeLLMAPI answer takes, so
+                # the reserve always timed out. Raise them unless the operator chose other values.
+                per_provider="$(env_get DEUS_CHAT_PROVIDER_TIMEOUT_SECONDS)"
+                if [ -z "$per_provider" ] || [ "$per_provider" = "5" ] || [ "$per_provider" = "5.0" ]; then
+                  env_set DEUS_CHAT_PROVIDER_TIMEOUT_SECONDS 12
+                fi
+                total="$(env_get DEUS_CHAT_TOTAL_TIMEOUT_SECONDS)"
+                if [ -z "$total" ] || [ "$total" = "15" ] || [ "$total" = "15.0" ]; then
+                  env_set DEUS_CHAT_TOTAL_TIMEOUT_SECONDS 25
                 fi
               '
               # Preserve every optional runtime profile already enabled on this host.
@@ -450,7 +466,15 @@ jobs:
               sudo "${COMPOSE[@]}" build api worker
               # ChatGPT plan first. FreeLLMAPI answers only when the plan cannot, and every such reply
               # names the provider that answered and why: a disclosed, never silent, switch.
-              FALLBACK_PROVIDERS=freellmapi sudo -E ./deploy/oracle/set-inference.sh chatgpt gpt-6.1-sol
+              # Anthropic joins the reserve only when it is configured: set-inference.sh refuses a
+              # reserve without its key and model.
+              reserves="$(sudo bash -c 'source ./deploy/oracle/env-file.sh
+                if [ -n "$(env_get ANTHROPIC_API_KEY)" ] && [ -n "$(env_get ANTHROPIC_MODEL)" ]; then
+                  echo freellmapi,anthropic
+                else
+                  echo freellmapi
+                fi')"
+              FALLBACK_PROVIDERS="$reserves" sudo -E ./deploy/oracle/set-inference.sh chatgpt gpt-6.1-sol
               sudo ./deploy/oracle/check-inference.sh
               ;;
             set-inference-freellmapi)

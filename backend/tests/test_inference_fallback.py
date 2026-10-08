@@ -354,3 +354,42 @@ async def test_when_chatgpt_and_its_reserve_both_fail_the_chatgpt_reason_is_kept
 
     assert raised.value.provider == "freellmapi"
     assert raised.value.first_failure is chatgpt_failure
+
+
+@pytest.mark.asyncio
+async def test_an_excluded_provider_is_never_called_even_when_requested() -> None:
+    plan = StubProvider("chatgpt")
+    reserve = StubProvider("freellmapi")
+    registry = ProviderRegistry()
+    for provider, model in ((plan, "gpt-plan"), (reserve, "auto")):
+        registry.register(provider)
+        registry.register_model_profile(ProviderModelProfile(provider=provider.name, model=model, is_default=True))
+    router = ModelRouter(registry, fallback_providers=["freellmapi"], excluded_providers=["chatgpt"])
+
+    response = await router.generate(_plan_request())
+
+    assert response.provider == "freellmapi"
+    assert plan.requests == []
+    assert "fallback_from" not in response.metadata
+
+
+def test_background_routers_keep_off_the_chatgpt_plan(monkeypatch) -> None:
+    from app.inference import bootstrap
+
+    def register(registry: ProviderRegistry, name: str) -> None:
+        registry.register(StubProvider(name))
+        registry.register_model_profile(ProviderModelProfile(provider=name, model="m", is_default=True))
+
+    monkeypatch.setattr(bootstrap, "_register_provider", register)
+    monkeypatch.setattr(bootstrap, "build_cache_orchestrator", lambda: None)
+    monkeypatch.setattr(settings, "llm_provider", "chatgpt")
+    monkeypatch.setattr(settings, "llm_fallback_providers", "freellmapi")
+    monkeypatch.setattr(settings, "chatgpt_fallback_enabled", True)
+
+    assert bootstrap.build_model_router(background=True)._excluded_providers == {"chatgpt"}
+    # DEUS conversations still use the plan first.
+    assert bootstrap.build_model_router()._excluded_providers == frozenset()
+
+    # With no other provider configured, background work keeps the only one there is.
+    monkeypatch.setattr(settings, "llm_fallback_providers", "")
+    assert bootstrap.build_model_router(background=True)._excluded_providers == frozenset()

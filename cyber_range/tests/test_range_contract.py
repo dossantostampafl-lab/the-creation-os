@@ -194,3 +194,10 @@ def test_compose_bridge_names_match_the_host_containment_firewall() -> None:
     }
     for network_name, bridge_name in expected.items():
         assert networks[network_name]["driver_opts"]["com.docker.network.bridge.name"] == bridge_name
+
+
+def test_every_range_service_comes_back_after_a_host_reboot() -> None:
+    """A VM reboot left the whole lab down and the API answering 503 until someone restarted it."""
+    services = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))["services"]
+    for name, service in services.items():
+        assert service.get("restart") == "unless-stopped", name

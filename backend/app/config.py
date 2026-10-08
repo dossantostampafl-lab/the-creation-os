@@ -97,10 +97,11 @@ class Settings(BaseSettings):
     deus_diagnostics_projection_max_lag: int = Field(100, ge=0, env="DEUS_DIAGNOSTICS_PROJECTION_MAX_LAG")
     trinity_enabled: bool = Field(True, env="TRINITY_ENABLED")
     trinity_min_confidence: float = Field(0.7, ge=0.0, le=1.0, env="TRINITY_MIN_CONFIDENCE")
+    # A FreeLLMAPI answer routinely takes longer than 5s; a shorter budget made the reserve useless.
     deus_chat_provider_timeout_seconds: float = Field(
-        5.0,
+        12.0,
         gt=0.0,
-        le=10.0,
+        le=20.0,
         env="DEUS_CHAT_PROVIDER_TIMEOUT_SECONDS",
     )
     # A ChatGPT-plan turn only counts once response.completed arrives, which takes longer than
@@ -112,9 +113,9 @@ class Settings(BaseSettings):
         env="DEUS_CHAT_CHATGPT_TIMEOUT_SECONDS",
     )
     deus_chat_total_timeout_seconds: float = Field(
-        15.0,
+        25.0,
         gt=0.0,
-        le=30.0,
+        le=45.0,
         env="DEUS_CHAT_TOTAL_TIMEOUT_SECONDS",
     )
     workspace_root: str = Field("/var/lib/creation/workspaces", env="WORKSPACE_ROOT")
@@ -278,11 +279,11 @@ class Settings(BaseSettings):
 
     @validator("deus_chat_total_timeout_seconds")
     def validate_deus_chat_deadlines(cls, value: float, values: dict[str, object]) -> float:
-        raw_per_provider = values.get("deus_chat_provider_timeout_seconds", 5.0)
+        raw_per_provider = values.get("deus_chat_provider_timeout_seconds", 12.0)
         per_provider = (
             float(raw_per_provider)
             if isinstance(raw_per_provider, (int, float, str))
-            else 5.0
+            else 12.0
         )
         if value <= per_provider:
             raise ValueError(

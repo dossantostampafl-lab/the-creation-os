@@ -76,7 +76,7 @@ def deus_probe_matches(answer: str, expected: tuple[str, ...] | str | None) -> b
     return True
 
 
-with httpx.Client(base_url=BASE, timeout=45) as client:
+with httpx.Client(base_url=BASE, timeout=60) as client:
     print("== Signing in ==")
     credentials = {
         "username": os.getenv("CREATOR_BOOTSTRAP_USERNAME", ""),

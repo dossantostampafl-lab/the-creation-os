@@ -134,12 +134,16 @@ def _register_provider(registry: ProviderRegistry, provider: str) -> None:
         raise RuntimeError(f"unsupported LLM_PROVIDER: {provider or '<empty>'}")
 
 
-def build_model_router() -> ModelRouter:
+def build_model_router(*, background: bool = False) -> ModelRouter:
     """Every request is served by the configured provider; the chain's fallbacks only when it fails.
 
     The primary must be fully configured or there is nothing to serve with. A reserve that is missing its
     key or model is skipped (and logged) instead: a half-configured reserve must not take down a primary
     that works, which is exactly when the reserve is not needed.
+
+    background=True is for work nobody is waiting on (agent missions, opportunity competition): it
+    never calls the ChatGPT plan while another provider is configured, so the Creator's plan quota
+    stays for DEUS conversations.
     """
     registry = ProviderRegistry()
     chain = settings.inference_provider_chain
@@ -162,4 +166,5 @@ def build_model_router() -> ModelRouter:
         disclosed_fallback_after=(
             ("chatgpt",) if settings.chatgpt_fallback_enabled and reserves else ()
         ),
+        excluded_providers=("chatgpt",) if background and chain[0] == "chatgpt" and reserves else (),
     )
